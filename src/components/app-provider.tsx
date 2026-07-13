@@ -79,7 +79,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         appearance={appearance}
         customTheme={{ neutralColor: "slate", primaryColor: "blue" }}
         enableCustomFonts={false}
-        enableGlobalStyle={false}
+        enableGlobalStyle
       >
         {children}
       </ThemeProvider>
