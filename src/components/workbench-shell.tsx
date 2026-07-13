@@ -6,10 +6,10 @@ import {
   Bot,
   Boxes,
   ChevronsUpDown,
-  Clock3,
   FileSearch,
   FolderKanban,
   History,
+  ListTodo,
   Menu,
   MessageSquareText,
   MoreHorizontal,
@@ -173,8 +173,8 @@ export function WorkbenchShell() {
             <Tag color="blue" variant="filled">
               工作台预览
             </Tag>
-            <ActionIcon icon={Clock3} title="任务记录" />
-            <ActionIcon icon={MoreHorizontal} title="更多操作" />
+            <ActionIcon icon={ListTodo} size="small" title="任务记录" />
+            <ActionIcon icon={MoreHorizontal} size="small" title="更多操作" />
           </div>
         </header>
 
