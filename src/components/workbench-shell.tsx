@@ -12,6 +12,7 @@ import {
   ListTodo,
   Menu,
   MessageSquareText,
+  Moon,
   MoreHorizontal,
   Paperclip,
   PenLine,
@@ -19,9 +20,11 @@ import {
   Search,
   Settings2,
   Sparkles,
+  Sun,
   WandSparkles,
 } from "lucide-react";
 import { useState } from "react";
+import { useThemeMode } from "./app-provider";
 import styles from "./workbench-shell.module.css";
 
 const conversations = [
@@ -54,6 +57,7 @@ const suggestions = [
 ];
 
 export function WorkbenchShell() {
+  const { appearance, toggleAppearance } = useThemeMode();
   const [input, setInput] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -62,7 +66,7 @@ export function WorkbenchShell() {
   };
 
   return (
-    <main className={styles.shell}>
+    <main className={styles.shell} data-theme={appearance}>
       <aside className={`${styles.sidebar} ${sidebarOpen ? styles.sidebarOpen : ""}`}>
         <div className={styles.brandRow}>
           <div className={styles.brandMark}>
@@ -132,7 +136,11 @@ export function WorkbenchShell() {
             设置
           </button>
           <button className={styles.profile} type="button">
-            <Avatar avatar="林" background="#e8f1ff" size={34} />
+            <Avatar
+              avatar="林"
+              background={appearance === "dark" ? "#25324a" : "#e8f1ff"}
+              size={34}
+            />
             <span>
               <strong>林析</strong>
               <small>个人空间</small>
@@ -173,8 +181,26 @@ export function WorkbenchShell() {
             <Tag color="blue" variant="filled">
               工作台预览
             </Tag>
-            <ActionIcon icon={ListTodo} size="small" title="任务记录" />
-            <ActionIcon icon={MoreHorizontal} size="small" title="更多操作" />
+            <ActionIcon
+              aria-label={appearance === "dark" ? "切换到浅色模式" : "切换到深色模式"}
+              icon={appearance === "dark" ? Sun : Moon}
+              onClick={toggleAppearance}
+              size="small"
+              title={appearance === "dark" ? "切换到浅色模式" : "切换到深色模式"}
+            />
+            <ActionIcon
+              aria-label="任务记录"
+              className={styles.taskAction}
+              icon={ListTodo}
+              size="small"
+              title="任务记录"
+            />
+            <ActionIcon
+              aria-label="更多操作"
+              icon={MoreHorizontal}
+              size="small"
+              title="更多操作"
+            />
           </div>
         </header>
 
