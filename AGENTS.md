@@ -1,27 +1,13 @@
-# Lingxi Workbench Web
+<!-- BEGIN:nextjs-agent-rules -->
+# This is NOT the Next.js you know
 
-## Project map
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+<!-- END:nextjs-agent-rules -->
 
-- `src/pages`: 用户端路由页面。
-- `src/components`: 通用和聊天组件。
-- `src/composables`: 会话、消息、认证和模型状态。
-- `src/utils`: 纯前端工具。
-- `server`: 上游 Nitro 基线，将逐步替换为灵析后端 API。
-- `shared`: 当前前后共享类型与工具。
+## Project conventions
 
-## Commands
-
-```bash
-pnpm install --frozen-lockfile
-pnpm lint
-pnpm typecheck
-pnpm build
-```
-
-## Invariants
-
-1. 用户端不承载平台管理功能。
-2. 浏览器不持有模型供应商 API Key，不直连模型。
-3. Sa-Token 服务端鉴权是安全边界，前端路由守卫不是授权依据。
-4. 会话、消息和 Run 事实以后端为准，前端只管理交互状态。
-5. 保留 Nuxt UI Chat Vue LICENSE 和 UPSTREAM 记录。
+- This repository is the Lingxi Workbench user-facing application; admin features belong in `lingxi-workbench-admin`.
+- Use React 19, TypeScript, Next.js App Router, and LobeUI. Prefer LobeUI components and tokens before introducing another component library.
+- Keep model-provider secrets and Sa-Token authentication decisions on the backend. Browser code must only call the Lingxi backend.
+- Add feature-oriented layers only when real business logic needs them. Avoid speculative abstractions.
+- Before committing, run `pnpm lint` and `pnpm build`.

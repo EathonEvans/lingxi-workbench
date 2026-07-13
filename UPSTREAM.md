@@ -1,9 +1,7 @@
-# Nuxt UI Chat Vue upstream
+# Upstream Baseline
 
-- Repository: https://github.com/nuxt-ui-templates/chat-vue
-- Baseline commit: `1d94e2cdd764ff590aa6e24639234e49073edadc`
-- Baseline date: 2026-07-13
-- License: MIT
+- Scaffold: `create-next-app@16.2.10`
+- UI dependency: `@lobehub/ui@5.20.2`
+- Initialized: 2026-07-13
 
-上游同步必须使用独立分支，先评估 UI、数据库、认证、Nitro 路由、AI SDK 和锁文件变更，
-不直接覆盖灵析的认证、API 和业务实现。
+The project is an independent Lingxi Workbench frontend. It uses LobeUI as a dependency under the MIT License; it is not a fork of the full LobeHub application.

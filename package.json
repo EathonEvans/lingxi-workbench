@@ -1,56 +1,35 @@
 {
   "name": "lingxi-workbench-web",
+  "version": "0.1.0",
   "private": true,
-  "type": "module",
+  "packageManager": "pnpm@10.11.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
-    "dev": "vite",
-    "build": "pnpm run db:migrate && vite build",
-    "preview": "vite preview",
-    "lint": "eslint src",
-    "typecheck": "vue-tsc -p ./tsconfig.app.json",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^4.0.4",
-    "@ai-sdk/google": "^4.0.3",
-    "@ai-sdk/openai": "^4.0.4",
-    "@ai-sdk/vue": "^4.0.9",
-    "@comark/vue": "^0.4.0",
-    "@iconify/vue": "^5.0.1",
-    "@libsql/client": "^0.17.4",
-    "@nuxt/ui": "^4.9.0",
-    "@shikijs/langs": "^4.3.0",
-    "@unhead/vue": "^2.1.15",
-    "@unovis/vue": "^1.6.6",
-    "@vueuse/core": "^14.3.0",
-    "ai": "^7.0.9",
-    "date-fns": "^4.4.0",
-    "defu": "^6.1.7",
-    "drizzle-orm": "^0.45.2",
-    "nitro": "^3.0.260311-beta",
-    "ofetch": "^1.5.1",
-    "shiki": "^4.3.0",
-    "tailwindcss": "^4.3.1",
-    "ufo": "^1.6.4",
-    "vue": "^3.5.39",
-    "vue-chrts": "^2.1.4",
-    "vue-router": "^5.1.0",
-    "zod": "^4.4.3"
+    "@lobehub/fluent-emoji": "^4.1.0",
+    "@lobehub/icons": "^5.11.0",
+    "@lobehub/ui": "5.20.2",
+    "antd": "^6.5.1",
+    "antd-style": "^4.1.0",
+    "lucide-react": "^0.544.0",
+    "motion": "^12.42.2",
+    "next": "16.2.10",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
   },
   "devDependencies": {
-    "@octokit/types": "^16.0.0",
-    "@types/node": "^24.13.2",
-    "@vitejs/plugin-vue": "^6.0.7",
-    "drizzle-kit": "^0.31.10",
-    "eslint": "^10.6.0",
-    "eslint-plugin-vue": "^10.9.2",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.62.0",
-    "vite": "^7.3.6",
-    "vite-plugin-vue-devtools": "^8.1.5",
-    "vite-plugin-vue-layouts": "^0.11.0",
-    "vue-tsc": "^3.3.5"
-  },
-  "packageManager": "pnpm@11.9.0"
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.10",
+    "typescript": "^5"
+  }
 }

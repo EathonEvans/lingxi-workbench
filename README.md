@@ -1,47 +1,57 @@
 # Lingxi Workbench Web
 
-灵析 AiWorkbench 最终用户端，基于 [Nuxt UI Chat Vue](https://github.com/nuxt-ui-templates/chat-vue)
-的 MIT 开源版二次开发。面向使用 AI 应用的普通用户，不提供模型、Prompt、Knowledge、
-Agent 和 Workflow 等平台管理能力。
+灵析 AI Workbench 用户端。面向企业用户提供 AI 对话、智能体使用、知识库检索与任务协作能力。
 
-## Stack
+> 本仓库只承载用户端，不包含运营管理功能。管理端位于 `lingxi-workbench-admin`，服务端位于 `lingxi-workbench-server`。
 
-- Vue 3 + TypeScript
-- Vite
-- Nuxt UI
-- Vue Router
-- AI SDK Vue
-- Nitro（上游基线暂时保留）
+## 技术栈
 
-## Scope
+- [Next.js](https://nextjs.org/) 16（App Router）
+- React 19 + TypeScript
+- [LobeUI](https://github.com/lobehub/lobe-ui) 组件库
+- Ant Design 6 + antd-style
+- pnpm
 
-- AI 应用入口和会话列表。
-- 流式回答、思考过程、Markdown 和代码展示。
-- 文件上传、Tool Calling 结果和多模态消息。
-- 最终用户会话历史、个人设置与移动端适配。
+本项目使用 LobeUI 作为设计系统与 AI 交互组件底座，没有复制 LobeHub 完整应用源码，也不在浏览器中直连模型供应商。认证、模型调用、知识库与业务数据统一经由灵析后端服务。
 
-用户、会话、消息、文件和 Agent Run 的事实数据将由 `lingxi-workbench-server` 管理。
-上游自带的 GitHub OAuth、SQLite/Drizzle、Vercel AI Gateway 和 Nitro 业务路由作为当前可运行基线暂时保留，
-后续按功能迭代逐步替换为 Spring Boot + Sa-Token + HTTP/SSE 接口。
+## 本地开发
 
-## Commands
+环境要求：Node.js 22+、pnpm 10+。
 
 ```bash
-pnpm install --frozen-lockfile
+cp .env.example .env.local
+pnpm install
 pnpm dev
-pnpm lint
-pnpm typecheck
-pnpm build
 ```
 
-## Project boundary
+默认访问地址：<http://localhost:3000>。
 
-- 后端仓库：`EathonEvans/lingxi-workbench-server`
-- 管理端仓库：`EathonEvans/lingxi-workbench-admin`
-- 后端是认证、权限、会话、模型调用和 Agent Run 的安全边界。
-- 浏览器不存储模型供应商 API Key，不直接调用模型供应商。
+## 常用命令
 
-## Upstream
+```bash
+pnpm dev       # 启动开发服务器
+pnpm lint      # ESLint 静态检查
+pnpm build     # 生产构建与类型检查
+pnpm start     # 启动生产服务器
+```
 
-当前基线来自 Nuxt UI Chat Vue commit `1d94e2cdd764ff590aa6e24639234e49073edadc`。
-上游版权和 MIT License 见 [LICENSE](LICENSE)，同步策略见 [UPSTREAM.md](UPSTREAM.md)。
+## 目录结构
+
+```text
+src/
+├── app/                 # Next.js 路由、页面与全局样式
+└── components/          # 用户端界面与跨页面组件
+```
+
+后续按业务增长增加 `features/`、`services/`、`stores/` 等目录；在出现真实复用和复杂度之前不提前分层。
+
+## 接口边界
+
+- 前端只保存后端签发的会话状态，不持有模型厂商密钥。
+- API 根地址通过 `NEXT_PUBLIC_API_BASE_URL` 配置。
+- Sa-Token 认证由后端负责，前端通过同源 Cookie 或受控请求头接入。
+- 接口契约以服务端 OpenAPI 为准，接入后再生成类型安全客户端。
+
+## 开源说明
+
+项目自身采用 MIT License。第三方依赖仍遵循各自许可证，详见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
