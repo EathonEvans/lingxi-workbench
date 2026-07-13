@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: lingxi-workbench-server
+  datasource:
+    url: ${LINGXI_DB_URL:jdbc:postgresql://localhost:5432/lingxi}
+    username: ${LINGXI_DB_USERNAME:lingxi}
+    password: ${LINGXI_DB_PASSWORD:lingxi}
+  data:
+    redis:
+      host: ${LINGXI_REDIS_HOST:localhost}
+      port: ${LINGXI_REDIS_PORT:6379}
+      password: ${LINGXI_REDIS_PASSWORD:}
+  flyway:
+    locations: classpath:db/migration
+
+server:
+  port: ${LINGXI_SERVER_PORT:8080}
+
+sa-token:
+  token-name: Authorization
+  timeout: 7200
+  active-timeout: 1800
+  is-concurrent: true
+  is-share: false
+  token-style: simple-uuid
+  is-log: false
+  is-print: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
