@@ -1,5 +1,7 @@
 package com.lingxi.workbench.framework.auth.logic;
 
+import com.lingxi.workbench.framework.auth.StpLogicDefinition;
+import com.lingxi.workbench.framework.auth.config.SaTokenExtendConfig;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -9,21 +11,20 @@ class StpLogicDefinitionTest {
 
     @Test
     void shouldUseStableLoginType() {
-        TestStpLogic logic = new TestStpLogic("user");
+        StpLogicDefinition logic = createStpLogic("user");
 
         assertEquals("user", logic.getLoginType());
     }
 
     @Test
     void shouldRejectBlankLoginType() {
-        assertThrows(IllegalArgumentException.class, () -> new TestStpLogic(null));
-        assertThrows(IllegalArgumentException.class, () -> new TestStpLogic(" "));
+        assertThrows(IllegalArgumentException.class, () -> createStpLogic(null));
+        assertThrows(IllegalArgumentException.class, () -> createStpLogic(" "));
     }
 
-    private static final class TestStpLogic extends StpLogicDefinition {
-
-        private TestStpLogic(String loginType) {
-            super(loginType);
-        }
+    private static StpLogicDefinition createStpLogic(String loginType) {
+        SaTokenExtendConfig config = new SaTokenExtendConfig();
+        config.setLoginType(loginType);
+        return new StpLogicDefinition(config);
     }
 }

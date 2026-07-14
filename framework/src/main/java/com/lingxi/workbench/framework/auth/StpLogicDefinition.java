@@ -1,20 +1,23 @@
-package com.lingxi.workbench.framework.auth.logic;
+package com.lingxi.workbench.framework.auth;
 
 import cn.dev33.satoken.stp.SaTokenInfo;
 import cn.dev33.satoken.stp.StpLogic;
+import cn.hutool.core.text.CharSequenceUtil;
+import com.lingxi.workbench.framework.auth.config.SaTokenExtendConfig;
+import org.springframework.stereotype.Component;
 
 /**
- *  sa令牌帐户领域的通用外观。
- *  <p>每个具体的帐户域必须提供稳定的登录类型。
- *  Sa-token使用登录类型作为其会话名称空间的一部分，
- *  因此它不能从可能在重构期间更改的Java枚举名称派生
+ * Sa-Token 认证操作的统一入口。
+ * <p>每个启动服务通过配置独立的 loginType，实现管理端与用户端会话隔离。</p>
  */
-public abstract class StpLogicDefinition {
+@Component
+public class StpLogicDefinition {
 
     private final StpLogic stpLogic;
 
-    protected StpLogicDefinition(String loginType) {
-        if (loginType == null || loginType.isBlank()) {
+    public StpLogicDefinition(SaTokenExtendConfig saTokenExtendConfig) {
+        String loginType = saTokenExtendConfig.getLoginType();
+        if (CharSequenceUtil.isBlankOrUndefined(loginType)) {
             throw new IllegalArgumentException("loginType must not be blank");
         }
         this.stpLogic = new StpLogic(loginType);
