@@ -4,9 +4,9 @@
 
 - `framework`: 共享工程能力，不依赖业务模块。
 - `infra-ai`: AI Port 与供应商适配，只依赖 `framework`。
-- `bootstrap`: 主应用和业务领域，依赖 `framework`、`infra-ai`。
-- `mcp-server`: 独立 MCP 应用，不依赖 `bootstrap`。
-- `contracts`: OpenAPI、Workflow、Run Event 与 Tool Schema 的权威源。
+- `admin`: 独立管理端服务，承载管理员认证和管理能力，只依赖 `framework`。
+- `application`: 独立用户端服务和工作台业务，依赖 `framework`、`infra-ai`。
+- `mcp-server`: 独立 MCP 协议服务，不依赖 `admin` 或 `application`。
 
 ## Commands
 
@@ -31,6 +31,6 @@
 ## Definition of done
 
 - 编译、单元测试和架构测试通过。
-- API/Schema 变更同步契约并检查兼容性。
+- API 变更包含相应测试并检查兼容性。
 - 数据变更使用新 Flyway migration。
 - 新运行路径包含 traceId、runId 和可操作错误码。

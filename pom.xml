@@ -27,12 +27,14 @@
         <mapstruct.version>1.6.3</mapstruct.version>
         <maven.compiler.parameters>true</maven.compiler.parameters>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <hutool.version>5.8.38</hutool.version>
     </properties>
 
     <modules>
         <module>framework</module>
         <module>infra-ai</module>
-        <module>bootstrap</module>
+        <module>admin</module>
+        <module>application</module>
         <module>mcp-server</module>
     </modules>
 
@@ -65,8 +67,19 @@
                 <artifactId>mapstruct</artifactId>
                 <version>${mapstruct.version}</version>
             </dependency>
+            <dependency>
+                <groupId>cn.hutool</groupId>
+                <artifactId>hutool-core</artifactId>
+                <version>${hutool.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
+    </dependencies>
 
     <build>
         <pluginManagement>

@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: lingxi-workbench-admin
+  datasource:
+    url: ${LINGXI_ADMIN_DB_URL:${LINGXI_DB_URL:jdbc:postgresql://localhost:5432/lingxi}}
+    username: ${LINGXI_ADMIN_DB_USERNAME:${LINGXI_DB_USERNAME:lingxi}}
+    password: ${LINGXI_ADMIN_DB_PASSWORD:${LINGXI_DB_PASSWORD:lingxi}}
+  data:
+    redis:
+      host: ${LINGXI_REDIS_HOST:localhost}
+      port: ${LINGXI_REDIS_PORT:6379}
+      password: ${LINGXI_REDIS_PASSWORD:}
+
+server:
+  port: ${LINGXI_ADMIN_PORT:8081}
+
+sa-token:
+  token-name: Authorization
+  timeout: 7200
+  active-timeout: 1800
+  is-concurrent: false
+  is-share: false
+  token-style: simple-uuid
+  is-log: false
+  is-print: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
