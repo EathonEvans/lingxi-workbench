@@ -82,7 +82,8 @@ export async function streamChat({
     response = await fetch(`${API_BASE_URL}/v1/ai/chat/stream`, {
       body: JSON.stringify({ prompt }),
       headers: {
-        Accept: "text/event-stream",
+        // 流式成功响应使用 SSE，进入流之前的参数与认证错误仍使用统一 JSON 响应体。
+        Accept: "text/event-stream, application/json",
         "Content-Type": "application/json",
         [session.tokenName]: session.tokenValue,
       },
