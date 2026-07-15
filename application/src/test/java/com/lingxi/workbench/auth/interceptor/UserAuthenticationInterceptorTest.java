@@ -7,6 +7,7 @@ import com.lingxi.workbench.auth.model.bo.UserBO;
 import com.lingxi.workbench.auth.repo.UserRepo;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
 import com.lingxi.workbench.framework.context.LoginUser;
+import jakarta.servlet.DispatcherType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,6 +21,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -55,6 +57,36 @@ class UserAuthenticationInterceptorTest {
         assertEquals("alice", loginUser.username());
 
         interceptor.afterCompletion(request, response, handler, null);
+        assertThrows(IllegalStateException.class, UserContext::get);
+    }
+
+    @Test
+    void shouldSkipAuthenticationDuringAsyncDispatch() throws Exception {
+        UserAuthenticationInterceptor interceptor = new UserAuthenticationInterceptor(
+                stpLogicDefinition,
+                userRepo
+        );
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setDispatcherType(DispatcherType.ASYNC);
+
+        assertTrue(interceptor.preHandle(request, new MockHttpServletResponse(), new Object()));
+        verifyNoInteractions(stpLogicDefinition, userRepo);
+    }
+
+    @Test
+    void shouldClearUserContextWhenRequestStartsAsyncProcessing() {
+        UserAuthenticationInterceptor interceptor = new UserAuthenticationInterceptor(
+                stpLogicDefinition,
+                userRepo
+        );
+        UserContext.set(new LoginUser(1L, "alice", "Alice", null));
+
+        interceptor.afterConcurrentHandlingStarted(
+                new MockHttpServletRequest(),
+                new MockHttpServletResponse(),
+                new Object()
+        );
+
         assertThrows(IllegalStateException.class, UserContext::get);
     }
 
