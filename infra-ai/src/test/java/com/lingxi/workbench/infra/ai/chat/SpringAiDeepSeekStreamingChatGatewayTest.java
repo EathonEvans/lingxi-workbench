@@ -5,7 +5,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.deepseek.DeepSeekChatModel;
+import org.springframework.ai.openai.OpenAiChatModel;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
@@ -20,7 +20,7 @@ class SpringAiDeepSeekStreamingChatGatewayTest {
 
     @Test
     void shouldConvertSpringAiResponsesToNonEmptyChunks() {
-        DeepSeekChatModel chatModel = mock(DeepSeekChatModel.class);
+        OpenAiChatModel chatModel = mock(OpenAiChatModel.class);
         when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
                 response("你"),
                 response(""),

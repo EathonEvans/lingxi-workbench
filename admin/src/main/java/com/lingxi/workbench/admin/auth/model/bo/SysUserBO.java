@@ -6,7 +6,7 @@ import java.time.OffsetDateTime;
 import java.util.Objects;
 
 /**
- * 管理员认证业务对象，隔离数据库实体与登录业务。
+ * 统一系统用户业务对象，隔离数据库实体与账号业务。
  */
 public record SysUserBO(
         Long id,
@@ -36,15 +36,7 @@ public record SysUserBO(
         return status == SysUserStatus.ACTIVE;
     }
 
-    /** 兼容认证场景仅需要账号基础资料的构造方式。 */
-    public SysUserBO(Long id,
-                          String username,
-                          String passwordHash,
-                          String displayName,
-                          String avatarUrl,
-                          Long departmentId,
-                          SysUserStatus status) {
-        this(id, username, passwordHash, displayName, avatarUrl, null, null, departmentId, status,
-                false, false, null, null);
+    public boolean canAccessAdmin() {
+        return Boolean.TRUE.equals(adminAccessEnabled);
     }
 }

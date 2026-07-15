@@ -7,6 +7,7 @@ import com.lingxi.workbench.admin.auth.model.bo.SysUserBO;
 import com.lingxi.workbench.admin.auth.repo.SysUserRepo;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
 import com.lingxi.workbench.framework.context.LoginUser;
+import com.lingxi.workbench.framework.exceptions.AuthException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,7 +40,7 @@ class SysAuthenticationInterceptorTest {
     @Test
     void shouldInitializeAndClearSysContext() throws Exception {
         when(stpLogicDefinition.getLoginIdAsLong()).thenReturn(1L);
-        when(sysUserRepo.findById(1L)).thenReturn(Optional.of(user()));
+        when(sysUserRepo.findById(1L)).thenReturn(Optional.of(user(true)));
         SysAuthenticationInterceptor interceptor = new SysAuthenticationInterceptor(
                 stpLogicDefinition,
                 sysUserRepo
@@ -58,15 +59,40 @@ class SysAuthenticationInterceptorTest {
         assertThrows(IllegalStateException.class, SysUserContext::get);
     }
 
-    private static SysUserBO user() {
+    @Test
+    void shouldRejectUserWithoutAdminAccess() {
+        when(stpLogicDefinition.getLoginIdAsLong()).thenReturn(1L);
+        when(sysUserRepo.findById(1L)).thenReturn(Optional.of(user(false)));
+        SysAuthenticationInterceptor interceptor = new SysAuthenticationInterceptor(
+                stpLogicDefinition,
+                sysUserRepo
+        );
+
+        assertThrows(
+                AuthException.class,
+                () -> interceptor.preHandle(
+                        new MockHttpServletRequest(),
+                        new MockHttpServletResponse(),
+                        new Object()
+                )
+        );
+    }
+
+    private static SysUserBO user(boolean adminAccessEnabled) {
         return new SysUserBO(
                 1L,
                 "admin",
                 "password-hash",
                 "系统管理员",
                 null,
+                null,
+                null,
                 1L,
-                SysUserStatus.ACTIVE
+                SysUserStatus.ACTIVE,
+                false,
+                adminAccessEnabled,
+                null,
+                null
         );
     }
 }

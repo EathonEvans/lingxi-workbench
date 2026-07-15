@@ -50,6 +50,9 @@ public class SysLoginServiceImpl implements SysLoginService {
         if (!user.isActive()) {
             throw AuthException.userDisabled("系统用户已停用");
         }
+        if (!user.canAccessAdmin()) {
+            throw AuthException.userDisabled("账号未开通管理端访问权限");
+        }
 
         SaTokenInfo tokenInfo = stpLogicDefinition.login(user.id());
         return new SysLoginVO(

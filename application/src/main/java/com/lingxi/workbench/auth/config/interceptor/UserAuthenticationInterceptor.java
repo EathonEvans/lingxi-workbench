@@ -9,6 +9,7 @@ import com.lingxi.workbench.framework.context.LoginUser;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.AsyncHandlerInterceptor;
 
@@ -16,15 +17,11 @@ import org.springframework.web.servlet.AsyncHandlerInterceptor;
  * 用户端接口登录校验与用户上下文初始化拦截器。
  */
 @Component
+@RequiredArgsConstructor
 public class UserAuthenticationInterceptor implements AsyncHandlerInterceptor {
 
     private final StpLogicDefinition stpLogicDefinition;
     private final UserRepo userRepo;
-
-    public UserAuthenticationInterceptor(StpLogicDefinition stpLogicDefinition, UserRepo userRepo) {
-        this.stpLogicDefinition = stpLogicDefinition;
-        this.userRepo = userRepo;
-    }
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {

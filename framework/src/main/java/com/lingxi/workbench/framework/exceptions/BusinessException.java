@@ -1,19 +1,21 @@
 package com.lingxi.workbench.framework.exceptions;
 
+import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
+
 /**
  * 可预期的业务异常基类。
  */
 public class BusinessException extends RuntimeException {
 
-    private final int httpStatus;
+    private final HttpStatusEnum httpStatus;
     private final int code;
 
-    public BusinessException(int httpStatus, int code, String message) {
+    public BusinessException(HttpStatusEnum httpStatus, int code, String message) {
         super(message);
-        if (httpStatus < 400 || httpStatus > 599) {
-            throw new IllegalArgumentException("HTTP 状态码必须在400到599之间");
+        if (httpStatus == null || httpStatus == HttpStatusEnum.OK) {
+            throw new IllegalArgumentException("业务异常必须使用失败状态");
         }
-        if (code < 400) {
+        if (code < HttpStatusEnum.BAD_REQUEST.value()) {
             throw new IllegalArgumentException("业务错误码必须大于等于400");
         }
         if (message == null || message.isBlank()) {
@@ -23,14 +25,11 @@ public class BusinessException extends RuntimeException {
         this.code = code;
     }
 
-
-    public BusinessException(String message) {
-        super(message);
-        this.httpStatus = 200;
-        this.code = 500;
+    public BusinessException(HttpStatusEnum httpStatus, String message) {
+        this(httpStatus, httpStatus.value(), message);
     }
 
-    public int getHttpStatus() {
+    public HttpStatusEnum getHttpStatus() {
         return httpStatus;
     }
 

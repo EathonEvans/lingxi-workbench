@@ -1,5 +1,7 @@
 package com.lingxi.workbench.admin.role.service.impl;
 
+import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
+
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.auth.service.SysUserService;
 import com.lingxi.workbench.admin.department.service.SysDepartmentService;
@@ -51,7 +53,7 @@ public class SysRoleServiceImpl implements SysRoleService {
     @Override
     public Set<Long> listUserRoleIds(Long userId) {
         if (!sysRoleRepo.userExists(userId)) {
-            throw new BusinessException(404, 404, "系统用户不存在");
+            throw new BusinessException(HttpStatusEnum.NOT_FOUND, "系统用户不存在");
         }
         return sysRoleRepo.findUserRoleIds(userId);
     }
@@ -72,7 +74,7 @@ public class SysRoleServiceImpl implements SysRoleService {
     @Transactional
     public SysRoleVO create(CreateRoleRequest request) {
         if (sysRoleRepo.existsByCode(request.code())) {
-            throw new BusinessException(409, 409, "角色编码已存在");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "角色编码已存在");
         }
         SysRoleEntity entity = sysRoleConverter.toEntity(request);
         entity.setName(request.name().trim());
@@ -89,7 +91,7 @@ public class SysRoleServiceImpl implements SysRoleService {
         if (Boolean.TRUE.equals(entity.getBuiltIn())
                 && (request.dataScope() != RoleDataScope.ALL
                 || request.status() != EnableStatus.ACTIVE)) {
-            throw new BusinessException(409, 409, "系统内置角色必须保持启用且拥有全部数据范围");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "系统内置角色必须保持启用且拥有全部数据范围");
         }
         sysRoleConverter.updateEntity(request, entity);
         entity.setName(request.name().trim());
@@ -109,10 +111,10 @@ public class SysRoleServiceImpl implements SysRoleService {
     public void delete(Long id) {
         SysRoleEntity entity = requireRole(id);
         if (Boolean.TRUE.equals(entity.getBuiltIn())) {
-            throw new BusinessException(409, 409, "系统内置角色不能删除");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "系统内置角色不能删除");
         }
         if (sysRoleRepo.countRoleUsers(id) > 0) {
-            throw new BusinessException(409, 409, "角色仍分配给管理员，不能删除");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "角色仍分配给管理员，不能删除");
         }
         // 数据库外键会级联删除角色菜单和角色部门关系。
         sysRoleRepo.delete(id);
@@ -122,10 +124,10 @@ public class SysRoleServiceImpl implements SysRoleService {
     @Transactional
     public void assignUserRoles(Long userId, Set<Long> roleIds) {
         if (!sysRoleRepo.userExists(userId)) {
-            throw new BusinessException(404, 404, "系统用户不存在");
+            throw new BusinessException(HttpStatusEnum.NOT_FOUND, "系统用户不存在");
         }
         if (!sysRoleRepo.existsAll(roleIds)) {
-            throw new BusinessException(400, 400, "待分配角色中存在无效角色");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "待分配角色中存在无效角色");
         }
 
         // 至少保留一个 ROOT 管理员，防止误操作后整个管理端永久失去授权入口。
@@ -135,7 +137,7 @@ public class SysRoleServiceImpl implements SysRoleService {
         boolean remainsRoot = rootRole != null && roleIds.contains(rootRole.getId());
         if (currentlyRoot && !remainsRoot
                 && sysRoleRepo.countOtherUsersByRoleCode(userId, ROOT_ROLE_CODE) == 0) {
-            throw new BusinessException(409, 409, "系统至少需要保留一个 ROOT 管理员");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "系统至少需要保留一个 ROOT 管理员");
         }
         sysRoleRepo.replaceUserRoles(userId, roleIds);
         sysUserService.recordRoleAssignment(userId, roleIds);
@@ -146,7 +148,7 @@ public class SysRoleServiceImpl implements SysRoleService {
     public void assignMenus(Long roleId, Set<Long> menuIds) {
         SysRoleEntity role = requireRole(roleId);
         if (ROOT_ROLE_CODE.equals(role.getCode())) {
-            throw new BusinessException(409, 409, "ROOT 角色自动拥有全部菜单，无需显式分配");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "ROOT 角色自动拥有全部菜单，无需显式分配");
         }
         sysMenuService.validateAssignmentHierarchy(menuIds);
         // 参数校验通过后按前端提交的完整集合全量覆盖，后端不擅自增删任何菜单主键。
@@ -158,17 +160,17 @@ public class SysRoleServiceImpl implements SysRoleService {
     public void assignDepartments(Long roleId, Set<Long> departmentIds) {
         SysRoleEntity role = requireRole(roleId);
         if (role.getDataScope() != RoleDataScope.CUSTOM) {
-            throw new BusinessException(400, 400, "只有自定义数据范围角色可以分配部门");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "只有自定义数据范围角色可以分配部门");
         }
         if (!sysDepartmentService.existsAll(departmentIds)) {
-            throw new BusinessException(400, 400, "待分配部门中存在无效部门");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "待分配部门中存在无效部门");
         }
         sysRoleRepo.replaceRoleDepartments(roleId, departmentIds);
     }
 
     private SysRoleEntity requireRole(Long id) {
         return sysRoleRepo.findById(id)
-                .orElseThrow(() -> new BusinessException(404, 404, "角色不存在"));
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "角色不存在"));
     }
 
     private static String normalizeNullable(String value) {

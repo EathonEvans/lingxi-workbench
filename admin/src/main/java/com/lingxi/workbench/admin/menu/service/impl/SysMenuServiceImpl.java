@@ -1,5 +1,7 @@
 package com.lingxi.workbench.admin.menu.service.impl;
 
+import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
+
 import com.lingxi.workbench.admin.menu.common.enums.MenuType;
 import com.lingxi.workbench.admin.menu.model.converter.SysMenuConverter;
 import com.lingxi.workbench.admin.menu.model.entity.SysMenuEntity;
@@ -57,13 +59,13 @@ public class SysMenuServiceImpl implements SysMenuService {
 
         List<SysMenuEntity> menus = sysMenuRepo.findByIds(menuIds);
         if (menus.size() != menuIds.size()) {
-            throw new BusinessException(400, 400, "待分配菜单中存在无效菜单");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "待分配菜单中存在无效菜单");
         }
 
         boolean hierarchyBroken = menus.stream()
                 .anyMatch(menu -> menu.getParentId() != null && !menuIds.contains(menu.getParentId()));
         if (hierarchyBroken) {
-            throw new BusinessException(400, 400, "菜单权限层级不完整，请同时提交已选节点的父级菜单");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "菜单权限层级不完整，请同时提交已选节点的父级菜单");
         }
     }
 
@@ -101,20 +103,20 @@ public class SysMenuServiceImpl implements SysMenuService {
     public void delete(Long id) {
         requireMenu(id);
         if (sysMenuRepo.existsChildren(id)) {
-            throw new BusinessException(409, 409, "请先删除当前菜单的子节点");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "请先删除当前菜单的子节点");
         }
         if (sysMenuRepo.countRoleReferences(id) > 0) {
-            throw new BusinessException(409, 409, "菜单已分配给角色，不能直接删除");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "菜单已分配给角色，不能直接删除");
         }
         sysMenuRepo.delete(id);
     }
 
     private void validateUnique(String code, String permissionCode, Long excludeId) {
         if (sysMenuRepo.existsByCode(code, excludeId)) {
-            throw new BusinessException(409, 409, "菜单编码已存在");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "菜单编码已存在");
         }
         if (sysMenuRepo.existsByPermissionCode(permissionCode, excludeId)) {
-            throw new BusinessException(409, 409, "权限编码已存在");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "权限编码已存在");
         }
     }
 
@@ -123,22 +125,22 @@ public class SysMenuServiceImpl implements SysMenuService {
             return;
         }
         if (parentId.equals(currentId)) {
-            throw new BusinessException(400, 400, "菜单不能将自己设置为父节点");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "菜单不能将自己设置为父节点");
         }
 
         SysMenuEntity parent = requireMenu(parentId);
         if (parent.getMenuType() == MenuType.BUTTON) {
-            throw new BusinessException(400, 400, "按钮节点不能作为父节点");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "按钮节点不能作为父节点");
         }
         if (parent.getMenuType() == MenuType.MENU && menuType != MenuType.BUTTON) {
-            throw new BusinessException(400, 400, "页面节点只能挂载按钮权限");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "页面节点只能挂载按钮权限");
         }
 
         Set<Long> visited = new HashSet<>();
         Long cursor = parentId;
         while (cursor != null) {
             if (!visited.add(cursor) || cursor.equals(currentId)) {
-                throw new BusinessException(400, 400, "菜单父子关系不能形成循环");
+                throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "菜单父子关系不能形成循环");
             }
             cursor = requireMenu(cursor).getParentId();
         }
@@ -147,20 +149,20 @@ public class SysMenuServiceImpl implements SysMenuService {
     private void validateMenuFields(MenuType menuType, Long parentId, String routePath,
                                     String permissionCode, Long currentId) {
         if (parentId == null && menuType != MenuType.DIRECTORY) {
-            throw new BusinessException(400, 400, "根节点只能是目录");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "根节点只能是目录");
         }
         if (menuType == MenuType.MENU && (routePath == null || routePath.isBlank())) {
-            throw new BusinessException(400, 400, "页面菜单必须配置路由地址");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "页面菜单必须配置路由地址");
         }
         if (menuType == MenuType.BUTTON) {
             if (parentId == null) {
-                throw new BusinessException(400, 400, "按钮节点必须归属于页面或目录");
+                throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "按钮节点必须归属于页面或目录");
             }
             if (permissionCode == null || permissionCode.isBlank()) {
-                throw new BusinessException(400, 400, "按钮节点必须配置权限编码");
+                throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "按钮节点必须配置权限编码");
             }
             if (currentId != null && sysMenuRepo.existsChildren(currentId)) {
-                throw new BusinessException(409, 409, "存在子节点的菜单不能修改为按钮");
+                throw new BusinessException(HttpStatusEnum.CONFLICT, "存在子节点的菜单不能修改为按钮");
             }
         }
     }
@@ -182,7 +184,7 @@ public class SysMenuServiceImpl implements SysMenuService {
 
     private SysMenuEntity requireMenu(Long id) {
         return sysMenuRepo.findById(id)
-                .orElseThrow(() -> new BusinessException(404, 404, "菜单不存在"));
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "菜单不存在"));
     }
 
     private List<SysMenuVO> buildTree(List<SysMenuEntity> entities, boolean onlyVisibleNavigation) {

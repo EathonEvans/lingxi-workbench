@@ -8,8 +8,8 @@ import com.lingxi.workbench.admin.auth.repo.mapper.SysUserMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
-import java.util.Optional;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 @RequiredArgsConstructor
@@ -19,12 +19,13 @@ public class SysUserRepo {
     private final SysUserConverter sysUserConverter;
 
     public Optional<SysUserBO> findByUsername(String normalizedUsername) {
-        SysUserEntity entity = sysUserMapper.selectOne(Wrappers.<SysUserEntity>lambdaQuery().eq(SysUserEntity::getUsername, normalizedUsername));
+        SysUserEntity entity = sysUserMapper.selectUserByUsernameWithAccess(normalizedUsername);
         return Optional.ofNullable(entity).map(sysUserConverter::toBO);
     }
 
     public Optional<SysUserBO> findById(Long id) {
-        return Optional.ofNullable(sysUserMapper.selectById(id)).map(sysUserConverter::toBO);
+        return Optional.ofNullable(sysUserMapper.selectUserByIdWithAccess(id))
+                .map(sysUserConverter::toBO);
     }
 
     /** 按创建顺序查询全部系统用户。 */

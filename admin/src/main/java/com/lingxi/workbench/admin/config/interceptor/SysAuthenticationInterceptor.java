@@ -19,16 +19,20 @@ import org.springframework.web.servlet.HandlerInterceptor;
 @RequiredArgsConstructor
 public class SysAuthenticationInterceptor implements HandlerInterceptor {
 
-    private final StpLogicDefinition sysStpLogic;
+    private final StpLogicDefinition stpLogicDefinition;
     private final SysUserRepo sysUserRepo;
 
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
-        sysStpLogic.checkLogin();
-        SysUserBO user = sysUserRepo.findById(sysStpLogic.getLoginIdAsLong()).orElseThrow(AuthException::userNotFound);
+        stpLogicDefinition.checkLogin();
+        SysUserBO user = sysUserRepo.findById(stpLogicDefinition.getLoginIdAsLong())
+                .orElseThrow(AuthException::userNotFound);
         if (!user.isActive()) {
             throw AuthException.userDisabled("系统用户已停用");
+        }
+        if (!user.canAccessAdmin()) {
+            throw AuthException.userDisabled("管理端访问权限已关闭");
         }
 
         SysUserContext.set(new LoginUser(user.id(), user.username(), user.displayName(), user.avatarUrl()));

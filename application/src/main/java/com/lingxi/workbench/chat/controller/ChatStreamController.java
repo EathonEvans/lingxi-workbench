@@ -33,7 +33,10 @@ public class ChatStreamController {
      * @param request 对话请求
      * @return SSE 事件流
      */
-    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE + ";charset=UTF-8")
+    @PostMapping(
+            value = "/stream",
+            produces = {MediaType.TEXT_EVENT_STREAM_VALUE, MediaType.APPLICATION_JSON_VALUE}
+    )
     public Flux<ServerSentEvent<?>> stream(@Valid @RequestBody StreamChatRequest request) {
         Flux<ServerSentEvent<?>> chunks = chatStreamService.stream(request)
                 .map(ChatStreamController::messageEvent);
