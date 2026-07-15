@@ -1,11 +1,11 @@
 "use client";
 
-import { ActionIcon, Avatar, Button, Tag } from "@lobehub/ui";
+import { ActionIcon, Avatar, Button, Markdown, Tag } from "@lobehub/ui";
 import { ChatInputArea } from "@lobehub/ui/chat";
 import {
+  ArrowUp,
   Bot,
   Boxes,
-  CircleStop,
   ChevronsUpDown,
   FileSearch,
   FolderKanban,
@@ -23,12 +23,14 @@ import {
   Search,
   Settings2,
   Sparkles,
+  Square,
   Sun,
   WandSparkles,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChatStreamError, streamChat } from "@/lib/chat";
+import { normalizeMarkdownTables } from "@/lib/markdown";
 import { useAuth } from "./auth-provider";
 import { useThemeMode } from "./app-provider";
 import styles from "./workbench-shell.module.css";
@@ -405,8 +407,25 @@ export function WorkbenchShell() {
                         aria-live={message.role === "assistant" ? "polite" : undefined}
                         className={styles.messageContent}
                       >
-                        {message.content ||
-                          (message.status === "streaming" ? (
+                        {message.content ? (
+                          message.role === "assistant" ? (
+                            <Markdown
+                              animated={message.status === "streaming"}
+                              componentProps={{ img: { preview: false } }}
+                              enableImageGallery={false}
+                              enableStream={message.status === "streaming"}
+                              fullFeaturedCodeBlock
+                              marginMultiple={0.5}
+                              streamAnimationGranularity="word"
+                              streamSmoothingPreset="realtime"
+                              variant="chat"
+                            >
+                              {normalizeMarkdownTables(message.content)}
+                            </Markdown>
+                          ) : (
+                            message.content
+                          )
+                        ) : message.status === "streaming" ? (
                             <span className={styles.thinking} aria-label="正在生成回答">
                               <i />
                               <i />
@@ -414,7 +433,7 @@ export function WorkbenchShell() {
                             </span>
                           ) : (
                             "暂未生成内容"
-                          ))}
+                          )}
                         {message.status === "streaming" && message.content && (
                           <span className={styles.streamCaret} aria-hidden="true" />
                         )}
@@ -434,7 +453,7 @@ export function WorkbenchShell() {
                     </div>
                   </article>
                 ))}
-                <div ref={messageEndRef} />
+                <div className={styles.messageEnd} ref={messageEndRef} />
               </div>
             </section>
           )}
@@ -453,14 +472,31 @@ export function WorkbenchShell() {
                   <ActionIcon icon={Paperclip} size="small" title="添加附件" />
                   <ActionIcon icon={Boxes} size="small" title="选择知识库" />
                 </div>
-                {streaming ? (
-                  <button className={styles.stopButton} onClick={stopStreaming} type="button">
-                    <CircleStop size={14} />
-                    停止生成
-                  </button>
-                ) : (
+                <div className={styles.composerActions}>
                   <span>Enter 发送 · Shift + Enter 换行</span>
-                )}
+                  {streaming ? (
+                    <button
+                      aria-label="停止生成"
+                      className={styles.stopButton}
+                      onClick={stopStreaming}
+                      title="停止生成"
+                      type="button"
+                    >
+                      <Square fill="currentColor" size={11} strokeWidth={2.4} />
+                    </button>
+                  ) : (
+                    <button
+                      aria-label="发送消息"
+                      className={styles.sendButton}
+                      disabled={!input.trim()}
+                      onClick={() => void sendPrompt(input)}
+                      title="发送消息"
+                      type="button"
+                    >
+                      <ArrowUp size={17} strokeWidth={2.5} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
             <p className={styles.disclaimer}>AI 生成内容仅供参考，重要信息请核实。</p>
