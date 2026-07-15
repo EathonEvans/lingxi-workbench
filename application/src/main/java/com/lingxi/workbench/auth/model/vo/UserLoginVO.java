@@ -11,7 +11,12 @@ public record UserLoginVO(
             Long id,
             String username,
             String displayName,
-            String avatarUrl
+            String avatarUrl,
+            String email,
+            String mobile
     ) {
+        public UserProfileVO(Long id, String username, String displayName, String avatarUrl) {
+            this(id, username, displayName, avatarUrl, null, null);
+        }
     }
 }

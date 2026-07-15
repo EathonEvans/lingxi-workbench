@@ -1,12 +1,12 @@
 package com.lingxi.workbench.auth.service.impl;
 
 import cn.dev33.satoken.stp.SaTokenInfo;
-import com.lingxi.workbench.auth.common.enums.UserAccountStatus;
-import com.lingxi.workbench.auth.model.bo.UserAccountBO;
-import com.lingxi.workbench.auth.model.converter.UserAccountConverter;
+import com.lingxi.workbench.auth.common.enums.UserStatus;
+import com.lingxi.workbench.auth.model.bo.UserBO;
+import com.lingxi.workbench.auth.model.converter.UserConverter;
 import com.lingxi.workbench.auth.model.request.UserLoginRequest;
 import com.lingxi.workbench.auth.model.vo.UserLoginVO;
-import com.lingxi.workbench.auth.repo.UserAccountRepo;
+import com.lingxi.workbench.auth.repo.UserRepo;
 import com.lingxi.workbench.framework.exceptions.AuthException;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
 import com.lingxi.workbench.framework.auth.password.PasswordHasher;
@@ -29,10 +29,10 @@ import static org.mockito.Mockito.when;
 class UserLoginServiceImplTest {
 
     @Mock
-    private UserAccountRepo userAccountRepo;
+    private UserRepo userRepo;
 
     @Mock
-    private UserAccountConverter userAccountConverter;
+    private UserConverter userConverter;
 
     @Mock
     private PasswordHasher passwordHasher;
@@ -48,8 +48,8 @@ class UserLoginServiceImplTest {
     @BeforeEach
     void setUp() {
         userLoginService = new UserLoginServiceImpl(
-                userAccountRepo,
-                userAccountConverter,
+                userRepo,
+                userConverter,
                 passwordHasher,
                 stpLogicDefinition
         );
@@ -57,15 +57,15 @@ class UserLoginServiceImplTest {
 
     @Test
     void shouldLoginActiveUserAndIssueSession() {
-        UserAccountBO account = account(UserAccountStatus.ACTIVE);
+        UserBO user = user(UserStatus.ACTIVE);
         UserLoginVO.UserProfileVO profile = new UserLoginVO.UserProfileVO(1L, "alice", "Alice", null);
-        when(userAccountRepo.findByUsername("alice")).thenReturn(Optional.of(account));
-        when(passwordHasher.matches("correct-password", account.passwordHash())).thenReturn(true);
+        when(userRepo.findByUsername("alice")).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("correct-password", user.passwordHash())).thenReturn(true);
         when(stpLogicDefinition.login(1L)).thenReturn(tokenInfo);
         when(tokenInfo.getTokenName()).thenReturn("Authorization");
         when(tokenInfo.getTokenValue()).thenReturn("user-token");
         when(tokenInfo.getTokenTimeout()).thenReturn(7200L);
-        when(userAccountConverter.toProfileVO(account)).thenReturn(profile);
+        when(userConverter.toProfileVO(user)).thenReturn(profile);
 
         UserLoginVO result = userLoginService.login(
                 new UserLoginRequest(" Alice ", "correct-password")
@@ -79,7 +79,7 @@ class UserLoginServiceImplTest {
 
     @Test
     void shouldHideWhetherUsernameExists() {
-        when(userAccountRepo.findByUsername("missing")).thenReturn(Optional.empty());
+        when(userRepo.findByUsername("missing")).thenReturn(Optional.empty());
 
         assertThrows(
                 AuthException.class,
@@ -92,9 +92,9 @@ class UserLoginServiceImplTest {
 
     @Test
     void shouldRejectInvalidPassword() {
-        UserAccountBO account = account(UserAccountStatus.ACTIVE);
-        when(userAccountRepo.findByUsername("alice")).thenReturn(Optional.of(account));
-        when(passwordHasher.matches("wrong-password", account.passwordHash())).thenReturn(false);
+        UserBO user = user(UserStatus.ACTIVE);
+        when(userRepo.findByUsername("alice")).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("wrong-password", user.passwordHash())).thenReturn(false);
 
         assertThrows(
                 AuthException.class,
@@ -105,10 +105,10 @@ class UserLoginServiceImplTest {
     }
 
     @Test
-    void shouldRejectDisabledAccountAfterPasswordVerification() {
-        UserAccountBO account = account(UserAccountStatus.DISABLED);
-        when(userAccountRepo.findByUsername("alice")).thenReturn(Optional.of(account));
-        when(passwordHasher.matches("correct-password", account.passwordHash())).thenReturn(true);
+    void shouldRejectDisabledUserAfterPasswordVerification() {
+        UserBO user = user(UserStatus.DISABLED);
+        when(userRepo.findByUsername("alice")).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("correct-password", user.passwordHash())).thenReturn(true);
 
         assertThrows(
                 AuthException.class,
@@ -118,8 +118,25 @@ class UserLoginServiceImplTest {
         verify(stpLogicDefinition, never()).login(org.mockito.ArgumentMatchers.anyLong());
     }
 
-    private static UserAccountBO account(UserAccountStatus status) {
-        return new UserAccountBO(
+    @Test
+    void shouldRejectUserWithoutApplicationAccess() {
+        UserBO user = new UserBO(
+                1L, "alice", "$2a$12$password-hash", "Alice", null,
+                null, null, UserStatus.ACTIVE, false
+        );
+        when(userRepo.findByUsername("alice")).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("correct-password", user.passwordHash())).thenReturn(true);
+
+        assertThrows(
+                AuthException.class,
+                () -> userLoginService.login(new UserLoginRequest("alice", "correct-password"))
+        );
+
+        verify(stpLogicDefinition, never()).login(org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    private static UserBO user(UserStatus status) {
+        return new UserBO(
                 1L,
                 "alice",
                 "$2a$12$password-hash",

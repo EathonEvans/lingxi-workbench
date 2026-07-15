@@ -3,8 +3,8 @@ package com.lingxi.workbench.framework.web;
 import com.alibaba.fastjson2.support.config.FastJsonConfig;
 import com.alibaba.fastjson2.support.spring6.http.converter.FastJsonHttpMessageConverter;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.converter.HttpMessageConverter;
-import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.http.MediaType;
+import org.springframework.http.converter.HttpMessageConverters;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.nio.charset.StandardCharsets;
@@ -20,19 +20,8 @@ import java.util.List;
 public class FastJsonConfiguration implements WebMvcConfigurer {
 
     @Override
-    public void extendMessageConverters(List<HttpMessageConverter<?>> converters) {
-        int jsonConverterIndex = findJsonConverterIndex(converters);
-        converters.removeIf(MappingJackson2HttpMessageConverter.class::isInstance);
-        converters.add(Math.min(jsonConverterIndex, converters.size()), createFastJsonConverter());
-    }
-
-    private static int findJsonConverterIndex(List<HttpMessageConverter<?>> converters) {
-        for (int index = 0; index < converters.size(); index++) {
-            if (converters.get(index) instanceof MappingJackson2HttpMessageConverter) {
-                return index;
-            }
-        }
-        return converters.size();
+    public void configureMessageConverters(HttpMessageConverters.ServerBuilder builder) {
+        builder.withJsonConverter(createFastJsonConverter());
     }
 
     private static FastJsonHttpMessageConverter createFastJsonConverter() {
@@ -42,6 +31,10 @@ public class FastJsonConfiguration implements WebMvcConfigurer {
 
         FastJsonHttpMessageConverter converter = new FastJsonHttpMessageConverter();
         converter.setFastJsonConfig(config);
+        converter.setSupportedMediaTypes(List.of(
+                MediaType.APPLICATION_JSON,
+                new MediaType("application", "*+json")
+        ));
         return converter;
     }
 }

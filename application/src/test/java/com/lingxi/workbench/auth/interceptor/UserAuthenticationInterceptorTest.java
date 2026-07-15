@@ -1,10 +1,10 @@
 package com.lingxi.workbench.auth.interceptor;
 
-import com.lingxi.workbench.auth.common.enums.UserAccountStatus;
+import com.lingxi.workbench.auth.common.enums.UserStatus;
 import com.lingxi.workbench.auth.config.interceptor.UserAuthenticationInterceptor;
 import com.lingxi.workbench.auth.context.UserContext;
-import com.lingxi.workbench.auth.model.bo.UserAccountBO;
-import com.lingxi.workbench.auth.repo.UserAccountRepo;
+import com.lingxi.workbench.auth.model.bo.UserBO;
+import com.lingxi.workbench.auth.repo.UserRepo;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
 import com.lingxi.workbench.framework.context.LoginUser;
 import org.junit.jupiter.api.AfterEach;
@@ -29,7 +29,7 @@ class UserAuthenticationInterceptorTest {
     private StpLogicDefinition stpLogicDefinition;
 
     @Mock
-    private UserAccountRepo userAccountRepo;
+    private UserRepo userRepo;
 
     @AfterEach
     void clearContext() {
@@ -39,10 +39,10 @@ class UserAuthenticationInterceptorTest {
     @Test
     void shouldInitializeAndClearUserContext() throws Exception {
         when(stpLogicDefinition.getLoginIdAsLong()).thenReturn(1L);
-        when(userAccountRepo.findById(1L)).thenReturn(Optional.of(account()));
+        when(userRepo.findById(1L)).thenReturn(Optional.of(user()));
         UserAuthenticationInterceptor interceptor = new UserAuthenticationInterceptor(
                 stpLogicDefinition,
-                userAccountRepo
+                userRepo
         );
 
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -58,14 +58,14 @@ class UserAuthenticationInterceptorTest {
         assertThrows(IllegalStateException.class, UserContext::get);
     }
 
-    private static UserAccountBO account() {
-        return new UserAccountBO(
+    private static UserBO user() {
+        return new UserBO(
                 1L,
                 "alice",
                 "password-hash",
                 "Alice",
                 null,
-                UserAccountStatus.ACTIVE
+                UserStatus.ACTIVE
         );
     }
 }

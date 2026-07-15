@@ -2,19 +2,19 @@ spring:
   application:
     name: lingxi-workbench-application
   datasource:
-    url: ${LINGXI_APPLICATION_DB_URL:${LINGXI_DB_URL:jdbc:postgresql://localhost:5432/lingxi}}
-    username: ${LINGXI_APPLICATION_DB_USERNAME:${LINGXI_DB_USERNAME:lingxi}}
-    password: ${LINGXI_APPLICATION_DB_PASSWORD:${LINGXI_DB_PASSWORD:lingxi}}
+    url: jdbc:postgresql://localhost:5432/lingxi_dev
+    username: postgres
+    password: postgres
   data:
     redis:
-      host: ${LINGXI_REDIS_HOST:localhost}
-      port: ${LINGXI_REDIS_PORT:6379}
-      password: ${LINGXI_REDIS_PASSWORD:}
+      host: localhost
+      port: 6379
+      password: EthRedis@123
   ai:
     model:
       chat: deepseek
     deepseek:
-      api-key: ${DEEPSEEK_API_KEY:}
+      api-key: sk-c99301ba907f4efb86a632787fb10b66
       chat:
         model: ${DEEPSEEK_MODEL:deepseek-chat}
         temperature: ${DEEPSEEK_TEMPERATURE:0.7}
