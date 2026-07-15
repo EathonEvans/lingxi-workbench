@@ -24,7 +24,8 @@ mcp-server -----------------> framework
 ```
 
 `framework` 不得反向依赖业务；`infra-ai` 不决定业务流程；`admin` 与 `application` 不得通过直接
-依赖对方实现来复用代码。跨服务能力通过明确的 HTTP/API 契约交互，Controller 只负责协议转换和调用应用服务。
+依赖对方实现来复用代码。跨服务能力通过明确的 HTTP/API 契约交互。业务代码按业务模块组织，
+模块内统一使用 `Controller -> Service -> Repo -> Mapper` 三层架构，详细约束见 `AGENTS.md`。
 
 ### `framework`
 
@@ -45,11 +46,11 @@ AI 技术适配层，负责 Chat Model、Embedding、Rerank、Tokenizer 和供�
 
 ### `application`
 
-独立用户端服务，负责用户登录与访问控制、HTTP/SSE 接口、Application Service、Flyway 迁移，
+独立用户端服务，负责用户登录与访问控制、HTTP/SSE 接口和业务服务，
 并承载 Project、Application、Model Center、Prompt、Knowledge、Tool、Agent、Workflow、Runtime、
 Harness 和 Evaluation 等工作台领域，使用 Sa-Token `user` 登录域，默认监听 `8080`。
-Controller 中不得放业务编排、事务逻辑或直接访问 Mapper/AI Client。
-当单个领域的规模和边界稳定后，再将其拆成独立 Maven 模块。
+Controller 中不得放业务编排、事务逻辑或直接访问 Repo、Mapper、AI Client。
+当单个业务模块的规模和边界稳定后，再将其拆成独立 Maven 模块。
 
 ### `mcp-server`
 

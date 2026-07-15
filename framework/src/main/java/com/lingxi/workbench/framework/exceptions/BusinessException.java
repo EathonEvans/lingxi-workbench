@@ -23,6 +23,13 @@ public class BusinessException extends RuntimeException {
         this.code = code;
     }
 
+
+    public BusinessException(String message) {
+        super(message);
+        this.httpStatus = 200;
+        this.code = 500;
+    }
+
     public int getHttpStatus() {
         return httpStatus;
     }

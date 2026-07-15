@@ -1,5 +1,6 @@
 package com.lingxi.workbench.framework.auth.logic;
 
+import cn.dev33.satoken.stp.StpUtil;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
 import com.lingxi.workbench.framework.auth.config.SaTokenExtendConfig;
 import org.junit.jupiter.api.Test;
@@ -14,6 +15,7 @@ class StpLogicDefinitionTest {
         StpLogicDefinition logic = createStpLogic("user");
 
         assertEquals("user", logic.getLoginType());
+        assertEquals("user", StpUtil.getStpLogic().getLoginType());
     }
 
     @Test

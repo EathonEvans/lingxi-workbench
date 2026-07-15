@@ -2,6 +2,7 @@ package com.lingxi.workbench.framework.auth;
 
 import cn.dev33.satoken.stp.SaTokenInfo;
 import cn.dev33.satoken.stp.StpLogic;
+import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.text.CharSequenceUtil;
 import com.lingxi.workbench.framework.auth.config.SaTokenExtendConfig;
 import org.springframework.stereotype.Component;
@@ -21,6 +22,9 @@ public class StpLogicDefinition {
             throw new IllegalArgumentException("loginType must not be blank");
         }
         this.stpLogic = new StpLogic(loginType);
+        // 每个启动服务仅维护一种登录体系，将配置创建的认证逻辑设为当前进程默认值。
+        // 业务接口使用 @SaCheckPermission 时无需重复声明 type，避免配置与注解产生双重来源。
+        StpUtil.setStpLogic(this.stpLogic);
     }
 
     /**

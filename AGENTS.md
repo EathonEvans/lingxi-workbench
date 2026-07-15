@@ -1,14 +1,92 @@
 # Lingxi Workbench Server
 
-## Project map
+## 项目模块
 
-- `framework`: 共享工程能力，不依赖业务模块。
-- `infra-ai`: AI Port 与供应商适配，只依赖 `framework`。
-- `admin`: 独立管理端服务，承载管理员认证和管理能力，只依赖 `framework`。
-- `application`: 独立用户端服务和工作台业务，依赖 `framework`、`infra-ai`。
-- `mcp-server`: 独立 MCP 协议服务，不依赖 `admin` 或 `application`。
+- `framework`：共享工程能力，不依赖业务模块。
+- `infra-ai`：AI 端口与供应商适配，只依赖 `framework`。
+- `admin`：独立管理端服务，承载管理员认证和管理能力，只依赖 `framework`。
+- `application`：独立用户端服务和工作台业务，依赖 `framework`、`infra-ai`。
+- `mcp-server`：独立 MCP 协议服务，不依赖 `admin` 或 `application`。
 
-## Commands
+## 架构原则
+
+1. `admin` 与 `application` 的业务代码统一使用传统三层架构，默认不使用 DDD、六边形架构或领域端口抽象。
+2. 代码按照“业务模块优先，模块内按职责分层”组织。
+3. 业务调用方向固定为 `Controller -> Service -> Repo -> Mapper -> Database`。
+4. Controller 不直接调用 Repo 或 Mapper；Service 不直接调用 Mapper；Repo 不依赖 Service 或 Controller。
+5. 同一启动模块内的跨业务调用只能经由对方 Service，不得直接访问对方 Repo 或 Mapper。
+6. `admin`、`application` 等独立服务之间通过稳定的 HTTP/Internal API 交互，不得直接依赖对方业务实现。
+7. 不得新增 `api/application/domain/infrastructure` 式业务目录。
+
+## 业务目录规范
+
+以 `auth` 为例：
+
+```text
+auth
+├── controller
+├── service
+│   └── impl
+├── repo
+│   └── mapper
+├── model
+│   ├── request
+│   ├── vo
+│   ├── entity
+│   ├── bo
+│   └── converter
+├── common
+│   ├── enums
+│   └── constants
+├── config
+├── interceptor
+└── context
+```
+
+只在存在对应代码时创建目录，禁止提前建立空包。
+
+### 分层职责
+
+- `controller`：负责请求参数校验、调用 Service 和返回统一响应体，不承载业务流程、事务或数据库查询。
+- `service`：定义业务能力接口，使用 `XxxService` 命名。
+- `service/impl`：负责业务流程、事务控制和业务校验，使用 `XxxServiceImpl` 命名。
+- `repo`：封装数据查询、持久化语义和多 Mapper 组合，不承载业务规则。默认使用具体类，不创建无实际用途的 Repo 接口和 `impl`。
+- `repo/mapper`：负责 MyBatis/MyBatis-Plus SQL、CRUD 和数据库结果映射，不处理业务逻辑。
+- `model/request`：Controller 请求参数，使用 `XxxRequest` 命名。
+- `model/vo`：对外接口响应数据，统一使用 `XxxVO` 命名，不再并存 `Response`、`Resp`、`Result` 等同义模型。
+- `model/entity`：数据库表映射对象，使用 `XxxEntity` 命名，不得直接作为接口响应返回。
+- `model/bo`：Service 和 Repo 间的业务对象，使用 `XxxBO` 命名。只有出现组合数据或业务计算时才创建。
+- `model/converter`：集中存放 MapStruct 转换器，负责 Entity、BO、VO 间的转换，使用 `XxxConverter` 命名。
+- `config`、`interceptor`、`context`：分别存放当前业务的配置、Web 拦截器和请求上下文。
+
+## 模型精简规范
+
+1. 禁止为简单接口机械创建 `Request -> DTO -> Command -> BO -> Result -> Response -> VO` 完整对象链。
+2. 简单请求可直接传入 Service；只在需要独立业务语义时才增加 BO。
+3. 已存在 MapStruct Converter 时，禁止再编写重复的手工转换逻辑。
+4. 简单构造且没有复用价值时，不强制增加 Converter。
+
+## Common 作用域
+
+- 只被单个业务使用的枚举和常量放在 `<business>/common/enums` 和 `<business>/common/constants`。
+- 被当前 Maven 模块多个业务共用时，放在与业务目录同级的 `common/enums` 和 `common/constants`。
+- 被 `admin`、`application` 等多个 Maven 模块共用时，放入 `framework` 对应目录。
+- 不因“未来可能复用”提前提升作用域，达到实际共享条件后再迁移。
+- `common` 不是杂物目录，工具类、配置类和异常类必须放入职责明确的包。
+- 常量包名统一使用 `constants`。
+
+## 其他不变式
+
+1. Workflow Version、Run Snapshot、Step Attempt、Run Event 不可覆盖。
+2. 所有资源访问必须校验 Project Scope。
+3. Redis 不是 Run 事实来源。
+4. 密钥、Prompt 正文和 Tool 参数默认不进入日志。
+5. 已进入生产的数据库变更脚本禁止修改，必须新增脚本演进。
+6. 测试包结构应镜像对应的生产代码包结构。
+7. 后续新增或修改的代码注释统一使用中文。
+8. 管理端业务接口使用动作可读的路径命名，例如 `/list`、`/create`、`/update/{id}`、`/delete/{id}`；避免仅依赖 HTTP Method 区分同一路径语义，确保通过访问日志中的 URL 即可识别操作。
+
+## 常用命令
 
 ```bash
 ./scripts/bootstrap.sh
@@ -17,20 +95,9 @@
 ./scripts/dev-stop.sh
 ```
 
-## Invariants
-
-1. Domain 不依赖 Spring AI、MyBatis 或供应商 SDK。
-2. Controller 不承载业务编排，不直接访问 Mapper。
-3. 领域间只访问对方公开 `api`。
-4. Workflow Version、Run Snapshot、Step Attempt、Run Event 不可覆盖。
-5. 所有资源访问必须校验 Project Scope。
-6. Redis 不是 Run 事实来源。
-7. 密钥、Prompt 正文和 Tool 参数默认不进入日志。
-8. 历史 Flyway migration 禁止修改。
-
-## Definition of done
+## 完成标准
 
 - 编译、单元测试和架构测试通过。
 - API 变更包含相应测试并检查兼容性。
-- 数据变更使用新 Flyway migration。
+- 数据变更通过新脚本向前演进。
 - 新运行路径包含 traceId、runId 和可操作错误码。

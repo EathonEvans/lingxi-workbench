@@ -1,6 +1,6 @@
 package com.lingxi.workbench.framework.cache;
 
-import com.lingxi.workbench.framework.exceptions.SysException;
+import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -20,13 +20,13 @@ class RedisKeyBuilderTest {
 
     @Test
     void shouldRejectMissingSegments() {
-        assertThrows(SysException.class, () -> RedisKeyBuilder.build((String[]) null));
-        assertThrows(SysException.class, RedisKeyBuilder::build);
+        assertThrows(BusinessException.class, () -> RedisKeyBuilder.build((String[]) null));
+        assertThrows(BusinessException.class, RedisKeyBuilder::build);
     }
 
     @Test
     void shouldRejectBlankOrSeparatorOnlySegment() {
-        assertThrows(SysException.class, () -> RedisKeyBuilder.build("user", " "));
-        assertThrows(SysException.class, () -> RedisKeyBuilder.build("user", ":::"));
+        assertThrows(BusinessException.class, () -> RedisKeyBuilder.build("user", " "));
+        assertThrows(BusinessException.class, () -> RedisKeyBuilder.build("user", ":::"));
     }
 }

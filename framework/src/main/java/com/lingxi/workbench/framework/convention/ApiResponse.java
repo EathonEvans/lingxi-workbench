@@ -17,6 +17,11 @@ public record ApiResponse<T>(int code, T data, String msg) {
         return new ApiResponse<>(SUCCESS_CODE, data, SUCCESS_MESSAGE);
     }
 
+
+    public static <T> ApiResponse<T> success() {
+        return new ApiResponse<>(SUCCESS_CODE, null, SUCCESS_MESSAGE);
+    }
+
     public static ApiResponse<Void> failure(int code, String message) {
         if (code < 400) {
             throw new IllegalArgumentException("失败响应码必须大于等于400");

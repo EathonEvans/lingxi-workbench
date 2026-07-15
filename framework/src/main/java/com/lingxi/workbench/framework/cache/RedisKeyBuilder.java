@@ -1,7 +1,7 @@
 package com.lingxi.workbench.framework.cache;
 
 import cn.hutool.core.text.CharSequenceUtil;
-import com.lingxi.workbench.framework.exceptions.SysException;
+import com.lingxi.workbench.framework.exceptions.BusinessException;
 
 import static com.lingxi.workbench.framework.cache.RedisKeyConstants.CACHE_PREFIX;
 
@@ -20,7 +20,7 @@ public final class RedisKeyBuilder {
      */
     public static String build(String... keyValues) {
         if (keyValues == null || keyValues.length == 0) {
-            throw new SysException("keyValues must not be null or empty");
+            throw new BusinessException("keyValues must not be null or empty");
         }
 
         StringBuilder builder = new StringBuilder(CACHE_PREFIX);
@@ -38,7 +38,7 @@ public final class RedisKeyBuilder {
 
     private static String normalizeSegment(String keyValue) {
         if (CharSequenceUtil.isBlank(keyValue)) {
-            throw new SysException("keyValue must not be blank");
+            throw new BusinessException("keyValue must not be blank");
         }
 
         String segment = keyValue.trim();
@@ -54,7 +54,7 @@ public final class RedisKeyBuilder {
 
         segment = segment.substring(start, end).trim();
         if (segment.isEmpty()) {
-            throw new SysException("keyValue must contain a non-separator character");
+            throw new BusinessException("keyValue must contain a non-separator character");
         }
         return segment;
     }

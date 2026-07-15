@@ -29,6 +29,7 @@
         <maven.compiler.parameters>true</maven.compiler.parameters>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <hutool.version>5.8.38</hutool.version>
+        <fastjson2.version>2.0.61</fastjson2.version>
     </properties>
 
     <modules>
@@ -72,6 +73,17 @@
                 <groupId>cn.hutool</groupId>
                 <artifactId>hutool-core</artifactId>
                 <version>${hutool.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.alibaba.fastjson2</groupId>
+                <artifactId>fastjson2</artifactId>
+                <version>${fastjson2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.alibaba.fastjson2</groupId>
+                <artifactId>fastjson2-extension-spring6</artifactId>
+                <version>${fastjson2.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
