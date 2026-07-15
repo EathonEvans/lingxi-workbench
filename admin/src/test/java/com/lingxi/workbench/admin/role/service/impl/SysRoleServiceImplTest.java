@@ -1,5 +1,7 @@
 package com.lingxi.workbench.admin.role.service.impl;
 
+import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
+
 import com.lingxi.workbench.admin.department.service.SysDepartmentService;
 import com.lingxi.workbench.admin.auth.service.SysUserService;
 import com.lingxi.workbench.admin.menu.service.SysMenuService;
@@ -64,7 +66,7 @@ class SysRoleServiceImplTest {
     @Test
     void shouldRejectUnknownMenuBeforeReplacingRelations() {
         when(sysRoleRepo.findById(2L)).thenReturn(Optional.of(role(2L, RoleDataScope.SELF, false)));
-        doThrow(new BusinessException(400, 400, "待分配菜单中存在无效菜单"))
+        doThrow(new BusinessException(HttpStatusEnum.BAD_REQUEST, "待分配菜单中存在无效菜单"))
                 .when(sysMenuService).validateAssignmentHierarchy(Set.of(10L, 11L));
 
         assertThrows(BusinessException.class, () -> service.assignMenus(2L, Set.of(10L, 11L)));

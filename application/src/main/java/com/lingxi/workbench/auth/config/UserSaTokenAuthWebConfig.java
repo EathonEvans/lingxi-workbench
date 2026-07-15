@@ -26,14 +26,11 @@ import com.alibaba.fastjson2.JSON;
 import com.lingxi.workbench.auth.config.interceptor.UserAuthenticationInterceptor;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
 import com.lingxi.workbench.framework.auth.config.SaTokenExtendConfig;
+import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.ApiResponse;
-import jakarta.servlet.DispatcherType;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -118,8 +115,8 @@ public class UserSaTokenAuthWebConfig implements WebMvcConfigurer {
      */
     private String writeUnauthorizedResponse(Throwable exception) {
         SaHolder.getResponse()
-                .setStatus(401)
+                .setStatus(HttpStatusEnum.UNAUTHORIZED.value())
                 .setHeader("Content-Type", "application/json;charset=UTF-8");
-        return JSON.toJSONString(ApiResponse.failure(401, "登录状态无效，请重新登录"));
+        return JSON.toJSONString(ApiResponse.failure(HttpStatusEnum.UNAUTHORIZED, "登录状态无效，请重新登录"));
     }
 }

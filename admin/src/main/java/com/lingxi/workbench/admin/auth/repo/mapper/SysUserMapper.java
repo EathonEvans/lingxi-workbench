@@ -12,8 +12,7 @@ import java.util.List;
 @Mapper
 public interface SysUserMapper extends BaseMapper<SysUserEntity> {
 
-    /** 查询统一账号及其两端访问状态。 */
-    @Select("""
+    String USER_WITH_ACCESS_SQL = """
             SELECT sys_user.*,
                    COALESCE(application_access.enabled, FALSE) AS application_access_enabled,
                    EXISTS (
@@ -26,9 +25,19 @@ public interface SysUserMapper extends BaseMapper<SysUserEntity> {
             FROM lingxi_core.sys_user sys_user
             LEFT JOIN lingxi_core.sys_user_application_access application_access
                    ON application_access.user_id = sys_user.id
-            ORDER BY sys_user.id
-            """)
+            """;
+
+    /** 查询统一账号及其两端访问状态。 */
+    @Select(USER_WITH_ACCESS_SQL + " ORDER BY sys_user.id")
     List<SysUserEntity> selectUserList();
+
+    /** 按用户主键查询账号及其两端访问状态。 */
+    @Select(USER_WITH_ACCESS_SQL + " WHERE sys_user.id = #{id}")
+    SysUserEntity selectUserByIdWithAccess(@Param("id") Long id);
+
+    /** 按登录名查询账号及其两端访问状态。 */
+    @Select(USER_WITH_ACCESS_SQL + " WHERE sys_user.username = #{username}")
+    SysUserEntity selectUserByUsernameWithAccess(@Param("username") String username);
 
     @Insert("""
             INSERT INTO lingxi_core.sys_user_application_access

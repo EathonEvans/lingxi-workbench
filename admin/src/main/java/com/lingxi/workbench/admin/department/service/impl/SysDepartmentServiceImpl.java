@@ -1,5 +1,7 @@
 package com.lingxi.workbench.admin.department.service.impl;
 
+import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
+
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.department.model.converter.SysDepartmentConverter;
 import com.lingxi.workbench.admin.department.model.entity.SysDepartmentEntity;
@@ -60,11 +62,11 @@ public class SysDepartmentServiceImpl implements SysDepartmentService {
     @Transactional
     public SysDepartmentVO create(CreateDepartmentRequest request) {
         if (request.parentId() == null) {
-            throw new BusinessException(400, 400, "新部门必须设置上级部门");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "新部门必须设置上级部门");
         }
         validateParent(request.parentId(), null);
         if (sysDepartmentRepo.existsByCode(request.code())) {
-            throw new BusinessException(409, 409, "部门编码已存在");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "部门编码已存在");
         }
         SysDepartmentEntity entity = sysDepartmentConverter.toEntity(request);
         entity.setName(request.name().trim());
@@ -91,16 +93,16 @@ public class SysDepartmentServiceImpl implements SysDepartmentService {
     public void delete(Long id) {
         SysDepartmentEntity entity = requireDepartment(id);
         if (ROOT_DEPARTMENT_CODE.equals(entity.getCode())) {
-            throw new BusinessException(409, 409, "根部门是系统组织树的根节点，不能删除");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "根部门是系统组织树的根节点，不能删除");
         }
         if (sysDepartmentRepo.existsChildren(id)) {
-            throw new BusinessException(409, 409, "请先删除或迁移当前部门的子部门");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "请先删除或迁移当前部门的子部门");
         }
         if (sysDepartmentRepo.countUsers(id) > 0) {
-            throw new BusinessException(409, 409, "部门下仍有管理员，不能删除");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "部门下仍有管理员，不能删除");
         }
         if (sysDepartmentRepo.countRoleReferences(id) > 0) {
-            throw new BusinessException(409, 409, "部门已被角色数据范围引用，不能删除");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "部门已被角色数据范围引用，不能删除");
         }
         sysDepartmentRepo.delete(id);
     }
@@ -113,18 +115,18 @@ public class SysDepartmentServiceImpl implements SysDepartmentService {
             return;
         }
         if (parentId.equals(currentId)) {
-            throw new BusinessException(400, 400, "部门不能将自己设置为父部门");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "部门不能将自己设置为父部门");
         }
         SysDepartmentEntity parent = requireDepartment(parentId);
         if (parent.getStatus() != EnableStatus.ACTIVE) {
-            throw new BusinessException(400, 400, "不能将部门挂载到已停用部门下");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "不能将部门挂载到已停用部门下");
         }
 
         Set<Long> visited = new HashSet<>();
         Long cursor = parentId;
         while (cursor != null) {
             if (!visited.add(cursor) || cursor.equals(currentId)) {
-                throw new BusinessException(400, 400, "部门父子关系不能形成循环");
+                throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "部门父子关系不能形成循环");
             }
             cursor = requireDepartment(cursor).getParentId();
         }
@@ -132,7 +134,7 @@ public class SysDepartmentServiceImpl implements SysDepartmentService {
 
     private SysDepartmentEntity requireDepartment(Long id) {
         return sysDepartmentRepo.findById(id)
-                .orElseThrow(() -> new BusinessException(404, 404, "部门不存在"));
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "部门不存在"));
     }
 
     /** 根部门必须保持启用且没有父节点，其他部门必须归属于组织树。 */
@@ -140,12 +142,12 @@ public class SysDepartmentServiceImpl implements SysDepartmentService {
                                                         UpdateDepartmentRequest request) {
         if (ROOT_DEPARTMENT_CODE.equals(entity.getCode())) {
             if (request.parentId() != null || request.status() != EnableStatus.ACTIVE) {
-                throw new BusinessException(409, 409, "根部门必须保持启用且不能设置上级部门");
+                throw new BusinessException(HttpStatusEnum.CONFLICT, "根部门必须保持启用且不能设置上级部门");
             }
             return;
         }
         if (request.parentId() == null) {
-            throw new BusinessException(400, 400, "非根部门必须设置上级部门");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "非根部门必须设置上级部门");
         }
     }
 

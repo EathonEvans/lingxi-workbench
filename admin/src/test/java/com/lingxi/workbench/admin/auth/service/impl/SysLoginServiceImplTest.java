@@ -59,7 +59,7 @@ class SysLoginServiceImplTest {
 
     @Test
     void shouldLoginActiveSysAndIssueSession() {
-        SysUserBO user = user(SysUserStatus.ACTIVE);
+        SysUserBO user = user(SysUserStatus.ACTIVE, true);
         SysLoginVO.SysProfileVO profile = new SysLoginVO.SysProfileVO(1L, "admin", "系统管理员", null, 1L);
         when(sysUserRepo.findByUsername("admin")).thenReturn(Optional.of(user));
         when(passwordHasher.matches("correct-password", user.passwordHash())).thenReturn(true);
@@ -70,7 +70,7 @@ class SysLoginServiceImplTest {
         when(sysUserConverter.toProfileVO(user)).thenReturn(profile);
 
         SysLoginVO result = sysLoginService.login(
-                new SysLoginRequest(" Sys ", "correct-password")
+                new SysLoginRequest(" Admin ", "correct-password")
         );
 
         assertEquals("admin-token", result.tokenValue());
@@ -93,7 +93,7 @@ class SysLoginServiceImplTest {
 
     @Test
     void shouldRejectInvalidPassword() {
-        SysUserBO user = user(SysUserStatus.ACTIVE);
+        SysUserBO user = user(SysUserStatus.ACTIVE, true);
         when(sysUserRepo.findByUsername("admin")).thenReturn(Optional.of(user));
         when(passwordHasher.matches("wrong-password", user.passwordHash())).thenReturn(false);
 
@@ -107,7 +107,7 @@ class SysLoginServiceImplTest {
 
     @Test
     void shouldRejectDisabledSysAfterPasswordVerification() {
-        SysUserBO user = user(SysUserStatus.DISABLED);
+        SysUserBO user = user(SysUserStatus.DISABLED, true);
         when(sysUserRepo.findByUsername("admin")).thenReturn(Optional.of(user));
         when(passwordHasher.matches("correct-password", user.passwordHash())).thenReturn(true);
 
@@ -119,15 +119,35 @@ class SysLoginServiceImplTest {
         verify(stpLogicDefinition, never()).login(anyLong());
     }
 
-    private static SysUserBO user(SysUserStatus status) {
+    @Test
+    void shouldRejectUserWithoutAdminAccess() {
+        SysUserBO user = user(SysUserStatus.ACTIVE, false);
+        when(sysUserRepo.findByUsername("admin")).thenReturn(Optional.of(user));
+        when(passwordHasher.matches("correct-password", user.passwordHash())).thenReturn(true);
+
+        assertThrows(
+                AuthException.class,
+                () -> sysLoginService.login(new SysLoginRequest("admin", "correct-password"))
+        );
+
+        verify(stpLogicDefinition, never()).login(anyLong());
+    }
+
+    private static SysUserBO user(SysUserStatus status, boolean adminAccessEnabled) {
         return new SysUserBO(
                 1L,
                 "admin",
                 "$2a$12$password-hash",
                 "系统管理员",
                 null,
+                null,
+                null,
                 1L,
-                status
+                status,
+                false,
+                adminAccessEnabled,
+                null,
+                null
         );
     }
 }

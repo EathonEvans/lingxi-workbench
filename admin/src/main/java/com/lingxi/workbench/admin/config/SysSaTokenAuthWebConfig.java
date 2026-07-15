@@ -26,6 +26,7 @@ import com.alibaba.fastjson2.JSON;
 import com.lingxi.workbench.admin.config.interceptor.SysAuthenticationInterceptor;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
 import com.lingxi.workbench.framework.auth.config.SaTokenExtendConfig;
+import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -113,8 +114,8 @@ public class SysSaTokenAuthWebConfig implements WebMvcConfigurer {
      */
     private String writeUnauthorizedResponse(Throwable exception) {
         SaHolder.getResponse()
-                .setStatus(401)
+                .setStatus(HttpStatusEnum.UNAUTHORIZED.value())
                 .setHeader("Content-Type", "application/json;charset=UTF-8");
-        return JSON.toJSONString(ApiResponse.failure(401, "登录状态无效，请重新登录"));
+        return JSON.toJSONString(ApiResponse.failure(HttpStatusEnum.UNAUTHORIZED, "登录状态无效，请重新登录"));
     }
 }

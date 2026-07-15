@@ -1,6 +1,5 @@
 package com.lingxi.workbench.framework.cache;
 
-import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.connection.DataType;
 import org.springframework.data.redis.core.Cursor;
@@ -9,17 +8,22 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations.TypedTuple;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.Date;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Redis工具类
+ * Redis 常用操作工具。
  *
+ * <p>底层统一使用 {@link StringRedisTemplate}，只处理字符串键值。调用方仍需通过
+ * {@link RedisKeyBuilder} 生成具备业务前缀的键，禁止直接拼接无命名空间的 Redis Key。</p>
  */
 @Component
 @RequiredArgsConstructor
@@ -49,6 +53,9 @@ public class RedisUtil {
 	 * @param keys
 	 */
 	public void delete(Collection<String> keys) {
+		if (keys == null || keys.isEmpty()) {
+			return;
+		}
 		redisTemplate.delete(keys);
 	}
 
@@ -81,7 +88,7 @@ public class RedisUtil {
 	 * @return
 	 */
 	public Boolean expire(String key, long timeout, TimeUnit unit) {
-		return redisTemplate.expire(key, timeout, unit);
+		return redisTemplate.expire(key, expirationDuration(timeout, unit));
 	}
 
 	/**
@@ -96,13 +103,21 @@ public class RedisUtil {
 	}
 
 	/**
-	 * 查找匹配的key
+	 * 使用 SCAN 查找匹配的 Key，避免 KEYS 命令阻塞 Redis 主线程。
 	 *
 	 * @param pattern
 	 * @return
 	 */
 	public Set<String> keys(String pattern) {
-		return redisTemplate.keys(pattern);
+		if (pattern == null || pattern.isBlank()) {
+			throw new IllegalArgumentException("Redis Key 匹配模式不能为空");
+		}
+		ScanOptions options = ScanOptions.scanOptions().match(pattern).count(1000).build();
+		Set<String> keys = new LinkedHashSet<>();
+		try (Cursor<String> cursor = redisTemplate.scan(options)) {
+			cursor.forEachRemaining(keys::add);
+		}
+		return keys;
 	}
 
 	/**
@@ -276,7 +291,7 @@ public class RedisUtil {
 	 *            秒:TimeUnit.SECONDS 毫秒:TimeUnit.MILLISECONDS
 	 */
 	public void setEx(String key, String value, long timeout, TimeUnit unit) {
-		redisTemplate.opsForValue().set(key, value, timeout, unit);
+		redisTemplate.opsForValue().set(key, value, expirationDuration(timeout, unit));
 	}
 
 	/**
@@ -287,7 +302,7 @@ public class RedisUtil {
 	 * @return 之前已经存在返回false,不存在返回true
 	 */
 	public boolean setIfAbsent(String key, String value) {
-		return redisTemplate.opsForValue().setIfAbsent(key, value);
+		return Boolean.TRUE.equals(redisTemplate.opsForValue().setIfAbsent(key, value));
 	}
 
 	/**
@@ -328,7 +343,10 @@ public class RedisUtil {
 	 * @return 之前已经存在返回false,不存在返回true
 	 */
 	public boolean multiSetIfAbsent(Map<String, String> maps) {
-		return redisTemplate.opsForValue().multiSetIfAbsent(maps);
+		if (maps == null || maps.isEmpty()) {
+			return true;
+		}
+		return Boolean.TRUE.equals(redisTemplate.opsForValue().multiSetIfAbsent(maps));
 	}
 
 	/**
@@ -671,7 +689,7 @@ public class RedisUtil {
 	 * @return
 	 */
 	public String lBLeftPop(String key, long timeout, TimeUnit unit) {
-		return redisTemplate.opsForList().leftPop(key, timeout, unit);
+		return redisTemplate.opsForList().leftPop(key, blockingDuration(timeout, unit));
 	}
 
 	/**
@@ -695,7 +713,7 @@ public class RedisUtil {
 	 * @return
 	 */
 	public String lBRightPop(String key, long timeout, TimeUnit unit) {
-		return redisTemplate.opsForList().rightPop(key, timeout, unit);
+		return redisTemplate.opsForList().rightPop(key, blockingDuration(timeout, unit));
 	}
 
 	/**
@@ -722,7 +740,23 @@ public class RedisUtil {
 	public String lBRightPopAndLeftPush(String sourceKey, String destinationKey,
 			long timeout, TimeUnit unit) {
 		return redisTemplate.opsForList().rightPopAndLeftPush(sourceKey,
-				destinationKey, timeout, unit);
+				destinationKey, blockingDuration(timeout, unit));
+	}
+
+	/** 将过期时间转换为 Spring Data Redis 4 使用的 Duration。 */
+	private static Duration expirationDuration(long timeout, TimeUnit unit) {
+		if (timeout <= 0) {
+			throw new IllegalArgumentException("Redis 过期时间必须大于 0");
+		}
+		return Duration.of(timeout, Objects.requireNonNull(unit, "时间单位不能为空").toChronoUnit());
+	}
+
+	/** 将阻塞等待时间转换为 Duration，0 表示持续等待。 */
+	private static Duration blockingDuration(long timeout, TimeUnit unit) {
+		if (timeout < 0) {
+			throw new IllegalArgumentException("Redis 阻塞等待时间不能小于 0");
+		}
+		return Duration.of(timeout, Objects.requireNonNull(unit, "时间单位不能为空").toChronoUnit());
 	}
 
 	/**

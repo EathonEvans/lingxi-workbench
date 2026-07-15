@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.role.model.request;
 
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 
 import java.util.Set;
 
@@ -9,6 +10,6 @@ import java.util.Set;
  */
 public record AssignIdsRequest(
         @NotNull(message = "分配ID集合不能为空")
-        Set<Long> ids
+        Set<@NotNull(message = "分配ID不能为空") @Positive(message = "分配ID必须大于0") Long> ids
 ) {
 }

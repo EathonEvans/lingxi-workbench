@@ -5,14 +5,14 @@ spring:
   application:
     name: lingxi-workbench-admin
   datasource:
-    url: jdbc:postgresql://localhost:5432/lingxi_dev
-    username: postgres
-    password: postgres
+    url: ${LINGXI_DB_URL:jdbc:postgresql://localhost:5432/lingxi_dev}
+    username: ${LINGXI_DB_USERNAME:postgres}
+    password: ${LINGXI_DB_PASSWORD:postgres}
   data:
     redis:
-      host: localhost
-      port: 6379
-      password: EthRedis@123
+      host: ${LINGXI_REDIS_HOST:localhost}
+      port: ${LINGXI_REDIS_PORT:6379}
+      password: ${LINGXI_REDIS_PASSWORD:}
 sa-token:
   token-name: Authorization
   timeout: 7200

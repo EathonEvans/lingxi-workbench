@@ -1,5 +1,6 @@
 package com.lingxi.workbench.admin.auth.service.impl;
 
+import com.lingxi.workbench.admin.auth.context.SysUserContext;
 import com.lingxi.workbench.admin.auth.model.bo.SysUserBO;
 import com.lingxi.workbench.admin.auth.model.converter.SysUserConverter;
 import com.lingxi.workbench.admin.auth.model.entity.SysUserEntity;
@@ -8,8 +9,8 @@ import com.lingxi.workbench.admin.auth.model.request.UpdateSysUserRequest;
 import com.lingxi.workbench.admin.auth.model.vo.SysUserVO;
 import com.lingxi.workbench.admin.auth.repo.SysUserRepo;
 import com.lingxi.workbench.admin.auth.service.SysUserService;
-import com.lingxi.workbench.admin.auth.context.SysUserContext;
 import com.lingxi.workbench.framework.auth.password.PasswordHasher;
+import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -41,7 +42,7 @@ public class SysUserServiceImpl implements SysUserService {
         String email = normalizeEmail(request.email());
         String mobile = normalizeNullable(request.mobile());
         if (sysUserRepo.existsByUsername(username)) {
-            throw new BusinessException(409, 409, "用户名已存在");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "用户名已存在");
         }
         validateContactUniqueness(email, mobile, null);
 
@@ -94,23 +95,21 @@ public class SysUserServiceImpl implements SysUserService {
 
     private SysUserBO requireUser(Long id) {
         return sysUserRepo.findById(id)
-                .orElseThrow(() -> new BusinessException(404, 404, "系统用户不存在"));
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "系统用户不存在"));
     }
 
     private SysUserVO requireUserView(Long id) {
-        return sysUserRepo.findAll().stream()
-                .filter(user -> user.id().equals(id))
-                .findFirst()
+        return sysUserRepo.findById(id)
                 .map(sysUserConverter::toVO)
-                .orElseThrow(() -> new BusinessException(404, 404, "用户账号不存在"));
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "用户账号不存在"));
     }
 
     private void validateContactUniqueness(String email, String mobile, Long excludeId) {
         if (sysUserRepo.existsByEmail(email, excludeId)) {
-            throw new BusinessException(409, 409, "邮箱地址已被使用");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "邮箱地址已被使用");
         }
         if (sysUserRepo.existsByMobile(mobile, excludeId)) {
-            throw new BusinessException(409, 409, "手机号已被使用");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "手机号已被使用");
         }
     }
 

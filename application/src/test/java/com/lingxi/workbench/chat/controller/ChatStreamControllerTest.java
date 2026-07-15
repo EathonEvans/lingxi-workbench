@@ -97,9 +97,13 @@ class ChatStreamControllerTest {
     void shouldRejectBlankPromptBeforeCallingService() throws Exception {
         mockMvc.perform(post("/api/v1/ai/chat/stream")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .accept(MediaType.TEXT_EVENT_STREAM, MediaType.APPLICATION_JSON)
                         .content("{\"prompt\":\"\"}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(content().json("""
+                        {"code":400,"msg":"请求参数不合法"}
+                        """));
 
         verifyNoInteractions(chatStreamService);
     }
