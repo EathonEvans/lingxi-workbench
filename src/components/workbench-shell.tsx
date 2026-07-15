@@ -10,6 +10,7 @@ import {
   FolderKanban,
   History,
   ListTodo,
+  LogOut,
   Menu,
   MessageSquareText,
   Moon,
@@ -23,7 +24,9 @@ import {
   Sun,
   WandSparkles,
 } from "lucide-react";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useAuth } from "./auth-provider";
 import { useThemeMode } from "./app-provider";
 import styles from "./workbench-shell.module.css";
 
@@ -57,12 +60,34 @@ const suggestions = [
 ];
 
 export function WorkbenchShell() {
+  const router = useRouter();
+  const { logout, ready, session } = useAuth();
   const { appearance, toggleAppearance } = useThemeMode();
   const [input, setInput] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const startTask = (prompt: string) => {
     setInput(prompt);
+  };
+
+  useEffect(() => {
+    if (ready && !session) router.replace("/login");
+  }, [ready, router, session]);
+
+  if (!ready || !session) {
+    return (
+      <main className={styles.authLoading} data-theme={appearance}>
+        <span className={styles.authLoadingMark}>
+          <Sparkles size={21} />
+        </span>
+        <p>正在进入灵析工作台…</p>
+      </main>
+    );
+  }
+
+  const handleLogout = () => {
+    logout();
+    router.replace("/login");
   };
 
   return (
@@ -135,18 +160,18 @@ export function WorkbenchShell() {
             <Settings2 size={17} />
             设置
           </button>
-          <button className={styles.profile} type="button">
+          <div className={styles.profile}>
             <Avatar
-              avatar="林"
+              avatar={session.user.avatarUrl || session.user.displayName.slice(0, 1)}
               background={appearance === "dark" ? "#25324a" : "#e8f1ff"}
               size={34}
             />
             <span>
-              <strong>林析</strong>
+              <strong>{session.user.displayName}</strong>
               <small>个人空间</small>
             </span>
-            <ChevronsUpDown size={14} />
-          </button>
+            <ActionIcon icon={LogOut} onClick={handleLogout} size="small" title="退出登录" />
+          </div>
         </div>
       </aside>
 

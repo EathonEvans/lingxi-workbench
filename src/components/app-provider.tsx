@@ -9,6 +9,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { AuthProvider } from "./auth-provider";
 
 const ThemeProvider = dynamic<ThemeProviderProps>(
   () => import("@lobehub/ui").then((module) => module.ThemeProvider),
@@ -81,7 +82,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         enableCustomFonts={false}
         enableGlobalStyle
       >
-        {children}
+        <AuthProvider>{children}</AuthProvider>
       </ThemeProvider>
     </ThemeModeContext.Provider>
   );

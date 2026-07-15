@@ -10,6 +10,7 @@
 - React 19 + TypeScript
 - [LobeUI](https://github.com/lobehub/lobe-ui) 组件库
 - Ant Design 6 + antd-style
+- Lucide React
 - pnpm
 
 本项目使用 LobeUI 作为设计系统与 AI 交互组件底座，没有复制 LobeHub 完整应用源码，也不在浏览器中直连模型供应商。认证、模型调用、知识库与业务数据统一经由灵析后端服务。
@@ -51,6 +52,11 @@ src/
 - API 根地址通过 `NEXT_PUBLIC_API_BASE_URL` 配置。
 - Sa-Token 认证由后端负责，前端通过同源 Cookie 或受控请求头接入。
 - 接口契约以服务端 OpenAPI 为准，接入后再生成类型安全客户端。
+
+## 图标规范
+
+- 用户端业务图标统一使用 Lucide React，与 LobeUI 保持一致。
+- 不在业务组件中手写 SVG 路径，也不混用其他通用图标库。
 
 ## 开源说明
 
