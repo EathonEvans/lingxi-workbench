@@ -5,6 +5,7 @@ import { ChatInputArea } from "@lobehub/ui/chat";
 import {
   Bot,
   Boxes,
+  CircleStop,
   ChevronsUpDown,
   FileSearch,
   FolderKanban,
@@ -18,6 +19,7 @@ import {
   Paperclip,
   PenLine,
   Plus,
+  RotateCcw,
   Search,
   Settings2,
   Sparkles,
@@ -25,7 +27,8 @@ import {
   WandSparkles,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ChatStreamError, streamChat } from "@/lib/chat";
 import { useAuth } from "./auth-provider";
 import { useThemeMode } from "./app-provider";
 import styles from "./workbench-shell.module.css";
@@ -59,12 +62,28 @@ const suggestions = [
   },
 ];
 
+type ChatMessage = {
+  content: string;
+  id: string;
+  role: "assistant" | "user";
+  status?: "done" | "error" | "stopped" | "streaming";
+};
+
+function createMessageId(role: ChatMessage["role"]) {
+  return `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export function WorkbenchShell() {
   const router = useRouter();
   const { logout, ready, session } = useAuth();
   const { appearance, toggleAppearance } = useThemeMode();
   const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [streamError, setStreamError] = useState<string>();
+  const [streaming, setStreaming] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const messageEndRef = useRef<HTMLDivElement | null>(null);
 
   const startTask = (prompt: string) => {
     setInput(prompt);
@@ -73,6 +92,16 @@ export function WorkbenchShell() {
   useEffect(() => {
     if (ready && !session) router.replace("/login");
   }, [ready, router, session]);
+
+  useEffect(() => {
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    messageEndRef.current?.scrollIntoView({
+      behavior: reduceMotion || streaming ? "auto" : "smooth",
+      block: "end",
+    });
+  }, [messages, streaming]);
+
+  useEffect(() => () => abortControllerRef.current?.abort(), []);
 
   if (!ready || !session) {
     return (
@@ -86,8 +115,99 @@ export function WorkbenchShell() {
   }
 
   const handleLogout = () => {
+    abortControllerRef.current?.abort();
     logout();
     router.replace("/login");
+  };
+
+  const startNewChat = () => {
+    abortControllerRef.current?.abort();
+    setInput("");
+    setMessages([]);
+    setStreamError(undefined);
+    setStreaming(false);
+  };
+
+  const stopStreaming = () => abortControllerRef.current?.abort();
+
+  const sendPrompt = async (prompt: string) => {
+    const normalizedPrompt = prompt.trim();
+    if (!normalizedPrompt || streaming || !session) return;
+
+    const assistantId = createMessageId("assistant");
+    const nextMessages: ChatMessage[] = [
+      {
+        content: normalizedPrompt,
+        id: createMessageId("user"),
+        role: "user",
+        status: "done",
+      },
+      { content: "", id: assistantId, role: "assistant", status: "streaming" },
+    ];
+
+    setMessages((current) => [...current, ...nextMessages]);
+    setInput("");
+    setStreamError(undefined);
+    setStreaming(true);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    try {
+      await streamChat({
+        onChunk: (content) => {
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === assistantId
+                ? { ...message, content: message.content + content }
+                : message,
+            ),
+          );
+        },
+        prompt: normalizedPrompt,
+        session,
+        signal: controller.signal,
+      });
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantId ? { ...message, status: "done" } : message,
+        ),
+      );
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantId ? { ...message, status: "stopped" } : message,
+          ),
+        );
+      } else {
+        const message =
+          error instanceof ChatStreamError ? error.message : "生成失败，请稍后重试";
+        setStreamError(message);
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === assistantId ? { ...item, status: "error" } : item,
+          ),
+        );
+
+        if (error instanceof ChatStreamError && error.status === 401) {
+          logout();
+          router.replace("/login");
+        }
+      }
+    } finally {
+      if (abortControllerRef.current === controller) abortControllerRef.current = null;
+      setStreaming(false);
+    }
+  };
+
+  const retryLastPrompt = () => {
+    const lastUserMessage = messages.findLast((message) => message.role === "user");
+    if (!lastUserMessage) return;
+    setMessages((current) =>
+      current.filter((message) => message.status !== "error"),
+    );
+    void sendPrompt(lastUserMessage.content);
   };
 
   return (
@@ -113,7 +233,7 @@ export function WorkbenchShell() {
           block
           className={styles.newChat}
           icon={Plus}
-          onClick={() => setInput("")}
+          onClick={startNewChat}
           type="primary"
         >
           新建对话
@@ -230,7 +350,8 @@ export function WorkbenchShell() {
         </header>
 
         <div className={styles.content}>
-          <section className={styles.hero}>
+          {messages.length === 0 ? (
+            <section className={styles.hero}>
             <div className={styles.heroGlow} />
             <div className={styles.heroIcon}>
               <Sparkles size={27} strokeWidth={1.9} />
@@ -260,13 +381,69 @@ export function WorkbenchShell() {
                 </button>
               ))}
             </div>
-          </section>
+            </section>
+          ) : (
+            <section className={styles.messageStage} aria-label="对话内容">
+              <div className={styles.messageList}>
+                {messages.map((message) => (
+                  <article
+                    className={`${styles.messageRow} ${
+                      message.role === "user" ? styles.userMessage : styles.assistantMessage
+                    }`}
+                    key={message.id}
+                  >
+                    {message.role === "assistant" && (
+                      <span className={styles.assistantAvatar} aria-hidden="true">
+                        <Sparkles size={17} />
+                      </span>
+                    )}
+                    <div className={styles.messageBody}>
+                      <span className={styles.messageAuthor}>
+                        {message.role === "user" ? "你" : "灵析通用助手"}
+                      </span>
+                      <div
+                        aria-live={message.role === "assistant" ? "polite" : undefined}
+                        className={styles.messageContent}
+                      >
+                        {message.content ||
+                          (message.status === "streaming" ? (
+                            <span className={styles.thinking} aria-label="正在生成回答">
+                              <i />
+                              <i />
+                              <i />
+                            </span>
+                          ) : (
+                            "暂未生成内容"
+                          ))}
+                        {message.status === "streaming" && message.content && (
+                          <span className={styles.streamCaret} aria-hidden="true" />
+                        )}
+                      </div>
+                      {message.status === "stopped" && (
+                        <span className={styles.messageStatus}>已停止生成</span>
+                      )}
+                      {message.status === "error" && (
+                        <div className={styles.messageError} role="alert">
+                          <span>{streamError || "生成失败，请稍后重试"}</span>
+                          <button onClick={retryLastPrompt} type="button">
+                            <RotateCcw size={14} />
+                            重新生成
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                ))}
+                <div ref={messageEndRef} />
+              </div>
+            </section>
+          )}
 
           <div className={styles.composerWrap}>
             <div className={styles.composer}>
               <ChatInputArea.Inner
                 onChange={(event) => setInput(event.target.value)}
-                onSend={() => setInput("")}
+                onSend={() => void sendPrompt(input)}
                 placeholder="向灵析提问，或描述你想完成的工作…"
                 rows={3}
                 value={input}
@@ -276,7 +453,14 @@ export function WorkbenchShell() {
                   <ActionIcon icon={Paperclip} size="small" title="添加附件" />
                   <ActionIcon icon={Boxes} size="small" title="选择知识库" />
                 </div>
-                <span>Enter 发送 · Shift + Enter 换行</span>
+                {streaming ? (
+                  <button className={styles.stopButton} onClick={stopStreaming} type="button">
+                    <CircleStop size={14} />
+                    停止生成
+                  </button>
+                ) : (
+                  <span>Enter 发送 · Shift + Enter 换行</span>
+                )}
               </div>
             </div>
             <p className={styles.disclaimer}>AI 生成内容仅供参考，重要信息请核实。</p>

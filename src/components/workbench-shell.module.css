@@ -438,8 +438,171 @@
   color: #3972da;
 }
 
+.messageStage {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  justify-content: center;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.messageList {
+  width: min(820px, calc(100% - 48px));
+  padding: 34px 0 42px;
+}
+
+.messageRow {
+  display: flex;
+  width: 100%;
+  gap: 12px;
+}
+
+.messageRow + .messageRow {
+  margin-top: 28px;
+}
+
+.assistantAvatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 11px;
+  color: #fff;
+  background: linear-gradient(145deg, #1768ff, #7057f5);
+  box-shadow: 0 7px 18px rgba(43, 103, 246, 0.18);
+  place-items: center;
+}
+
+.messageBody {
+  min-width: 0;
+  max-width: min(700px, calc(100% - 48px));
+}
+
+.messageAuthor {
+  display: block;
+  margin: 1px 0 7px;
+  color: #858b95;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.messageContent {
+  color: #303641;
+  font-size: 14px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.userMessage {
+  justify-content: flex-end;
+}
+
+.userMessage .messageBody {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.userMessage .messageContent {
+  padding: 10px 14px;
+  border-radius: 16px 4px 16px 16px;
+  color: #fff;
+  background: linear-gradient(135deg, #2e72ed, #4d63e8);
+  box-shadow: 0 6px 18px rgba(45, 101, 225, 0.16);
+  line-height: 1.65;
+}
+
+.thinking {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  gap: 4px;
+}
+
+.thinking i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #7d91bb;
+  animation: thinking-pulse 1.2s ease-in-out infinite;
+}
+
+.thinking i:nth-child(2) {
+  animation-delay: 160ms;
+}
+
+.thinking i:nth-child(3) {
+  animation-delay: 320ms;
+}
+
+@keyframes thinking-pulse {
+  50% {
+    opacity: 0.35;
+    transform: translateY(-3px);
+  }
+}
+
+.streamCaret {
+  display: inline-block;
+  width: 2px;
+  height: 15px;
+  margin-left: 3px;
+  border-radius: 2px;
+  vertical-align: -2px;
+  background: #4775d0;
+  animation: stream-caret 0.8s steps(2, end) infinite;
+}
+
+@keyframes stream-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+.messageStatus {
+  display: block;
+  margin-top: 9px;
+  color: #9aa0aa;
+  font-size: 10px;
+}
+
+.messageError {
+  display: flex;
+  align-items: center;
+  margin-top: 10px;
+  gap: 10px;
+  color: #c14f4f;
+  font-size: 11px;
+}
+
+.messageError button,
+.stopButton {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 8px;
+  gap: 5px;
+  border: 1px solid #d8dee9;
+  border-radius: 8px;
+  color: #596475;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.messageError button:hover,
+.stopButton:hover {
+  border-color: #abc3f5;
+  color: #2b64cb;
+  background: #f5f8ff;
+}
+
 .composerWrap {
   width: min(820px, calc(100% - 48px));
+  flex: 0 0 auto;
   padding: 0 0 18px;
 }
 
@@ -465,6 +628,12 @@
 .composerToolbar > div {
   display: flex;
   gap: 2px;
+}
+
+.stopButton {
+  padding: 4px 8px;
+  color: #6d7480;
+  font-size: 10px;
 }
 
 .disclaimer {
@@ -584,6 +753,39 @@
   color: #82aaff;
 }
 
+.shell[data-theme="dark"] .messageAuthor,
+.shell[data-theme="dark"] .messageStatus {
+  color: #7d8592;
+}
+
+.shell[data-theme="dark"] .messageContent {
+  color: #dce1e8;
+}
+
+.shell[data-theme="dark"] .userMessage .messageContent {
+  color: #fff;
+  background: linear-gradient(135deg, #2863cf, #4857c9);
+  box-shadow: 0 7px 20px rgba(0, 0, 0, 0.22);
+}
+
+.shell[data-theme="dark"] .messageError {
+  color: #ef9a9a;
+}
+
+.shell[data-theme="dark"] .messageError button,
+.shell[data-theme="dark"] .stopButton {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #aab2bf;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.shell[data-theme="dark"] .messageError button:hover,
+.shell[data-theme="dark"] .stopButton:hover {
+  border-color: rgba(111, 154, 247, 0.45);
+  color: #8eb2ff;
+  background: rgba(62, 104, 198, 0.14);
+}
+
 .shell[data-theme="dark"] .composer {
   border-color: rgba(255, 255, 255, 0.1);
   background: rgba(22, 26, 34, 0.96);
@@ -639,7 +841,8 @@
   }
 
   .hero,
-  .composerWrap {
+  .composerWrap,
+  .messageList {
     width: min(680px, calc(100% - 28px));
   }
 
@@ -690,5 +893,33 @@
 
   .composerToolbar > span {
     display: none;
+  }
+
+  .messageList {
+    padding-top: 24px;
+  }
+
+  .messageRow + .messageRow {
+    margin-top: 24px;
+  }
+
+  .messageBody {
+    max-width: calc(100% - 46px);
+  }
+
+  .userMessage .messageBody {
+    max-width: 86%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .authLoadingMark,
+  .thinking i,
+  .streamCaret {
+    animation: none;
+  }
+
+  .messageStage {
+    scroll-behavior: auto;
   }
 }
