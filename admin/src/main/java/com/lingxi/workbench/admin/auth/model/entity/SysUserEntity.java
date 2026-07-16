@@ -1,7 +1,5 @@
 package com.lingxi.workbench.admin.auth.model.entity;
 
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.FieldStrategy;
@@ -18,7 +16,6 @@ import java.time.OffsetDateTime;
 @TableName("lingxi_core.sys_user")
 public class SysUserEntity {
 
-    @TableId(type = IdType.AUTO)
     private Long id;
 
     private String username;

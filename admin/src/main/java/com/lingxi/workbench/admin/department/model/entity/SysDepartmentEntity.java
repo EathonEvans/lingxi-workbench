@@ -1,8 +1,6 @@
 package com.lingxi.workbench.admin.department.model.entity;
 
-import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
-import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import lombok.Getter;
@@ -18,7 +16,6 @@ import java.time.OffsetDateTime;
 @TableName("lingxi_core.sys_department")
 public class SysDepartmentEntity {
 
-    @TableId(type = IdType.AUTO)
     private Long id;
     /**
      *上级部门id

@@ -1,13 +1,13 @@
 package com.lingxi.workbench.admin.auth.repo.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.lingxi.workbench.admin.auth.model.entity.SysUserEntity;
+import com.lingxi.workbench.admin.auth.model.request.SysUserPageQuery;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Insert;
-
-import java.util.List;
 
 @Mapper
 public interface SysUserMapper extends BaseMapper<SysUserEntity> {
@@ -27,9 +27,25 @@ public interface SysUserMapper extends BaseMapper<SysUserEntity> {
                    ON application_access.user_id = sys_user.id
             """;
 
-    /** 查询统一账号及其两端访问状态。 */
-    @Select(USER_WITH_ACCESS_SQL + " ORDER BY sys_user.id")
-    List<SysUserEntity> selectUserList();
+    /** 按条件分页查询统一账号及其两端访问状态。 */
+    @Select("""
+            <script>
+            """ + USER_WITH_ACCESS_SQL + """
+            WHERE 1 = 1
+            <if test='query.username != null'>
+                AND sys_user.username ILIKE CONCAT('%', #{query.username}, '%')
+            </if>
+            <if test='query.displayName != null'>
+                AND sys_user.display_name ILIKE CONCAT('%', #{query.displayName}, '%')
+            </if>
+            <if test='query.status != null'>
+                AND sys_user.status = #{query.status}
+            </if>
+            ORDER BY sys_user.id
+            </script>
+            """)
+    IPage<SysUserEntity> selectUserPage(IPage<SysUserEntity> page,
+                                        @Param("query") SysUserPageQuery query);
 
     /** 按用户主键查询账号及其两端访问状态。 */
     @Select(USER_WITH_ACCESS_SQL + " WHERE sys_user.id = #{id}")

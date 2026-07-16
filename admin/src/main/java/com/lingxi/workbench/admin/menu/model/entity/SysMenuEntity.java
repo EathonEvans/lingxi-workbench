@@ -1,8 +1,6 @@
 package com.lingxi.workbench.admin.menu.model.entity;
 
-import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
-import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.menu.common.enums.MenuType;
@@ -19,7 +17,6 @@ import java.time.OffsetDateTime;
 @TableName("lingxi_core.sys_menu")
 public class SysMenuEntity {
 
-    @TableId(type = IdType.AUTO)
     private Long id;
     private Long parentId;
     private String name;

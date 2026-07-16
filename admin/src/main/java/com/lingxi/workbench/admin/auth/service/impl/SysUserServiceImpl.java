@@ -5,12 +5,14 @@ import com.lingxi.workbench.admin.auth.model.bo.SysUserBO;
 import com.lingxi.workbench.admin.auth.model.converter.SysUserConverter;
 import com.lingxi.workbench.admin.auth.model.entity.SysUserEntity;
 import com.lingxi.workbench.admin.auth.model.request.CreateSysUserRequest;
+import com.lingxi.workbench.admin.auth.model.request.SysUserPageQuery;
 import com.lingxi.workbench.admin.auth.model.request.UpdateSysUserRequest;
 import com.lingxi.workbench.admin.auth.model.vo.SysUserVO;
 import com.lingxi.workbench.admin.auth.repo.SysUserRepo;
 import com.lingxi.workbench.admin.auth.service.SysUserService;
 import com.lingxi.workbench.framework.auth.password.PasswordHasher;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
+import com.lingxi.workbench.framework.convention.PageResult;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -31,8 +33,9 @@ public class SysUserServiceImpl implements SysUserService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<SysUserVO> list() {
-        return sysUserRepo.findAll().stream().map(sysUserConverter::toVO).toList();
+    public PageResult<SysUserVO> page(SysUserPageQuery query) {
+        normalizeQuery(query);
+        return sysUserRepo.findPage(query).map(sysUserConverter::toVO);
     }
 
     @Override
@@ -124,5 +127,10 @@ public class SysUserServiceImpl implements SysUserService {
     private static String normalizeEmail(String value) {
         String email = normalizeNullable(value);
         return email == null ? null : email.toLowerCase(Locale.ROOT);
+    }
+
+    private static void normalizeQuery(SysUserPageQuery query) {
+        query.setUsername(normalizeNullable(query.getUsername()));
+        query.setDisplayName(normalizeNullable(query.getDisplayName()));
     }
 }

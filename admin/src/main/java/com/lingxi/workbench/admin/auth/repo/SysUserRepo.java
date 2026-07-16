@@ -1,14 +1,17 @@
 package com.lingxi.workbench.admin.auth.repo;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lingxi.workbench.admin.auth.model.bo.SysUserBO;
 import com.lingxi.workbench.admin.auth.model.converter.SysUserConverter;
 import com.lingxi.workbench.admin.auth.model.entity.SysUserEntity;
+import com.lingxi.workbench.admin.auth.model.request.SysUserPageQuery;
 import com.lingxi.workbench.admin.auth.repo.mapper.SysUserMapper;
+import com.lingxi.workbench.framework.convention.PageResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
-import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -28,12 +31,15 @@ public class SysUserRepo {
                 .map(sysUserConverter::toBO);
     }
 
-    /** 按创建顺序查询全部系统用户。 */
-    public List<SysUserBO> findAll() {
-        return sysUserMapper.selectUserList()
-                .stream()
+    /** 按条件分页查询系统用户及其两端访问状态。 */
+    public PageResult<SysUserBO> findPage(SysUserPageQuery query) {
+        IPage<SysUserEntity> page = sysUserMapper.selectUserPage(
+                new Page<>(query.getCurrent(), query.getSize()), query);
+        var records = page.getRecords().stream()
                 .map(sysUserConverter::toBO)
                 .toList();
+        return new PageResult<>(records, Math.toIntExact(page.getCurrent()),
+                Math.toIntExact(page.getSize()), page.getTotal());
     }
 
     public boolean existsByUsername(String username) {

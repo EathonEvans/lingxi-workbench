@@ -1,0 +1,23 @@
+package com.lingxi.workbench.admin.model.service;
+
+import com.lingxi.workbench.admin.common.enums.EnableStatus;
+import com.lingxi.workbench.admin.model.model.request.SaveModelInstanceRequest;
+import com.lingxi.workbench.admin.model.model.vo.ModelInstanceVO;
+import com.lingxi.workbench.framework.convention.PageQuery;
+import com.lingxi.workbench.framework.convention.PageResult;
+
+/** 模型实例业务。 */
+public interface ModelInstanceService {
+
+    /** 分页查询模型实例。 */
+    PageResult<ModelInstanceVO> page(PageQuery query);
+
+    /** 新增或修改模型实例。 */
+    ModelInstanceVO save(Long id, SaveModelInstanceRequest request, Long operatorId);
+
+    /** 启用或停用模型实例。 */
+    void changeStatus(Long id, EnableStatus status, Long operatorId);
+
+    /** 设置指定模型类型的默认实例。 */
+    void setDefault(Long id, Long operatorId);
+}

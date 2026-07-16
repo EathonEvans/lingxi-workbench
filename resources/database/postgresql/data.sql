@@ -126,6 +126,65 @@ CROSS JOIN (VALUES
 WHERE root.code = 'SYSTEM'
 ON CONFLICT (code) DO NOTHING;
 
+-- 模型管理是与系统管理同级的一级目录，禁止把 Layout 嵌套到系统管理 Layout 中。
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, route_path, component, icon, permission_code, sort_order, visible, status)
+VALUES (NULL, '模型管理', 'SYSTEM_MODEL', 'DIRECTORY', '/model', 'Layout',
+        'ri:brain-line', NULL, 50, TRUE, 'ACTIVE')
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    menu_type = EXCLUDED.menu_type,
+    route_path = EXCLUDED.route_path,
+    component = EXCLUDED.component,
+    icon = EXCLUDED.icon,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = TRUE,
+    status = 'ACTIVE';
+
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, route_path, component, icon, permission_code, sort_order, visible, status)
+SELECT parent.id, page.name, page.code, 'MENU', page.route_path, page.component, page.icon,
+       page.permission_code, page.sort_order, TRUE, 'ACTIVE'
+FROM (VALUES
+    ('供应商管理', 'SYSTEM_MODEL_PROVIDER', '/model/provider', 'system/model/provider/index', 'ri:cloud-line', 'model:provider:list', 10),
+    ('API Key 管理', 'SYSTEM_MODEL_CREDENTIAL', '/model/credential', 'system/model/credential/index', 'ri:key-2-line', 'model:credential:list', 20),
+    ('模型实例管理', 'SYSTEM_MODEL_INSTANCE', '/model/instance', 'system/model/instance/index', 'ri:robot-2-line', 'model:instance:list', 30)
+) AS page(name, code, route_path, component, icon, permission_code, sort_order)
+JOIN lingxi_core.sys_menu parent ON parent.code = 'SYSTEM_MODEL'
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    menu_type = EXCLUDED.menu_type,
+    route_path = EXCLUDED.route_path,
+    component = EXCLUDED.component,
+    icon = EXCLUDED.icon,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = TRUE,
+    status = 'ACTIVE';
+
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, permission_code, sort_order, visible, status)
+SELECT parent.id, action.name, action.code, 'BUTTON', action.permission_code,
+       action.sort_order, FALSE, 'ACTIVE'
+FROM (VALUES
+    ('SYSTEM_MODEL_PROVIDER', '供应商维护', 'SYSTEM_MODEL_PROVIDER_MANAGE', 'model:provider:manage', 10),
+    ('SYSTEM_MODEL_CREDENTIAL', '密钥维护', 'SYSTEM_MODEL_CREDENTIAL_MANAGE', 'model:credential:manage', 10),
+    ('SYSTEM_MODEL_INSTANCE', '模型实例维护', 'SYSTEM_MODEL_INSTANCE_MANAGE', 'model:instance:manage', 10),
+    ('SYSTEM_MODEL_INSTANCE', '设置默认模型', 'SYSTEM_MODEL_INSTANCE_DEFAULT', 'model:instance:default', 20),
+    ('SYSTEM_MODEL_INSTANCE', '模型连通测试', 'SYSTEM_MODEL_INSTANCE_TEST', 'model:instance:test', 30)
+) AS action(parent_code, name, code, permission_code, sort_order)
+JOIN lingxi_core.sys_menu parent ON parent.code = action.parent_code
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = FALSE,
+    status = 'ACTIVE';
+
 -- 页面操作权限，后端接口使用同一 permission_code 进行校验。
 INSERT INTO lingxi_core.sys_menu
     (parent_id, name, code, menu_type, permission_code, sort_order, visible, status)

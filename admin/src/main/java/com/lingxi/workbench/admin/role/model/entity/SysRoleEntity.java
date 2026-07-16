@@ -1,8 +1,6 @@
 package com.lingxi.workbench.admin.role.model.entity;
 
-import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
-import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.role.common.enums.RoleDataScope;
@@ -19,7 +17,6 @@ import java.time.OffsetDateTime;
 @TableName("lingxi_core.sys_role")
 public class SysRoleEntity {
 
-    @TableId(type = IdType.AUTO)
     private Long id;
     private String name;
     private String code;

@@ -2,10 +2,12 @@ package com.lingxi.workbench.admin.auth.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.lingxi.workbench.admin.auth.model.request.CreateSysUserRequest;
+import com.lingxi.workbench.admin.auth.model.request.SysUserPageQuery;
 import com.lingxi.workbench.admin.auth.model.request.UpdateSysUserRequest;
 import com.lingxi.workbench.admin.auth.model.vo.SysUserVO;
 import com.lingxi.workbench.admin.auth.service.SysUserService;
 import com.lingxi.workbench.framework.convention.ApiResponse;
+import com.lingxi.workbench.framework.convention.PageResult;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,8 +17,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-
 /** 系统用户管理 API。 */
 @RestController
 @RequestMapping("/api/v1/sys-users")
@@ -25,11 +25,11 @@ public class SysUserController {
 
     private final SysUserService sysUserService;
 
-    /** 查询全部系统用户。 */
+    /** 按条件分页查询系统用户。 */
     @GetMapping("/list")
     @SaCheckPermission("system:user:list")
-    public ApiResponse<List<SysUserVO>> list() {
-        return ApiResponse.success(sysUserService.list());
+    public ApiResponse<PageResult<SysUserVO>> list(@Valid SysUserPageQuery query) {
+        return ApiResponse.success(sysUserService.page(query));
     }
 
     /** 新增系统用户。 */

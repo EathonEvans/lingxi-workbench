@@ -12,7 +12,7 @@ spring:
     redis:
       host: ${LINGXI_REDIS_HOST:localhost}
       port: ${LINGXI_REDIS_PORT:6379}
-      password: ${LINGXI_REDIS_PASSWORD:}
+      password: ${LINGXI_REDIS_PASSWORD:EthRedis@123}
 sa-token:
   token-name: Authorization
   timeout: 7200
@@ -27,3 +27,7 @@ sa-token:
     exclude-uri:
       - /api/v1/auth/login
       - /error
+
+lingxi:
+  model:
+    credential-master-key: YU1xZXA1T21TTkRlQVl4TkU2Zm5YSGRHd3dINzhVcjQ=
