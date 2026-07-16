@@ -10,6 +10,7 @@ import com.lingxi.workbench.admin.auth.model.request.UpdateSysUserRequest;
 import com.lingxi.workbench.admin.auth.model.vo.SysUserVO;
 import com.lingxi.workbench.admin.auth.repo.SysUserRepo;
 import com.lingxi.workbench.admin.auth.service.SysUserService;
+import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.auth.password.PasswordHasher;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageResult;
@@ -30,6 +31,7 @@ public class SysUserServiceImpl implements SysUserService {
     private final SysUserRepo sysUserRepo;
     private final SysUserConverter sysUserConverter;
     private final PasswordHasher passwordHasher;
+    private final AuditService auditService;
 
     @Override
     @Transactional(readOnly = true)
@@ -60,7 +62,7 @@ public class SysUserServiceImpl implements SysUserService {
         sysUserRepo.insert(entity);
         Long operatorId = SysUserContext.get().id();
         sysUserRepo.saveApplicationAccess(entity.getId(), request.applicationAccessEnabled(), operatorId);
-        sysUserRepo.recordChange(entity.getId(), operatorId, "USER_CREATE",
+        auditService.record("SYSTEM", "USER", entity.getId(), operatorId, "USER_CREATE",
                 "创建账号，应用端访问=" + request.applicationAccessEnabled());
         return requireUserView(entity.getId());
     }
@@ -84,7 +86,7 @@ public class SysUserServiceImpl implements SysUserService {
         sysUserRepo.update(entity);
         Long operatorId = SysUserContext.get().id();
         sysUserRepo.saveApplicationAccess(id, request.applicationAccessEnabled(), operatorId);
-        sysUserRepo.recordChange(id, operatorId, "USER_UPDATE",
+        auditService.record("SYSTEM", "USER", id, operatorId, "USER_UPDATE",
                 "账号状态=" + request.status() + "，应用端访问=" + request.applicationAccessEnabled());
         return requireUserView(id);
     }
@@ -92,7 +94,7 @@ public class SysUserServiceImpl implements SysUserService {
     @Override
     public void recordRoleAssignment(Long userId, Set<Long> roleIds) {
         requireUser(userId);
-        sysUserRepo.recordChange(userId, SysUserContext.get().id(), "SYS_ROLE_ASSIGNMENT",
+        auditService.record("SYSTEM", "USER", userId, SysUserContext.get().id(), "SYS_ROLE_ASSIGNMENT",
                 "管理端角色ID=" + roleIds.stream().sorted().toList());
     }
 

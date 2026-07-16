@@ -74,13 +74,4 @@ public interface SysUserMapper extends BaseMapper<SysUserEntity> {
                                 @Param("enabled") boolean enabled,
                                 @Param("operatorId") Long operatorId);
 
-    @Insert("""
-            INSERT INTO lingxi_audit.sys_user_change_log
-                (target_user_id, operator_user_id, action, change_summary)
-            VALUES (#{targetUserId}, #{operatorUserId}, #{action}, #{summary})
-            """)
-    int insertChangeLog(@Param("targetUserId") Long targetUserId,
-                        @Param("operatorUserId") Long operatorUserId,
-                        @Param("action") String action,
-                        @Param("summary") String summary);
 }

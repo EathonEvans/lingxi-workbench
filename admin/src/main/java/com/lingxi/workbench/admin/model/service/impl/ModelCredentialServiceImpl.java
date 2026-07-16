@@ -8,8 +8,11 @@ import com.lingxi.workbench.admin.model.model.entity.ModelProviderEntity;
 import com.lingxi.workbench.admin.model.model.request.CreateModelCredentialRequest;
 import com.lingxi.workbench.admin.model.model.request.RotateModelCredentialRequest;
 import com.lingxi.workbench.admin.model.model.vo.ModelCredentialVO;
-import com.lingxi.workbench.admin.model.repo.ModelConfigRepo;
+import com.lingxi.workbench.admin.model.repo.ModelCredentialRepo;
+import com.lingxi.workbench.admin.model.repo.ModelInstanceRepo;
+import com.lingxi.workbench.admin.model.repo.ModelProviderRepo;
 import com.lingxi.workbench.admin.model.service.ModelCredentialService;
+import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
@@ -26,19 +29,22 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ModelCredentialServiceImpl implements ModelCredentialService {
 
-    private final ModelConfigRepo repo;
+    private final ModelProviderRepo providerRepo;
+    private final ModelCredentialRepo credentialRepo;
+    private final ModelInstanceRepo instanceRepo;
+    private final AuditService auditService;
     private final ModelCredentialCipher cipher;
 
     @Override
     @Transactional(readOnly = true)
     public PageResult<ModelCredentialVO> page(PageQuery query) {
-        return repo.credentialPage(query).map(this::toVO);
+        return credentialRepo.findPage(query).map(this::toVO);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<ModelCredentialVO> options() {
-        return repo.credentials().stream().map(this::toVO).toList();
+        return credentialRepo.findAll().stream().map(this::toVO).toList();
     }
 
     @Override
@@ -50,7 +56,7 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
         }
 
         String name = request.name().trim();
-        if (repo.credentialNameExists(request.providerId(), name)) {
+        if (credentialRepo.existsByProviderIdAndName(request.providerId(), name)) {
             throw new BusinessException(
                     HttpStatusEnum.CONFLICT, "同一供应商下的密钥名称不能重复");
         }
@@ -70,8 +76,8 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
 
-        repo.saveCredential(entity);
-        repo.audit("CREDENTIAL", entity.getId(), operatorId,
+        credentialRepo.save(entity);
+        auditService.record("MODEL", "CREDENTIAL", entity.getId(), operatorId,
                 "CREDENTIAL_CREATE", "创建密钥=" + name);
         return toVO(entity);
     }
@@ -93,8 +99,8 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
         entity.setUpdatedBy(operatorId);
         entity.setUpdatedAt(now);
 
-        repo.saveCredential(entity);
-        repo.audit("CREDENTIAL", id, operatorId,
+        credentialRepo.save(entity);
+        auditService.record("MODEL", "CREDENTIAL", id, operatorId,
                 "CREDENTIAL_ROTATE", "轮换密钥=" + entity.getName());
     }
 
@@ -105,11 +111,13 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
         if (entity.getStatus() == ModelCredentialStatus.REVOKED) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "已撤销密钥不能再次变更状态");
         }
-        if (status == ModelCredentialStatus.DISABLED && repo.credentialUsedByActiveInstance(id)) {
+        if (status == ModelCredentialStatus.DISABLED
+                && instanceRepo.existsActiveByCredentialId(id)) {
             throw new BusinessException(
                     HttpStatusEnum.CONFLICT, "密钥仍被启用模型使用，请先停用相关模型实例");
         }
-        if (status == ModelCredentialStatus.REVOKED && repo.credentialReferenced(id)) {
+        if (status == ModelCredentialStatus.REVOKED
+                && instanceRepo.existsByCredentialId(id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "密钥仍被模型实例引用，不能撤销");
         }
 
@@ -120,19 +128,19 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
         }
         entity.setUpdatedBy(operatorId);
         entity.setUpdatedAt(OffsetDateTime.now());
-        repo.saveCredential(entity);
-        repo.audit("CREDENTIAL", id, operatorId,
+        credentialRepo.save(entity);
+        auditService.record("MODEL", "CREDENTIAL", id, operatorId,
                 "CREDENTIAL_STATUS_CHANGE", "状态=" + status);
     }
 
     private ModelProviderEntity requireProvider(Long id) {
-        return repo.provider(id)
+        return providerRepo.findById(id)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "模型供应商不存在"));
     }
 
     private ModelCredentialEntity requireCredential(Long id) {
-        return repo.credential(id)
+        return credentialRepo.findById(id)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "模型密钥不存在"));
     }

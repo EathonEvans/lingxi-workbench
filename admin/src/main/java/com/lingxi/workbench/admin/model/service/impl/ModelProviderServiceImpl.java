@@ -4,8 +4,10 @@ import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.model.model.entity.ModelProviderEntity;
 import com.lingxi.workbench.admin.model.model.request.SaveModelProviderRequest;
 import com.lingxi.workbench.admin.model.model.vo.ModelProviderVO;
-import com.lingxi.workbench.admin.model.repo.ModelConfigRepo;
+import com.lingxi.workbench.admin.model.repo.ModelInstanceRepo;
+import com.lingxi.workbench.admin.model.repo.ModelProviderRepo;
 import com.lingxi.workbench.admin.model.service.ModelProviderService;
+import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
@@ -25,18 +27,20 @@ public class ModelProviderServiceImpl implements ModelProviderService {
 
     private static final String OPENAI_COMPATIBLE = "OPENAI_COMPATIBLE";
 
-    private final ModelConfigRepo repo;
+    private final ModelProviderRepo providerRepo;
+    private final ModelInstanceRepo instanceRepo;
+    private final AuditService auditService;
 
     @Override
     @Transactional(readOnly = true)
     public PageResult<ModelProviderVO> page(PageQuery query) {
-        return repo.providerPage(query).map(this::toVO);
+        return providerRepo.findPage(query).map(this::toVO);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<ModelProviderVO> options() {
-        return repo.providers().stream().map(this::toVO).toList();
+        return providerRepo.findAll().stream().map(this::toVO).toList();
     }
 
     @Override
@@ -44,7 +48,7 @@ public class ModelProviderServiceImpl implements ModelProviderService {
     public ModelProviderVO save(
             Long id, SaveModelProviderRequest request, Long operatorId) {
         String code = request.code().trim().toLowerCase();
-        if (repo.providerCodeExists(code, id)) {
+        if (providerRepo.existsByCode(code, id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "供应商编码已存在");
         }
 
@@ -63,8 +67,9 @@ public class ModelProviderServiceImpl implements ModelProviderService {
             entity.setCreatedAt(now);
         }
 
-        repo.saveProvider(entity);
-        repo.audit(
+        providerRepo.save(entity);
+        auditService.record(
+                "MODEL",
                 "PROVIDER",
                 entity.getId(),
                 operatorId,
@@ -77,7 +82,7 @@ public class ModelProviderServiceImpl implements ModelProviderService {
     @Transactional
     public void changeStatus(Long id, EnableStatus status, Long operatorId) {
         ModelProviderEntity entity = requireProvider(id);
-        if (status == EnableStatus.DISABLED && repo.providerHasActiveInstance(id)) {
+        if (status == EnableStatus.DISABLED && instanceRepo.existsActiveByProviderId(id)) {
             throw new BusinessException(
                     HttpStatusEnum.CONFLICT, "供应商仍有关联的启用模型，请先停用相关模型实例");
         }
@@ -85,12 +90,13 @@ public class ModelProviderServiceImpl implements ModelProviderService {
         entity.setStatus(status);
         entity.setUpdatedBy(operatorId);
         entity.setUpdatedAt(OffsetDateTime.now());
-        repo.saveProvider(entity);
-        repo.audit("PROVIDER", id, operatorId, "PROVIDER_STATUS_CHANGE", "状态=" + status);
+        providerRepo.save(entity);
+        auditService.record(
+                "MODEL", "PROVIDER", id, operatorId, "PROVIDER_STATUS_CHANGE", "状态=" + status);
     }
 
     private ModelProviderEntity requireProvider(Long id) {
-        return repo.provider(id)
+        return providerRepo.findById(id)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "模型供应商不存在"));
     }

@@ -3,6 +3,7 @@ package com.lingxi.workbench.framework.persistence;
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusPropertiesCustomizer;
+import com.baomidou.mybatisplus.core.config.GlobalConfig;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import org.springframework.context.annotation.Bean;
@@ -19,7 +20,11 @@ public class MybatisPlusConfiguration {
      */
     @Bean
     public MybatisPlusPropertiesCustomizer autoIncrementIdCustomizer() {
-        return properties -> properties.getGlobalConfig().getDbConfig().setIdType(IdType.AUTO);
+        return properties -> {
+            GlobalConfig globalConfig = properties.getGlobalConfig();
+            globalConfig.getDbConfig().setIdType(IdType.AUTO);
+            globalConfig.setBanner(false);
+        };
     }
 
     /**

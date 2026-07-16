@@ -65,10 +65,6 @@ public class SysUserRepo {
         sysUserMapper.upsertApplicationAccess(userId, enabled, operatorId);
     }
 
-    public void recordChange(Long targetUserId, Long operatorUserId, String action, String summary) {
-        sysUserMapper.insertChangeLog(targetUserId, operatorUserId, action, summary);
-    }
-
     public void insert(SysUserEntity entity) {
         sysUserMapper.insert(entity);
     }

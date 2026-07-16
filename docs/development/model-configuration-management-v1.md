@@ -80,10 +80,10 @@
 
 | 模块 | 职责 |
 | --- | --- |
-| `admin/model` | 供应商、密钥、模型实例的完整 CRUD、业务校验和审计 |
+| `admin/model` | 供应商、密钥、模型实例的完整 CRUD、业务校验和产生审计事件 |
 | `application/model` | 只读查询默认或指定模型，生成最小运行配置投影 |
 | `infra-ai` | 接收运行配置，负责 Spring AI 客户端构建、协议适配和流式调用 |
-| `framework` | 通用 AES-GCM 实现、异常和响应体，不包含模型业务 |
+| `framework` | 通用 AES-GCM 实现、异常、响应体和统一审计持久化，不包含模型业务 |
 
 应用端不复制管理端的完整 Service 和模型对象，只通过一条只读关联查询获得运行所需字段。
 如果以后模型配置需要独立部署，或路由、限流、计费形成复杂共享业务，再将现有代码迁移到独立模块。
@@ -239,9 +239,11 @@ CREATE INDEX idx_ai_model_instance_available
 
 Service 必须校验 `provider_id` 与 `credential.provider_id` 一致，数据库外键只能保证记录存在，不能替代该业务规则。
 
-### 6.4 `ai_model_change_log`
+### 6.4 `operation_log`
 
-仅追加的关键变更审计表，记录：目标类型、目标 ID、操作人、动作、变更摘要、时间。
+全局仅追加的关键变更审计表，位于 `lingxi_audit` Schema，由 framework 的统一审计服务写入。
+记录业务类型、目标类型、目标 ID、操作人、动作、变更摘要和时间。模型业务使用 `MODEL`
+作为业务类型，只负责提供操作语义和脱敏后的摘要，不再单独实现审计 Repo 或 Mapper。
 
 动作建议：
 

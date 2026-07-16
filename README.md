@@ -6,9 +6,9 @@
 
 | 模块 | 作用域 | 是否独立启动 | 依赖 |
 | --- | --- | --- | --- |
-| `framework` | 认证、缓存、数据库、Web、可观测性等通用技术能力 | 否 | 不依赖业务模块 |
+| `framework` | 认证、缓存、数据库、Web、统一审计、可观测性等通用技术能力 | 否 | 不依赖业务模块 |
 | `infra-ai` | 模型、Embedding、Rerank 等 AI 供应商适配 | 否 | `framework` |
-| `admin` | 管理员认证以及用户、角色、权限、菜单、系统配置和审计 | 是，默认 `8081` | `framework` |
+| `admin` | 管理员认证以及用户、角色、权限、菜单、系统配置和审计事件产生 | 是，默认 `8081` | `framework` |
 | `application` | 用户端认证、工作台业务、HTTP/SSE 接口和业务装配 | 是，默认 `8080` | `framework`、`infra-ai` |
 | `mcp-server` | 独立 MCP 协议入口和 MCP Tool 暴露 | 是 | `framework` |
 
@@ -30,7 +30,7 @@ mcp-server -----------------> framework
 ### `framework`
 
 通用技术基础层，包括 Sa-Token 认证授权、Redis 缓存、请求上下文、错误码和通用响应、
-MyBatis-Plus 配置、幂等、可观测性及 Web 基础配置。不放 Workflow、Agent、Prompt、Knowledge
+MyBatis-Plus 配置、统一审计持久化、幂等、可观测性及 Web 基础配置。不放 Workflow、Agent、Prompt、Knowledge
 等业务规则，也不放 AI 供应商适配。
 
 ### `infra-ai`
@@ -40,7 +40,7 @@ AI 技术适配层，负责 Chat Model、Embedding、Rerank、Tokenizer 和供�
 
 ### `admin`
 
-独立管理端服务，负责管理员登录、用户、角色、权限、菜单、部门/组织、系统配置和操作审计，
+独立管理端服务，负责管理员登录、用户、角色、权限、菜单、部门/组织、系统配置和产生操作审计事件，
 使用 Sa-Token `admin` 登录域，默认监听 `8081`。不直接访问 `application` 的 Mapper；需要操作工作台
 业务资源时，通过稳定的内部 API 调用 `application`。
 

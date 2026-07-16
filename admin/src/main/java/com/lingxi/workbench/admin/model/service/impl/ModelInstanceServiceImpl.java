@@ -9,8 +9,11 @@ import com.lingxi.workbench.admin.model.model.entity.ModelInstanceEntity;
 import com.lingxi.workbench.admin.model.model.entity.ModelProviderEntity;
 import com.lingxi.workbench.admin.model.model.request.SaveModelInstanceRequest;
 import com.lingxi.workbench.admin.model.model.vo.ModelInstanceVO;
-import com.lingxi.workbench.admin.model.repo.ModelConfigRepo;
+import com.lingxi.workbench.admin.model.repo.ModelCredentialRepo;
+import com.lingxi.workbench.admin.model.repo.ModelInstanceRepo;
+import com.lingxi.workbench.admin.model.repo.ModelProviderRepo;
 import com.lingxi.workbench.admin.model.service.ModelInstanceService;
+import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
@@ -29,12 +32,15 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
 
     private static final String UNTESTED = "UNTESTED";
 
-    private final ModelConfigRepo repo;
+    private final ModelProviderRepo providerRepo;
+    private final ModelCredentialRepo credentialRepo;
+    private final ModelInstanceRepo instanceRepo;
+    private final AuditService auditService;
 
     @Override
     @Transactional(readOnly = true)
     public PageResult<ModelInstanceVO> page(PageQuery query) {
-        return repo.instancePage(query).map(this::toVO);
+        return instanceRepo.findPage(query).map(this::toVO);
     }
 
     @Override
@@ -51,7 +57,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
         }
 
         String code = request.code().trim().toLowerCase();
-        if (repo.instanceCodeExists(code, id)) {
+        if (instanceRepo.existsByCode(code, id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "模型实例编码已存在");
         }
 
@@ -81,8 +87,9 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
             entity.setLastTestStatus(UNTESTED);
         }
 
-        repo.saveInstance(entity);
-        repo.audit(
+        instanceRepo.save(entity);
+        auditService.record(
+                "MODEL",
                 "INSTANCE",
                 entity.getId(),
                 operatorId,
@@ -108,8 +115,9 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
         entity.setStatus(status);
         entity.setUpdatedBy(operatorId);
         entity.setUpdatedAt(OffsetDateTime.now());
-        repo.saveInstance(entity);
-        repo.audit("INSTANCE", id, operatorId, "MODEL_STATUS_CHANGE", "状态=" + status);
+        instanceRepo.save(entity);
+        auditService.record(
+                "MODEL", "INSTANCE", id, operatorId, "MODEL_STATUS_CHANGE", "状态=" + status);
     }
 
     @Override
@@ -123,12 +131,13 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
                 requireProvider(entity.getProviderId()),
                 requireCredential(entity.getCredentialId()));
 
-        repo.clearDefault(entity.getModelType().name());
+        instanceRepo.clearDefault(entity.getModelType().name());
         entity.setIsDefault(true);
         entity.setUpdatedBy(operatorId);
         entity.setUpdatedAt(OffsetDateTime.now());
-        repo.saveInstance(entity);
-        repo.audit("INSTANCE", id, operatorId, "MODEL_SET_DEFAULT", "设置默认模型");
+        instanceRepo.save(entity);
+        auditService.record(
+                "MODEL", "INSTANCE", id, operatorId, "MODEL_SET_DEFAULT", "设置默认模型");
     }
 
     private static void requireAvailable(
@@ -142,19 +151,19 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
     }
 
     private ModelProviderEntity requireProvider(Long id) {
-        return repo.provider(id)
+        return providerRepo.findById(id)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "模型供应商不存在"));
     }
 
     private ModelCredentialEntity requireCredential(Long id) {
-        return repo.credential(id)
+        return credentialRepo.findById(id)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "模型密钥不存在"));
     }
 
     private ModelInstanceEntity requireInstance(Long id) {
-        return repo.instance(id)
+        return instanceRepo.findById(id)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "模型实例不存在"));
     }
