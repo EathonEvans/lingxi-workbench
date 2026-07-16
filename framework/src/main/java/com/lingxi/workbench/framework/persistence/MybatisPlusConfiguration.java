@@ -6,11 +6,16 @@ import com.baomidou.mybatisplus.autoconfigure.MybatisPlusPropertiesCustomizer;
 import com.baomidou.mybatisplus.core.config.GlobalConfig;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
+import org.apache.ibatis.annotations.Mapper;
+import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /** MyBatis-Plus 全局配置。 */
 @Configuration(proxyBeanMethods = false)
+@ConditionalOnProperty(prefix = "spring.datasource", name = "url")
+@MapperScan(basePackages = "com.lingxi.workbench", annotationClass = Mapper.class)
 public class MybatisPlusConfiguration {
 
     /**

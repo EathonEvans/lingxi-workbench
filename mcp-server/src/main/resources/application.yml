@@ -4,3 +4,7 @@ spring:
 
 server:
   port: ${LINGXI_MCP_SERVER_PORT:8091}
+
+sa-token:
+  extend:
+    login-type: mcp

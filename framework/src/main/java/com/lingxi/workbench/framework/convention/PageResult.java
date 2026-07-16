@@ -1,5 +1,7 @@
 package com.lingxi.workbench.framework.convention;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
+
 import java.util.List;
 import java.util.function.Function;
 
@@ -21,5 +23,14 @@ public record PageResult<T>(List<T> records, int current, int size, long total) 
     /** 在保留分页信息的同时转换当前页数据类型。 */
     public <R> PageResult<R> map(Function<T, R> converter) {
         return new PageResult<>(records.stream().map(converter).toList(), current, size, total);
+    }
+
+
+    public static <T> PageResult<T> convert(IPage<T> page) {
+        return new PageResult<>(
+                page.getRecords(),
+                Math.toIntExact(page.getCurrent()),
+                Math.toIntExact(page.getSize()),
+                page.getTotal());
     }
 }

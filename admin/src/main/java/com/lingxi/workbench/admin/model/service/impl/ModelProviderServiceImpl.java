@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.model.service.impl;
 
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
+import com.lingxi.workbench.admin.model.model.converter.ModelConverter;
 import com.lingxi.workbench.admin.model.model.entity.ModelProviderEntity;
 import com.lingxi.workbench.admin.model.model.request.SaveModelProviderRequest;
 import com.lingxi.workbench.admin.model.model.vo.ModelProviderVO;
@@ -30,17 +31,18 @@ public class ModelProviderServiceImpl implements ModelProviderService {
     private final ModelProviderRepo providerRepo;
     private final ModelInstanceRepo instanceRepo;
     private final AuditService auditService;
+    private final ModelConverter modelConverter;
 
     @Override
     @Transactional(readOnly = true)
     public PageResult<ModelProviderVO> page(PageQuery query) {
-        return providerRepo.findPage(query).map(this::toVO);
+        return providerRepo.findPage(query).map(modelConverter::toProviderVO);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<ModelProviderVO> options() {
-        return providerRepo.findAll().stream().map(this::toVO).toList();
+        return providerRepo.findAll().stream().map(modelConverter::toProviderVO).toList();
     }
 
     @Override
@@ -75,7 +77,7 @@ public class ModelProviderServiceImpl implements ModelProviderService {
                 operatorId,
                 id == null ? "PROVIDER_CREATE" : "PROVIDER_UPDATE",
                 "供应商=" + code);
-        return toVO(entity);
+        return modelConverter.toProviderVO(entity);
     }
 
     @Override
@@ -99,18 +101,6 @@ public class ModelProviderServiceImpl implements ModelProviderService {
         return providerRepo.findById(id)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "模型供应商不存在"));
-    }
-
-    private ModelProviderVO toVO(ModelProviderEntity entity) {
-        return new ModelProviderVO(
-                String.valueOf(entity.getId()),
-                entity.getName(),
-                entity.getCode(),
-                entity.getProtocol(),
-                entity.getBaseUrl(),
-                entity.getStatus(),
-                entity.getRemark(),
-                entity.getUpdatedAt());
     }
 
     private static String normalizeUrl(String value) {

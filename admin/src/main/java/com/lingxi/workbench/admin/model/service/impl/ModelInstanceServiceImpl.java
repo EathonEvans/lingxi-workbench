@@ -4,6 +4,7 @@ import com.alibaba.fastjson2.JSON;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelCredentialStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
+import com.lingxi.workbench.admin.model.model.converter.ModelConverter;
 import com.lingxi.workbench.admin.model.model.entity.ModelCredentialEntity;
 import com.lingxi.workbench.admin.model.model.entity.ModelInstanceEntity;
 import com.lingxi.workbench.admin.model.model.entity.ModelProviderEntity;
@@ -36,11 +37,12 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
     private final ModelCredentialRepo credentialRepo;
     private final ModelInstanceRepo instanceRepo;
     private final AuditService auditService;
+    private final ModelConverter modelConverter;
 
     @Override
     @Transactional(readOnly = true)
     public PageResult<ModelInstanceVO> page(PageQuery query) {
-        return instanceRepo.findPage(query).map(this::toVO);
+        return instanceRepo.findPage(query).map(modelConverter::toInstanceVO);
     }
 
     @Override
@@ -95,7 +97,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
                 operatorId,
                 id == null ? "MODEL_CREATE" : "MODEL_UPDATE",
                 "模型实例=" + code);
-        return toVO(entity);
+        return modelConverter.toInstanceVO(entity);
     }
 
     @Override
@@ -168,34 +170,8 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
                         HttpStatusEnum.NOT_FOUND, "模型实例不存在"));
     }
 
-    private ModelInstanceVO toVO(ModelInstanceEntity entity) {
-        return new ModelInstanceVO(
-                String.valueOf(entity.getId()),
-                String.valueOf(entity.getProviderId()),
-                String.valueOf(entity.getCredentialId()),
-                entity.getName(),
-                entity.getCode(),
-                entity.getModelCode(),
-                entity.getModelType().name(),
-                parseJsonArray(entity.getCapabilities()),
-                entity.getTemperature(),
-                entity.getTopP(),
-                entity.getMaxTokens(),
-                entity.getContextWindow(),
-                parseJsonArray(entity.getStopSequences()),
-                entity.getTimeoutSeconds(),
-                entity.getMaxRetries(),
-                entity.getIsDefault(),
-                entity.getStatus(),
-                entity.getLastTestStatus(),
-                entity.getUpdatedAt());
-    }
-
     private static String toJson(List<String> values) {
         return JSON.toJSONString(values == null ? List.of() : values);
     }
 
-    private static List<String> parseJsonArray(String value) {
-        return value == null ? List.of() : JSON.parseArray(value, String.class);
-    }
 }

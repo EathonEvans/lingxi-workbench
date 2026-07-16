@@ -2,6 +2,7 @@ package com.lingxi.workbench.framework.audit;
 
 import com.lingxi.workbench.framework.audit.mapper.AuditLogMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 /**
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
  * 避免通用审计能力反向依赖某个业务领域。</p>
  */
 @Service
+@ConditionalOnProperty(prefix = "spring.datasource", name = "url")
 @RequiredArgsConstructor
 public class AuditService {
 

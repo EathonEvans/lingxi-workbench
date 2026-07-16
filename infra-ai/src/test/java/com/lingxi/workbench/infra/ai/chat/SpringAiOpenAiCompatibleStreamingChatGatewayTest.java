@@ -16,24 +16,31 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class SpringAiDeepSeekStreamingChatGatewayTest {
+class SpringAiOpenAiCompatibleStreamingChatGatewayTest {
 
     @Test
-    void shouldConvertSpringAiResponsesToNonEmptyChunks() {
+    void shouldUseRuntimeModelAndConvertNonEmptyChunks() {
+        ChatModelRuntimeConfig config = config();
         OpenAiChatModel chatModel = mock(OpenAiChatModel.class);
         when(chatModel.stream(any(Prompt.class))).thenReturn(Flux.just(
-                response("你"),
-                response(""),
-                response("好")
-        ));
-        SpringAiDeepSeekStreamingChatGateway gateway = new SpringAiDeepSeekStreamingChatGateway(chatModel);
+                response("你"), response(""), response("好")));
+        OpenAiCompatibleChatModelFactory factory = mock(OpenAiCompatibleChatModelFactory.class);
+        when(factory.create(config)).thenReturn(chatModel);
+        var gateway = new SpringAiOpenAiCompatibleStreamingChatGateway(factory);
 
-        List<ChatStreamChunk> chunks = gateway.stream(new ChatStreamCommand("你好"))
+        List<ChatStreamChunk> chunks = gateway.stream(new ChatStreamCommand("你好", config))
                 .collectList()
                 .block();
 
         assertEquals(List.of(new ChatStreamChunk("你"), new ChatStreamChunk("好")), chunks);
+        verify(factory).create(config);
         verify(chatModel).stream(any(Prompt.class));
+    }
+
+    private static ChatModelRuntimeConfig config() {
+        return new ChatModelRuntimeConfig(
+                1L, "https://api.deepseek.com", "secret", "deepseek-chat",
+                0.7, null, 1024, List.of(), 60, 1);
     }
 
     private static ChatResponse response(String content) {

@@ -1,0 +1,35 @@
+package com.lingxi.workbench.admin.model.model.converter;
+
+import com.lingxi.workbench.admin.model.common.enums.ModelType;
+import com.lingxi.workbench.admin.model.model.entity.ModelInstanceEntity;
+import org.junit.jupiter.api.Test;
+import org.mapstruct.factory.Mappers;
+
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+class ModelConverterTest {
+
+    private final ModelConverter converter = Mappers.getMapper(ModelConverter.class);
+
+    @Test
+    void shouldConvertLargeIdsAndJsonArraysWithoutLosingInformation() {
+        ModelInstanceEntity entity = new ModelInstanceEntity();
+        entity.setId(2077574496283791361L);
+        entity.setProviderId(2077574496283791362L);
+        entity.setCredentialId(2077574496283791363L);
+        entity.setModelType(ModelType.CHAT);
+        entity.setCapabilities("[\"STREAMING\",\"TOOL_CALLING\"]");
+        entity.setStopSequences("[\"END\"]");
+
+        var result = converter.toInstanceVO(entity);
+
+        assertEquals("2077574496283791361", result.id());
+        assertEquals("2077574496283791362", result.providerId());
+        assertEquals("2077574496283791363", result.credentialId());
+        assertEquals("CHAT", result.modelType());
+        assertEquals(List.of("STREAMING", "TOOL_CALLING"), result.capabilities());
+        assertEquals(List.of("END"), result.stopSequences());
+    }
+}

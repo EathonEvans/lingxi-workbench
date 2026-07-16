@@ -1,13 +1,14 @@
 # 管理端模型配置管理 V1 开发设计
 
-> 状态：评审稿，确认后再进入代码开发  
+> 状态：第一版已实现
 > 适用范围：`lingxi-workbench-server`、`lingxi-workbench-admin`、`lingxi-workbench-web`  
 > 当前约束：单租户、公司内部使用、PostgreSQL、Spring AI 2.0、管理端完全控制配置
 
 ## 1. 背景
 
-当前应用端通过 `application.yml` 固定配置 DeepSeek 的 Base URL、API Key、模型编码和默认参数，
-`infra-ai` 中的 `SpringAiDeepSeekStreamingChatGateway` 直接注入唯一的 `OpenAiChatModel`。
+改造前应用端通过 `application.yml` 固定配置 DeepSeek 的 Base URL、API Key、模型编码和默认参数，
+`infra-ai` 直接注入唯一的 `OpenAiChatModel`。第一版已经改为由 application 读取数据库默认模型，
+并将运行配置交给 infra-ai 动态创建 OpenAI 兼容协议客户端。
 
 这种方式可以验证第一条流式对话链路，但不能满足后续需求：
 
@@ -188,7 +189,7 @@ infra-ai/src/main/java/com/lingxi/workbench/infra/ai
 
 约束：同一供应商下密钥名称唯一；`REVOKED` 状态必须清空密文和 IV。
 
-主密钥通过环境变量 `LINGXI_MODEL_CREDENTIAL_MASTER_KEY` 注入，要求为 Base64 编码的 32 字节随机值。
+主密钥通过环境变量 `LINGXI_SECRET_MASTER_KEY` 注入，要求为 Base64 编码的 32 字节随机值。
 主密钥不得放入数据库、配置文件、日志或接口响应。
 
 ### 6.3 `ai_model_instance`
@@ -369,13 +370,10 @@ modelInstanceId + instanceUpdatedAt + credentialUpdatedAt
 
 配置或密钥发生变化后缓存键自然失效。缓存数量设置上限，禁止将 API Key 作为缓存键或打印到日志。
 
-### 9.2 过渡策略
+### 9.2 配置缺失处理
 
-第一阶段保留环境变量配置作为兜底：
-
-1. 数据库存在可用默认 Chat 实例时，优先使用数据库配置；
-2. 不存在时使用当前环境变量配置，并输出一次不包含密钥的警告日志；
-3. 管理端配置链路稳定后，删除环境变量模型兜底，只保留凭证主密钥。
+应用端不再保留固定模型环境变量兜底。数据库不存在可用默认 Chat 实例时，本次对话直接失败并返回
+统一的模型不可用事件，避免管理端已经停用模型后请求仍绕过配置继续调用供应商。
 
 ## 10. 连通性测试
 
@@ -434,7 +432,7 @@ modelInstanceId + instanceUpdatedAt + credentialUpdatedAt
 - 默认模型唯一性和并发设置；
 - 停用供应商、密钥、实例后的调用阻断；
 - 连通性测试成功和各类错误映射；
-- 数据库默认模型与环境变量兜底；
+- 数据库默认模型缺失和不可用状态；
 - 日志与审计脱敏；
 - Controller 权限注解和动作可读接口命名。
 

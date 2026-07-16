@@ -26,13 +26,13 @@ public class ModelCredentialRepo {
                 new Page<>(query.getCurrent(), query.getSize()),
                 Wrappers.<ModelCredentialEntity>lambdaQuery()
                         .orderByAsc(ModelCredentialEntity::getId));
-        return toPageResult(page);
+        return PageResult.convert(page);
+
     }
 
     /** 查询全部模型访问密钥，供模型实例选择。 */
     public List<ModelCredentialEntity> findAll() {
-        return mapper.selectList(Wrappers.<ModelCredentialEntity>lambdaQuery()
-                .orderByAsc(ModelCredentialEntity::getId));
+        return mapper.selectList(Wrappers.<ModelCredentialEntity>lambdaQuery().orderByAsc(ModelCredentialEntity::getId));
     }
 
     public Optional<ModelCredentialEntity> findById(Long id) {
@@ -53,11 +53,4 @@ public class ModelCredentialRepo {
         }
     }
 
-    private static <T> PageResult<T> toPageResult(IPage<T> page) {
-        return new PageResult<>(
-                page.getRecords(),
-                Math.toIntExact(page.getCurrent()),
-                Math.toIntExact(page.getSize()),
-                page.getTotal());
-    }
 }

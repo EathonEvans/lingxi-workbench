@@ -29,5 +29,5 @@ sa-token:
       - /error
 
 lingxi:
-  model:
-    credential-master-key: YU1xZXA1T21TTkRlQVl4TkU2Zm5YSGRHd3dINzhVcjQ=
+  security:
+    secret-master-key: YU1xZXA1T21TTkRlQVl4TkU2Zm5YSGRHd3dINzhVcjQ=

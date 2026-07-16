@@ -2,7 +2,7 @@ package com.lingxi.workbench.admin.model.service.impl;
 
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelCredentialStatus;
-import com.lingxi.workbench.admin.model.crypto.ModelCredentialCipher;
+import com.lingxi.workbench.admin.model.model.converter.ModelConverter;
 import com.lingxi.workbench.admin.model.model.entity.ModelCredentialEntity;
 import com.lingxi.workbench.admin.model.model.entity.ModelProviderEntity;
 import com.lingxi.workbench.admin.model.model.request.CreateModelCredentialRequest;
@@ -17,6 +17,7 @@ import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.framework.security.SecretCipher;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,18 +34,19 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
     private final ModelCredentialRepo credentialRepo;
     private final ModelInstanceRepo instanceRepo;
     private final AuditService auditService;
-    private final ModelCredentialCipher cipher;
+    private final SecretCipher cipher;
+    private final ModelConverter modelConverter;
 
     @Override
     @Transactional(readOnly = true)
     public PageResult<ModelCredentialVO> page(PageQuery query) {
-        return credentialRepo.findPage(query).map(this::toVO);
+        return credentialRepo.findPage(query).map(modelConverter::toCredentialVO);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<ModelCredentialVO> options() {
-        return credentialRepo.findAll().stream().map(this::toVO).toList();
+        return credentialRepo.findAll().stream().map(modelConverter::toCredentialVO).toList();
     }
 
     @Override
@@ -62,7 +64,7 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
         }
 
         OffsetDateTime now = OffsetDateTime.now();
-        ModelCredentialCipher.EncryptedSecret encrypted = cipher.encrypt(request.apiKey().trim());
+        SecretCipher.EncryptedSecret encrypted = cipher.encrypt(request.apiKey().trim());
         ModelCredentialEntity entity = new ModelCredentialEntity();
         entity.setProviderId(request.providerId());
         entity.setName(name);
@@ -79,7 +81,7 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
         credentialRepo.save(entity);
         auditService.record("MODEL", "CREDENTIAL", entity.getId(), operatorId,
                 "CREDENTIAL_CREATE", "创建密钥=" + name);
-        return toVO(entity);
+        return modelConverter.toCredentialVO(entity);
     }
 
     @Override
@@ -91,7 +93,7 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
         }
 
         OffsetDateTime now = OffsetDateTime.now();
-        ModelCredentialCipher.EncryptedSecret encrypted = cipher.encrypt(request.apiKey().trim());
+        SecretCipher.EncryptedSecret encrypted = cipher.encrypt(request.apiKey().trim());
         entity.setSecretCiphertext(encrypted.ciphertext());
         entity.setSecretIv(encrypted.iv());
         entity.setSecretHint(secretHint(request.apiKey()));
@@ -143,17 +145,6 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
         return credentialRepo.findById(id)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "模型密钥不存在"));
-    }
-
-    private ModelCredentialVO toVO(ModelCredentialEntity entity) {
-        return new ModelCredentialVO(
-                String.valueOf(entity.getId()),
-                String.valueOf(entity.getProviderId()),
-                entity.getName(),
-                entity.getSecretHint(),
-                entity.getStatus(),
-                entity.getRotatedAt(),
-                entity.getUpdatedAt());
     }
 
     private static String secretHint(String value) {

@@ -26,7 +26,7 @@ public class ModelProviderRepo {
                 new Page<>(query.getCurrent(), query.getSize()),
                 Wrappers.<ModelProviderEntity>lambdaQuery()
                         .orderByAsc(ModelProviderEntity::getId));
-        return toPageResult(page);
+        return PageResult.convert(page);
     }
 
     /** 查询全部模型供应商，供关联配置选择。 */
@@ -53,11 +53,4 @@ public class ModelProviderRepo {
         }
     }
 
-    private static <T> PageResult<T> toPageResult(IPage<T> page) {
-        return new PageResult<>(
-                page.getRecords(),
-                Math.toIntExact(page.getCurrent()),
-                Math.toIntExact(page.getSize()),
-                page.getTotal());
-    }
 }

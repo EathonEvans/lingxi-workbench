@@ -25,7 +25,7 @@ public class ModelInstanceRepo {
                 new Page<>(query.getCurrent(), query.getSize()),
                 Wrappers.<ModelInstanceEntity>lambdaQuery()
                         .orderByAsc(ModelInstanceEntity::getId));
-        return toPageResult(page);
+        return PageResult.convert(page);
     }
 
     public Optional<ModelInstanceEntity> findById(Long id) {
@@ -67,11 +67,4 @@ public class ModelInstanceRepo {
         mapper.clearDefault(type);
     }
 
-    private static <T> PageResult<T> toPageResult(IPage<T> page) {
-        return new PageResult<>(
-                page.getRecords(),
-                Math.toIntExact(page.getCurrent()),
-                Math.toIntExact(page.getSize()),
-                page.getTotal());
-    }
 }

@@ -28,7 +28,7 @@ public class ChatStreamController {
     private final ChatStreamService chatStreamService;
 
     /**
-     * 调用 DeepSeek 并以 SSE 形式返回增量内容。
+     * 调用管理端配置的默认对话模型，并以 SSE 形式返回增量内容。
      *
      * @param request 对话请求
      * @return SSE 事件流
