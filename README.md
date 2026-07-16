@@ -69,3 +69,8 @@ Controller 中不得放业务编排、事务逻辑或直接访问 Repo、Mapper�
 
 本地依赖通过 `resources/docker/compose.yml` 启动，配置请从 `.env.example` 复制。两个业务服务默认连接
 同一个 PostgreSQL 实例，但提供独立的连接环境变量，后续拆分数据库时无需修改配置结构。
+
+## Development Notes
+
+- [SSE 真实流式传输问题记录](docs/development/sse-streaming-transport.md)
+- [管理端模型配置管理 V1 开发设计](docs/development/model-configuration-management-v1.md)

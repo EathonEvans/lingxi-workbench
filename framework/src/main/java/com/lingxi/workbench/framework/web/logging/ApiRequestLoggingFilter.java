@@ -11,6 +11,7 @@ import jakarta.servlet.WriteListener;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpServletResponseWrapper;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -38,9 +39,9 @@ import java.util.concurrent.atomic.AtomicReference;
  * <p>响应包装器采用透传采样而不是缓存整个响应，避免阻塞 SSE 等流式响应。
  * 日志内容有长度上限，并对凭证、Prompt 和工具参数等敏感字段脱敏。</p>
  */
+@Slf4j
 public class ApiRequestLoggingFilter extends OncePerRequestFilter {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(ApiRequestLoggingFilter.class);
     private static final int MAX_CACHED_PAYLOAD_BYTES = 64 * 1024;
     private static final int MAX_LOG_CONTENT_CHARS = 16 * 1024;
     private static final String MASKED_VALUE = "******";
@@ -53,7 +54,7 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        if (!LOGGER.isInfoEnabled()) {
+        if (!log.isInfoEnabled()) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -128,7 +129,7 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
         String result = failure == null
                 ? readResponseResult(response)
                 : "异常：" + failure.getClass().getSimpleName();
-        LOGGER.info("请求接口地址 uri：{} - 请求参数：{} - 处理结果：{} - 耗时：{}ms",
+        log.info("请求接口地址 uri：{} - 请求参数：{} - 处理结果：{} - 耗时：{}ms",
                 request.getRequestURI(), readRequestParameters(request), result, elapsedMillis);
     }
 

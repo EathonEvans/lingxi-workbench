@@ -1,11 +1,13 @@
 package com.lingxi.workbench.admin.model.model.entity;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
+import com.lingxi.workbench.admin.model.common.enums.ModelConnectionTestStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import com.lingxi.workbench.admin.model.repo.typehandler.JsonbStringTypeHandler;
-import com.baomidou.mybatisplus.annotation.TableField;
 import lombok.Data;
+
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
@@ -32,7 +34,7 @@ public class ModelInstanceEntity {
     private Integer maxRetries;
     private Boolean isDefault;
     private EnableStatus status;
-    private String lastTestStatus;
+    private ModelConnectionTestStatus lastTestStatus;
     private Integer lastTestLatencyMs;
     private String lastTestErrorCode;
     private String lastTestMessage;

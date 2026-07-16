@@ -3,7 +3,9 @@ package com.lingxi.workbench.admin.model.service.impl;
 import com.alibaba.fastjson2.JSON;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelCredentialStatus;
+import com.lingxi.workbench.admin.model.common.enums.ModelConnectionTestStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
+import com.lingxi.workbench.admin.model.model.bo.ModelConnectionTestResult;
 import com.lingxi.workbench.admin.model.model.converter.ModelConverter;
 import com.lingxi.workbench.admin.model.model.entity.ModelCredentialEntity;
 import com.lingxi.workbench.admin.model.model.entity.ModelInstanceEntity;
@@ -14,11 +16,13 @@ import com.lingxi.workbench.admin.model.repo.ModelCredentialRepo;
 import com.lingxi.workbench.admin.model.repo.ModelInstanceRepo;
 import com.lingxi.workbench.admin.model.repo.ModelProviderRepo;
 import com.lingxi.workbench.admin.model.service.ModelInstanceService;
+import com.lingxi.workbench.admin.model.service.ModelConnectionTester;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.framework.security.SecretCipher;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,12 +35,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ModelInstanceServiceImpl implements ModelInstanceService {
 
-    private static final String UNTESTED = "UNTESTED";
-
     private final ModelProviderRepo providerRepo;
     private final ModelCredentialRepo credentialRepo;
     private final ModelInstanceRepo instanceRepo;
     private final AuditService auditService;
+    private final SecretCipher cipher;
+    private final ModelConnectionTester connectionTester;
     private final ModelConverter modelConverter;
 
     @Override
@@ -86,7 +90,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
             entity.setCreatedBy(operatorId);
             entity.setCreatedAt(now);
             entity.setIsDefault(false);
-            entity.setLastTestStatus(UNTESTED);
+            entity.setLastTestStatus(ModelConnectionTestStatus.UNTESTED);
         }
 
         instanceRepo.save(entity);
@@ -140,6 +144,47 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
         instanceRepo.save(entity);
         auditService.record(
                 "MODEL", "INSTANCE", id, operatorId, "MODEL_SET_DEFAULT", "设置默认模型");
+    }
+
+    @Override
+    public ModelInstanceVO testConnection(Long id, Long operatorId) {
+        ModelInstanceEntity entity = requireInstance(id);
+        ModelProviderEntity provider = requireProvider(entity.getProviderId());
+        ModelCredentialEntity credential = requireCredential(entity.getCredentialId());
+        requireAvailable(provider, credential);
+
+        ModelConnectionTestResult result;
+        try {
+            String apiKey = cipher.decrypt(
+                    credential.getSecretCiphertext(), credential.getSecretIv());
+            result = connectionTester.test(
+                    provider.getProtocol(),
+                    provider.getBaseUrl(),
+                    apiKey,
+                    entity.getModelCode(),
+                    entity.getTimeoutSeconds());
+        } catch (IllegalStateException exception) {
+            result = ModelConnectionTestResult.failed(
+                    0, "CREDENTIAL_ERROR", "模型密钥解密失败，请检查服务端主密钥配置");
+        }
+
+        OffsetDateTime now = OffsetDateTime.now();
+        entity.setLastTestStatus(result.status());
+        entity.setLastTestLatencyMs(result.latencyMs());
+        entity.setLastTestErrorCode(result.errorCode());
+        entity.setLastTestMessage(result.message());
+        entity.setLastTestAt(now);
+        entity.setUpdatedBy(operatorId);
+        entity.setUpdatedAt(now);
+        instanceRepo.save(entity);
+        auditService.record(
+                "MODEL",
+                "INSTANCE",
+                id,
+                operatorId,
+                "MODEL_CONNECTION_TEST",
+                "测试状态=" + result.status() + ", 耗时=" + result.latencyMs() + "ms");
+        return modelConverter.toInstanceVO(entity);
     }
 
     private static void requireAvailable(

@@ -20,4 +20,7 @@ public interface ModelInstanceService {
 
     /** 设置指定模型类型的默认实例。 */
     void setDefault(Long id, Long operatorId);
+
+    /** 使用当前供应商、密钥和模型配置执行真实连通性测试。 */
+    ModelInstanceVO testConnection(Long id, Long operatorId);
 }

@@ -26,4 +26,8 @@ public record ModelInstanceVO(
         Boolean isDefault,
         EnableStatus status,
         String lastTestStatus,
+        Integer lastTestLatencyMs,
+        String lastTestErrorCode,
+        String lastTestMessage,
+        OffsetDateTime lastTestAt,
         OffsetDateTime updatedAt) {}

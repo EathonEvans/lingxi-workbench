@@ -62,6 +62,13 @@ public class ModelInstanceController {
         return ApiResponse.success();
     }
 
+    /** 使用实例当前配置调用供应商接口并记录连通性测试结果。 */
+    @PostMapping("/test-connection/{id}")
+    @SaCheckPermission("model:instance:test")
+    public ApiResponse<ModelInstanceVO> testConnection(@PathVariable Long id) {
+        return ApiResponse.success(service.testConnection(id, operatorId()));
+    }
+
     private Long operatorId() {
         return SysUserContext.get().id();
     }
