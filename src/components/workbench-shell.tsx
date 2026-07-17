@@ -2,7 +2,9 @@
 
 import { ActionIcon, Avatar, Button, Markdown, Tag } from "@lobehub/ui";
 import { ChatInputArea } from "@lobehub/ui/chat";
+import { Drawer, Dropdown, Empty, Input, Spin } from "antd";
 import {
+  Archive,
   ArrowUp,
   Bot,
   Boxes,
@@ -17,7 +19,6 @@ import {
   Moon,
   MoreHorizontal,
   Paperclip,
-  PenLine,
   Plus,
   RotateCcw,
   Search,
@@ -25,21 +26,29 @@ import {
   Sparkles,
   Square,
   Sun,
+  Trash2,
   WandSparkles,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ChatStreamError, streamChat } from "@/lib/chat";
+import {
+  archiveConversation,
+  cancelChat,
+  ChatStreamError,
+  createConversation,
+  deleteConversation,
+  type Conversation,
+  type ConversationMessage,
+  listConversationMessages,
+  listConversations,
+  renameConversation,
+  resumeChat,
+  streamChat,
+} from "@/lib/chat";
 import { normalizeMarkdownTables } from "@/lib/markdown";
 import { useAuth } from "./auth-provider";
 import { useThemeMode } from "./app-provider";
 import styles from "./workbench-shell.module.css";
-
-const conversations = [
-  { icon: FileSearch, title: "分析本季度经营数据", time: "刚刚" },
-  { icon: PenLine, title: "优化产品需求文档", time: "昨天" },
-  { icon: FolderKanban, title: "梳理项目实施计划", time: "周一" },
-];
 
 const suggestions = [
   {
@@ -66,13 +75,81 @@ const suggestions = [
 
 type ChatMessage = {
   content: string;
+  errorMessage?: string;
   id: string;
   role: "assistant" | "user";
   status?: "done" | "error" | "stopped" | "streaming";
 };
 
+type PendingGeneration = {
+  answer: string;
+  assistantMessageId: string;
+  conversationId: string;
+  lastSequence: number;
+  prompt: string;
+  userMessageId: string;
+};
+
+const PENDING_GENERATION_KEY = "lingxi-pending-generation";
+
+function readPendingGeneration(): PendingGeneration | undefined {
+  try {
+    const value = sessionStorage.getItem(PENDING_GENERATION_KEY);
+    return value ? (JSON.parse(value) as PendingGeneration) : undefined;
+  } catch {
+    sessionStorage.removeItem(PENDING_GENERATION_KEY);
+    return undefined;
+  }
+}
+
+function savePendingGeneration(value: PendingGeneration) {
+  sessionStorage.setItem(PENDING_GENERATION_KEY, JSON.stringify(value));
+}
+
+function clearPendingGeneration() {
+  sessionStorage.removeItem(PENDING_GENERATION_KEY);
+}
+
 function createMessageId(role: ChatMessage["role"]) {
   return `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function toChatMessage(message: ConversationMessage): ChatMessage | undefined {
+  if (message.role === "SYSTEM") return undefined;
+  const status: ChatMessage["status"] =
+    message.status === "COMPLETED"
+      ? "done"
+      : message.status === "FAILED"
+        ? "error"
+        : message.status === "GENERATING"
+          ? "streaming"
+          : "stopped";
+  return {
+    content: message.content,
+    errorMessage: message.errorMessage,
+    id: message.id,
+    role: message.role === "USER" ? "user" : "assistant",
+    status,
+  };
+}
+
+function formatConversationTime(value?: string) {
+  if (!value) return "暂无消息";
+  const time = new Date(value);
+  const now = new Date();
+  const difference = now.getTime() - time.getTime();
+  if (difference >= 0 && difference < 60_000) return "刚刚";
+  if (difference >= 0 && difference < 3_600_000) {
+    return `${Math.max(1, Math.floor(difference / 60_000))} 分钟前`;
+  }
+  if (time.toDateString() === now.toDateString()) {
+    return time.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  }
+  return time.toLocaleDateString("zh-CN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: time.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
 }
 
 export function WorkbenchShell() {
@@ -80,12 +157,31 @@ export function WorkbenchShell() {
   const { logout, ready, session } = useAuth();
   const { appearance, toggleAppearance } = useThemeMode();
   const [input, setInput] = useState("");
+  const [conversationId, setConversationId] = useState<string>();
+  const [conversationStatus, setConversationStatus] = useState<Conversation["status"]>();
+  const [recentConversations, setRecentConversations] = useState<Conversation[]>([]);
+  const [conversationLoading, setConversationLoading] = useState(true);
+  const [historyConversations, setHistoryConversations] = useState<Conversation[]>([]);
+  const [historyCurrent, setHistoryCurrent] = useState(1);
+  const [historyKeyword, setHistoryKeyword] = useState("");
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [messageCurrent, setMessageCurrent] = useState(1);
+  const [messageLoading, setMessageLoading] = useState(false);
+  const [messageTotal, setMessageTotal] = useState(0);
+  const [renamingId, setRenamingId] = useState<string>();
+  const [renamingTitle, setRenamingTitle] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [resumeAvailable, setResumeAvailable] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [streamError, setStreamError] = useState<string>();
   const [streaming, setStreaming] = useState(false);
+  const activeAssistantIdRef = useRef<string | undefined>(undefined);
   const abortControllerRef = useRef<AbortController | null>(null);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const pendingGenerationRef = useRef<PendingGeneration | undefined>(undefined);
+  const recoveryStartedRef = useRef(false);
 
   const startTask = (prompt: string) => {
     setInput(prompt);
@@ -96,6 +192,23 @@ export function WorkbenchShell() {
   }, [ready, router, session]);
 
   useEffect(() => {
+    if (!ready || !session) return;
+    listConversations(session, { current: 1, size: 20, status: "ACTIVE" })
+      .then((result) => setRecentConversations(result.records))
+      .catch((error) => {
+        if (error instanceof ChatStreamError && error.status === 401) {
+          logout();
+          router.replace("/login");
+          return;
+        }
+        setStreamError(
+          error instanceof ChatStreamError ? error.message : "查询最近会话失败",
+        );
+      })
+      .finally(() => setConversationLoading(false));
+  }, [logout, ready, router, session]);
+
+  useEffect(() => {
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     messageEndRef.current?.scrollIntoView({
       behavior: reduceMotion || streaming ? "auto" : "smooth",
@@ -104,6 +217,135 @@ export function WorkbenchShell() {
   }, [messages, streaming]);
 
   useEffect(() => () => abortControllerRef.current?.abort(), []);
+
+  useEffect(() => {
+    if (!ready || !session || recoveryStartedRef.current) return;
+    recoveryStartedRef.current = true;
+    const pending = readPendingGeneration();
+    if (!pending) return;
+
+    pendingGenerationRef.current = pending;
+    activeAssistantIdRef.current = pending.assistantMessageId;
+    let disposed = false;
+    queueMicrotask(() => {
+      if (disposed) return;
+      setConversationId(pending.conversationId);
+      setConversationStatus("ACTIVE");
+      setMessages([
+        {
+          content: pending.prompt,
+          id: pending.userMessageId,
+          role: "user",
+          status: "done",
+        },
+        {
+          content: pending.answer,
+          id: pending.assistantMessageId,
+          role: "assistant",
+          status: "streaming",
+        },
+      ]);
+      setStreaming(true);
+    });
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    let cancelled = false;
+    void resumeChat({
+      afterSequence: pending.lastSequence,
+      assistantMessageId: pending.assistantMessageId,
+      onCancelled: () => {
+        cancelled = true;
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === pending.assistantMessageId
+              ? { ...message, status: "stopped" }
+              : message,
+          ),
+        );
+      },
+      onChunk: (content, sequence) => {
+        const current = pendingGenerationRef.current;
+        if (current) {
+          current.answer += content;
+          current.lastSequence = sequence;
+          savePendingGeneration(current);
+        }
+        setMessages((messages) =>
+          messages.map((message) =>
+            message.id === pending.assistantMessageId
+              ? { ...message, content: message.content + content }
+              : message,
+          ),
+        );
+      },
+      onSnapshot: (content) => {
+        const current = pendingGenerationRef.current;
+        if (current) {
+          current.answer = content;
+          savePendingGeneration(current);
+        }
+        setMessages((messages) =>
+          messages.map((message) =>
+            message.id === pending.assistantMessageId
+              ? { ...message, content }
+              : message,
+          ),
+        );
+      },
+      session,
+      signal: controller.signal,
+    })
+      .then(() => {
+        if (disposed) return;
+        if (!cancelled) {
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === pending.assistantMessageId
+                ? { ...message, status: "done" }
+                : message,
+            ),
+          );
+        }
+        clearPendingGeneration();
+        pendingGenerationRef.current = undefined;
+        setResumeAvailable(false);
+      })
+      .catch((error) => {
+        if (disposed) return;
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        const message =
+          error instanceof ChatStreamError ? error.message : "恢复生成任务失败，请稍后刷新";
+        setStreamError(message);
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === pending.assistantMessageId ? { ...item, status: "error" } : item,
+          ),
+        );
+        if (error instanceof ChatStreamError && error.status === 401) {
+          clearPendingGeneration();
+          pendingGenerationRef.current = undefined;
+          logout();
+          router.replace("/login");
+        } else if (
+          error instanceof ChatStreamError &&
+          (error.code === "AI_MODEL_ERROR" || error.status === 404)
+        ) {
+          clearPendingGeneration();
+          pendingGenerationRef.current = undefined;
+        } else {
+          setResumeAvailable(true);
+        }
+      })
+      .finally(() => {
+        if (abortControllerRef.current === controller) abortControllerRef.current = null;
+        if (!disposed) setStreaming(false);
+      });
+    return () => {
+      disposed = true;
+      controller.abort();
+    };
+  }, [logout, ready, router, session]);
 
   if (!ready || !session) {
     return (
@@ -116,31 +358,225 @@ export function WorkbenchShell() {
     );
   }
 
+  const handleRequestError = (error: unknown, fallback: string) => {
+    if (error instanceof ChatStreamError && error.status === 401) {
+      logout();
+      router.replace("/login");
+      return;
+    }
+    setStreamError(error instanceof ChatStreamError ? error.message : fallback);
+  };
+
+  const refreshRecentConversations = async () => {
+    try {
+      const result = await listConversations(session, {
+        current: 1,
+        size: 20,
+        status: "ACTIVE",
+      });
+      setRecentConversations(result.records);
+    } catch (error) {
+      handleRequestError(error, "刷新最近会话失败");
+    }
+  };
+
+  const loadHistoryConversations = async (
+    current: number,
+    keyword: string,
+    append = false,
+  ) => {
+    setHistoryLoading(true);
+    try {
+      const result = await listConversations(session, {
+        current,
+        keyword,
+        size: 20,
+      });
+      setHistoryConversations((items) =>
+        append ? [...items, ...result.records] : result.records,
+      );
+      setHistoryCurrent(result.current);
+      setHistoryTotal(result.total);
+    } catch (error) {
+      handleRequestError(error, "查询全部历史失败");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const openHistory = () => {
+    setHistoryOpen(true);
+    setHistoryKeyword("");
+    void loadHistoryConversations(1, "");
+  };
+
+  const selectConversation = async (conversation: Conversation) => {
+    if (streaming && conversation.id !== conversationId) {
+      setStreamError("当前回答仍在生成，请先停止生成再切换会话");
+      return;
+    }
+    setHistoryOpen(false);
+    setSidebarOpen(false);
+    setStreamError(undefined);
+    setConversationId(conversation.id);
+    setConversationStatus(conversation.status);
+    setMessageLoading(true);
+    try {
+      const result = await listConversationMessages(conversation.id, session, {
+        current: 1,
+        size: 50,
+      });
+      const historyMessages = result.records
+        .toReversed()
+        .map(toChatMessage)
+        .filter((message): message is ChatMessage => message !== undefined);
+      setMessages(historyMessages);
+      setMessageCurrent(result.current);
+      setMessageTotal(result.total);
+    } catch (error) {
+      handleRequestError(error, "加载历史消息失败");
+    } finally {
+      setMessageLoading(false);
+    }
+  };
+
+  const loadOlderMessages = async () => {
+    if (!conversationId || messageLoading || messages.length >= messageTotal) return;
+    setMessageLoading(true);
+    try {
+      const result = await listConversationMessages(conversationId, session, {
+        current: messageCurrent + 1,
+        size: 50,
+      });
+      const olderMessages = result.records
+        .toReversed()
+        .map(toChatMessage)
+        .filter((message): message is ChatMessage => message !== undefined);
+      setMessages((items) => [...olderMessages, ...items]);
+      setMessageCurrent(result.current);
+      setMessageTotal(result.total);
+    } catch (error) {
+      handleRequestError(error, "加载更早消息失败");
+    } finally {
+      setMessageLoading(false);
+    }
+  };
+
+  const beginRename = (conversation: Conversation) => {
+    setRenamingId(conversation.id);
+    setRenamingTitle(conversation.title);
+  };
+
+  const submitRename = async (conversation: Conversation) => {
+    const title = renamingTitle.trim();
+    setRenamingId(undefined);
+    if (!title || title === conversation.title) return;
+    try {
+      await renameConversation(conversation.id, title, session);
+      const replaceTitle = (item: Conversation) =>
+        item.id === conversation.id ? { ...item, title } : item;
+      setRecentConversations((items) => items.map(replaceTitle));
+      setHistoryConversations((items) => items.map(replaceTitle));
+    } catch (error) {
+      handleRequestError(error, "修改会话标题失败");
+    }
+  };
+
+  const archiveSelectedConversation = async (conversation: Conversation) => {
+    if (!window.confirm(`确认归档会话“${conversation.title}”吗？`)) return;
+    try {
+      await archiveConversation(conversation.id, session);
+      setRecentConversations((items) => items.filter((item) => item.id !== conversation.id));
+      setHistoryConversations((items) =>
+        items.map((item) =>
+          item.id === conversation.id ? { ...item, status: "ARCHIVED" } : item,
+        ),
+      );
+      if (conversation.id === conversationId) setConversationStatus("ARCHIVED");
+    } catch (error) {
+      handleRequestError(error, "归档会话失败");
+    }
+  };
+
+  const deleteSelectedConversation = async (conversation: Conversation) => {
+    if (!window.confirm(`确认删除会话“${conversation.title}”吗？删除后不可恢复。`)) return;
+    try {
+      await deleteConversation(conversation.id, session);
+      setRecentConversations((items) => items.filter((item) => item.id !== conversation.id));
+      setHistoryConversations((items) => items.filter((item) => item.id !== conversation.id));
+      setHistoryTotal((total) => Math.max(0, total - 1));
+      if (conversation.id === conversationId) startNewChat();
+    } catch (error) {
+      handleRequestError(error, "删除会话失败");
+    }
+  };
+
   const handleLogout = () => {
     abortControllerRef.current?.abort();
+    clearPendingGeneration();
     logout();
     router.replace("/login");
   };
 
   const startNewChat = () => {
     abortControllerRef.current?.abort();
+    clearPendingGeneration();
+    pendingGenerationRef.current = undefined;
+    activeAssistantIdRef.current = undefined;
     setInput("");
+    setConversationId(undefined);
+    setConversationStatus(undefined);
     setMessages([]);
+    setMessageCurrent(1);
+    setMessageTotal(0);
+    setResumeAvailable(false);
     setStreamError(undefined);
     setStreaming(false);
   };
 
-  const stopStreaming = () => abortControllerRef.current?.abort();
+  const stopStreaming = async () => {
+    const assistantMessageId = activeAssistantIdRef.current;
+    if (!assistantMessageId || !session) {
+      abortControllerRef.current?.abort();
+      setStreaming(false);
+      return;
+    }
+    try {
+      await cancelChat(assistantMessageId, session);
+    } catch (error) {
+      setStreamError(
+        error instanceof ChatStreamError ? error.message : "停止生成失败，请稍后重试",
+      );
+      return;
+    }
+    abortControllerRef.current?.abort();
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === assistantMessageId ? { ...message, status: "stopped" } : message,
+      ),
+    );
+    clearPendingGeneration();
+    pendingGenerationRef.current = undefined;
+    setResumeAvailable(false);
+    setStreaming(false);
+  };
 
   const sendPrompt = async (prompt: string) => {
     const normalizedPrompt = prompt.trim();
     if (!normalizedPrompt || streaming || !session) return;
+    if (conversationStatus === "ARCHIVED") {
+      setStreamError("当前会话已归档，请新建对话后继续提问");
+      return;
+    }
 
     const assistantId = createMessageId("assistant");
+    let activeAssistantId = assistantId;
+    let cancelled = false;
+    const userMessageId = createMessageId("user");
     const nextMessages: ChatMessage[] = [
       {
         content: normalizedPrompt,
-        id: createMessageId("user"),
+        id: userMessageId,
         role: "user",
         status: "done",
       },
@@ -149,6 +585,7 @@ export function WorkbenchShell() {
 
     setMessages((current) => [...current, ...nextMessages]);
     setInput("");
+    setResumeAvailable(false);
     setStreamError(undefined);
     setStreaming(true);
 
@@ -156,15 +593,58 @@ export function WorkbenchShell() {
     abortControllerRef.current = controller;
 
     try {
+      let activeConversationId = conversationId;
+      if (!activeConversationId) {
+        const conversation = await createConversation(session);
+        activeConversationId = conversation.id;
+        setConversationId(conversation.id);
+        setConversationStatus(conversation.status);
+      }
       await streamChat({
-        onChunk: (content) => {
+        clientMessageId: crypto.randomUUID(),
+        conversationId: activeConversationId,
+        onChunk: (content, sequence) => {
+          const pending = pendingGenerationRef.current;
+          if (pending) {
+            pending.answer += content;
+            pending.lastSequence = sequence;
+            savePendingGeneration(pending);
+          }
           setMessages((current) =>
             current.map((message) =>
-              message.id === assistantId
+              message.id === activeAssistantId
                 ? { ...message, content: message.content + content }
                 : message,
             ),
           );
+        },
+        onStart: (start) => {
+          activeAssistantId = start.assistantMessageId;
+          activeAssistantIdRef.current = start.assistantMessageId;
+          pendingGenerationRef.current = {
+            answer: "",
+            assistantMessageId: start.assistantMessageId,
+            conversationId: start.conversationId,
+            lastSequence: 0,
+            prompt: normalizedPrompt,
+            userMessageId: start.userMessageId,
+          };
+          savePendingGeneration(pendingGenerationRef.current);
+          setConversationId(start.conversationId);
+          setConversationStatus("ACTIVE");
+          setMessages((current) =>
+            current.map((message) => {
+              if (message.id === userMessageId) return { ...message, id: start.userMessageId };
+              if (message.id === assistantId) {
+                return { ...message, id: start.assistantMessageId };
+              }
+              return message;
+            }),
+          );
+          void refreshRecentConversations();
+        },
+        onCancelled: () => {
+          cancelled = true;
         },
         prompt: normalizedPrompt,
         session,
@@ -172,14 +652,19 @@ export function WorkbenchShell() {
       });
       setMessages((current) =>
         current.map((message) =>
-          message.id === assistantId ? { ...message, status: "done" } : message,
+          message.id === activeAssistantId
+            ? { ...message, status: cancelled ? "stopped" : "done" }
+            : message,
         ),
       );
+      clearPendingGeneration();
+      pendingGenerationRef.current = undefined;
+      setResumeAvailable(false);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         setMessages((current) =>
           current.map((message) =>
-            message.id === assistantId ? { ...message, status: "stopped" } : message,
+            message.id === activeAssistantId ? { ...message, status: "stopped" } : message,
           ),
         );
       } else {
@@ -188,13 +673,19 @@ export function WorkbenchShell() {
         setStreamError(message);
         setMessages((current) =>
           current.map((item) =>
-            item.id === assistantId ? { ...item, status: "error" } : item,
+            item.id === activeAssistantId ? { ...item, status: "error" } : item,
           ),
         );
 
         if (error instanceof ChatStreamError && error.status === 401) {
           logout();
           router.replace("/login");
+        }
+        if (error instanceof ChatStreamError && error.code === "AI_MODEL_ERROR") {
+          clearPendingGeneration();
+          pendingGenerationRef.current = undefined;
+        } else if (pendingGenerationRef.current) {
+          setResumeAvailable(true);
         }
       }
     } finally {
@@ -204,12 +695,92 @@ export function WorkbenchShell() {
   };
 
   const retryLastPrompt = () => {
+    if (pendingGenerationRef.current) {
+      window.location.reload();
+      return;
+    }
     const lastUserMessage = messages.findLast((message) => message.role === "user");
     if (!lastUserMessage) return;
     setMessages((current) =>
       current.filter((message) => message.status !== "error"),
     );
     void sendPrompt(lastUserMessage.content);
+  };
+
+  const renderConversation = (conversation: Conversation, showStatus = false) => {
+    const selected = conversation.id === conversationId;
+    const menuItems = [
+      { key: "rename", label: "重命名" },
+      ...(conversation.status === "ACTIVE"
+        ? [{ icon: <Archive size={14} />, key: "archive", label: "归档" }]
+        : []),
+      { danger: true, icon: <Trash2 size={14} />, key: "delete", label: "删除" },
+    ];
+    return (
+      <div
+        className={`${styles.conversation} ${selected ? styles.conversationActive : ""}`}
+        key={conversation.id}
+      >
+        {renamingId === conversation.id ? (
+          <div className={styles.conversationSelect}>
+            <MessageSquareText size={16} />
+            <span>
+              <input
+                autoFocus
+                className={styles.conversationRename}
+                maxLength={100}
+                onBlur={() => void submitRename(conversation)}
+                onChange={(event) => setRenamingTitle(event.target.value)}
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                  if (event.key === "Escape") setRenamingId(undefined);
+                }}
+                value={renamingTitle}
+              />
+              <small>{formatConversationTime(conversation.lastMessageAt || conversation.updatedAt)}</small>
+            </span>
+          </div>
+        ) : (
+          <button
+            className={styles.conversationSelect}
+            onClick={() => void selectConversation(conversation)}
+            type="button"
+          >
+            <MessageSquareText size={16} />
+            <span>
+              <strong>{conversation.title}</strong>
+              <small>
+                {showStatus && conversation.status === "ARCHIVED" ? "已归档 · " : ""}
+                {formatConversationTime(conversation.lastMessageAt || conversation.updatedAt)}
+              </small>
+            </span>
+          </button>
+        )}
+        <Dropdown
+          menu={{
+            items: menuItems,
+            onClick: ({ domEvent, key }) => {
+              domEvent.stopPropagation();
+              if (key === "rename") beginRename(conversation);
+              if (key === "archive") void archiveSelectedConversation(conversation);
+              if (key === "delete") void deleteSelectedConversation(conversation);
+            },
+          }}
+          placement="bottomRight"
+          trigger={["click"]}
+        >
+          <button
+            aria-label={`管理会话：${conversation.title}`}
+            className={styles.conversationMore}
+            onClick={(event) => event.stopPropagation()}
+            type="button"
+          >
+            <MoreHorizontal size={15} />
+          </button>
+        </Dropdown>
+      </div>
+    );
   };
 
   return (
@@ -258,23 +829,20 @@ export function WorkbenchShell() {
 
         <div className={styles.historyHeader}>
           <span>最近对话</span>
-          <ActionIcon icon={Search} size="small" title="搜索对话" />
+          <ActionIcon icon={Search} onClick={openHistory} size="small" title="搜索对话" />
         </div>
         <div className={styles.conversationList}>
-          {conversations.map(({ icon: ConversationIcon, title, time }) => (
-            <button className={styles.conversation} key={title} type="button">
-              <ConversationIcon size={16} />
-              <span>
-                <strong>{title}</strong>
-                <small>{time}</small>
-              </span>
-              <MoreHorizontal className={styles.conversationMore} size={15} />
-            </button>
-          ))}
+          {conversationLoading ? (
+            <div className={styles.conversationState}><Spin size="small" /></div>
+          ) : recentConversations.length > 0 ? (
+            recentConversations.map((conversation) => renderConversation(conversation))
+          ) : (
+            <span className={styles.conversationEmpty}>暂无会话记录</span>
+          )}
         </div>
 
         <div className={styles.sidebarFooter}>
-          <button className={styles.navItem} type="button">
+          <button className={styles.navItem} onClick={openHistory} type="button">
             <History size={17} />
             全部历史
           </button>
@@ -305,6 +873,44 @@ export function WorkbenchShell() {
           type="button"
         />
       )}
+
+      <Drawer
+        className={styles.historyDrawer}
+        destroyOnHidden
+        onClose={() => setHistoryOpen(false)}
+        open={historyOpen}
+        placement="left"
+        title="全部会话"
+        width={380}
+      >
+        <Input.Search
+          allowClear
+          onChange={(event) => setHistoryKeyword(event.target.value)}
+          onSearch={(keyword) => void loadHistoryConversations(1, keyword)}
+          placeholder="搜索会话标题"
+          value={historyKeyword}
+        />
+        <div className={styles.historyList}>
+          {historyLoading && historyConversations.length === 0 ? (
+            <div className={styles.historyLoading}><Spin /></div>
+          ) : historyConversations.length > 0 ? (
+            historyConversations.map((conversation) => renderConversation(conversation, true))
+          ) : (
+            <Empty description="暂无会话记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          )}
+        </div>
+        {historyConversations.length < historyTotal && (
+          <Button
+            block
+            loading={historyLoading}
+            onClick={() =>
+              void loadHistoryConversations(historyCurrent + 1, historyKeyword, true)
+            }
+          >
+            加载更多
+          </Button>
+        )}
+      </Drawer>
 
       <section className={styles.workspace}>
         <header className={styles.header}>
@@ -352,7 +958,7 @@ export function WorkbenchShell() {
         </header>
 
         <div className={styles.content}>
-          {messages.length === 0 ? (
+          {messages.length === 0 && !messageLoading ? (
             <section className={styles.hero}>
             <div className={styles.heroGlow} />
             <div className={styles.heroIcon}>
@@ -387,6 +993,19 @@ export function WorkbenchShell() {
           ) : (
             <section className={styles.messageStage} aria-label="对话内容">
               <div className={styles.messageList}>
+                {messageLoading && messages.length === 0 && (
+                  <div className={styles.messageLoading}><Spin /></div>
+                )}
+                {messages.length < messageTotal && (
+                  <button
+                    className={styles.loadOlder}
+                    disabled={messageLoading}
+                    onClick={() => void loadOlderMessages()}
+                    type="button"
+                  >
+                    {messageLoading ? "正在加载…" : "加载更早消息"}
+                  </button>
+                )}
                 {messages.map((message) => (
                   <article
                     className={`${styles.messageRow} ${
@@ -443,10 +1062,10 @@ export function WorkbenchShell() {
                       )}
                       {message.status === "error" && (
                         <div className={styles.messageError} role="alert">
-                          <span>{streamError || "生成失败，请稍后重试"}</span>
+                          <span>{message.errorMessage || streamError || "生成失败，请稍后重试"}</span>
                           <button onClick={retryLastPrompt} type="button">
                             <RotateCcw size={14} />
-                            重新生成
+                            {resumeAvailable ? "继续接收" : "重新生成"}
                           </button>
                         </div>
                       )}
@@ -459,11 +1078,29 @@ export function WorkbenchShell() {
           )}
 
           <div className={styles.composerWrap}>
+            {conversationStatus === "ARCHIVED" && (
+              <div className={styles.archivedNotice}>该会话已归档，仅支持查看历史消息</div>
+            )}
+            {streamError && !messages.some((message) => message.status === "error") && (
+              <button
+                className={styles.requestError}
+                onClick={() => setStreamError(undefined)}
+                title="关闭提示"
+                type="button"
+              >
+                {streamError}
+              </button>
+            )}
             <div className={styles.composer}>
               <ChatInputArea.Inner
+                disabled={conversationStatus === "ARCHIVED" || messageLoading}
                 onChange={(event) => setInput(event.target.value)}
                 onSend={() => void sendPrompt(input)}
-                placeholder="向灵析提问，或描述你想完成的工作…"
+                placeholder={
+                  conversationStatus === "ARCHIVED"
+                    ? "该会话已归档"
+                    : "向灵析提问，或描述你想完成的工作…"
+                }
                 rows={3}
                 value={input}
               />
@@ -478,7 +1115,7 @@ export function WorkbenchShell() {
                     <button
                       aria-label="停止生成"
                       className={styles.stopButton}
-                      onClick={stopStreaming}
+                      onClick={() => void stopStreaming()}
                       title="停止生成"
                       type="button"
                     >
@@ -488,7 +1125,7 @@ export function WorkbenchShell() {
                     <button
                       aria-label="发送消息"
                       className={styles.sendButton}
-                      disabled={!input.trim()}
+                      disabled={!input.trim() || conversationStatus === "ARCHIVED" || messageLoading}
                       onClick={() => void sendPrompt(input)}
                       title="发送消息"
                       type="button"

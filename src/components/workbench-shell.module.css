@@ -174,21 +174,34 @@
   align-items: center;
   width: 100%;
   min-height: 52px;
-  padding: 7px 8px 7px 11px;
-  grid-template-columns: 18px minmax(0, 1fr) 16px;
-  gap: 8px;
-  border: 0;
+  padding: 4px;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 2px;
   border-radius: 10px;
   color: #626873;
   background: transparent;
-  cursor: pointer;
-  text-align: left;
   transition: 160ms ease;
 }
 
-.conversation:hover {
+.conversation:hover,
+.conversationActive {
   color: #272b31;
   background: #f0f2f5;
+}
+
+.conversationSelect {
+  display: grid;
+  align-items: center;
+  min-width: 0;
+  min-height: 44px;
+  padding: 5px 4px 5px 7px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
 }
 
 .conversation strong {
@@ -209,11 +222,65 @@
 }
 
 .conversationMore {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  color: #7e8590;
+  background: transparent;
+  cursor: pointer;
   opacity: 0;
+  place-items: center;
 }
 
-.conversation:hover .conversationMore {
+.conversation:hover .conversationMore,
+.conversationActive .conversationMore,
+.conversationMore:focus-visible {
   opacity: 1;
+}
+
+.conversationMore:hover {
+  color: #235fcf;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.conversationRename {
+  width: 100%;
+  height: 24px;
+  padding: 0 5px;
+  border: 1px solid #8aaff5;
+  border-radius: 5px;
+  outline: none;
+  color: #303641;
+  background: #fff;
+  font-size: 12px;
+}
+
+.conversationState,
+.conversationEmpty {
+  display: grid;
+  min-height: 86px;
+  color: #a1a6af;
+  font-size: 11px;
+  place-items: center;
+}
+
+.historyList {
+  display: flex;
+  min-height: 220px;
+  max-height: calc(100dvh - 170px);
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 0;
+  overflow-y: auto;
+}
+
+.historyLoading {
+  display: grid;
+  min-height: 220px;
+  place-items: center;
 }
 
 .sidebarFooter {
@@ -453,6 +520,34 @@
   padding: 34px 0 0;
 }
 
+.messageLoading {
+  display: grid;
+  min-height: 240px;
+  place-items: center;
+}
+
+.loadOlder {
+  display: block;
+  padding: 6px 12px;
+  margin: 0 auto 26px;
+  border: 1px solid #e1e5eb;
+  border-radius: 8px;
+  color: #737b88;
+  background: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.loadOlder:hover:not(:disabled) {
+  border-color: #abc3f5;
+  color: #2b64cb;
+}
+
+.loadOlder:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
 .messageEnd {
   height: clamp(58px, 8vh, 84px);
 }
@@ -609,6 +704,26 @@
   padding: 0 0 18px;
 }
 
+.archivedNotice,
+.requestError {
+  width: 100%;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border: 1px solid #f0d9a7;
+  border-radius: 9px;
+  color: #8b661d;
+  background: #fff9eb;
+  font-size: 11px;
+  text-align: center;
+}
+
+.requestError {
+  border-color: #f0c5c5;
+  color: #b64f4f;
+  background: #fff5f5;
+  cursor: pointer;
+}
+
 .composer {
   --composer-radius: 14px;
 
@@ -734,6 +849,22 @@
   background: rgba(255, 255, 255, 0.055);
 }
 
+.shell[data-theme="dark"] .conversationActive {
+  color: #e2e6ec;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.shell[data-theme="dark"] .conversationMore:hover {
+  color: #8eb2ff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.shell[data-theme="dark"] .conversationRename {
+  border-color: #537ecc;
+  color: #e4e8ee;
+  background: #171b23;
+}
+
 .shell[data-theme="dark"] .conversation strong,
 .shell[data-theme="dark"] .profile,
 .shell[data-theme="dark"] .modelPicker {
@@ -856,6 +987,50 @@
   border-color: rgba(255, 255, 255, 0.1);
   background: rgba(22, 26, 34, 0.96);
   box-shadow: 0 16px 42px rgba(0, 0, 0, 0.32), 0 2px 8px rgba(0, 0, 0, 0.22);
+}
+
+.shell[data-theme="dark"] .loadOlder {
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #8f98a6;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.shell[data-theme="dark"] .archivedNotice {
+  border-color: rgba(213, 164, 71, 0.25);
+  color: #d7b46d;
+  background: rgba(128, 91, 26, 0.14);
+}
+
+.shell[data-theme="dark"] .requestError {
+  border-color: rgba(224, 105, 105, 0.25);
+  color: #efa0a0;
+  background: rgba(128, 40, 40, 0.14);
+}
+
+:global(html[data-theme="dark"]) .historyDrawer :global(.ant-drawer-content),
+:global(html[data-theme="dark"]) .historyDrawer :global(.ant-drawer-header) {
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #e5e8ed;
+  background: #11151c;
+}
+
+:global(html[data-theme="dark"]) .historyDrawer .conversation {
+  color: #9299a5;
+}
+
+:global(html[data-theme="dark"]) .historyDrawer .conversation:hover,
+:global(html[data-theme="dark"]) .historyDrawer .conversationActive {
+  color: #e2e6ec;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+:global(html[data-theme="dark"]) .historyDrawer .conversation strong {
+  color: #d9dde4;
+}
+
+:global(html[data-theme="dark"]) .historyDrawer .conversationMore:hover {
+  color: #8eb2ff;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .shell[data-theme="dark"] .composer textarea {
