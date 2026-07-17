@@ -1,7 +1,8 @@
 package com.lingxi.workbench.admin.department.service.impl;
 
-import com.lingxi.workbench.admin.department.model.bo.SysDataScopeBO;
-import com.lingxi.workbench.admin.department.repo.SysDepartmentRepo;
+import com.lingxi.workbench.admin.sys.department.model.bo.SysDataScopeBO;
+import com.lingxi.workbench.admin.sys.department.repo.SysDepartmentRepo;
+import com.lingxi.workbench.admin.sys.department.service.impl.SysDataScopeServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;

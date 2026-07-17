@@ -1,7 +1,7 @@
 package com.lingxi.workbench.admin.auth.controller;
 
 import com.lingxi.workbench.admin.auth.context.SysUserContext;
-import com.lingxi.workbench.admin.auth.model.vo.SysSessionVO;
+import com.lingxi.workbench.admin.sys.user.model.vo.SysSessionVO;
 import com.lingxi.workbench.admin.auth.service.SysPermissionService;
 import com.lingxi.workbench.framework.convention.ApiResponse;
 import lombok.RequiredArgsConstructor;

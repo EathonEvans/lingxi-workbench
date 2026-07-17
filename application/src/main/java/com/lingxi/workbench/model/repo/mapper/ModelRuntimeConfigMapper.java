@@ -1,14 +1,21 @@
 package com.lingxi.workbench.model.repo.mapper;
 
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.lingxi.workbench.model.model.entity.ModelRuntimeConfigEntity;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.ResultMap;
 import org.apache.ibatis.annotations.Select;
 
 /** 模型运行配置只读数据访问接口。 */
 @Mapper
-public interface ModelRuntimeConfigMapper {
+public interface ModelRuntimeConfigMapper extends BaseMapper<ModelRuntimeConfigEntity> {
 
-    /** 联合查询当前启用的默认对话模型、供应商和访问密钥。 */
+    /**
+     * 联合查询当前启用的默认对话模型、供应商和访问密钥。
+     *
+     * <p>该 SQL 同时校验模型、供应商和密钥状态，并排除密文不完整的密钥记录。
+     * 查询结果仍是加密密钥，解密操作由 Service 在事务查询完成后执行。</p>
+     */
     @Select("""
             SELECT instance.id                AS instance_id,
                    provider.protocol          AS protocol,
@@ -19,7 +26,7 @@ public interface ModelRuntimeConfigMapper {
                    instance.temperature       AS temperature,
                    instance.top_p             AS top_p,
                    instance.max_tokens        AS max_tokens,
-                   instance.stop_sequences::text AS stop_sequences,
+                   instance.stop_sequences       AS stop_sequences,
                    instance.timeout_seconds   AS timeout_seconds,
                    instance.max_retries       AS max_retries
             FROM lingxi_core.ai_model_instance instance
@@ -37,5 +44,6 @@ public interface ModelRuntimeConfigMapper {
               AND credential.secret_iv IS NOT NULL
             LIMIT 1
             """)
+    @ResultMap("mybatis-plus_ModelRuntimeConfigEntity")
     ModelRuntimeConfigEntity selectDefaultChatModel();
 }

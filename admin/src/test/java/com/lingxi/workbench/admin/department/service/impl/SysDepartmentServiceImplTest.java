@@ -1,10 +1,11 @@
 package com.lingxi.workbench.admin.department.service.impl;
 
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
-import com.lingxi.workbench.admin.department.model.converter.SysDepartmentConverter;
-import com.lingxi.workbench.admin.department.model.entity.SysDepartmentEntity;
-import com.lingxi.workbench.admin.department.model.request.UpdateDepartmentRequest;
-import com.lingxi.workbench.admin.department.repo.SysDepartmentRepo;
+import com.lingxi.workbench.admin.sys.department.model.converter.SysDepartmentConverter;
+import com.lingxi.workbench.admin.sys.department.model.entity.SysDepartmentEntity;
+import com.lingxi.workbench.admin.sys.department.model.request.UpdateDepartmentRequest;
+import com.lingxi.workbench.admin.sys.department.repo.SysDepartmentRepo;
+import com.lingxi.workbench.admin.sys.department.service.impl.SysDepartmentServiceImpl;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

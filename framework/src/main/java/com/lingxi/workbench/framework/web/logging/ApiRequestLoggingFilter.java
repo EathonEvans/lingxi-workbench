@@ -1,5 +1,6 @@
 package com.lingxi.workbench.framework.web.logging;
 
+import cn.hutool.core.text.CharSequenceUtil;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONException;
 import jakarta.servlet.AsyncEvent;
@@ -29,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -140,7 +142,7 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
 
         String body = decode(request.getContentAsByteArray(), request.getCharacterEncoding());
         Object sanitizedBody = sanitizeBody(body, request.getContentType());
-        if (sanitizedBody != null) {
+        if (Objects.nonNull(sanitizedBody)) {
             if (parameters.isEmpty()) {
                 return truncate(toLogString(sanitizedBody));
             }
@@ -160,7 +162,7 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
     }
 
     private static Object sanitizeBody(String body, String contentType) {
-        if (body.isBlank()) {
+        if (CharSequenceUtil.isBlank(body)) {
             return null;
         }
         if (isFormContentType(contentType)) {
@@ -231,23 +233,23 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
     }
 
     private static boolean isJsonContentType(String contentType) {
-        return contentType != null && (contentType.contains(MediaType.APPLICATION_JSON_VALUE)
+        return Objects.nonNull(contentType) && (contentType.contains(MediaType.APPLICATION_JSON_VALUE)
                 || contentType.contains("+json"));
     }
 
     private static boolean isTextContentType(String contentType) {
-        return contentType == null
+        return Objects.isNull(contentType)
                 || contentType.startsWith("text/")
                 || isFormContentType(contentType);
     }
 
     private static boolean isFormContentType(String contentType) {
-        return contentType != null && (contentType.contains(MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+        return Objects.nonNull(contentType) && (contentType.contains(MediaType.APPLICATION_FORM_URLENCODED_VALUE)
                 || contentType.contains(MediaType.MULTIPART_FORM_DATA_VALUE));
     }
 
     private static boolean isSseContentType(String contentType) {
-        return contentType != null && contentType.contains(MediaType.TEXT_EVENT_STREAM_VALUE);
+        return Objects.nonNull(contentType) && contentType.contains(MediaType.TEXT_EVENT_STREAM_VALUE);
     }
 
     private static String decode(byte[] content, String encoding) {

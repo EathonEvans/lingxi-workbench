@@ -1,4 +1,6 @@
 package com.lingxi.workbench.admin.prompt.model.vo;
 
-/** Prompt 渲染预览响应。 */
-public record PreviewPromptVO(String renderedPrompt) {}
+/** Prompt渲染预览响应。 */
+public record PreviewPromptVO(
+        /** 变量替换后的渲染结果。 */
+        String renderedPrompt) {}

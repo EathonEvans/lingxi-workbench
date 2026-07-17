@@ -1,11 +1,12 @@
 package com.lingxi.workbench.admin.menu.service.impl;
 
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
-import com.lingxi.workbench.admin.menu.common.enums.MenuType;
-import com.lingxi.workbench.admin.menu.model.converter.SysMenuConverter;
-import com.lingxi.workbench.admin.menu.model.entity.SysMenuEntity;
-import com.lingxi.workbench.admin.menu.model.request.CreateMenuRequest;
-import com.lingxi.workbench.admin.menu.repo.SysMenuRepo;
+import com.lingxi.workbench.admin.common.enums.MenuType;
+import com.lingxi.workbench.admin.sys.menu.model.converter.SysMenuConverter;
+import com.lingxi.workbench.admin.sys.menu.model.entity.SysMenuEntity;
+import com.lingxi.workbench.admin.sys.menu.model.request.CreateMenuRequest;
+import com.lingxi.workbench.admin.sys.menu.repo.SysMenuRepo;
+import com.lingxi.workbench.admin.sys.menu.service.impl.SysMenuServiceImpl;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

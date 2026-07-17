@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.auth.service;
 
-import com.lingxi.workbench.admin.auth.model.vo.SysSessionVO;
+import com.lingxi.workbench.admin.sys.user.model.vo.SysSessionVO;
 
 import java.util.List;
 

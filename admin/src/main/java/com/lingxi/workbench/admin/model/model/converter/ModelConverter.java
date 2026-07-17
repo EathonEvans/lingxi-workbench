@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.model.model.converter;
 
-import com.alibaba.fastjson2.JSON;
+import cn.hutool.core.collection.CollUtil;
+import com.lingxi.workbench.admin.model.common.enums.ModelCapability;
 import com.lingxi.workbench.admin.model.model.entity.ModelCredentialEntity;
 import com.lingxi.workbench.admin.model.model.entity.ModelInstanceEntity;
 import com.lingxi.workbench.admin.model.model.entity.ModelProviderEntity;
@@ -24,14 +25,20 @@ public interface ModelConverter {
     /** 将访问密钥实体转换为脱敏响应对象，主键由 MapStruct 转换为字符串。 */
     ModelCredentialVO toCredentialVO(ModelCredentialEntity entity);
 
-    /** 将模型实例实体转换为响应对象，并解析 JSONB 数组字段。 */
-    @Mapping(target = "capabilities", qualifiedByName = "parseJsonArray")
-    @Mapping(target = "stopSequences", qualifiedByName = "parseJsonArray")
+    /** 将模型实例实体转换为响应对象。 */
+    @Mapping(target = "stopSequences", qualifiedByName = "emptyIfNull")
     ModelInstanceVO toInstanceVO(ModelInstanceEntity entity);
 
-    /** 将数据库中的 JSON 数组转换为接口列表。 */
-    @Named("parseJsonArray")
-    default List<String> parseJsonArray(String value) {
-        return value == null ? List.of() : JSON.parseArray(value, String.class);
+    /** 将模型能力枚举转换为保持现有接口格式的字符串列表。 */
+    default List<String> toCapabilityNames(List<ModelCapability> capabilities) {
+        return CollUtil.isEmpty(capabilities)
+                ? List.of()
+                : capabilities.stream().map(Enum::name).toList();
+    }
+
+    /** 保持接口集合字段非空，兼容历史接口行为。 */
+    @Named("emptyIfNull")
+    default List<String> emptyIfNull(List<String> values) {
+        return CollUtil.isEmpty(values) ? List.of() : values;
     }
 }

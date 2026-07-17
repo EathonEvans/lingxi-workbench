@@ -1,5 +1,6 @@
 package com.lingxi.workbench.admin.model.service.impl;
 
+import cn.hutool.core.text.CharSequenceUtil;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.model.model.converter.ModelConverter;
 import com.lingxi.workbench.admin.model.model.entity.ModelProviderEntity;
@@ -19,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Objects;
 
 /** 模型供应商业务实现。 */
 @Service
@@ -53,7 +55,7 @@ public class ModelProviderServiceImpl implements ModelProviderService {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "供应商编码已存在");
         }
 
-        ModelProviderEntity entity = id == null ? new ModelProviderEntity() : requireProvider(id);
+        ModelProviderEntity entity = Objects.isNull(id) ? new ModelProviderEntity() : requireProvider(id);
         entity.setName(request.name().trim());
         entity.setCode(code);
         entity.setProtocol(OPENAI_COMPATIBLE);
@@ -61,7 +63,7 @@ public class ModelProviderServiceImpl implements ModelProviderService {
         entity.setStatus(request.status());
         entity.setRemark(trimToNull(request.remark()));
         entity.setUpdatedBy(operatorId);
-        if (id == null) {
+        if (Objects.isNull(id)) {
             entity.setCreatedBy(operatorId);
         }
 
@@ -71,7 +73,7 @@ public class ModelProviderServiceImpl implements ModelProviderService {
                 "PROVIDER",
                 entity.getId(),
                 operatorId,
-                id == null ? "PROVIDER_CREATE" : "PROVIDER_UPDATE",
+                Objects.isNull(id) ? "PROVIDER_CREATE" : "PROVIDER_UPDATE",
                 "供应商=" + code);
         return modelConverter.toProviderVO(entity);
     }
@@ -119,6 +121,6 @@ public class ModelProviderServiceImpl implements ModelProviderService {
     }
 
     private static String trimToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
+        return CharSequenceUtil.isBlank(value) ? null : value.trim();
     }
 }

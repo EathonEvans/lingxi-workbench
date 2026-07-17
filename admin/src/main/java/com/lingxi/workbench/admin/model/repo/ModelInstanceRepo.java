@@ -1,8 +1,10 @@
 package com.lingxi.workbench.admin.model.repo;
 
+import cn.hutool.core.text.CharSequenceUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.lingxi.workbench.admin.common.enums.EnableStatus;
+import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import com.lingxi.workbench.admin.model.model.entity.ModelInstanceEntity;
 import com.lingxi.workbench.admin.model.model.request.ModelInstancePageQuery;
 import com.lingxi.workbench.admin.model.repo.mapper.ModelInstanceMapper;
@@ -10,6 +12,7 @@ import com.lingxi.workbench.framework.convention.PageResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
+import java.util.Objects;
 import java.util.Optional;
 
 /** 模型实例数据仓库。 */
@@ -21,23 +24,22 @@ public class ModelInstanceRepo {
 
     /** 分页查询模型实例。 */
     public PageResult<ModelInstanceEntity> findPage(ModelInstancePageQuery query) {
-        String keyword = trim(query.getKeyword());
         IPage<ModelInstanceEntity> page = mapper.selectPage(
-                new Page<>(query.getCurrent(), query.getSize()),
+                query.toPage(),
                 Wrappers.<ModelInstanceEntity>lambdaQuery()
-                        .and(hasText(keyword), wrapper -> wrapper
-                                .like(ModelInstanceEntity::getName, keyword)
+                        .and(CharSequenceUtil.isNotBlank(query.getKeyword()), wrapper -> wrapper
+                                .like(ModelInstanceEntity::getName, query.getKeyword())
                                 .or()
-                                .like(ModelInstanceEntity::getCode, keyword)
+                                .like(ModelInstanceEntity::getCode, query.getKeyword())
                                 .or()
-                                .like(ModelInstanceEntity::getModelCode, keyword))
-                        .eq(query.getProviderId() != null,
+                                .like(ModelInstanceEntity::getModelCode, query.getKeyword()))
+                        .eq(Objects.nonNull(query.getProviderId()),
                                 ModelInstanceEntity::getProviderId,
                                 query.getProviderId())
-                        .eq(query.getModelType() != null,
+                        .eq(Objects.nonNull(query.getModelType()),
                                 ModelInstanceEntity::getModelType,
                                 query.getModelType())
-                        .eq(query.getStatus() != null,
+                        .eq(Objects.nonNull(query.getStatus()),
                                 ModelInstanceEntity::getStatus,
                                 query.getStatus())
                         .orderByAsc(ModelInstanceEntity::getId));
@@ -51,13 +53,13 @@ public class ModelInstanceRepo {
     public boolean existsByCode(String code, Long excludedId) {
         return mapper.exists(Wrappers.<ModelInstanceEntity>lambdaQuery()
                 .eq(ModelInstanceEntity::getCode, code)
-                .ne(excludedId != null, ModelInstanceEntity::getId, excludedId));
+                .ne(Objects.nonNull(excludedId), ModelInstanceEntity::getId, excludedId));
     }
 
     public boolean existsActiveByProviderId(Long providerId) {
         return mapper.exists(Wrappers.<ModelInstanceEntity>lambdaQuery()
                 .eq(ModelInstanceEntity::getProviderId, providerId)
-                .eq(ModelInstanceEntity::getStatus, "ACTIVE"));
+                .eq(ModelInstanceEntity::getStatus, EnableStatus.ACTIVE));
     }
 
     public boolean existsByCredentialId(Long credentialId) {
@@ -68,27 +70,19 @@ public class ModelInstanceRepo {
     public boolean existsActiveByCredentialId(Long credentialId) {
         return mapper.exists(Wrappers.<ModelInstanceEntity>lambdaQuery()
                 .eq(ModelInstanceEntity::getCredentialId, credentialId)
-                .eq(ModelInstanceEntity::getStatus, "ACTIVE"));
+                .eq(ModelInstanceEntity::getStatus, EnableStatus.ACTIVE));
     }
 
     public void save(ModelInstanceEntity entity) {
-        if (entity.getId() == null) {
+        if (Objects.isNull(entity.getId())) {
             mapper.insert(entity);
         } else {
             mapper.updateById(entity);
         }
     }
 
-    public void clearDefault(String type) {
+    public void clearDefault(ModelType type) {
         mapper.clearDefault(type);
-    }
-
-    private static boolean hasText(String value) {
-        return value != null && !value.isBlank();
-    }
-
-    private static String trim(String value) {
-        return value == null ? null : value.trim();
     }
 
 }

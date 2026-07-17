@@ -115,7 +115,7 @@ public class UserSaTokenAuthWebConfig implements WebMvcConfigurer {
      */
     private String writeUnauthorizedResponse(Throwable exception) {
         SaHolder.getResponse()
-                .setStatus(HttpStatusEnum.UNAUTHORIZED.value())
+                .setStatus(HttpStatusEnum.UNAUTHORIZED.getCode())
                 .setHeader("Content-Type", "application/json;charset=UTF-8");
         return JSON.toJSONString(ApiResponse.failure(HttpStatusEnum.UNAUTHORIZED, "登录状态无效，请重新登录"));
     }

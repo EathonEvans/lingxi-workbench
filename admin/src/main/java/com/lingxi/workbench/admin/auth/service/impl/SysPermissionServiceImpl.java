@@ -1,9 +1,9 @@
 package com.lingxi.workbench.admin.auth.service.impl;
 
-import com.lingxi.workbench.admin.auth.model.vo.SysSessionVO;
+import com.lingxi.workbench.admin.sys.user.model.vo.SysSessionVO;
 import com.lingxi.workbench.admin.auth.service.SysPermissionService;
-import com.lingxi.workbench.admin.menu.service.SysMenuService;
-import com.lingxi.workbench.admin.role.service.SysRoleService;
+import com.lingxi.workbench.admin.sys.menu.service.SysMenuService;
+import com.lingxi.workbench.admin.sys.role.service.SysRoleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

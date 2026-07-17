@@ -1,7 +1,6 @@
 package com.lingxi.workbench.model.model.converter;
 
-import com.alibaba.fastjson2.JSON;
-import com.lingxi.workbench.infra.ai.chat.ChatModelRuntimeConfig;
+import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.model.model.bo.ModelRuntimeConfigBO;
 import com.lingxi.workbench.model.model.entity.ModelRuntimeConfigEntity;
 import org.mapstruct.Mapper;
@@ -15,8 +14,8 @@ import java.util.List;
 @Mapper(componentModel = MappingConstants.ComponentModel.SPRING)
 public interface ModelRuntimeConfigConverter {
 
-    /** 将数据库 JSONB 字段解析为业务列表。 */
-    @Mapping(target = "stopSequences", qualifiedByName = "parseJsonArray")
+    /** 将数据库运行配置转换为业务对象。 */
+    @Mapping(target = "stopSequences", qualifiedByName = "emptyIfNull")
     ModelRuntimeConfigBO toBO(ModelRuntimeConfigEntity entity);
 
     /** 将已校验配置和解密后的密钥组装为单次模型调用参数。 */
@@ -32,9 +31,10 @@ public interface ModelRuntimeConfigConverter {
     @Mapping(target = "maxRetries", source = "config.maxRetries")
     ChatModelRuntimeConfig toRuntimeConfig(ModelRuntimeConfigBO config, String apiKey);
 
-    /** 将 JSON 数组转换为不可变语义的空列表或字符串列表。 */
-    @Named("parseJsonArray")
-    default List<String> parseJsonArray(String value) {
-        return value == null ? List.of() : JSON.parseArray(value, String.class);
+    /** 保持运行时停止序列集合非空。 */
+    @Named("emptyIfNull")
+    default List<String> emptyIfNull(List<String> values) {
+        return values == null ? List.of() : values;
     }
+
 }

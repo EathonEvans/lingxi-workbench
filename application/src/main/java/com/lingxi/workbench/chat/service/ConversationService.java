@@ -45,7 +45,17 @@ public interface ConversationService {
     void delete(Long userId, Long conversationId);
 
     /**
-     * 创建本轮用户消息和 Assistant 占位消息。
+     * 在同一事务中创建本轮用户消息和 Assistant 占位消息。
+     *
+     * <p>该方法会锁定用户所属会话，校验会话可写、没有其他生成中回答，
+     * 并使用客户端消息标识防止重复提交。返回后两条消息均已落库。</p>
+     *
+     * @param userId 当前登录用户主键
+     * @param conversationId 会话主键
+     * @param clientMessageId 客户端生成的幂等消息标识
+     * @param prompt 已规范化的用户输入
+     * @param modelInstanceId 本轮使用的模型实例主键
+     * @return 会话、用户消息、Assistant 消息主键以及当前用户消息序号
      */
     ChatTurnBO startTurn(Long userId, Long conversationId, String clientMessageId, String prompt, Long modelInstanceId);
 

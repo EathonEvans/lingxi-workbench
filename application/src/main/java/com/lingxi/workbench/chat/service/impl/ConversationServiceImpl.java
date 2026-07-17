@@ -94,17 +94,26 @@ public class ConversationServiceImpl implements ConversationService {
     @Override
     @Transactional
     public ChatTurnBO startTurn(Long userId, Long conversationId, String clientMessageId, String prompt, Long modelInstanceId) {
+        // 悲观锁串行化同一会话的发送请求，避免两个请求同时计算出相同的消息序号。
         ConversationEntity conversation = conversationRepo.lockOwnedById(conversationId, userId).orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "会话不存在"));
         if (conversation.getStatus() != ConversationStatus.ACTIVE) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "已归档会话不能继续发送消息");
         }
+
+        // 第一版约束同一会话同一时间只允许一个 Assistant 回答生成，防止消息顺序和上下文发生交叉。
         requireNoGeneratingMessage(conversationId);
+
+        // clientMessageId 由前端为一次发送动作生成，网络重试时仍携带同一值，从而避免重复落库和重复扣费。
         if (messageRepo.existsClientMessageId(conversationId, clientMessageId)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "该消息已经提交，请勿重复发送");
         }
 
         OffsetDateTime now = OffsetDateTime.now();
+
+        // 当前最大序号在会话锁保护下递增；用户消息使用奇偶不做强约束，只保证同一会话内严格有序。
         int userSequence = messageRepo.nextSequence(conversationId);
+
+        // 用户输入在请求到达时已经完整，因此直接以 COMPLETED 状态持久化。
         ConversationMessageEntity userMessage = newMessage(
                 conversationId,
                 clientMessageId,
@@ -116,6 +125,7 @@ public class ConversationServiceImpl implements ConversationService {
         userMessage.setCompletedAt(now);
         messageRepo.save(userMessage);
 
+        // 在调用模型前先创建空的 Assistant 占位消息。后续完整回答、失败内容和 Token 用量都更新这条记录。
         ConversationMessageEntity assistantMessage = newMessage(
                 conversationId,
                 null,
@@ -126,12 +136,16 @@ public class ConversationServiceImpl implements ConversationService {
                 modelInstanceId);
         messageRepo.save(assistantMessage);
 
+        // 第一次提问自动生成会话标题，之后由用户主动重命名，避免每轮回答都覆盖已有标题。
         if (conversation.getMessageCount() == 0) {
             conversation.setTitle(createTitle(prompt));
         }
+
+        // 一轮固定新增用户和 Assistant 两条消息；lastMessageAt 使用用户消息提交时间。
         conversation.setMessageCount(conversation.getMessageCount() + 2);
         conversation.setLastMessageAt(now);
         conversationRepo.save(conversation);
+        // Assistant 消息 ID 会作为后续模型生成任务 ID，用户消息序号用于排除本轮消息后查询历史记忆。
         return new ChatTurnBO(conversationId, userMessage.getId(), assistantMessage.getId(), userSequence);
     }
 

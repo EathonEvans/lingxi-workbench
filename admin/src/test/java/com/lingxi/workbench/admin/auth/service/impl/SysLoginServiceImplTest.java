@@ -1,12 +1,12 @@
 package com.lingxi.workbench.admin.auth.service.impl;
 
 import cn.dev33.satoken.stp.SaTokenInfo;
-import com.lingxi.workbench.admin.auth.common.enums.SysUserStatus;
-import com.lingxi.workbench.admin.auth.model.bo.SysUserBO;
-import com.lingxi.workbench.admin.auth.model.converter.SysUserConverter;
+import com.lingxi.workbench.admin.common.enums.SysUserStatus;
+import com.lingxi.workbench.admin.sys.user.model.bo.SysUserBO;
+import com.lingxi.workbench.admin.sys.user.model.converter.SysUserConverter;
 import com.lingxi.workbench.admin.auth.model.request.SysLoginRequest;
 import com.lingxi.workbench.admin.auth.model.vo.SysLoginVO;
-import com.lingxi.workbench.admin.auth.repo.SysUserRepo;
+import com.lingxi.workbench.admin.sys.user.repo.SysUserRepo;
 import com.lingxi.workbench.framework.exceptions.AuthException;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
 import com.lingxi.workbench.framework.auth.password.PasswordHasher;

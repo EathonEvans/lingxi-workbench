@@ -12,7 +12,7 @@ import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
  */
 public record ApiResponse<T>(int code, T data, String msg) {
 
-    private static final int SUCCESS_CODE = HttpStatusEnum.OK.value();
+    private static final int SUCCESS_CODE = HttpStatusEnum.OK.getCode();
     private static final String SUCCESS_MESSAGE = "成功";
 
     public static <T> ApiResponse<T> success(T data) {
@@ -25,7 +25,7 @@ public record ApiResponse<T>(int code, T data, String msg) {
     }
 
     public static ApiResponse<Void> failure(int code, String message) {
-        if (code < HttpStatusEnum.BAD_REQUEST.value()) {
+        if (code < HttpStatusEnum.BAD_REQUEST.getCode()) {
             throw new IllegalArgumentException("失败响应码必须大于等于400");
         }
         if (message == null || message.isBlank()) {
@@ -38,6 +38,6 @@ public record ApiResponse<T>(int code, T data, String msg) {
         if (status == null) {
             throw new IllegalArgumentException("HTTP 状态不能为空");
         }
-        return failure(status.value(), message);
+        return failure(status.getCode(), message);
     }
 }

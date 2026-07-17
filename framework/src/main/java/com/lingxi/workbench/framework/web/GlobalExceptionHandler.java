@@ -24,7 +24,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException exception) {
-        return ResponseEntity.status(exception.getHttpStatus().value())
+        return ResponseEntity.status(exception.getHttpStatus().getCode())
                 .body(ApiResponse.failure(exception.getCode(), exception.getMessage()));
     }
 
@@ -55,7 +55,7 @@ public class GlobalExceptionHandler {
     }
 
     private static ResponseEntity<ApiResponse<Void>> failure(HttpStatusEnum status, String message) {
-        return ResponseEntity.status(status.value())
+        return ResponseEntity.status(status.getCode())
                 .body(ApiResponse.failure(status, message));
     }
 }

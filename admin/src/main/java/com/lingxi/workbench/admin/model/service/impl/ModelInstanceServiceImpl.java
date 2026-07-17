@@ -1,7 +1,8 @@
 package com.lingxi.workbench.admin.model.service.impl;
 
-import com.alibaba.fastjson2.JSON;
+import cn.hutool.core.collection.CollUtil;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
+import com.lingxi.workbench.admin.model.common.enums.ModelCapability;
 import com.lingxi.workbench.admin.model.common.enums.ModelCredentialStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelConnectionTestStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
@@ -29,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Objects;
 
 /** 模型实例业务实现。 */
 @Service
@@ -67,8 +69,8 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "模型实例编码已存在");
         }
 
-        ModelInstanceEntity entity = id == null ? new ModelInstanceEntity() : requireInstance(id);
-        if (id != null && entity.getModelType() != request.modelType()) {
+        ModelInstanceEntity entity = Objects.isNull(id) ? new ModelInstanceEntity() : requireInstance(id);
+        if (Objects.nonNull(id) && entity.getModelType() != request.modelType()) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "已创建的模型实例不允许修改模型类型");
         }
         entity.setProviderId(provider.getId());
@@ -77,19 +79,18 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
         entity.setCode(code);
         entity.setModelCode(request.modelCode().trim());
         entity.setModelType(request.modelType());
-        entity.setCapabilities(toJson(normalizeCapabilities(request.modelType(), request.capabilities())));
+        entity.setCapabilities(normalizeCapabilities(request.modelType(), request.capabilities()));
         boolean chatModel = request.modelType() == ModelType.CHAT;
         entity.setTemperature(chatModel ? request.temperature() : null);
         entity.setTopP(chatModel ? request.topP() : null);
         entity.setMaxTokens(chatModel ? request.maxTokens() : null);
         entity.setContextWindow(request.contextWindow());
-        entity.setStopSequences(toJson(
-                chatModel ? request.stopSequences() : List.of()));
+        entity.setStopSequences(normalizeList(chatModel ? request.stopSequences() : List.of()));
         entity.setTimeoutSeconds(request.timeoutSeconds());
         entity.setMaxRetries(request.maxRetries());
         entity.setStatus(request.status());
         entity.setUpdatedBy(operatorId);
-        if (id == null) {
+        if (Objects.isNull(id)) {
             entity.setCreatedBy(operatorId);
             entity.setIsDefault(false);
             entity.setLastTestStatus(ModelConnectionTestStatus.UNTESTED);
@@ -101,7 +102,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
                 "INSTANCE",
                 entity.getId(),
                 operatorId,
-                id == null ? "MODEL_CREATE" : "MODEL_UPDATE",
+                Objects.isNull(id) ? "MODEL_CREATE" : "MODEL_UPDATE",
                 "模型实例=" + code + "，类型=" + request.modelType());
         return modelConverter.toInstanceVO(entity);
     }
@@ -138,7 +139,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
                 requireProvider(entity.getProviderId()),
                 requireCredential(entity.getCredentialId()));
 
-        instanceRepo.clearDefault(entity.getModelType().name());
+        instanceRepo.clearDefault(entity.getModelType());
         entity.setIsDefault(true);
         entity.setUpdatedBy(operatorId);
         instanceRepo.save(entity);
@@ -215,16 +216,20 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
                         HttpStatusEnum.NOT_FOUND, "模型实例不存在"));
     }
 
-    private static String toJson(List<String> values) {
-        return JSON.toJSONString(values == null ? List.of() : values);
+    private static List<ModelCapability> normalizeCapabilities(
+            ModelType modelType, List<ModelCapability> capabilities) {
+        List<ModelCapability> normalized = CollUtil.isEmpty(capabilities)
+                ? List.of()
+                : capabilities.stream().distinct().toList();
+        if (modelType != ModelType.CHAT && CollUtil.isNotEmpty(normalized)) {
+            throw new BusinessException(
+                    HttpStatusEnum.BAD_REQUEST, "当前仅对话模型支持配置模型能力");
+        }
+        return normalized;
     }
 
-    private static List<String> normalizeCapabilities(
-            ModelType modelType, List<String> capabilities) {
-        if (capabilities == null || capabilities.isEmpty()) {
-            return List.of(modelType.name());
-        }
-        return capabilities;
+    private static <T> List<T> normalizeList(List<T> values) {
+        return CollUtil.isEmpty(values) ? List.of() : List.copyOf(values);
     }
 
 }

@@ -6,16 +6,16 @@ import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatMemoryMessageBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
-import com.lingxi.workbench.chat.model.bo.ChatStreamResult;
 import com.lingxi.workbench.chat.model.bo.MessageTokenUsageBO;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
-import com.lingxi.workbench.chat.model.request.StreamChatRequest;
+import com.lingxi.workbench.chat.model.request.StartChatRequest;
+import com.lingxi.workbench.chat.model.vo.ChatStartVO;
 import com.lingxi.workbench.chat.repo.ConversationMessageRepo;
 import com.lingxi.workbench.chat.service.ConversationMemoryService;
 import com.lingxi.workbench.chat.service.ConversationService;
-import com.lingxi.workbench.infra.ai.chat.ChatModelRuntimeConfig;
-import com.lingxi.workbench.infra.ai.chat.ChatStreamChunk;
-import com.lingxi.workbench.infra.ai.chat.ChatStreamCommand;
+import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
+import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
+import com.lingxi.workbench.infra.ai.chat.model.command.ChatStreamCommand;
 import com.lingxi.workbench.infra.ai.chat.StreamingChatGateway;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
 import org.junit.jupiter.api.BeforeEach;
@@ -66,17 +66,19 @@ class ChatStreamServiceImplTest {
         Sinks.Many<ChatStreamChunk> modelSink = Sinks.many().unicast().onBackpressureBuffer();
         when(gateway.stream(any())).thenReturn(modelSink.asFlux());
 
-        ChatStreamResult result = service.stream(
-                new StreamChatRequest("10", "client-001", "你好"), 7L);
+        ChatStartVO start = service.start(
+                new StartChatRequest("10", "client-001", "你好"), 7L);
+        when(messageRepo.findOwnedAssistantMessage(12L, 7L))
+                .thenReturn(Optional.of(assistant(MessageStatus.GENERATING, "")));
         List<ChatGenerationEventBO> received = new ArrayList<>();
-        Disposable observer = result.events().subscribe(received::add);
+        Disposable observer = service.resume(12L, 0, 7L).subscribe(received::add);
         modelSink.tryEmitNext(new ChatStreamChunk("你"));
         observer.dispose();
         modelSink.tryEmitNext(new ChatStreamChunk("好"));
         modelSink.tryEmitNext(new ChatStreamChunk("", 12, 2, 14));
         modelSink.tryEmitComplete();
 
-        assertEquals("10", result.start().conversationId());
+        assertEquals("10", start.conversationId());
         assertEquals(List.of(ChatGenerationEventBO.chunk(1, "你")), received);
         verify(conversationService).completeAssistant(
                 12L, "你好", new MessageTokenUsageBO(12, 2, 14));
@@ -91,7 +93,7 @@ class ChatStreamServiceImplTest {
     void shouldReplayOnlyChunksAfterClientSequence() {
         Sinks.Many<ChatStreamChunk> modelSink = Sinks.many().unicast().onBackpressureBuffer();
         when(gateway.stream(any())).thenReturn(modelSink.asFlux());
-        service.stream(new StreamChatRequest("10", "client-001", "你好"), 7L);
+        service.start(new StartChatRequest("10", "client-001", "你好"), 7L);
         modelSink.tryEmitNext(new ChatStreamChunk("你"));
         when(messageRepo.findOwnedAssistantMessage(12L, 7L))
                 .thenReturn(Optional.of(assistant(MessageStatus.GENERATING, "")));
@@ -110,7 +112,7 @@ class ChatStreamServiceImplTest {
     void shouldCancelOnlyOnExplicitRequest() {
         Sinks.Many<ChatStreamChunk> modelSink = Sinks.many().unicast().onBackpressureBuffer();
         when(gateway.stream(any())).thenReturn(modelSink.asFlux());
-        service.stream(new StreamChatRequest("10", "client-001", "你好"), 7L);
+        service.start(new StartChatRequest("10", "client-001", "你好"), 7L);
         modelSink.tryEmitNext(new ChatStreamChunk("部"));
         when(messageRepo.findOwnedAssistantMessage(12L, 7L))
                 .thenReturn(Optional.of(assistant(MessageStatus.GENERATING, "")));
@@ -141,8 +143,8 @@ class ChatStreamServiceImplTest {
         when(memoryService.getWindowMemory(7L, 10L, 3))
                 .thenThrow(new IllegalStateException("memory unavailable"));
 
-        assertThrows(IllegalStateException.class, () -> service.stream(
-                new StreamChatRequest("10", "client-001", "你好"), 7L));
+        assertThrows(IllegalStateException.class, () -> service.start(
+                new StartChatRequest("10", "client-001", "你好"), 7L));
 
         verify(conversationService).failAssistant(
                 12L,
@@ -156,7 +158,7 @@ class ChatStreamServiceImplTest {
     void shouldInterruptRunningTaskWhenApplicationShutsDown() {
         Sinks.Many<ChatStreamChunk> modelSink = Sinks.many().unicast().onBackpressureBuffer();
         when(gateway.stream(any())).thenReturn(modelSink.asFlux());
-        service.stream(new StreamChatRequest("10", "client-001", "你好"), 7L);
+        service.start(new StartChatRequest("10", "client-001", "你好"), 7L);
         modelSink.tryEmitNext(new ChatStreamChunk("部分回答"));
 
         service.shutdownRunningTasks();

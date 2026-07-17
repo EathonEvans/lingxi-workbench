@@ -1,4 +1,20 @@
 package com.lingxi.workbench.admin.model.common.enums;
 
+import com.baomidou.mybatisplus.annotation.EnumValue;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+
 /** 模型密钥状态。 */
-public enum ModelCredentialStatus { ACTIVE, DISABLED, REVOKED }
+@Getter
+@RequiredArgsConstructor
+public enum ModelCredentialStatus {
+    ACTIVE("ACTIVE", "启用"),
+    DISABLED("DISABLED", "禁用"),
+    REVOKED("REVOKED", "已撤销");
+
+    /** 稳定编码，同时作为数据库存储值。 */
+    @EnumValue
+    private final String code;
+    /** 中文说明。 */
+    private final String describe;
+}

@@ -1,6 +1,6 @@
--- 灵析 AI Workbench 第一版初始化数据脚本。
+-- 灵析AI Workbench第一版初始化数据脚本。
 -- 本脚本提供第一次启动所需的最小管理端数据集。
--- root 初始密码为 Root@123456，仅用于本地初始化，首次登录后必须立即修改。
+-- root初始密码为Root@123456，仅用于本地初始化，首次登录后必须立即修改。
 
 BEGIN;
 
@@ -69,7 +69,7 @@ SET parent_id  = EXCLUDED.parent_id,
     visible    = TRUE,
     status     = 'ACTIVE';
 
--- 保留既有 DASHBOARD 菜单主键，仅将其调整为工作台目录下的仪表盘页面。
+-- 保留既有DASHBOARD菜单主键，仅将其调整为工作台目录下的仪表盘页面。
 INSERT INTO lingxi_core.sys_menu
     (parent_id, name, code, menu_type, route_path, component, icon, sort_order, visible, status)
 SELECT workbench.id, '仪表盘', 'DASHBOARD', 'MENU', '/dashboard/console',
@@ -88,7 +88,7 @@ SET parent_id  = EXCLUDED.parent_id,
     visible    = TRUE,
     status     = 'ACTIVE';
 
--- 兼容尚未落库的早期 DASHBOARD_CONSOLE 设计：权限迁回现有 DASHBOARD 主键后删除冗余记录。
+-- 兼容尚未落库的早期DASHBOARD_CONSOLE设计：权限迁回现有DASHBOARD主键后删除冗余记录。
 INSERT INTO lingxi_core.sys_role_menu (role_id, menu_id)
 SELECT role_menu.role_id, dashboard.id
 FROM lingxi_core.sys_role_menu role_menu
@@ -126,7 +126,7 @@ CROSS JOIN (VALUES
 WHERE root.code = 'SYSTEM'
 ON CONFLICT (code) DO NOTHING;
 
--- 模型管理是与系统管理同级的一级目录，禁止把 Layout 嵌套到系统管理 Layout 中。
+-- 模型管理是与系统管理同级的一级目录，禁止把Layout嵌套到系统管理Layout中。
 INSERT INTO lingxi_core.sys_menu
     (parent_id, name, code, menu_type, route_path, component, icon, permission_code, sort_order, visible, status)
 VALUES (NULL, '模型管理', 'SYSTEM_MODEL', 'DIRECTORY', '/model', 'Layout',
@@ -149,7 +149,7 @@ SELECT parent.id, page.name, page.code, 'MENU', page.route_path, page.component,
        page.permission_code, page.sort_order, TRUE, 'ACTIVE'
 FROM (VALUES
     ('供应商管理', 'SYSTEM_MODEL_PROVIDER', '/model/provider', 'system/model/provider/index', 'ri:cloud-line', 'model:provider:list', 10),
-    ('API Key 管理', 'SYSTEM_MODEL_CREDENTIAL', '/model/credential', 'system/model/credential/index', 'ri:key-2-line', 'model:credential:list', 20),
+    ('API Key管理', 'SYSTEM_MODEL_CREDENTIAL', '/model/credential', 'system/model/credential/index', 'ri:key-2-line', 'model:credential:list', 20),
     ('模型实例管理', 'SYSTEM_MODEL_INSTANCE', '/model/instance', 'system/model/instance/index', 'ri:robot-2-line', 'model:instance:list', 30)
 ) AS page(name, code, route_path, component, icon, permission_code, sort_order)
 JOIN lingxi_core.sys_menu parent ON parent.code = 'SYSTEM_MODEL'
@@ -185,10 +185,10 @@ SET parent_id = EXCLUDED.parent_id,
     visible = FALSE,
     status = 'ACTIVE';
 
--- Prompt 管理是独立的一级目录，不归属于模型管理或系统管理。
+-- Prompt模板管理是独立的一级目录，不归属于模型管理或系统管理。
 INSERT INTO lingxi_core.sys_menu
     (parent_id, name, code, menu_type, route_path, component, icon, permission_code, sort_order, visible, status)
-VALUES (NULL, 'Prompt 管理', 'PROMPT', 'DIRECTORY', '/prompt', 'Layout',
+VALUES (NULL, 'Prompt模板管理', 'PROMPT', 'DIRECTORY', '/prompt', 'Layout',
         'ri:terminal-box-line', NULL, 60, TRUE, 'ACTIVE')
 ON CONFLICT (code) DO UPDATE
 SET parent_id = EXCLUDED.parent_id,
@@ -204,7 +204,7 @@ SET parent_id = EXCLUDED.parent_id,
 
 INSERT INTO lingxi_core.sys_menu
     (parent_id, name, code, menu_type, route_path, component, icon, permission_code, sort_order, visible, status)
-SELECT parent.id, 'Prompt 列表', 'PROMPT_LIST', 'MENU', '/prompt/list',
+SELECT parent.id, '模板列表', 'PROMPT_LIST', 'MENU', '/prompt/list',
        'prompt/index', 'ri:file-text-line', 'prompt:list', 10, TRUE, 'ACTIVE'
 FROM lingxi_core.sys_menu parent
 WHERE parent.code = 'PROMPT'
@@ -225,8 +225,8 @@ INSERT INTO lingxi_core.sys_menu
 SELECT parent.id, action.name, action.code, 'BUTTON', action.permission_code,
        action.sort_order, FALSE, 'ACTIVE'
 FROM (VALUES
-    ('Prompt 维护', 'PROMPT_MANAGE', 'prompt:manage', 10),
-    ('Prompt 发布', 'PROMPT_PUBLISH', 'prompt:publish', 20)
+    ('Prompt维护', 'PROMPT_MANAGE', 'prompt:manage', 10),
+    ('Prompt发布', 'PROMPT_PUBLISH', 'prompt:publish', 20)
 ) AS action(name, code, permission_code, sort_order)
 JOIN lingxi_core.sys_menu parent ON parent.code = 'PROMPT_LIST'
 ON CONFLICT (code) DO UPDATE
@@ -237,7 +237,7 @@ SET parent_id = EXCLUDED.parent_id,
     visible = FALSE,
     status = 'ACTIVE';
 
--- 页面操作权限，后端接口使用同一 permission_code 进行校验。
+-- 页面操作权限，后端接口使用同一permission_code进行校验。
 INSERT INTO lingxi_core.sys_menu
     (parent_id, name, code, menu_type, permission_code, sort_order, visible, status)
 SELECT parent.id, action.name, action.code, 'BUTTON', action.permission_code,
@@ -262,7 +262,7 @@ FROM (VALUES
 JOIN lingxi_core.sys_menu parent ON parent.code = action.parent_code
 ON CONFLICT (code) DO NOTHING;
 
--- root 账号绑定 ROOT 角色。
+-- root账号绑定ROOT角色。
 INSERT INTO lingxi_core.sys_user_role (user_id, role_id)
 SELECT sys_user.id, role.id
 FROM lingxi_core.sys_user sys_user
@@ -271,8 +271,8 @@ WHERE sys_user.username = 'root'
   AND role.code = 'ROOT'
 ON CONFLICT DO NOTHING;
 
--- ROOT 权限由查询逻辑动态赋予全部生效菜单，不在关联表中保存重复数据。
--- 清理早期脚本可能写入的 ROOT 菜单关系，否则这些引用会阻止菜单正常删除。
+-- ROOT权限由查询逻辑动态赋予全部生效菜单，不在关联表中保存重复数据。
+-- 清理早期脚本可能写入的ROOT菜单关系，否则这些引用会阻止菜单正常删除。
 DELETE FROM lingxi_core.sys_role_menu role_menu
 USING lingxi_core.sys_role role
 WHERE role_menu.role_id = role.id

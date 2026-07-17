@@ -1,12 +1,12 @@
 package com.lingxi.workbench.admin.common;
 
-import com.lingxi.workbench.admin.auth.controller.SysUserController;
+import com.lingxi.workbench.admin.sys.user.controller.SysUserController;
 import com.lingxi.workbench.admin.auth.controller.SysLoginController;
 import com.lingxi.workbench.admin.auth.controller.SysSessionController;
-import com.lingxi.workbench.admin.department.controller.SysDepartmentController;
-import com.lingxi.workbench.admin.menu.controller.SysMenuController;
-import com.lingxi.workbench.admin.role.controller.SysUserRoleController;
-import com.lingxi.workbench.admin.role.controller.SysRoleController;
+import com.lingxi.workbench.admin.sys.department.controller.SysDepartmentController;
+import com.lingxi.workbench.admin.sys.menu.controller.SysMenuController;
+import com.lingxi.workbench.admin.sys.role.controller.SysUserRoleController;
+import com.lingxi.workbench.admin.sys.role.controller.SysRoleController;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;

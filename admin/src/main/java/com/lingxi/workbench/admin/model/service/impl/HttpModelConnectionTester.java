@@ -1,5 +1,6 @@
 package com.lingxi.workbench.admin.model.service.impl;
 
+import cn.hutool.core.text.CharSequenceUtil;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.admin.model.model.bo.ModelConnectionTestResult;
@@ -99,7 +100,7 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
     }
 
     private static URI buildModelUri(String baseUrl, ModelType modelType) {
-        String normalized = baseUrl == null ? "" : baseUrl.trim().replaceAll("/+$", "");
+        String normalized = CharSequenceUtil.isBlank(baseUrl) ? "" : baseUrl.trim().replaceAll("/+$", "");
         String endpoint = modelType == ModelType.EMBEDDING ? "/embeddings" : "/chat/completions";
         URI uri = URI.create(normalized + endpoint);
         if (!("http".equalsIgnoreCase(uri.getScheme())
@@ -126,7 +127,7 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
             JSONObject root = JSON.parseObject(responseBody);
             JSONObject error = root == null ? null : root.getJSONObject("error");
             String message = error == null ? null : error.getString("message");
-            if (message != null && !message.isBlank()) {
+            if (CharSequenceUtil.isNotBlank(message)) {
                 return truncate(message.trim());
             }
         } catch (RuntimeException ignored) {

@@ -1,5 +1,6 @@
 package com.lingxi.workbench.admin.prompt.repo;
 
+import cn.hutool.core.collection.CollUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVersionStatus;
 import com.lingxi.workbench.admin.prompt.model.entity.PromptVersionEntity;
@@ -8,9 +9,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
-/** Prompt 版本数据仓库。 */
+/** Prompt版本数据仓库。 */
 @Repository
 @RequiredArgsConstructor
 public class PromptVersionRepo {
@@ -39,9 +41,9 @@ public class PromptVersionRepo {
                 .orderByDesc(PromptVersionEntity::getVersionNo));
     }
 
-    /** 批量查询多个 Prompt 的版本，避免列表页逐条访问数据库。 */
+    /** 批量查询多个Prompt的版本，避免列表页逐条访问数据库。 */
     public List<PromptVersionEntity> findAllByPromptIds(List<Long> promptIds) {
-        if (promptIds.isEmpty()) {
+        if (CollUtil.isEmpty(promptIds)) {
             return List.of();
         }
         return mapper.selectList(Wrappers.<PromptVersionEntity>lambdaQuery()
@@ -55,11 +57,11 @@ public class PromptVersionRepo {
                 .eq(PromptVersionEntity::getPromptId, promptId)
                 .orderByDesc(PromptVersionEntity::getVersionNo)
                 .last("LIMIT 1"));
-        return latest == null ? 1 : latest.getVersionNo() + 1;
+        return Objects.isNull(latest) ? 1 : latest.getVersionNo() + 1;
     }
 
     public void save(PromptVersionEntity entity) {
-        if (entity.getId() == null) {
+        if (Objects.isNull(entity.getId())) {
             mapper.insert(entity);
         } else {
             mapper.updateById(entity);

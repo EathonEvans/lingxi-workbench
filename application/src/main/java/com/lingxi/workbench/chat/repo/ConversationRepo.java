@@ -1,8 +1,8 @@
 package com.lingxi.workbench.chat.repo;
 
+import cn.hutool.core.text.CharSequenceUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lingxi.workbench.chat.model.entity.ConversationEntity;
 import com.lingxi.workbench.chat.model.request.ConversationPageQuery;
 import com.lingxi.workbench.chat.repo.mapper.ConversationMapper;
@@ -10,6 +10,7 @@ import com.lingxi.workbench.framework.convention.PageResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
+import java.util.Objects;
 import java.util.Optional;
 
 /** 会话数据仓库。 */
@@ -22,12 +23,12 @@ public class ConversationRepo {
     /** 分页查询当前用户未删除的会话。 */
     public PageResult<ConversationEntity> findPage(Long userId, ConversationPageQuery query) {
         IPage<ConversationEntity> page = mapper.selectPage(
-                new Page<>(query.getCurrent(), query.getSize()),
+                query.toPage(),
                 Wrappers.<ConversationEntity>lambdaQuery()
                         .eq(ConversationEntity::getUserId, userId)
                         .isNull(ConversationEntity::getDeletedAt)
-                        .eq(query.getStatus() != null, ConversationEntity::getStatus, query.getStatus())
-                        .like(query.getKeyword() != null && !query.getKeyword().isBlank(),
+                        .eq(Objects.nonNull(query.getStatus()), ConversationEntity::getStatus, query.getStatus())
+                        .like(CharSequenceUtil.isNotBlank(query.getKeyword()),
                                 ConversationEntity::getTitle,
                                 query.getKeyword() == null ? null : query.getKeyword().trim())
                         .orderByDesc(ConversationEntity::getLastMessageAt)
@@ -44,7 +45,10 @@ public class ConversationRepo {
                         .isNull(ConversationEntity::getDeletedAt)));
     }
 
-    /** 锁定用户会话，供消息创建事务使用。 */
+    /**
+     * 使用数据库行锁查询用户所属且未删除的会话。
+     * 锁持续到调用方事务结束，用于串行化同一会话的消息序号分配和生成状态校验。
+     */
     public Optional<ConversationEntity> lockOwnedById(Long id, Long userId) {
         return Optional.ofNullable(mapper.selectOwnedForUpdate(id, userId));
     }

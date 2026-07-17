@@ -17,7 +17,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-/** 管理端模型配置接口。 */
+/**
+ * 管理端模型配置接口。
+ */
 @RestController
 @RequestMapping("/api/v1/model-config/credentials")
 @RequiredArgsConstructor
@@ -26,48 +28,52 @@ public class ModelCredentialController {
     private final ModelCredentialService service;
 
 
-    /** 分页查询模型访问密钥，响应中不包含密文。 */
+    /**
+     * 分页查询模型访问密钥，响应中不包含密文。
+     */
     @GetMapping("/list")
-    @SaCheckPermission(
-            value = {"model:credential:list", "model:instance:list"}, mode = SaMode.OR)
-    public ApiResponse<PageResult<ModelCredentialVO>> credentials(
-            @Valid ModelCredentialPageQuery query) {
+    @SaCheckPermission(value = {"model:credential:list", "model:instance:list"}, mode = SaMode.OR)
+    public ApiResponse<PageResult<ModelCredentialVO>> credentials(@Valid ModelCredentialPageQuery query) {
         return ApiResponse.success(service.page(query));
     }
 
-    /** 查询 API Key 选项，供模型实例表单使用，响应中不包含密文。 */
+    /**
+     * 查询 API Key 选项，供模型实例表单使用，响应中不包含密文。
+     */
     @GetMapping("/options")
     @SaCheckPermission("model:instance:list")
     public ApiResponse<List<ModelCredentialVO>> credentialOptions() {
         return ApiResponse.success(service.options());
     }
 
-    /** 新增模型访问密钥。 */
+    /**
+     * 新增模型访问密钥。
+     */
     @PostMapping("/create")
     @SaCheckPermission("model:credential:manage")
-    public ApiResponse<ModelCredentialVO> createCredential(
-            @Valid @RequestBody CreateModelCredentialRequest request) {
+    public ApiResponse<ModelCredentialVO> createCredential(@Valid @RequestBody CreateModelCredentialRequest request) {
         return ApiResponse.success(service.create(request, operatorId()));
     }
 
-    /** 使用新值覆盖原密钥，旧值不会保留。 */
+    /**
+     * 使用新值覆盖原密钥，旧值不会保留。
+     */
     @PostMapping("/rotate/{id}")
     @SaCheckPermission("model:credential:manage")
-    public ApiResponse<Void> rotateCredential(
-            @PathVariable Long id, @Valid @RequestBody RotateModelCredentialRequest request) {
+    public ApiResponse<Void> rotateCredential(@PathVariable Long id, @Valid @RequestBody RotateModelCredentialRequest request) {
         service.rotate(id, request, operatorId());
         return ApiResponse.success();
     }
 
-    /** 启停或永久撤销模型访问密钥。 */
+    /**
+     * 启停或永久撤销模型访问密钥。
+     */
     @PostMapping("/change-status/{id}")
     @SaCheckPermission("model:credential:manage")
-    public ApiResponse<Void> changeCredentialStatus(
-            @PathVariable Long id, @RequestParam ModelCredentialStatus status) {
+    public ApiResponse<Void> changeCredentialStatus(@PathVariable Long id, @RequestParam ModelCredentialStatus status) {
         service.changeStatus(id, status, operatorId());
         return ApiResponse.success();
     }
-
 
 
     private Long operatorId() {

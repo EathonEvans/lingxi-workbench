@@ -1,7 +1,7 @@
 package com.lingxi.workbench.model.model.converter;
 
 import com.lingxi.workbench.model.model.entity.ModelRuntimeConfigEntity;
-import com.lingxi.workbench.infra.ai.chat.ChatModelRuntimeConfig;
+import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.model.model.bo.ModelRuntimeConfigBO;
 import org.junit.jupiter.api.Test;
 import org.mapstruct.factory.Mappers;
@@ -27,7 +27,7 @@ class ModelRuntimeConfigConverterTest {
         entity.setModelCode("deepseek-chat");
         entity.setTemperature(new BigDecimal("0.700"));
         entity.setTopP(new BigDecimal("0.900"));
-        entity.setStopSequences("[\"END\"]");
+        entity.setStopSequences(List.of("END"));
         entity.setTimeoutSeconds(60);
         entity.setMaxRetries(1);
 

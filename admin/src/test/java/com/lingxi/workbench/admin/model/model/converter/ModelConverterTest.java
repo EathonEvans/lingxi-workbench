@@ -1,5 +1,6 @@
 package com.lingxi.workbench.admin.model.model.converter;
 
+import com.lingxi.workbench.admin.model.common.enums.ModelCapability;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import com.lingxi.workbench.admin.model.model.entity.ModelInstanceEntity;
 import com.lingxi.workbench.admin.model.model.vo.ModelInstanceVO;
@@ -21,8 +22,8 @@ class ModelConverterTest {
         entity.setProviderId(2077574496283791362L);
         entity.setCredentialId(2077574496283791363L);
         entity.setModelType(ModelType.CHAT);
-        entity.setCapabilities("[\"STREAMING\",\"TOOL_CALLING\"]");
-        entity.setStopSequences("[\"END\"]");
+        entity.setCapabilities(List.of(ModelCapability.STREAMING, ModelCapability.TOOL_CALLING));
+        entity.setStopSequences(List.of("END"));
 
         ModelInstanceVO result = converter.toInstanceVO(entity);
 
@@ -33,4 +34,5 @@ class ModelConverterTest {
         assertEquals(List.of("STREAMING", "TOOL_CALLING"), result.capabilities());
         assertEquals(List.of("END"), result.stopSequences());
     }
+
 }

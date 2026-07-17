@@ -1,11 +1,12 @@
 package com.lingxi.workbench.admin.auth.service.impl;
 
 import cn.dev33.satoken.stp.SaTokenInfo;
-import com.lingxi.workbench.admin.auth.model.bo.SysUserBO;
-import com.lingxi.workbench.admin.auth.model.converter.SysUserConverter;
+import cn.hutool.core.text.CharSequenceUtil;
+import com.lingxi.workbench.admin.sys.user.model.bo.SysUserBO;
+import com.lingxi.workbench.admin.sys.user.model.converter.SysUserConverter;
 import com.lingxi.workbench.admin.auth.model.request.SysLoginRequest;
 import com.lingxi.workbench.admin.auth.model.vo.SysLoginVO;
-import com.lingxi.workbench.admin.auth.repo.SysUserRepo;
+import com.lingxi.workbench.admin.sys.user.repo.SysUserRepo;
 import com.lingxi.workbench.admin.auth.service.SysLoginService;
 import com.lingxi.workbench.framework.exceptions.AuthException;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
@@ -64,7 +65,7 @@ public class SysLoginServiceImpl implements SysLoginService {
     }
 
     private static String normalizeUsername(String username) {
-        if (username == null || username.isBlank()) {
+        if (CharSequenceUtil.isBlank(username)) {
             throw AuthException.invalidCredentials();
         }
         return username.trim().toLowerCase(Locale.ROOT);

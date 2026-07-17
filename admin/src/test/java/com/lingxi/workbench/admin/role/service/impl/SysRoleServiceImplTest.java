@@ -1,14 +1,15 @@
 package com.lingxi.workbench.admin.role.service.impl;
 
+import com.lingxi.workbench.admin.sys.role.service.impl.SysRoleServiceImpl;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 
-import com.lingxi.workbench.admin.department.service.SysDepartmentService;
-import com.lingxi.workbench.admin.auth.service.SysUserService;
-import com.lingxi.workbench.admin.menu.service.SysMenuService;
-import com.lingxi.workbench.admin.role.common.enums.RoleDataScope;
-import com.lingxi.workbench.admin.role.model.converter.SysRoleConverter;
-import com.lingxi.workbench.admin.role.model.entity.SysRoleEntity;
-import com.lingxi.workbench.admin.role.repo.SysRoleRepo;
+import com.lingxi.workbench.admin.sys.department.service.SysDepartmentService;
+import com.lingxi.workbench.admin.sys.user.service.SysUserService;
+import com.lingxi.workbench.admin.sys.menu.service.SysMenuService;
+import com.lingxi.workbench.admin.common.enums.RoleDataScope;
+import com.lingxi.workbench.admin.sys.role.model.converter.SysRoleConverter;
+import com.lingxi.workbench.admin.sys.role.model.entity.SysRoleEntity;
+import com.lingxi.workbench.admin.sys.role.repo.SysRoleRepo;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

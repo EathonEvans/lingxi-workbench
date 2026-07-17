@@ -20,7 +20,7 @@ class UserConverterTest {
         entity.setPasswordHash("password-hash");
         entity.setDisplayName("Alice");
         entity.setAvatarUrl("avatar-url");
-        entity.setStatus("ACTIVE");
+        entity.setStatus(UserStatus.ACTIVE);
 
         UserBO user = converter.toBO(entity);
 

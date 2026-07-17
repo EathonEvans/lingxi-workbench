@@ -2,10 +2,9 @@ package com.lingxi.workbench.chat.controller;
 
 import com.lingxi.workbench.auth.context.UserContext;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
-import com.lingxi.workbench.chat.model.bo.ChatStreamResult;
 import com.lingxi.workbench.chat.model.request.CancelChatRequest;
 import com.lingxi.workbench.chat.model.request.ResumeChatRequest;
-import com.lingxi.workbench.chat.model.request.StreamChatRequest;
+import com.lingxi.workbench.chat.model.request.StartChatRequest;
 import com.lingxi.workbench.chat.model.vo.ChatChunkVO;
 import com.lingxi.workbench.chat.model.vo.ChatErrorVO;
 import com.lingxi.workbench.chat.model.vo.ChatSnapshotVO;
@@ -42,29 +41,13 @@ public class ChatStreamController {
      * 后续是否订阅 SSE 不影响该任务继续执行。
      */
     @PostMapping("/start")
-    public ApiResponse<ChatStartVO> start(@Valid @RequestBody StreamChatRequest request) {
-        ChatStreamResult result = chatStreamService.stream(request, UserContext.get().id());
-        return ApiResponse.success(result.start());
+    public ApiResponse<ChatStartVO> start(@Valid @RequestBody StartChatRequest request) {
+        return ApiResponse.success(chatStreamService.start(request, UserContext.get().id()));
     }
 
     /**
-     * 兼容旧客户端：创建任务后立即在同一个响应中订阅增量内容。
-     *
-     * @param request 对话请求
-     * @return SSE 事件流
+     * 浏览器刷新或网络恢复后，继续订阅原模型生成任务。
      */
-    @PostMapping(
-            value = "/stream",
-            produces = {MediaType.TEXT_EVENT_STREAM_VALUE, MediaType.APPLICATION_JSON_VALUE}
-    )
-    public Flux<ServerSentEvent<?>> stream(@Valid @RequestBody StreamChatRequest request) {
-        ChatStreamResult result = chatStreamService.stream(request, UserContext.get().id());
-        return Flux.concat(
-                Flux.just(startEvent(result.start())),
-                result.events().map(ChatStreamController::toSseEvent));
-    }
-
-    /** 浏览器刷新或网络恢复后，继续订阅原模型生成任务。 */
     @PostMapping(
             value = "/resume",
             produces = {MediaType.TEXT_EVENT_STREAM_VALUE, MediaType.APPLICATION_JSON_VALUE}
@@ -77,19 +60,14 @@ public class ChatStreamController {
                 .map(ChatStreamController::toSseEvent);
     }
 
-    /** 用户显式停止模型生成，普通 SSE 断开不会调用此接口。 */
+    /**
+     * 用户显式停止模型生成，普通 SSE 断开不会调用此接口。
+     */
     @PostMapping("/cancel")
     public ApiResponse<Void> cancel(@Valid @RequestBody CancelChatRequest request) {
         chatStreamService.cancel(
                 Long.valueOf(request.assistantMessageId()), UserContext.get().id());
         return ApiResponse.success();
-    }
-
-    private static ServerSentEvent<ChatStartVO> startEvent(ChatStartVO start) {
-        return ServerSentEvent.<ChatStartVO>builder()
-                .event("start")
-                .data(start)
-                .build();
     }
 
     private static ServerSentEvent<?> toSseEvent(ChatGenerationEventBO event) {

@@ -4,15 +4,27 @@ import com.lingxi.workbench.auth.common.enums.UserStatus;
 
 import java.util.Objects;
 
+/**
+ * 应用端用户业务对象，隔离数据库实体与认证业务。
+ */
 public record UserBO(
+        /** 用户主键。 */
         Long id,
+        /** 登录账号。 */
         String username,
+        /** BCrypt 密码哈希。 */
         String passwordHash,
+        /** 显示名称。 */
         String displayName,
+        /** 头像地址。 */
         String avatarUrl,
+        /** 邮箱地址。 */
         String email,
+        /** 手机号。 */
         String mobile,
+        /** 账号状态。 */
         UserStatus status,
+        /** 是否已开启应用端访问权限。 */
         Boolean applicationAccessEnabled
 ) {
 

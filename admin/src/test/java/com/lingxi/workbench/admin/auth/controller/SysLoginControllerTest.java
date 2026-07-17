@@ -61,7 +61,7 @@ class SysLoginControllerTest {
                                 {"username":"admin","password":"correct-password"}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(HttpStatusEnum.OK.value()))
+                .andExpect(jsonPath("$.code").value(HttpStatusEnum.OK.getCode()))
                 .andExpect(jsonPath("$.msg").value("成功"))
                 .andExpect(jsonPath("$.data.tokenName").value("Authorization"))
                 .andExpect(jsonPath("$.data.tokenValue").value("admin-token"))
@@ -78,7 +78,7 @@ class SysLoginControllerTest {
                                 {"username":"","password":""}
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(HttpStatusEnum.BAD_REQUEST.value()))
+                .andExpect(jsonPath("$.code").value(HttpStatusEnum.BAD_REQUEST.getCode()))
                 .andExpect(jsonPath("$.msg").value("请求参数不合法"))
                 .andExpect(jsonPath("$.data").doesNotExist());
 
@@ -96,7 +96,7 @@ class SysLoginControllerTest {
                                 {"username":"missing","password":"wrong-password"}
                                 """))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value(HttpStatusEnum.UNAUTHORIZED.value()))
+                .andExpect(jsonPath("$.code").value(HttpStatusEnum.UNAUTHORIZED.getCode()))
                 .andExpect(jsonPath("$.msg").value("用户名或密码错误"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }

@@ -75,6 +75,39 @@ auth
 - `common` 不是杂物目录，工具类、配置类和异常类必须放入职责明确的包。
 - 常量包名统一使用 `constants`。
 
+## 枚举规范
+
+1. 每个枚举必须定义 `code` 和 `describe` 两个字段，分别表达稳定编码和中文说明；禁止只声明枚举常量。
+2. `code` 是程序交互、持久化和外部契约使用的稳定值，不得依赖 `ordinal()`，也不得使用 `name()` 代替业务编码。
+3. 映射数据库普通单字段的枚举，必须在 `code` 字段上标注 MyBatis-Plus `@EnumValue`，实体字段直接使用枚举类型，禁止手写 `name()`、`valueOf()` 完成持久化转换。
+4. JSON/JSONB 中的枚举由项目统一的 Fastjson2 TypeHandler 负责序列化，不得误用 `@EnumValue` 控制 JSON 内容。
+5. `describe` 只用于中文说明和界面展示，不参与业务判断；业务判断统一比较枚举常量或 `code`。
+6. 新增枚举值只维护 Java 枚举。数据库枚举字段使用字符类型，不建立枚举白名单 `CHECK (... IN (...))` 约束。
+
+示例：
+
+```java
+@Getter
+@RequiredArgsConstructor
+public enum EnableStatus {
+    ACTIVE("ACTIVE", "启用"),
+    DISABLED("DISABLED", "禁用");
+
+    @EnumValue
+    private final String code;
+    private final String describe;
+}
+```
+
+## 框架与工具使用规范
+
+1. 实现通用能力前，必须先检查 JDK、Spring、MyBatis-Plus、Hutool、Fastjson2、MapStruct、Lombok 以及项目 `framework` 是否已有语义一致的实现。
+2. 选择顺序为：JDK 标准能力、项目现有框架能力、项目已引入的成熟工具类、最后才是自定义实现；不得为了一个简单方法新增工具依赖。
+3. 字符串判空与处理、集合判空与转换、对象判空、Bean 转换、JSON 序列化、分页、条件构造、枚举映射、缓存操作等通用逻辑，禁止重复手写。
+4. 已有工具方法与业务语义完全一致时直接复用，例如 `CharSequenceUtil.isBlank`、MyBatis-Plus `Wrappers`、MapStruct Converter、`@EnumValue` 和项目统一的 JSON TypeHandler。
+5. 工具方法不能准确表达业务规则时，应封装语义清晰的业务方法，禁止为了“使用工具类”拼接晦涩调用或改变原有业务语义。
+6. 优化现有代码时优先删除重复实现和无效封装，不新增仅转调一次、没有统一策略价值的工具类。
+
 ## 其他不变式
 
 1. Workflow Version、Run Snapshot、Step Attempt、Run Event 不可覆盖。

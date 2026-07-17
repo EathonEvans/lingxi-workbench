@@ -2,7 +2,7 @@ package com.lingxi.workbench.model.service.impl;
 
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.framework.security.SecretCipher;
-import com.lingxi.workbench.infra.ai.chat.ChatModelRuntimeConfig;
+import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.model.model.bo.ModelRuntimeConfigBO;
 import com.lingxi.workbench.model.model.converter.ModelRuntimeConfigConverter;
 import com.lingxi.workbench.model.repo.ModelRuntimeConfigRepo;

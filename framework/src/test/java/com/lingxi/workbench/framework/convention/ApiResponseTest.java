@@ -13,7 +13,7 @@ class ApiResponseTest {
     void shouldCreateSuccessResponse() {
         ApiResponse<String> response = ApiResponse.success("data");
 
-        assertEquals(HttpStatusEnum.OK.value(), response.code());
+        assertEquals(HttpStatusEnum.OK.getCode(), response.code());
         assertEquals("data", response.data());
         assertEquals("成功", response.msg());
     }
@@ -22,7 +22,7 @@ class ApiResponseTest {
     void shouldCreateFailureResponse() {
         ApiResponse<Void> response = ApiResponse.failure(HttpStatusEnum.UNAUTHORIZED, "用户名或密码错误");
 
-        assertEquals(HttpStatusEnum.UNAUTHORIZED.value(), response.code());
+        assertEquals(HttpStatusEnum.UNAUTHORIZED.getCode(), response.code());
         assertNull(response.data());
         assertEquals("用户名或密码错误", response.msg());
     }

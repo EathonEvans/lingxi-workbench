@@ -1,10 +1,10 @@
 package com.lingxi.workbench.admin.auth.interceptor;
 
-import com.lingxi.workbench.admin.auth.common.enums.SysUserStatus;
+import com.lingxi.workbench.admin.common.enums.SysUserStatus;
 import com.lingxi.workbench.admin.config.interceptor.SysAuthenticationInterceptor;
 import com.lingxi.workbench.admin.auth.context.SysUserContext;
-import com.lingxi.workbench.admin.auth.model.bo.SysUserBO;
-import com.lingxi.workbench.admin.auth.repo.SysUserRepo;
+import com.lingxi.workbench.admin.sys.user.model.bo.SysUserBO;
+import com.lingxi.workbench.admin.sys.user.repo.SysUserRepo;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.framework.exceptions.AuthException;

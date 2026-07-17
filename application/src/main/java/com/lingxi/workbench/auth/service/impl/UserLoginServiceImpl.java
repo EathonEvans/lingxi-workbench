@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Locale;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -30,13 +31,14 @@ public class UserLoginServiceImpl implements UserLoginService {
     @Override
     @Transactional(readOnly = true)
     public UserLoginVO login(UserLoginRequest request) {
-        UserBO user = userRepo.findByUsername(normalizeUsername(request.username()))
-                .orElse(null);
+        Optional<UserBO> userOpt = userRepo.findByUsername(normalizeUsername(request.username()));
 
-        if (user == null) {
+        if (userOpt.isEmpty()) {
             passwordHasher.matches(request.password(), DUMMY_PASSWORD_HASH);
             throw AuthException.invalidCredentials();
         }
+
+        UserBO user = userOpt.get();
 
         if (!passwordHasher.matches(request.password(), user.passwordHash())) {
             throw AuthException.invalidCredentials();

@@ -15,7 +15,7 @@ public class BusinessException extends RuntimeException {
         if (httpStatus == null || httpStatus == HttpStatusEnum.OK) {
             throw new IllegalArgumentException("业务异常必须使用失败状态");
         }
-        if (code < HttpStatusEnum.BAD_REQUEST.value()) {
+        if (code < HttpStatusEnum.BAD_REQUEST.getCode()) {
             throw new IllegalArgumentException("业务错误码必须大于等于400");
         }
         if (message == null || message.isBlank()) {
@@ -26,7 +26,7 @@ public class BusinessException extends RuntimeException {
     }
 
     public BusinessException(HttpStatusEnum httpStatus, String message) {
-        this(httpStatus, httpStatus.value(), message);
+        this(httpStatus, httpStatus.getCode(), message);
     }
 
     public HttpStatusEnum getHttpStatus() {
