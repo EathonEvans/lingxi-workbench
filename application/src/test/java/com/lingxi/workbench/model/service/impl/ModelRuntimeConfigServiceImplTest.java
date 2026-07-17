@@ -33,7 +33,8 @@ class ModelRuntimeConfigServiceImplTest {
         when(repo.findDefaultChatModel()).thenReturn(Optional.of(config));
         when(cipher.decrypt("ciphertext", "iv")).thenReturn("secret");
         when(converter.toRuntimeConfig(config, "secret")).thenReturn(expected);
-        var service = new ModelRuntimeConfigServiceImpl(repo, converter, cipher);
+        ModelRuntimeConfigServiceImpl service =
+                new ModelRuntimeConfigServiceImpl(repo, converter, cipher);
 
         assertEquals(expected, service.getDefaultChatModel());
         verify(cipher).decrypt("ciphertext", "iv");
@@ -45,7 +46,8 @@ class ModelRuntimeConfigServiceImplTest {
         ModelRuntimeConfigConverter converter = mock(ModelRuntimeConfigConverter.class);
         SecretCipher cipher = mock(SecretCipher.class);
         when(repo.findDefaultChatModel()).thenReturn(Optional.empty());
-        var service = new ModelRuntimeConfigServiceImpl(repo, converter, cipher);
+        ModelRuntimeConfigServiceImpl service =
+                new ModelRuntimeConfigServiceImpl(repo, converter, cipher);
 
         assertThrows(BusinessException.class, service::getDefaultChatModel);
         verifyNoInteractions(converter, cipher);
@@ -57,7 +59,8 @@ class ModelRuntimeConfigServiceImplTest {
         ModelRuntimeConfigConverter converter = mock(ModelRuntimeConfigConverter.class);
         SecretCipher cipher = mock(SecretCipher.class);
         when(repo.findDefaultChatModel()).thenReturn(Optional.of(config("OTHER")));
-        var service = new ModelRuntimeConfigServiceImpl(repo, converter, cipher);
+        ModelRuntimeConfigServiceImpl service =
+                new ModelRuntimeConfigServiceImpl(repo, converter, cipher);
 
         assertThrows(BusinessException.class, service::getDefaultChatModel);
         verifyNoInteractions(converter, cipher);

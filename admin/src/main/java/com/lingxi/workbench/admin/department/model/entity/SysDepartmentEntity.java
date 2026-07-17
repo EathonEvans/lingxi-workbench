@@ -1,12 +1,10 @@
 package com.lingxi.workbench.admin.department.model.entity;
 
-import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
+import com.lingxi.workbench.framework.persistence.model.AuditTimeEntity;
 import lombok.Getter;
 import lombok.Setter;
-
-import java.time.OffsetDateTime;
 
 /**
  * 管理端部门数据库实体。
@@ -14,7 +12,7 @@ import java.time.OffsetDateTime;
 @Getter
 @Setter
 @TableName("lingxi_core.sys_department")
-public class SysDepartmentEntity {
+public class SysDepartmentEntity extends AuditTimeEntity {
 
     private Long id;
     /**
@@ -37,12 +35,4 @@ public class SysDepartmentEntity {
      * 启用状态
      */
     private EnableStatus status;
-    /**
-     * 创建时间
-     */
-    private OffsetDateTime createdAt;
-
-    /** 更新时统一使用数据库时间，避免应用服务器时钟差异。 */
-    @TableField(update = "CURRENT_TIMESTAMP")
-    private OffsetDateTime updatedAt;
 }

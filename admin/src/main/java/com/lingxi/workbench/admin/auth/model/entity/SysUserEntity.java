@@ -3,10 +3,9 @@ package com.lingxi.workbench.admin.auth.model.entity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.lingxi.workbench.framework.persistence.model.AuditTimeEntity;
 import lombok.Getter;
 import lombok.Setter;
-
-import java.time.OffsetDateTime;
 
 /**
  * 系统用户数据库实体。
@@ -14,7 +13,7 @@ import java.time.OffsetDateTime;
 @Getter
 @Setter
 @TableName("lingxi_core.sys_user")
-public class SysUserEntity {
+public class SysUserEntity extends AuditTimeEntity {
 
     private Long id;
 
@@ -38,10 +37,6 @@ public class SysUserEntity {
     private Long departmentId;
 
     private String status;
-
-    private OffsetDateTime createdAt;
-
-    private OffsetDateTime updatedAt;
 
     /** 仅用于账号列表联表查询，不属于账号主表字段。 */
     @TableField(exist = false)

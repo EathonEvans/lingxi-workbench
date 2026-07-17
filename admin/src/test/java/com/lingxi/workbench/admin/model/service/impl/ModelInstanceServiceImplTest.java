@@ -3,6 +3,7 @@ package com.lingxi.workbench.admin.model.service.impl;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelConnectionTestStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelCredentialStatus;
+import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import com.lingxi.workbench.admin.model.model.bo.ModelConnectionTestResult;
 import com.lingxi.workbench.admin.model.model.converter.ModelConverter;
 import com.lingxi.workbench.admin.model.model.entity.ModelCredentialEntity;
@@ -59,6 +60,7 @@ class ModelInstanceServiceImplTest {
         instance.setProviderId(11L);
         instance.setCredentialId(12L);
         instance.setModelCode("gpt-test");
+        instance.setModelType(ModelType.CHAT);
         instance.setTimeoutSeconds(30);
 
         when(instanceRepo.findById(13L)).thenReturn(Optional.of(instance));
@@ -70,6 +72,7 @@ class ModelInstanceServiceImplTest {
                         "https://example.com/v1",
                         "secret-key",
                         "gpt-test",
+                        ModelType.CHAT,
                         30))
                 .thenReturn(ModelConnectionTestResult.success(86));
 

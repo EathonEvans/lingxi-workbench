@@ -4,8 +4,8 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lingxi.workbench.admin.model.model.entity.ModelInstanceEntity;
+import com.lingxi.workbench.admin.model.model.request.ModelInstancePageQuery;
 import com.lingxi.workbench.admin.model.repo.mapper.ModelInstanceMapper;
-import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
@@ -20,10 +20,26 @@ public class ModelInstanceRepo {
     private final ModelInstanceMapper mapper;
 
     /** 分页查询模型实例。 */
-    public PageResult<ModelInstanceEntity> findPage(PageQuery query) {
+    public PageResult<ModelInstanceEntity> findPage(ModelInstancePageQuery query) {
+        String keyword = trim(query.getKeyword());
         IPage<ModelInstanceEntity> page = mapper.selectPage(
                 new Page<>(query.getCurrent(), query.getSize()),
                 Wrappers.<ModelInstanceEntity>lambdaQuery()
+                        .and(hasText(keyword), wrapper -> wrapper
+                                .like(ModelInstanceEntity::getName, keyword)
+                                .or()
+                                .like(ModelInstanceEntity::getCode, keyword)
+                                .or()
+                                .like(ModelInstanceEntity::getModelCode, keyword))
+                        .eq(query.getProviderId() != null,
+                                ModelInstanceEntity::getProviderId,
+                                query.getProviderId())
+                        .eq(query.getModelType() != null,
+                                ModelInstanceEntity::getModelType,
+                                query.getModelType())
+                        .eq(query.getStatus() != null,
+                                ModelInstanceEntity::getStatus,
+                                query.getStatus())
                         .orderByAsc(ModelInstanceEntity::getId));
         return PageResult.convert(page);
     }
@@ -65,6 +81,14 @@ public class ModelInstanceRepo {
 
     public void clearDefault(String type) {
         mapper.clearDefault(type);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private static String trim(String value) {
+        return value == null ? null : value.trim();
     }
 
 }

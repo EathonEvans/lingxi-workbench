@@ -1,6 +1,8 @@
 package com.lingxi.workbench.model.model.converter;
 
 import com.lingxi.workbench.model.model.entity.ModelRuntimeConfigEntity;
+import com.lingxi.workbench.infra.ai.chat.ChatModelRuntimeConfig;
+import com.lingxi.workbench.model.model.bo.ModelRuntimeConfigBO;
 import org.junit.jupiter.api.Test;
 import org.mapstruct.factory.Mappers;
 
@@ -29,8 +31,9 @@ class ModelRuntimeConfigConverterTest {
         entity.setTimeoutSeconds(60);
         entity.setMaxRetries(1);
 
-        var businessConfig = converter.toBO(entity);
-        var runtimeConfig = converter.toRuntimeConfig(businessConfig, "secret");
+        ModelRuntimeConfigBO businessConfig = converter.toBO(entity);
+        ChatModelRuntimeConfig runtimeConfig =
+                converter.toRuntimeConfig(businessConfig, "secret");
 
         assertEquals(2077574496283791361L, runtimeConfig.instanceId());
         assertEquals("secret", runtimeConfig.apiKey());

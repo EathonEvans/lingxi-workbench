@@ -1,4 +1,4 @@
-package com.lingxi.workbench.admin.model.repo.typehandler;
+package com.lingxi.workbench.admin.common.persistence;
 
 import org.apache.ibatis.type.BaseTypeHandler;
 import org.apache.ibatis.type.JdbcType;

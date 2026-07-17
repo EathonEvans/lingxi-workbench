@@ -5,16 +5,19 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelConnectionTestStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
-import com.lingxi.workbench.admin.model.repo.typehandler.JsonbStringTypeHandler;
+import com.lingxi.workbench.admin.common.persistence.JsonbStringTypeHandler;
+import com.lingxi.workbench.framework.persistence.model.AuditTimeEntity;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
 /** 可被业务稳定引用的模型实例。 */
 @Data
+@EqualsAndHashCode(callSuper = true)
 @TableName(value = "lingxi_core.ai_model_instance", autoResultMap = true)
-public class ModelInstanceEntity {
+public class ModelInstanceEntity extends AuditTimeEntity {
     private Long id;
     private Long providerId;
     private Long credentialId;
@@ -41,6 +44,4 @@ public class ModelInstanceEntity {
     private OffsetDateTime lastTestAt;
     private Long createdBy;
     private Long updatedBy;
-    private OffsetDateTime createdAt;
-    private OffsetDateTime updatedAt;
 }

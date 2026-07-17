@@ -3,6 +3,7 @@ package com.lingxi.workbench.admin.model.service.impl;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.model.model.converter.ModelConverter;
 import com.lingxi.workbench.admin.model.model.entity.ModelProviderEntity;
+import com.lingxi.workbench.admin.model.model.request.ModelProviderPageQuery;
 import com.lingxi.workbench.admin.model.model.request.SaveModelProviderRequest;
 import com.lingxi.workbench.admin.model.model.vo.ModelProviderVO;
 import com.lingxi.workbench.admin.model.repo.ModelInstanceRepo;
@@ -10,7 +11,6 @@ import com.lingxi.workbench.admin.model.repo.ModelProviderRepo;
 import com.lingxi.workbench.admin.model.service.ModelProviderService;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
-import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import lombok.RequiredArgsConstructor;
@@ -18,7 +18,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
-import java.time.OffsetDateTime;
 import java.util.List;
 
 /** 模型供应商业务实现。 */
@@ -35,7 +34,7 @@ public class ModelProviderServiceImpl implements ModelProviderService {
 
     @Override
     @Transactional(readOnly = true)
-    public PageResult<ModelProviderVO> page(PageQuery query) {
+    public PageResult<ModelProviderVO> page(ModelProviderPageQuery query) {
         return providerRepo.findPage(query).map(modelConverter::toProviderVO);
     }
 
@@ -54,7 +53,6 @@ public class ModelProviderServiceImpl implements ModelProviderService {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "供应商编码已存在");
         }
 
-        OffsetDateTime now = OffsetDateTime.now();
         ModelProviderEntity entity = id == null ? new ModelProviderEntity() : requireProvider(id);
         entity.setName(request.name().trim());
         entity.setCode(code);
@@ -63,10 +61,8 @@ public class ModelProviderServiceImpl implements ModelProviderService {
         entity.setStatus(request.status());
         entity.setRemark(trimToNull(request.remark()));
         entity.setUpdatedBy(operatorId);
-        entity.setUpdatedAt(now);
         if (id == null) {
             entity.setCreatedBy(operatorId);
-            entity.setCreatedAt(now);
         }
 
         providerRepo.save(entity);
@@ -91,7 +87,6 @@ public class ModelProviderServiceImpl implements ModelProviderService {
 
         entity.setStatus(status);
         entity.setUpdatedBy(operatorId);
-        entity.setUpdatedAt(OffsetDateTime.now());
         providerRepo.save(entity);
         auditService.record(
                 "MODEL", "PROVIDER", id, operatorId, "PROVIDER_STATUS_CHANGE", "状态=" + status);

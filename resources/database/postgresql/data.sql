@@ -185,6 +185,58 @@ SET parent_id = EXCLUDED.parent_id,
     visible = FALSE,
     status = 'ACTIVE';
 
+-- Prompt 管理是独立的一级目录，不归属于模型管理或系统管理。
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, route_path, component, icon, permission_code, sort_order, visible, status)
+VALUES (NULL, 'Prompt 管理', 'PROMPT', 'DIRECTORY', '/prompt', 'Layout',
+        'ri:terminal-box-line', NULL, 60, TRUE, 'ACTIVE')
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    menu_type = EXCLUDED.menu_type,
+    route_path = EXCLUDED.route_path,
+    component = EXCLUDED.component,
+    icon = EXCLUDED.icon,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = TRUE,
+    status = 'ACTIVE';
+
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, route_path, component, icon, permission_code, sort_order, visible, status)
+SELECT parent.id, 'Prompt 列表', 'PROMPT_LIST', 'MENU', '/prompt/list',
+       'prompt/index', 'ri:file-text-line', 'prompt:list', 10, TRUE, 'ACTIVE'
+FROM lingxi_core.sys_menu parent
+WHERE parent.code = 'PROMPT'
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    menu_type = EXCLUDED.menu_type,
+    route_path = EXCLUDED.route_path,
+    component = EXCLUDED.component,
+    icon = EXCLUDED.icon,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = TRUE,
+    status = 'ACTIVE';
+
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, permission_code, sort_order, visible, status)
+SELECT parent.id, action.name, action.code, 'BUTTON', action.permission_code,
+       action.sort_order, FALSE, 'ACTIVE'
+FROM (VALUES
+    ('Prompt 维护', 'PROMPT_MANAGE', 'prompt:manage', 10),
+    ('Prompt 发布', 'PROMPT_PUBLISH', 'prompt:publish', 20)
+) AS action(name, code, permission_code, sort_order)
+JOIN lingxi_core.sys_menu parent ON parent.code = 'PROMPT_LIST'
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = FALSE,
+    status = 'ACTIVE';
+
 -- 页面操作权限，后端接口使用同一 permission_code 进行校验。
 INSERT INTO lingxi_core.sys_menu
     (parent_id, name, code, menu_type, permission_code, sort_order, visible, status)

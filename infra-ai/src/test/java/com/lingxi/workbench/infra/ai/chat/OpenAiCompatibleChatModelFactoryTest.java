@@ -1,6 +1,8 @@
 package com.lingxi.workbench.infra.ai.chat;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.ai.openai.OpenAiChatOptions;
 
 import java.time.Duration;
 import java.util.List;
@@ -25,8 +27,8 @@ class OpenAiCompatibleChatModelFactoryTest {
                 45,
                 2);
 
-        var model = new OpenAiCompatibleChatModelFactory().create(config);
-        var options = model.getOptions();
+        OpenAiChatModel model = new OpenAiCompatibleChatModelFactory().create(config);
+        OpenAiChatOptions options = model.getOptions();
 
         assertEquals("https://api.deepseek.com", options.getBaseUrl());
         assertEquals("deepseek-chat", options.getModel());
@@ -36,6 +38,7 @@ class OpenAiCompatibleChatModelFactoryTest {
         assertEquals(List.of("END"), options.getStopSequences());
         assertEquals(Duration.ofSeconds(45), options.getTimeout());
         assertEquals(2, options.getMaxRetries());
+        assertTrue(options.getStreamOptions().includeUsage());
         assertFalse(config.toString().contains("secret"));
         assertTrue(config.toString().contains("apiKey=******"));
     }

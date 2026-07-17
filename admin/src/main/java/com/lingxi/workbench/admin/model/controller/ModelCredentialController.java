@@ -5,11 +5,11 @@ import cn.dev33.satoken.annotation.SaMode;
 import com.lingxi.workbench.admin.auth.context.SysUserContext;
 import com.lingxi.workbench.admin.model.common.enums.ModelCredentialStatus;
 import com.lingxi.workbench.admin.model.model.request.CreateModelCredentialRequest;
+import com.lingxi.workbench.admin.model.model.request.ModelCredentialPageQuery;
 import com.lingxi.workbench.admin.model.model.request.RotateModelCredentialRequest;
 import com.lingxi.workbench.admin.model.model.vo.ModelCredentialVO;
 import com.lingxi.workbench.admin.model.service.ModelCredentialService;
 import com.lingxi.workbench.framework.convention.ApiResponse;
-import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -30,7 +30,8 @@ public class ModelCredentialController {
     @GetMapping("/list")
     @SaCheckPermission(
             value = {"model:credential:list", "model:instance:list"}, mode = SaMode.OR)
-    public ApiResponse<PageResult<ModelCredentialVO>> credentials(@Valid PageQuery query) {
+    public ApiResponse<PageResult<ModelCredentialVO>> credentials(
+            @Valid ModelCredentialPageQuery query) {
         return ApiResponse.success(service.page(query));
     }
 

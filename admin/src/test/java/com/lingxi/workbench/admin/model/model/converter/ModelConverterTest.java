@@ -2,6 +2,7 @@ package com.lingxi.workbench.admin.model.model.converter;
 
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import com.lingxi.workbench.admin.model.model.entity.ModelInstanceEntity;
+import com.lingxi.workbench.admin.model.model.vo.ModelInstanceVO;
 import org.junit.jupiter.api.Test;
 import org.mapstruct.factory.Mappers;
 
@@ -23,7 +24,7 @@ class ModelConverterTest {
         entity.setCapabilities("[\"STREAMING\",\"TOOL_CALLING\"]");
         entity.setStopSequences("[\"END\"]");
 
-        var result = converter.toInstanceVO(entity);
+        ModelInstanceVO result = converter.toInstanceVO(entity);
 
         assertEquals("2077574496283791361", result.id());
         assertEquals("2077574496283791362", result.providerId());

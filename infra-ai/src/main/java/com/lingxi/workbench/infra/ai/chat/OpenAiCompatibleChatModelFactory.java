@@ -21,7 +21,9 @@ public class OpenAiCompatibleChatModelFactory {
                 .apiKey(config.apiKey())
                 .model(config.modelCode())
                 .timeout(Duration.ofSeconds(config.timeoutSeconds()))
-                .maxRetries(config.maxRetries());
+                .maxRetries(config.maxRetries())
+                // OpenAI 兼容协议通常在流式响应的最后一个数据块返回用量。
+                .streamUsage(true);
 
         if (config.temperature() != null) {
             options.temperature(config.temperature());

@@ -29,5 +29,9 @@ sa-token:
       - /error
 
 lingxi:
+  chat:
+    memory:
+      max-rounds: 10
+      max-tokens: 12000
   security:
     secret-master-key: YU1xZXA1T21TTkRlQVl4TkU2Zm5YSGRHd3dINzhVcjQ=

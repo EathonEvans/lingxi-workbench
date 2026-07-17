@@ -4,8 +4,8 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lingxi.workbench.admin.model.model.entity.ModelCredentialEntity;
+import com.lingxi.workbench.admin.model.model.request.ModelCredentialPageQuery;
 import com.lingxi.workbench.admin.model.repo.mapper.ModelCredentialMapper;
-import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
@@ -21,10 +21,17 @@ public class ModelCredentialRepo {
     private final ModelCredentialMapper mapper;
 
     /** 分页查询模型访问密钥。 */
-    public PageResult<ModelCredentialEntity> findPage(PageQuery query) {
+    public PageResult<ModelCredentialEntity> findPage(ModelCredentialPageQuery query) {
         IPage<ModelCredentialEntity> page = mapper.selectPage(
                 new Page<>(query.getCurrent(), query.getSize()),
                 Wrappers.<ModelCredentialEntity>lambdaQuery()
+                        .like(hasText(query.getName()), ModelCredentialEntity::getName, trim(query.getName()))
+                        .eq(query.getProviderId() != null,
+                                ModelCredentialEntity::getProviderId,
+                                query.getProviderId())
+                        .eq(query.getStatus() != null,
+                                ModelCredentialEntity::getStatus,
+                                query.getStatus())
                         .orderByAsc(ModelCredentialEntity::getId));
         return PageResult.convert(page);
 
@@ -51,6 +58,14 @@ public class ModelCredentialRepo {
         } else {
             mapper.updateById(entity);
         }
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private static String trim(String value) {
+        return value == null ? null : value.trim();
     }
 
 }

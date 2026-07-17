@@ -3,6 +3,7 @@ package com.lingxi.workbench.admin.model.service.impl;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.admin.model.model.bo.ModelConnectionTestResult;
+import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import com.lingxi.workbench.admin.model.service.ModelConnectionTester;
 import org.springframework.stereotype.Component;
 
@@ -43,24 +44,33 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
             String baseUrl,
             String apiKey,
             String modelCode,
+            ModelType modelType,
             int timeoutSeconds) {
         if (!OPENAI_COMPATIBLE.equals(protocol)) {
             return ModelConnectionTestResult.failed(
                     0, "UNSUPPORTED_PROTOCOL", "暂不支持该供应商协议的连通性测试");
         }
-        return testOpenAiCompatible(baseUrl, apiKey, modelCode, timeoutSeconds);
+        if (modelType == ModelType.RERANK) {
+            return ModelConnectionTestResult.failed(
+                    0, "UNSUPPORTED_MODEL_TYPE", "Rerank 模型需要按供应商协议适配连通性测试");
+        }
+        return testOpenAiCompatible(baseUrl, apiKey, modelCode, modelType, timeoutSeconds);
     }
 
     private ModelConnectionTestResult testOpenAiCompatible(
-            String baseUrl, String apiKey, String modelCode, int timeoutSeconds) {
+            String baseUrl,
+            String apiKey,
+            String modelCode,
+            ModelType modelType,
+            int timeoutSeconds) {
         long startedAt = System.nanoTime();
         try {
-            HttpRequest request = HttpRequest.newBuilder(buildChatCompletionsUri(baseUrl))
+            HttpRequest request = HttpRequest.newBuilder(buildModelUri(baseUrl, modelType))
                     .timeout(Duration.ofSeconds(timeoutSeconds))
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
                     .header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(buildRequestBody(modelCode)))
+                    .POST(HttpRequest.BodyPublishers.ofString(buildRequestBody(modelCode, modelType)))
                     .build();
             HttpResponse<String> response =
                     httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -88,9 +98,10 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
         }
     }
 
-    private static URI buildChatCompletionsUri(String baseUrl) {
+    private static URI buildModelUri(String baseUrl, ModelType modelType) {
         String normalized = baseUrl == null ? "" : baseUrl.trim().replaceAll("/+$", "");
-        URI uri = URI.create(normalized + "/chat/completions");
+        String endpoint = modelType == ModelType.EMBEDDING ? "/embeddings" : "/chat/completions";
+        URI uri = URI.create(normalized + endpoint);
         if (!("http".equalsIgnoreCase(uri.getScheme())
                 || "https".equalsIgnoreCase(uri.getScheme()))) {
             throw new IllegalArgumentException("仅支持 HTTP 或 HTTPS 地址");
@@ -98,7 +109,10 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
         return uri;
     }
 
-    private static String buildRequestBody(String modelCode) {
+    private static String buildRequestBody(String modelCode, ModelType modelType) {
+        if (modelType == ModelType.EMBEDDING) {
+            return JSON.toJSONString(Map.of("model", modelCode, "input", "连通性测试"));
+        }
         return JSON.toJSONString(Map.of(
                 "model", modelCode,
                 "messages", List.of(Map.of("role", "user", "content", "请回复 OK")),

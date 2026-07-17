@@ -10,16 +10,16 @@ import com.lingxi.workbench.admin.model.model.converter.ModelConverter;
 import com.lingxi.workbench.admin.model.model.entity.ModelCredentialEntity;
 import com.lingxi.workbench.admin.model.model.entity.ModelInstanceEntity;
 import com.lingxi.workbench.admin.model.model.entity.ModelProviderEntity;
+import com.lingxi.workbench.admin.model.model.request.ModelInstancePageQuery;
 import com.lingxi.workbench.admin.model.model.request.SaveModelInstanceRequest;
 import com.lingxi.workbench.admin.model.model.vo.ModelInstanceVO;
 import com.lingxi.workbench.admin.model.repo.ModelCredentialRepo;
 import com.lingxi.workbench.admin.model.repo.ModelInstanceRepo;
 import com.lingxi.workbench.admin.model.repo.ModelProviderRepo;
-import com.lingxi.workbench.admin.model.service.ModelInstanceService;
 import com.lingxi.workbench.admin.model.service.ModelConnectionTester;
+import com.lingxi.workbench.admin.model.service.ModelInstanceService;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
-import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.framework.security.SecretCipher;
@@ -45,7 +45,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
 
     @Override
     @Transactional(readOnly = true)
-    public PageResult<ModelInstanceVO> page(PageQuery query) {
+    public PageResult<ModelInstanceVO> page(ModelInstancePageQuery query) {
         return instanceRepo.findPage(query).map(modelConverter::toInstanceVO);
     }
 
@@ -67,28 +67,30 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "模型实例编码已存在");
         }
 
-        OffsetDateTime now = OffsetDateTime.now();
         ModelInstanceEntity entity = id == null ? new ModelInstanceEntity() : requireInstance(id);
+        if (id != null && entity.getModelType() != request.modelType()) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "已创建的模型实例不允许修改模型类型");
+        }
         entity.setProviderId(provider.getId());
         entity.setCredentialId(credential.getId());
         entity.setName(request.name().trim());
         entity.setCode(code);
         entity.setModelCode(request.modelCode().trim());
-        entity.setModelType(ModelType.CHAT);
-        entity.setCapabilities(toJson(request.capabilities()));
-        entity.setTemperature(request.temperature());
-        entity.setTopP(request.topP());
-        entity.setMaxTokens(request.maxTokens());
+        entity.setModelType(request.modelType());
+        entity.setCapabilities(toJson(normalizeCapabilities(request.modelType(), request.capabilities())));
+        boolean chatModel = request.modelType() == ModelType.CHAT;
+        entity.setTemperature(chatModel ? request.temperature() : null);
+        entity.setTopP(chatModel ? request.topP() : null);
+        entity.setMaxTokens(chatModel ? request.maxTokens() : null);
         entity.setContextWindow(request.contextWindow());
-        entity.setStopSequences(toJson(request.stopSequences()));
+        entity.setStopSequences(toJson(
+                chatModel ? request.stopSequences() : List.of()));
         entity.setTimeoutSeconds(request.timeoutSeconds());
         entity.setMaxRetries(request.maxRetries());
         entity.setStatus(request.status());
         entity.setUpdatedBy(operatorId);
-        entity.setUpdatedAt(now);
         if (id == null) {
             entity.setCreatedBy(operatorId);
-            entity.setCreatedAt(now);
             entity.setIsDefault(false);
             entity.setLastTestStatus(ModelConnectionTestStatus.UNTESTED);
         }
@@ -100,7 +102,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
                 entity.getId(),
                 operatorId,
                 id == null ? "MODEL_CREATE" : "MODEL_UPDATE",
-                "模型实例=" + code);
+                "模型实例=" + code + "，类型=" + request.modelType());
         return modelConverter.toInstanceVO(entity);
     }
 
@@ -120,7 +122,6 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
 
         entity.setStatus(status);
         entity.setUpdatedBy(operatorId);
-        entity.setUpdatedAt(OffsetDateTime.now());
         instanceRepo.save(entity);
         auditService.record(
                 "MODEL", "INSTANCE", id, operatorId, "MODEL_STATUS_CHANGE", "状态=" + status);
@@ -140,7 +141,6 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
         instanceRepo.clearDefault(entity.getModelType().name());
         entity.setIsDefault(true);
         entity.setUpdatedBy(operatorId);
-        entity.setUpdatedAt(OffsetDateTime.now());
         instanceRepo.save(entity);
         auditService.record(
                 "MODEL", "INSTANCE", id, operatorId, "MODEL_SET_DEFAULT", "设置默认模型");
@@ -162,6 +162,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
                     provider.getBaseUrl(),
                     apiKey,
                     entity.getModelCode(),
+                    entity.getModelType(),
                     entity.getTimeoutSeconds());
         } catch (IllegalStateException exception) {
             result = ModelConnectionTestResult.failed(
@@ -175,7 +176,6 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
         entity.setLastTestMessage(result.message());
         entity.setLastTestAt(now);
         entity.setUpdatedBy(operatorId);
-        entity.setUpdatedAt(now);
         instanceRepo.save(entity);
         auditService.record(
                 "MODEL",
@@ -217,6 +217,14 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
 
     private static String toJson(List<String> values) {
         return JSON.toJSONString(values == null ? List.of() : values);
+    }
+
+    private static List<String> normalizeCapabilities(
+            ModelType modelType, List<String> capabilities) {
+        if (capabilities == null || capabilities.isEmpty()) {
+            return List.of(modelType.name());
+        }
+        return capabilities;
     }
 
 }

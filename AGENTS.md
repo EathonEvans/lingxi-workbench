@@ -85,6 +85,8 @@ auth
 6. 测试包结构应镜像对应的生产代码包结构。
 7. 后续新增或修改的代码注释统一使用中文。
 8. 管理端业务接口使用动作可读的路径命名，例如 `/list`、`/create`、`/update/{id}`、`/delete/{id}`；避免仅依赖 HTTP Method 区分同一路径语义，确保通过访问日志中的 URL 即可识别操作。
+9. Java 代码禁止使用 `var` 声明局部变量，必须显式写出变量类型，生产代码与测试代码均遵循该规则。
+10. `createdAt`、`updatedAt` 统一继承 `AuditTimeEntity`，由 framework 的 MyBatis-Plus 填充器维护；业务代码不得手动赋值。`deletedAt`、`completedAt`、`lastMessageAt` 等具有业务语义的时间字段仍由业务流程显式维护。
 
 ## 常用命令
 

@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
+import java.util.List;
 
 @Repository
 @RequiredArgsConstructor
@@ -35,7 +36,7 @@ public class SysUserRepo {
     public PageResult<SysUserBO> findPage(SysUserPageQuery query) {
         IPage<SysUserEntity> page = sysUserMapper.selectUserPage(
                 new Page<>(query.getCurrent(), query.getSize()), query);
-        var records = page.getRecords().stream()
+        List<SysUserBO> records = page.getRecords().stream()
                 .map(sysUserConverter::toBO)
                 .toList();
         return new PageResult<>(records, Math.toIntExact(page.getCurrent()),

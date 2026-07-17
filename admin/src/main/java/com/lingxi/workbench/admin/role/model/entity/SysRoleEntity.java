@@ -1,13 +1,11 @@
 package com.lingxi.workbench.admin.role.model.entity;
 
-import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.role.common.enums.RoleDataScope;
+import com.lingxi.workbench.framework.persistence.model.AuditTimeEntity;
 import lombok.Getter;
 import lombok.Setter;
-
-import java.time.OffsetDateTime;
 
 /**
  * 管理端角色数据库实体。
@@ -15,7 +13,7 @@ import java.time.OffsetDateTime;
 @Getter
 @Setter
 @TableName("lingxi_core.sys_role")
-public class SysRoleEntity {
+public class SysRoleEntity extends AuditTimeEntity {
 
     private Long id;
     private String name;
@@ -25,9 +23,4 @@ public class SysRoleEntity {
     private Boolean builtIn;
     private EnableStatus status;
     private String remark;
-    private OffsetDateTime createdAt;
-
-    /** 更新时统一使用数据库时间，避免应用服务器时钟差异。 */
-    @TableField(update = "CURRENT_TIMESTAMP")
-    private OffsetDateTime updatedAt;
 }

@@ -6,6 +6,7 @@ import com.lingxi.workbench.admin.model.model.converter.ModelConverter;
 import com.lingxi.workbench.admin.model.model.entity.ModelCredentialEntity;
 import com.lingxi.workbench.admin.model.model.entity.ModelProviderEntity;
 import com.lingxi.workbench.admin.model.model.request.CreateModelCredentialRequest;
+import com.lingxi.workbench.admin.model.model.request.ModelCredentialPageQuery;
 import com.lingxi.workbench.admin.model.model.request.RotateModelCredentialRequest;
 import com.lingxi.workbench.admin.model.model.vo.ModelCredentialVO;
 import com.lingxi.workbench.admin.model.repo.ModelCredentialRepo;
@@ -14,7 +15,6 @@ import com.lingxi.workbench.admin.model.repo.ModelProviderRepo;
 import com.lingxi.workbench.admin.model.service.ModelCredentialService;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
-import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.framework.security.SecretCipher;
@@ -39,7 +39,7 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
 
     @Override
     @Transactional(readOnly = true)
-    public PageResult<ModelCredentialVO> page(PageQuery query) {
+    public PageResult<ModelCredentialVO> page(ModelCredentialPageQuery query) {
         return credentialRepo.findPage(query).map(modelConverter::toCredentialVO);
     }
 
@@ -75,8 +75,6 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
         entity.setRotatedAt(now);
         entity.setCreatedBy(operatorId);
         entity.setUpdatedBy(operatorId);
-        entity.setCreatedAt(now);
-        entity.setUpdatedAt(now);
 
         credentialRepo.save(entity);
         auditService.record("MODEL", "CREDENTIAL", entity.getId(), operatorId,
@@ -99,7 +97,6 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
         entity.setSecretHint(secretHint(request.apiKey()));
         entity.setRotatedAt(now);
         entity.setUpdatedBy(operatorId);
-        entity.setUpdatedAt(now);
 
         credentialRepo.save(entity);
         auditService.record("MODEL", "CREDENTIAL", id, operatorId,
@@ -129,7 +126,6 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
             entity.setSecretIv(null);
         }
         entity.setUpdatedBy(operatorId);
-        entity.setUpdatedAt(OffsetDateTime.now());
         credentialRepo.save(entity);
         auditService.record("MODEL", "CREDENTIAL", id, operatorId,
                 "CREDENTIAL_STATUS_CHANGE", "状态=" + status);

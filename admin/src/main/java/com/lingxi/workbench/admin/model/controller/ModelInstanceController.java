@@ -3,11 +3,11 @@ package com.lingxi.workbench.admin.model.controller;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.lingxi.workbench.admin.auth.context.SysUserContext;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
+import com.lingxi.workbench.admin.model.model.request.ModelInstancePageQuery;
 import com.lingxi.workbench.admin.model.model.request.SaveModelInstanceRequest;
 import com.lingxi.workbench.admin.model.model.vo.ModelInstanceVO;
 import com.lingxi.workbench.admin.model.service.ModelInstanceService;
 import com.lingxi.workbench.framework.convention.ApiResponse;
-import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -25,7 +25,7 @@ public class ModelInstanceController {
     /** 分页查询模型实例。 */
     @GetMapping("/list")
     @SaCheckPermission("model:instance:list")
-    public ApiResponse<PageResult<ModelInstanceVO>> instances(@Valid PageQuery query) {
+    public ApiResponse<PageResult<ModelInstanceVO>> instances(@Valid ModelInstancePageQuery query) {
         return ApiResponse.success(service.page(query));
     }
 

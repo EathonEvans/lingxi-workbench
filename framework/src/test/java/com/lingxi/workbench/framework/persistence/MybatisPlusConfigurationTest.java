@@ -2,6 +2,7 @@ package com.lingxi.workbench.framework.persistence;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusProperties;
+import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import org.junit.jupiter.api.Test;
 
@@ -20,10 +21,12 @@ class MybatisPlusConfigurationTest {
 
     @Test
     void shouldConfigurePaginationInterceptor() {
-        var interceptor = new MybatisPlusConfiguration().mybatisPlusInterceptor();
+        MybatisPlusInterceptor interceptor =
+                new MybatisPlusConfiguration().mybatisPlusInterceptor();
 
         assertEquals(1, interceptor.getInterceptors().size());
-        var pagination = (PaginationInnerInterceptor) interceptor.getInterceptors().getFirst();
+        PaginationInnerInterceptor pagination =
+                (PaginationInnerInterceptor) interceptor.getInterceptors().getFirst();
         assertEquals(100L, pagination.getMaxLimit());
     }
 }

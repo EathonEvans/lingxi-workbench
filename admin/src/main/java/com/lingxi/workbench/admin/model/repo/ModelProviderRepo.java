@@ -4,8 +4,8 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.lingxi.workbench.admin.model.model.entity.ModelProviderEntity;
+import com.lingxi.workbench.admin.model.model.request.ModelProviderPageQuery;
 import com.lingxi.workbench.admin.model.repo.mapper.ModelProviderMapper;
-import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
@@ -21,10 +21,13 @@ public class ModelProviderRepo {
     private final ModelProviderMapper mapper;
 
     /** 分页查询模型供应商。 */
-    public PageResult<ModelProviderEntity> findPage(PageQuery query) {
+    public PageResult<ModelProviderEntity> findPage(ModelProviderPageQuery query) {
         IPage<ModelProviderEntity> page = mapper.selectPage(
                 new Page<>(query.getCurrent(), query.getSize()),
                 Wrappers.<ModelProviderEntity>lambdaQuery()
+                        .like(hasText(query.getName()), ModelProviderEntity::getName, trim(query.getName()))
+                        .like(hasText(query.getCode()), ModelProviderEntity::getCode, trim(query.getCode()))
+                        .eq(query.getStatus() != null, ModelProviderEntity::getStatus, query.getStatus())
                         .orderByAsc(ModelProviderEntity::getId));
         return PageResult.convert(page);
     }
@@ -51,6 +54,14 @@ public class ModelProviderRepo {
         } else {
             mapper.updateById(entity);
         }
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private static String trim(String value) {
+        return value == null ? null : value.trim();
     }
 
 }

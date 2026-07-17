@@ -2,8 +2,14 @@ package com.lingxi.workbench.chat.controller;
 
 import com.lingxi.workbench.auth.config.UserSaTokenAuthWebConfig;
 import com.lingxi.workbench.auth.config.interceptor.UserAuthenticationInterceptor;
-import com.lingxi.workbench.chat.model.vo.ChatChunkVO;
+import com.lingxi.workbench.auth.context.UserContext;
+import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
+import com.lingxi.workbench.chat.model.bo.ChatStreamResult;
+import com.lingxi.workbench.chat.model.vo.ChatStartVO;
 import com.lingxi.workbench.chat.service.ChatStreamService;
+import com.lingxi.workbench.framework.context.LoginUser;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -21,7 +27,9 @@ import java.nio.charset.StandardCharsets;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -48,17 +56,55 @@ class ChatStreamControllerTest {
     @MockitoBean
     private UserAuthenticationInterceptor userAuthenticationInterceptor;
 
+    @BeforeEach
+    void setUserContext() {
+        UserContext.set(new LoginUser(1L, "tester", "测试用户", null));
+    }
+
+    @AfterEach
+    void clearUserContext() {
+        UserContext.clear();
+    }
+
+    @Test
+    void shouldCreateGenerationTaskBeforeSseSubscription() throws Exception {
+        when(chatStreamService.stream(any(), eq(1L))).thenReturn(new ChatStreamResult(
+                new ChatStartVO("10", "11", "12"), Flux.never()));
+
+        mockMvc.perform(post("/api/v1/ai/chat/start")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"conversationId":"10","clientMessageId":"client-start","prompt":"你好"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(content().json("""
+                        {
+                          "code": 200,
+                          "data": {
+                            "assistantMessageId": "12",
+                            "conversationId": "10",
+                            "userMessageId": "11"
+                          },
+                          "msg": "成功"
+                        }
+                        """));
+    }
+
     @Test
     void shouldWriteMessageAndDoneSseEvents() throws Exception {
-        when(chatStreamService.stream(any())).thenReturn(Flux.just(
-                new ChatChunkVO("你"),
-                new ChatChunkVO("好")
-        ));
+        when(chatStreamService.stream(any(), eq(1L))).thenReturn(new ChatStreamResult(
+                new ChatStartVO("10", "11", "12"),
+                Flux.just(
+                        ChatGenerationEventBO.chunk(1, "你"),
+                        ChatGenerationEventBO.chunk(2, "好"),
+                        ChatGenerationEventBO.completed())));
 
         MvcResult result = mockMvc.perform(post("/api/v1/ai/chat/stream")
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.TEXT_EVENT_STREAM)
-                        .content("{\"prompt\":\"你好\"}"))
+                        .content("""
+                                {"conversationId":"10","clientMessageId":"client-001","prompt":"你好"}
+                                """))
                 .andExpect(request().asyncStarted())
                 .andReturn();
 
@@ -71,20 +117,26 @@ class ChatStreamControllerTest {
                 .andReturn();
 
         String content = new String(completedResult.getResponse().getContentAsByteArray(), StandardCharsets.UTF_8);
+        assertTrue(content.contains("event:start"));
+        assertTrue(content.contains("\"assistantMessageId\":\"12\""));
         assertTrue(content.contains("event:message"));
-        assertTrue(content.contains("data:{\"content\":\"你\"}"));
-        assertTrue(content.contains("data:{\"content\":\"好\"}"));
+        assertTrue(content.contains("data:{\"content\":\"你\",\"sequence\":1}"));
+        assertTrue(content.contains("data:{\"content\":\"好\",\"sequence\":2}"));
         assertTrue(content.contains("event:done"));
     }
 
     @Test
     void shouldConvertModelFailureToSafeSseErrorEvent() throws Exception {
-        when(chatStreamService.stream(any())).thenReturn(Flux.error(new RuntimeException("provider-secret-error")));
+        when(chatStreamService.stream(any(), eq(1L))).thenReturn(new ChatStreamResult(
+                new ChatStartVO("10", "11", "12"),
+                Flux.just(ChatGenerationEventBO.failed())));
 
         MvcResult result = mockMvc.perform(post("/api/v1/ai/chat/stream")
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.TEXT_EVENT_STREAM)
-                        .content("{\"prompt\":\"你好\"}"))
+                        .content("""
+                                {"conversationId":"10","clientMessageId":"client-002","prompt":"你好"}
+                                """))
                 .andExpect(request().asyncStarted())
                 .andReturn();
 
@@ -99,11 +151,53 @@ class ChatStreamControllerTest {
     }
 
     @Test
+    void shouldResumeGenerationAfterSpecifiedSequence() throws Exception {
+        when(chatStreamService.resume(12L, 3, 1L)).thenReturn(Flux.just(
+                ChatGenerationEventBO.chunk(4, "继续"),
+                ChatGenerationEventBO.completed()));
+
+        MvcResult result = mockMvc.perform(post("/api/v1/ai/chat/resume")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .content("""
+                                {"assistantMessageId":"12","afterSequence":3}
+                                """))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        MvcResult completedResult = mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andReturn();
+        String content = new String(
+                completedResult.getResponse().getContentAsByteArray(), StandardCharsets.UTF_8);
+        assertTrue(content.contains("id:4"));
+        assertTrue(content.contains("data:{\"content\":\"继续\",\"sequence\":4}"));
+        assertTrue(content.contains("event:done"));
+    }
+
+    @Test
+    void shouldCancelGenerationExplicitly() throws Exception {
+        mockMvc.perform(post("/api/v1/ai/chat/cancel")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"assistantMessageId":"12"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(content().json("""
+                        {"code":200,"msg":"成功"}
+                        """));
+
+        verify(chatStreamService).cancel(12L, 1L);
+    }
+
+    @Test
     void shouldRejectBlankPromptBeforeCallingService() throws Exception {
         mockMvc.perform(post("/api/v1/ai/chat/stream")
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.TEXT_EVENT_STREAM, MediaType.APPLICATION_JSON)
-                        .content("{\"prompt\":\"\"}"))
+                        .content("""
+                                {"conversationId":"10","clientMessageId":"client-003","prompt":""}
+                                """))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(content().json("""

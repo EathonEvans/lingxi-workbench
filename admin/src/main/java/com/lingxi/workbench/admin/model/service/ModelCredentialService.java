@@ -2,9 +2,9 @@ package com.lingxi.workbench.admin.model.service;
 
 import com.lingxi.workbench.admin.model.common.enums.ModelCredentialStatus;
 import com.lingxi.workbench.admin.model.model.request.CreateModelCredentialRequest;
+import com.lingxi.workbench.admin.model.model.request.ModelCredentialPageQuery;
 import com.lingxi.workbench.admin.model.model.request.RotateModelCredentialRequest;
 import com.lingxi.workbench.admin.model.model.vo.ModelCredentialVO;
-import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
 
 import java.util.List;
@@ -13,7 +13,7 @@ import java.util.List;
 public interface ModelCredentialService {
 
     /** 分页查询模型访问密钥。 */
-    PageResult<ModelCredentialVO> page(PageQuery query);
+    PageResult<ModelCredentialVO> page(ModelCredentialPageQuery query);
 
     /** 查询密钥选项，供模型实例选择。 */
     List<ModelCredentialVO> options();

@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.model.model.request;
 
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
+import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
@@ -25,6 +26,7 @@ public record SaveModelInstanceRequest(
                         message = "实例编码仅支持小写字母、数字、中划线和下划线")
                 String code,
         @NotBlank(message = "请输入供应商模型标识") @Size(max = 128) String modelCode,
+        @NotNull(message = "请选择模型类型") ModelType modelType,
         List<@Size(max = 64) String> capabilities,
         @DecimalMin("0") @DecimalMax("2") BigDecimal temperature,
         @DecimalMin("0") @DecimalMax("1") BigDecimal topP,

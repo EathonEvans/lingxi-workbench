@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.model.service;
 
 import com.lingxi.workbench.admin.model.model.bo.ModelConnectionTestResult;
+import com.lingxi.workbench.admin.model.common.enums.ModelType;
 
 /** 模型实例连通性测试能力。 */
 public interface ModelConnectionTester {
@@ -11,5 +12,6 @@ public interface ModelConnectionTester {
             String baseUrl,
             String apiKey,
             String modelCode,
+            ModelType modelType,
             int timeoutSeconds);
 }
