@@ -7,6 +7,7 @@ import com.lingxi.workbench.admin.prompt.model.request.PreviewPromptRequest;
 import com.lingxi.workbench.admin.prompt.model.request.PromptPageQuery;
 import com.lingxi.workbench.admin.prompt.model.request.SavePromptRequest;
 import com.lingxi.workbench.admin.prompt.model.vo.PreviewPromptVO;
+import com.lingxi.workbench.admin.prompt.model.vo.AvailablePromptVariableVO;
 import com.lingxi.workbench.admin.prompt.model.vo.PromptDetailVO;
 import com.lingxi.workbench.admin.prompt.model.vo.PromptVO;
 import com.lingxi.workbench.admin.prompt.model.vo.PromptVariableVO;
@@ -68,7 +69,7 @@ public class PromptController {
      */
     @GetMapping("/variables/available")
     @SaCheckPermission("prompt:list")
-    public ApiResponse<List<PromptVariableVO>> availableVariables() {
+    public ApiResponse<List<AvailablePromptVariableVO>> availableVariables() {
         return ApiResponse.success(promptService.availableVariables());
     }
 

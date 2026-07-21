@@ -1,9 +1,6 @@
 package com.lingxi.workbench.admin.prompt.model.converter;
 
 import com.lingxi.workbench.admin.prompt.common.enums.PromptRole;
-import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableOverflowStrategy;
-import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableScope;
-import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableSource;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableType;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVersionStatus;
 import com.lingxi.workbench.admin.prompt.model.entity.PromptEntity;
@@ -26,10 +23,8 @@ class PromptConverterTest {
     void shouldConvertStrongTypedVariableDefinitionsWithoutJsonParsing() {
         PromptVariableDefinition definition =
                 new PromptVariableDefinition(
-                        "input.language", "回答语言", PromptVariableType.STRING,
-                        PromptVariableScope.INPUT, PromptVariableSource.USER_INPUT,
-                        true, "中文", "回答语言", "中文", 100, null, 50,
-                        PromptVariableOverflowStrategy.REJECT, false, true);
+                        "input.language", PromptVariableType.STRING,
+                        true, "回答语言", "中文");
         PromptVersionEntity entity = new PromptVersionEntity();
         entity.setId(2077574496283791361L);
         entity.setVariables(List.of(definition));
@@ -39,7 +34,7 @@ class PromptConverterTest {
 
         assertEquals("2077574496283791361", result.id());
         assertEquals("input.language", result.variables().getFirst().name());
-        assertEquals("中文", result.variables().getFirst().defaultValue());
+        assertEquals("中文", result.variables().getFirst().example());
     }
 
     @Test
@@ -65,10 +60,8 @@ class PromptConverterTest {
     void shouldRoundTripRequestAndEmbeddedDefinition() {
         PromptVariableRequest request =
                 new PromptVariableRequest(
-                        "agent.name", "Agent名称", PromptVariableType.STRING,
-                        PromptVariableScope.AGENT, PromptVariableSource.AGENT_CONFIG,
-                        true, null, "Agent名称", "灵析助手", 100, null, 50,
-                        PromptVariableOverflowStrategy.REJECT, false, false);
+                        "agent.name", PromptVariableType.STRING,
+                        true, "Agent名称", "灵析助手");
 
         PromptVariableDefinition definition = converter.toDefinition(request);
         PromptVariableRequest restored = converter.toVariableRequest(definition);

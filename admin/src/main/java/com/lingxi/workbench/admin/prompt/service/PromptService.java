@@ -5,6 +5,7 @@ import com.lingxi.workbench.admin.prompt.model.request.PreviewPromptRequest;
 import com.lingxi.workbench.admin.prompt.model.request.PromptPageQuery;
 import com.lingxi.workbench.admin.prompt.model.request.SavePromptRequest;
 import com.lingxi.workbench.admin.prompt.model.vo.PreviewPromptVO;
+import com.lingxi.workbench.admin.prompt.model.vo.AvailablePromptVariableVO;
 import com.lingxi.workbench.admin.prompt.model.vo.PromptDetailVO;
 import com.lingxi.workbench.admin.prompt.model.vo.PromptVO;
 import com.lingxi.workbench.admin.prompt.model.vo.PromptVariableVO;
@@ -23,7 +24,7 @@ public interface PromptService {
     List<PromptVersionVO> versions(Long id);
 
     /** 查询当前平台已经具备运行时来源的内置变量。 */
-    List<PromptVariableVO> availableVariables();
+    List<AvailablePromptVariableVO> availableVariables();
 
     PromptDetailVO save(Long id, SavePromptRequest request, Long operatorId);
 

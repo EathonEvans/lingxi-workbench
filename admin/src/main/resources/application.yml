@@ -13,6 +13,10 @@ spring:
       host: ${LINGXI_REDIS_HOST:localhost}
       port: ${LINGXI_REDIS_PORT:6379}
       password: ${LINGXI_REDIS_PASSWORD:EthRedis@123}
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 21MB
 sa-token:
   token-name: Authorization
   timeout: 7200
@@ -31,3 +35,16 @@ sa-token:
 lingxi:
   security:
     secret-master-key: YU1xZXA1T21TTkRlQVl4TkU2Zm5YSGRHd3dINzhVcjQ=
+  knowledge:
+    storage:
+      endpoint: ${LINGXI_MINIO_ENDPOINT:http://localhost:9000}
+      access-key: ${LINGXI_MINIO_ACCESS_KEY:lingxi}
+      secret-key: ${LINGXI_MINIO_SECRET_KEY:lingxi-minio-dev}
+      bucket: ${LINGXI_MINIO_BUCKET:lingxi-knowledge}
+    parsing:
+      max-file-size: 20971520
+      max-characters: 2000000
+    chunking:
+      strategy: PARAGRAPH
+      chunk-size: 600
+      chunk-overlap: 80

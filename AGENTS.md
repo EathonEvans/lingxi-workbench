@@ -3,8 +3,8 @@
 ## 项目模块
 
 - `framework`：共享工程能力，不依赖业务模块。
-- `infra-ai`：AI 端口与供应商适配，只依赖 `framework`。
-- `admin`：独立管理端服务，承载管理员认证和管理能力，只依赖 `framework`。
+- `infra-ai`：AI公共契约、Prompt内置变量目录与供应商适配，只依赖`framework`。
+- `admin`：独立管理端服务，承载管理员认证及管理能力；依赖`framework`、`infra-ai`。
 - `application`：独立用户端服务和工作台业务，依赖 `framework`、`infra-ai`。
 - `mcp-server`：独立 MCP 协议服务，不依赖 `admin` 或 `application`。
 

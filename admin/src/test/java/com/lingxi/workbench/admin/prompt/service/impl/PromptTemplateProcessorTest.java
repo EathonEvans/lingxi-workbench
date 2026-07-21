@@ -1,8 +1,5 @@
 package com.lingxi.workbench.admin.prompt.service.impl;
 
-import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableOverflowStrategy;
-import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableScope;
-import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableSource;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableType;
 import com.lingxi.workbench.admin.prompt.model.request.PreviewPromptRequest;
 import com.lingxi.workbench.admin.prompt.model.request.PromptVariableRequest;
@@ -23,16 +20,16 @@ class PromptTemplateProcessorTest {
     @Test
     void shouldRenderNestedVariables() {
         PromptVariableRequest agentName = variable(
-                "agent.name", "Agent名称", PromptVariableType.STRING,
-                PromptVariableScope.AGENT, PromptVariableSource.AGENT_CONFIG, true, null);
+                "agent.name", PromptVariableType.STRING, true);
         PromptVariableRequest language = variable(
-                "input.language", "回答语言", PromptVariableType.STRING,
-                PromptVariableScope.INPUT, PromptVariableSource.USER_INPUT, false, "中文");
+                "input.language", PromptVariableType.STRING, true);
 
         PreviewPromptVO result = processor.preview(new PreviewPromptRequest(
                 "你是{{agent.name}}，请使用{{input.language}}回答。",
                 List.of(agentName, language),
-                Map.of("agent", Map.of("name", "灵析助手"))));
+                Map.of(
+                        "agent", Map.of("name", "灵析助手"),
+                        "input", Map.of("language", "中文"))));
 
         assertEquals("你是灵析助手，请使用中文回答。", result.renderedPrompt());
     }
@@ -40,8 +37,7 @@ class PromptTemplateProcessorTest {
     @Test
     void shouldSerializeObjectWithFastjson2() {
         PromptVariableRequest product = variable(
-                "input.product", "商品信息", PromptVariableType.OBJECT,
-                PromptVariableScope.INPUT, PromptVariableSource.USER_INPUT, true, null);
+                "input.product", PromptVariableType.OBJECT, true);
 
         PreviewPromptVO result = processor.preview(new PreviewPromptRequest(
                 "商品：{{input.product}}",
@@ -59,39 +55,24 @@ class PromptTemplateProcessorTest {
     }
 
     @Test
-    void shouldRejectScopeThatDoesNotMatchNamespace() {
+    void shouldRejectInvalidVariableNameAsBusinessError() {
         PromptVariableRequest invalidVariable = variable(
-                "user.query", "用户问题", PromptVariableType.STRING,
-                PromptVariableScope.INPUT, PromptVariableSource.USER_INPUT, true, null);
+                "product_name", PromptVariableType.STRING, true);
 
         assertThrows(
                 BusinessException.class,
-                () -> processor.validate("请回答{{user.query}}", List.of(invalidVariable)));
+                () -> processor.validate("请生成商品文案", List.of(invalidVariable)));
     }
 
     private static PromptVariableRequest variable(
             String name,
-            String displayName,
             PromptVariableType type,
-            PromptVariableScope scope,
-            PromptVariableSource source,
-            boolean required,
-            Object defaultValue) {
+            boolean required) {
         return new PromptVariableRequest(
                 name,
-                displayName,
                 type,
-                scope,
-                source,
                 required,
-                defaultValue,
-                displayName,
-                null,
-                2000,
-                type == PromptVariableType.ARRAY ? 20 : null,
-                50,
-                PromptVariableOverflowStrategy.REJECT,
-                false,
-                source == PromptVariableSource.USER_INPUT);
+                name,
+                null);
     }
 }

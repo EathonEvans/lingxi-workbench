@@ -1,5 +1,7 @@
 package com.lingxi.workbench.admin.prompt.common.enums;
 
+import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
+import com.lingxi.workbench.framework.exceptions.BusinessException;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
@@ -23,4 +25,14 @@ public enum PromptVariableType {
     private final String code;
     /** 中文说明。 */
     private final String describe;
+
+    /** 根据稳定编码解析变量类型。 */
+    public static PromptVariableType fromCode(String code) {
+        for (PromptVariableType type : values()) {
+            if (type.code.equals(code)) {
+                return type;
+            }
+        }
+        throw new BusinessException(HttpStatusEnum.INTERNAL_SERVER_ERROR, "不支持的Prompt变量类型：" + code);
+    }
 }

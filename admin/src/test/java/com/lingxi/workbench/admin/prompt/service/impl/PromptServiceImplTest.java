@@ -1,9 +1,6 @@
 package com.lingxi.workbench.admin.prompt.service.impl;
 
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
-import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableOverflowStrategy;
-import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableScope;
-import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableSource;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableType;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVersionStatus;
 import com.lingxi.workbench.admin.prompt.model.converter.PromptConverter;
@@ -51,9 +48,7 @@ class PromptServiceImplTest {
         draft.setPromptId(11L);
         draft.setVersionNo(2);
         draft.setPromptContent("你是{{agent.name}}");
-        PromptVariableRequest variableRequest = variable(
-                "agent.name", "Agent名称", PromptVariableScope.AGENT,
-                PromptVariableSource.AGENT_CONFIG, true, null);
+        PromptVariableRequest variableRequest = variable("agent.name", true);
         draft.setVariables(List.of(definition(variableRequest)));
         draft.setStatus(PromptVersionStatus.DRAFT);
 
@@ -78,45 +73,21 @@ class PromptServiceImplTest {
 
     private static PromptVariableRequest variable(
             String name,
-            String displayName,
-            PromptVariableScope scope,
-            PromptVariableSource source,
-            boolean required,
-            Object defaultValue) {
+            boolean required) {
         return new PromptVariableRequest(
                 name,
-                displayName,
                 PromptVariableType.STRING,
-                scope,
-                source,
                 required,
-                defaultValue,
-                displayName,
-                null,
-                2000,
-                null,
-                50,
-                PromptVariableOverflowStrategy.REJECT,
-                false,
-                source == PromptVariableSource.USER_INPUT);
+                name,
+                null);
     }
 
     private static PromptVariableDefinition definition(PromptVariableRequest request) {
         return new PromptVariableDefinition(
                 request.name(),
-                request.displayName(),
                 request.type(),
-                request.scope(),
-                request.source(),
                 request.required(),
-                request.defaultValue(),
                 request.description(),
-                request.example(),
-                request.maxLength(),
-                request.maxItems(),
-                request.priority(),
-                request.overflowStrategy(),
-                request.sensitive(),
-                request.userEditable());
+                request.example());
     }
 }
