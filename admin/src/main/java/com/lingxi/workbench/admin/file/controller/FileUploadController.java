@@ -15,8 +15,6 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
-
 /**
  * 管理端文件上传公共接口。
  *
@@ -37,7 +35,10 @@ public class FileUploadController {
      * @return 上传结果（含签名URL）
      */
     @PostMapping(value = "/upload/{basePath}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ApiResponse<FileUploadVO> upload(@PathVariable FileBasePath basePath, @RequestPart("file") @NotNull MultipartFile file) throws IOException {
-        return ApiResponse.success(fileUploadService.upload(file, basePath, UserContext.userId()));
+    public ApiResponse<FileUploadVO> upload(
+            @PathVariable String basePath,
+            @RequestPart("file") @NotNull MultipartFile file) {
+        return ApiResponse.success(fileUploadService.upload(
+                file, FileBasePath.fromCode(basePath), UserContext.userId()));
     }
 }

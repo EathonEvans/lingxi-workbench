@@ -9,6 +9,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  */
 @ConfigurationProperties(prefix = "lingxi.storage")
 public record ObjectStorageProperties(
+        String type,
         Minio minio,
         Oss oss) {
 

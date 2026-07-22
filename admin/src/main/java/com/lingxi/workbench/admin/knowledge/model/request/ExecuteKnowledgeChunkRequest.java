@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.knowledge.model.request;
 
-import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeChunkStrategy;
+import com.lingxi.workbench.admin.knowledge.common.enums.DocChunkStrategy;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -14,7 +14,7 @@ import jakarta.validation.constraints.NotNull;
  */
 public record ExecuteKnowledgeChunkRequest(
         @NotNull(message = "请选择分块策略")
-        KnowledgeChunkStrategy strategy,
+        DocChunkStrategy strategy,
 
         @NotNull(message = "请输入Chunk大小")
         @Min(value = 50, message = "Chunk大小不能小于50 Token")

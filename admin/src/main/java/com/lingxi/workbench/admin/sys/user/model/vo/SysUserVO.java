@@ -12,8 +12,10 @@ public record SysUserVO(
         String username,
         /** 显示名称。 */
         String displayName,
-        /** 头像地址。 */
+        /** 头像地址（带签名的临时访问URL，用于前端直接渲染）。 */
         String avatarUrl,
+        /** 头像对象存储 key（用于更新时回传服务端）。 */
+        String avatarObjectKey,
         /** 邮箱地址。 */
         String email,
         /** 手机号。 */

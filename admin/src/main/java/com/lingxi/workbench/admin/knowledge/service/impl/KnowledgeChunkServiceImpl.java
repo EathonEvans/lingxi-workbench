@@ -10,7 +10,7 @@ import com.lingxi.workbench.admin.knowledge.model.vo.KnowledgeChunkResultVO;
 import com.lingxi.workbench.admin.knowledge.model.vo.KnowledgeChunkVO;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeDocumentRepo;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeChunkService;
-import com.lingxi.workbench.admin.knowledge.service.KnowledgeDocumentChunker;
+import com.lingxi.workbench.admin.knowledge.service.startegy.chunk.AbstractDocChunker;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
@@ -24,7 +24,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class KnowledgeChunkServiceImpl implements KnowledgeChunkService {
     private final KnowledgeDocumentRepo documentRepo;
-    private final KnowledgeDocumentChunker documentChunker;
+    private final AbstractDocChunker documentChunker;
     private final KnowledgeConverter converter;
     private final AuditService auditService;
 
@@ -32,8 +32,7 @@ public class KnowledgeChunkServiceImpl implements KnowledgeChunkService {
     public KnowledgeChunkResultVO execute(
             Long documentId, ExecuteKnowledgeChunkRequest request, Long operatorId) {
         KnowledgeDocumentEntity document = documentRepo.findById(documentId)
-                .orElseThrow(() -> new BusinessException(
-                        HttpStatusEnum.NOT_FOUND, "知识库文档不存在"));
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "知识库文档不存在"));
         if (document.getStatus() != KnowledgeDocumentStatus.PARSED
                 || CharSequenceUtil.isBlank(document.getParsedContent())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "文档解析完成后才能执行分块");

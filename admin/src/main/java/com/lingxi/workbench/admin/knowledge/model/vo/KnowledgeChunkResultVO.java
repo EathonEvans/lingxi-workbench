@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.knowledge.model.vo;
 
-import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeChunkStrategy;
+import com.lingxi.workbench.admin.knowledge.common.enums.DocChunkStrategy;
 
 import java.util.List;
 
@@ -19,7 +19,7 @@ import java.util.List;
 public record KnowledgeChunkResultVO(
         String documentId,
         String documentName,
-        KnowledgeChunkStrategy strategy,
+        DocChunkStrategy strategy,
         int chunkSize,
         int chunkOverlap,
         int chunkCount,

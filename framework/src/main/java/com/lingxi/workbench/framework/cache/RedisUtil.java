@@ -1,5 +1,6 @@
 package com.lingxi.workbench.framework.cache;
 
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.connection.DataType;
 import org.springframework.data.redis.core.Cursor;
@@ -25,23 +26,22 @@ import java.util.concurrent.TimeUnit;
  * <p>底层统一使用 {@link StringRedisTemplate}，只处理字符串键值。调用方仍需通过
  * {@link RedisKeyBuilder} 生成具备业务前缀的键，禁止直接拼接无命名空间的 Redis Key。</p>
  */
+@Getter
 @Component
 @RequiredArgsConstructor
 public class RedisUtil {
 
-	private final StringRedisTemplate redisTemplate;
+    /**
+     * -- GETTER --
+     *  获取底层
+     * ，供需要执行原生 Redis 操作的场景使用。
+     *
+     * @return 当前注入的 StringRedisTemplate 实例
+     */
+    private final StringRedisTemplate redisTemplate;
 
 
-	/**
-	 * 获取底层 {@link StringRedisTemplate}，供需要执行原生 Redis 操作的场景使用。
-	 *
-	 * @return 当前注入的 StringRedisTemplate 实例
-	 */
-	public StringRedisTemplate getRedisTemplate() {
-		return this.redisTemplate;
-	}
-
-	/** -------------------key相关操作--------------------- */
+    /** -------------------key相关操作--------------------- */
 
 	/**
 	 * 删除key

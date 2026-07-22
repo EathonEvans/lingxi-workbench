@@ -1,5 +1,7 @@
 package com.lingxi.workbench.admin.sys.user.service.impl;
 
+import com.lingxi.workbench.admin.file.common.enums.FileBasePath;
+import com.lingxi.workbench.admin.file.service.AvatarUrlService;
 import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.admin.sys.user.model.bo.SysUserBO;
 import com.lingxi.workbench.admin.sys.user.model.converter.SysUserConverter;
@@ -7,6 +9,7 @@ import com.lingxi.workbench.admin.sys.user.model.entity.SysUserEntity;
 import com.lingxi.workbench.admin.sys.user.model.request.CreateSysUserRequest;
 import com.lingxi.workbench.admin.auth.model.request.SysUserPageQuery;
 import com.lingxi.workbench.admin.sys.user.model.request.UpdateSysUserRequest;
+import com.lingxi.workbench.admin.sys.user.model.vo.SysAvatarVO;
 import com.lingxi.workbench.admin.sys.user.model.vo.SysUserVO;
 import com.lingxi.workbench.admin.sys.user.repo.SysUserRepo;
 import com.lingxi.workbench.admin.sys.user.service.SysUserService;
@@ -31,12 +34,13 @@ public class SysUserServiceImpl implements SysUserService {
     private final SysUserConverter sysUserConverter;
     private final PasswordHasher passwordHasher;
     private final AuditService auditService;
+    private final AvatarUrlService avatarUrlService;
 
     @Override
     @Transactional(readOnly = true)
     public PageResult<SysUserVO> page(SysUserPageQuery query) {
         normalizeQuery(query);
-        return sysUserRepo.findPage(query).map(sysUserConverter::toVO);
+        return sysUserRepo.findPage(query).map(this::toUserView);
     }
 
     @Override
@@ -54,6 +58,7 @@ public class SysUserServiceImpl implements SysUserService {
         entity.setUsername(username);
         entity.setPasswordHash(passwordHasher.hash(request.password()));
         entity.setDisplayName(request.displayName().trim());
+        entity.setAvatarUrl(normalizeNullable(request.avatarUrl()));
         entity.setEmail(email);
         entity.setMobile(mobile);
         entity.setDepartmentId(request.departmentId());
@@ -91,6 +96,22 @@ public class SysUserServiceImpl implements SysUserService {
     }
 
     @Override
+    @Transactional
+    public SysAvatarVO updateCurrentAvatar(String avatarObjectKey) {
+        Long userId = UserContext.userId();
+        requireUser(userId);
+        String normalizedObjectKey = avatarObjectKey.trim();
+        if (!FileBasePath.AVATAR.ownsAvatar(normalizedObjectKey, userId)) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "头像文件不属于当前用户");
+        }
+        sysUserRepo.updateAvatar(userId, normalizedObjectKey);
+        auditService.record(
+                "SYSTEM", "USER", userId, userId, "USER_AVATAR_UPDATE", "修改个人头像");
+        AvatarUrlService.AvatarUrl avatar = avatarUrlService.resolve(normalizedObjectKey);
+        return new SysAvatarVO(avatar.url(), avatar.objectKey());
+    }
+
+    @Override
     public void recordRoleAssignment(Long userId, Set<Long> roleIds) {
         requireUser(userId);
         auditService.record("SYSTEM", "USER", userId, UserContext.userId(), "SYS_ROLE_ASSIGNMENT",
@@ -104,8 +125,18 @@ public class SysUserServiceImpl implements SysUserService {
 
     private SysUserVO requireUserView(Long id) {
         return sysUserRepo.findById(id)
-                .map(sysUserConverter::toVO)
+                .map(this::toUserView)
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "用户账号不存在"));
+    }
+
+    /**
+     * 将 VO 中的 objectKey 替换为带签名的临时访问 URL，确保私有读写 OSS 中的头像可以被前端渲染。
+     *
+     * <p>如果存储值是已过期的签名 URL（历史数据），直接透传不做二次签名。</p>
+     */
+    private SysUserVO toUserView(SysUserBO user) {
+        AvatarUrlService.AvatarUrl avatar = avatarUrlService.resolve(user.avatarUrl());
+        return sysUserConverter.toVO(user, avatar.url(), avatar.objectKey());
     }
 
     private void validateContactUniqueness(String email, String mobile, Long excludeId) {

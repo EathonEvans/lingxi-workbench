@@ -13,8 +13,7 @@ class KnowledgeDocumentParserTest {
 
     @Test
     void shouldParseUtf8TextAndNormalizeLineBreaks() throws Exception {
-        KnowledgeProperties properties = new KnowledgeProperties(
-                null, new KnowledgeProperties.Parsing(1024, 10000));
+        KnowledgeProperties properties = new KnowledgeProperties(new KnowledgeProperties.Parsing(1024, 10000));
         KnowledgeDocumentParser parser = new KnowledgeDocumentParser(properties);
         ByteArrayInputStream input = new ByteArrayInputStream(
                 "标题\r\n\r\n正文内容".getBytes(StandardCharsets.UTF_8));

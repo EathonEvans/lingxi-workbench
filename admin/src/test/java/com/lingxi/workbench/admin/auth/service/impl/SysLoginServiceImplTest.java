@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.auth.service.impl;
 
 import cn.dev33.satoken.stp.SaTokenInfo;
+import com.lingxi.workbench.admin.file.service.AvatarUrlService;
 import com.lingxi.workbench.admin.common.enums.SysUserStatus;
 import com.lingxi.workbench.admin.sys.user.model.bo.SysUserBO;
 import com.lingxi.workbench.admin.sys.user.model.converter.SysUserConverter;
@@ -43,6 +44,9 @@ class SysLoginServiceImplTest {
     private StpLogicDefinition stpLogicDefinition;
 
     @Mock
+    private AvatarUrlService avatarUrlService;
+
+    @Mock
     private SaTokenInfo tokenInfo;
 
     private SysLoginServiceImpl sysLoginService;
@@ -53,7 +57,8 @@ class SysLoginServiceImplTest {
                 sysUserRepo,
                 sysUserConverter,
                 passwordHasher,
-                stpLogicDefinition
+                stpLogicDefinition,
+                avatarUrlService
         );
     }
 
@@ -67,7 +72,7 @@ class SysLoginServiceImplTest {
         when(tokenInfo.getTokenName()).thenReturn("Authorization");
         when(tokenInfo.getTokenValue()).thenReturn("admin-token");
         when(tokenInfo.getTokenTimeout()).thenReturn(7200L);
-        when(sysUserConverter.toProfileVO(user)).thenReturn(profile);
+        when(sysUserConverter.toProfileVO(user, null, null)).thenReturn(profile);
 
         SysLoginVO result = sysLoginService.login(
                 new SysLoginRequest(" Admin ", "correct-password")

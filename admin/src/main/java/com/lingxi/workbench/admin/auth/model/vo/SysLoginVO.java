@@ -22,8 +22,10 @@ public record SysLoginVO(
             String username,
             /** 显示名称。 */
             String displayName,
-            /** 头像地址。 */
+            /** 头像地址（带签名的临时访问URL，用于前端直接渲染）。 */
             String avatarUrl,
+            /** 头像对象存储 key（用于更新时回传服务端）。 */
+            String avatarObjectKey,
             /** 所属部门主键。 */
             Long departmentId,
             /** 邮箱地址。 */
@@ -32,7 +34,7 @@ public record SysLoginVO(
             String mobile
     ) {
         public SysProfileVO(Long id, String username, String displayName, String avatarUrl, Long departmentId) {
-            this(id, username, displayName, avatarUrl, departmentId, null, null);
+            this(id, username, displayName, avatarUrl, null, departmentId, null, null);
         }
     }
 }

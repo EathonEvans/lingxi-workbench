@@ -2,15 +2,16 @@ package com.lingxi.workbench.admin.auth.service.impl;
 
 import cn.dev33.satoken.stp.SaTokenInfo;
 import cn.hutool.core.text.CharSequenceUtil;
-import com.lingxi.workbench.admin.sys.user.model.bo.SysUserBO;
-import com.lingxi.workbench.admin.sys.user.model.converter.SysUserConverter;
 import com.lingxi.workbench.admin.auth.model.request.SysLoginRequest;
 import com.lingxi.workbench.admin.auth.model.vo.SysLoginVO;
-import com.lingxi.workbench.admin.sys.user.repo.SysUserRepo;
 import com.lingxi.workbench.admin.auth.service.SysLoginService;
-import com.lingxi.workbench.framework.exceptions.AuthException;
+import com.lingxi.workbench.admin.file.service.AvatarUrlService;
+import com.lingxi.workbench.admin.sys.user.model.bo.SysUserBO;
+import com.lingxi.workbench.admin.sys.user.model.converter.SysUserConverter;
+import com.lingxi.workbench.admin.sys.user.repo.SysUserRepo;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
 import com.lingxi.workbench.framework.auth.password.BCryptPasswordHasher;
+import com.lingxi.workbench.framework.exceptions.AuthException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +31,7 @@ public class SysLoginServiceImpl implements SysLoginService {
     private final SysUserConverter sysUserConverter;
     private final BCryptPasswordHasher passwordHasher;
     private final StpLogicDefinition stpLogicDefinition;
+    private final AvatarUrlService avatarUrlService;
 
     /**
      * 执行账号密码登录流程：校验账号存在性、密码匹配、账号状态，登录成功后签发令牌。
@@ -67,12 +69,22 @@ public class SysLoginServiceImpl implements SysLoginService {
 
         // 通过 Sa-Token 签发登录令牌
         SaTokenInfo tokenInfo = stpLogicDefinition.login(user.id());
+        AvatarUrlService.AvatarUrl avatar = resolveAvatar(user.avatarUrl());
+        SysLoginVO.SysProfileVO profile = sysUserConverter.toProfileVO(
+                user, avatar.url(), avatar.objectKey());
         return new SysLoginVO(
                 tokenInfo.getTokenName(),
                 tokenInfo.getTokenValue(),
                 tokenInfo.getTokenTimeout(),
-                sysUserConverter.toProfileVO(user)
+                profile
         );
+    }
+
+    /** 解析登录响应所需的头像地址，空头像不访问对象存储。 */
+    private AvatarUrlService.AvatarUrl resolveAvatar(String storedValue) {
+        return CharSequenceUtil.isBlank(storedValue)
+                ? new AvatarUrlService.AvatarUrl(null, null)
+                : avatarUrlService.resolve(storedValue);
     }
 
     /**

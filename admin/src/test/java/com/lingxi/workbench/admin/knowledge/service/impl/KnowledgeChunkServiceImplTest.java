@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.knowledge.service.impl;
 
-import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeChunkStrategy;
+import com.lingxi.workbench.admin.knowledge.common.enums.DocChunkStrategy;
 import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeDocumentStatus;
 import com.lingxi.workbench.admin.knowledge.model.bo.KnowledgeChunkBO;
 import com.lingxi.workbench.admin.knowledge.model.converter.KnowledgeConverter;
@@ -9,7 +9,7 @@ import com.lingxi.workbench.admin.knowledge.model.request.ExecuteKnowledgeChunkR
 import com.lingxi.workbench.admin.knowledge.model.vo.KnowledgeChunkResultVO;
 import com.lingxi.workbench.admin.knowledge.model.vo.KnowledgeChunkVO;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeDocumentRepo;
-import com.lingxi.workbench.admin.knowledge.service.KnowledgeDocumentChunker;
+import com.lingxi.workbench.admin.knowledge.service.startegy.chunk.AbstractDocChunker;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.junit.jupiter.api.Test;
@@ -30,7 +30,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class KnowledgeChunkServiceImplTest {
     @Mock private KnowledgeDocumentRepo documentRepo;
-    @Mock private KnowledgeDocumentChunker documentChunker;
+    @Mock private AbstractDocChunker documentChunker;
     @Mock private KnowledgeConverter converter;
     @Mock private AuditService auditService;
 
@@ -44,7 +44,7 @@ class KnowledgeChunkServiceImplTest {
                 new KnowledgeChunkBO(2, "第二段", 12, "安装"));
         when(documentRepo.findById(11L)).thenReturn(Optional.of(document));
         when(documentChunker.chunk(
-                        document.getParsedContent(), KnowledgeChunkStrategy.PARAGRAPH, 600, 80))
+                        document.getParsedContent(), DocChunkStrategy.PARAGRAPH, 600, 80))
                 .thenReturn(chunks);
         when(converter.toChunkVOList(chunks))
                 .thenReturn(List.of(
@@ -53,7 +53,7 @@ class KnowledgeChunkServiceImplTest {
 
         KnowledgeChunkResultVO result = service.execute(
                 11L,
-                new ExecuteKnowledgeChunkRequest(KnowledgeChunkStrategy.PARAGRAPH, 600, 80),
+                new ExecuteKnowledgeChunkRequest(DocChunkStrategy.PARAGRAPH, 600, 80),
                 9L);
 
         assertThat(result.chunkCount()).isEqualTo(2);
@@ -72,7 +72,7 @@ class KnowledgeChunkServiceImplTest {
 
         assertThatThrownBy(() -> service.execute(
                         11L,
-                        new ExecuteKnowledgeChunkRequest(KnowledgeChunkStrategy.PARAGRAPH, 600, 80),
+                        new ExecuteKnowledgeChunkRequest(DocChunkStrategy.PARAGRAPH, 600, 80),
                         9L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("解析完成后");
@@ -84,7 +84,7 @@ class KnowledgeChunkServiceImplTest {
 
         assertThatThrownBy(() -> service.execute(
                         11L,
-                        new ExecuteKnowledgeChunkRequest(KnowledgeChunkStrategy.FIXED, 100, 100),
+                        new ExecuteKnowledgeChunkRequest(DocChunkStrategy.FIXED, 100, 100),
                         9L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("必须小于");

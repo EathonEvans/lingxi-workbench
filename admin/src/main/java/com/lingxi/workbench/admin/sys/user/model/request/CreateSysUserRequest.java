@@ -25,6 +25,10 @@ public record CreateSysUserRequest(
         @Size(max = 64, message = "显示名称长度不能超过64个字符")
         String displayName,
 
+        /** 头像对象Key。 */
+        @Size(max = 512, message = "头像对象Key长度不能超过512个字符")
+        String avatarUrl,
+
         /** 邮箱地址。 */
         @Size(max = 254, message = "邮箱地址长度不能超过254个字符")
         @Pattern(regexp = "^$|^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,63}$", message = "邮箱地址格式不正确")
