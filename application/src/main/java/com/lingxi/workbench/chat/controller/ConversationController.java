@@ -1,6 +1,6 @@
 package com.lingxi.workbench.chat.controller;
 
-import com.lingxi.workbench.auth.context.UserContext;
+import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.chat.model.request.ConversationPageQuery;
 import com.lingxi.workbench.chat.model.request.RenameConversationRequest;
 import com.lingxi.workbench.chat.model.vo.ConversationMessageVO;
@@ -29,20 +29,20 @@ public class ConversationController {
     /** 创建新会话。 */
     @PostMapping("/create")
     public ApiResponse<ConversationVO> create() {
-        return ApiResponse.success(service.create(userId()));
+        return ApiResponse.success(service.create(UserContext.userId()));
     }
 
     /** 分页查询当前用户的会话。 */
     @GetMapping("/list")
     public ApiResponse<PageResult<ConversationVO>> list(@Valid ConversationPageQuery query) {
-        return ApiResponse.success(service.page(userId(), query));
+        return ApiResponse.success(service.page(UserContext.userId(), query));
     }
 
     /** 分页查询指定会话的消息历史。 */
     @GetMapping("/message-list")
     public ApiResponse<PageResult<ConversationMessageVO>> messageList(
             @RequestParam Long conversationId, @Valid PageQuery query) {
-        return ApiResponse.success(service.messagePage(userId(), conversationId, query));
+        return ApiResponse.success(service.messagePage(UserContext.userId(), conversationId, query));
     }
 
     /** 修改会话标题。 */
@@ -50,25 +50,21 @@ public class ConversationController {
     public ApiResponse<Void> rename(
             @RequestParam Long conversationId,
             @Valid @RequestBody RenameConversationRequest request) {
-        service.rename(userId(), conversationId, request);
+        service.rename(UserContext.userId(), conversationId, request);
         return ApiResponse.success();
     }
 
     /** 归档会话。 */
     @PostMapping("/archive")
     public ApiResponse<Void> archive(@RequestParam Long conversationId) {
-        service.archive(userId(), conversationId);
+        service.archive(UserContext.userId(), conversationId);
         return ApiResponse.success();
     }
 
     /** 软删除会话。 */
     @PostMapping("/delete")
     public ApiResponse<Void> delete(@RequestParam Long conversationId) {
-        service.delete(userId(), conversationId);
+        service.delete(UserContext.userId(), conversationId);
         return ApiResponse.success();
-    }
-
-    private static Long userId() {
-        return UserContext.get().id();
     }
 }

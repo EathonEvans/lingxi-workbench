@@ -23,6 +23,18 @@ public class SysDataScopeServiceImpl implements SysDataScopeService {
 
     private final SysDepartmentRepo sysDepartmentRepo;
 
+    /**
+     * 合并管理员全部启用角色的数据范围，按优先级逐层判断。
+     *
+     * <ol>
+     *   <li>任一角色为 ALL 即拥有全量权限，直接返回全量范围；</li>
+     *   <li>合并各角色的 DEPARTMENT、DEPARTMENT_AND_CHILDREN、CUSTOM 部门集合；</li>
+     *   <li>合并后仍为空时，按 SELF 处理作为缺少角色时的安全默认值。</li>
+     * </ol>
+     *
+     * @param userId 管理员主键
+     * @return 数据范围计算结果
+     */
     @Override
     @Transactional(readOnly = true)
     public SysDataScopeBO resolve(Long userId) {

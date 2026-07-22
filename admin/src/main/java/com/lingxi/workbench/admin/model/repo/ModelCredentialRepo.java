@@ -47,12 +47,14 @@ public class ModelCredentialRepo {
         return Optional.ofNullable(mapper.selectById(id));
     }
 
+    /** 检查同一供应商下是否已存在同名密钥。 */
     public boolean existsByProviderIdAndName(Long providerId, String name) {
         return mapper.exists(Wrappers.<ModelCredentialEntity>lambdaQuery()
                 .eq(ModelCredentialEntity::getProviderId, providerId)
                 .eq(ModelCredentialEntity::getName, name));
     }
 
+    /** 新增或更新密钥，id 为空时插入，否则按主键更新。 */
     public void save(ModelCredentialEntity entity) {
         if (entity.getId() == null) {
             mapper.insert(entity);

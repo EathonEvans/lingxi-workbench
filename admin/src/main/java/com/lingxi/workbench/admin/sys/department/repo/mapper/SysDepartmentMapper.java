@@ -14,13 +14,30 @@ import java.util.List;
 @Mapper
 public interface SysDepartmentMapper extends BaseMapper<SysDepartmentEntity> {
 
+    /**
+     * 统计归属于指定部门的管理员数量。
+     *
+     * @param departmentId 部门主键
+     * @return 管理员数量
+     */
     @Select("SELECT COUNT(1) FROM lingxi_core.sys_user WHERE department_id = #{departmentId}")
     long countUsers(@Param("departmentId") Long departmentId);
 
+    /**
+     * 统计角色部门关联表中引用指定部门的记录数。
+     *
+     * @param departmentId 部门主键
+     * @return 引用次数
+     */
     @Select("SELECT COUNT(1) FROM lingxi_core.sys_role_department WHERE department_id = #{departmentId}")
     long countRoleReferences(@Param("departmentId") Long departmentId);
 
-    /** 判断管理员是否通过任一启用角色拥有全公司数据范围。 */
+    /**
+     * 判断管理员是否通过任一启用角色拥有全公司数据范围。
+     *
+     * @param userId 管理员主键
+     * @return 拥有全公司数据权限时返回 true
+     */
     @Select("""
             SELECT COUNT(1) > 0
             FROM lingxi_core.sys_user_role user_role
@@ -33,7 +50,12 @@ public interface SysDepartmentMapper extends BaseMapper<SysDepartmentEntity> {
 
     /**
      * 计算管理员可访问的部门主键。
-     * DEPARTMENT 取本人部门，DEPARTMENT_AND_CHILDREN 递归取本人部门及子部门，CUSTOM 取角色显式部门。
+     *
+     * <p>DEPARTMENT 取本人部门，DEPARTMENT_AND_CHILDREN 递归取本人部门及子部门，
+     * CUSTOM 取角色显式分配的部门，三种来源结果取并集后去重排序。</p>
+     *
+     * @param userId 管理员主键
+     * @return 可访问的部门主键列表
      */
     @Select("""
             WITH RECURSIVE department_tree AS (

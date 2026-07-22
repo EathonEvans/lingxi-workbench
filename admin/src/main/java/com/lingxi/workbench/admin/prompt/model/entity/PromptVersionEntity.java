@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVersionStatus;
 import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
-import com.lingxi.workbench.framework.persistence.model.AuditTimeEntity;
+import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.apache.ibatis.type.JdbcType;
@@ -16,7 +16,7 @@ import java.util.List;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "lingxi_core.ai_prompt_version", autoResultMap = true)
-public class PromptVersionEntity extends AuditTimeEntity {
+public class PromptVersionEntity extends TimeEntity {
     /** 版本主键。 */
     private Long id;
     /** 所属Prompt主键。 */

@@ -43,12 +43,14 @@ public class ModelProviderRepo {
         return Optional.ofNullable(mapper.selectById(id));
     }
 
+    /** 检查编码是否已存在，排除指定 id 用于更新时校验。 */
     public boolean existsByCode(String code, Long excludedId) {
         return mapper.exists(Wrappers.<ModelProviderEntity>lambdaQuery()
                 .eq(ModelProviderEntity::getCode, code)
                 .ne(Objects.nonNull(excludedId), ModelProviderEntity::getId, excludedId));
     }
 
+    /** 新增或更新供应商，id 为空时插入，否则按主键更新。 */
     public void save(ModelProviderEntity entity) {
         if (Objects.isNull(entity.getId())) {
             mapper.insert(entity);

@@ -14,6 +14,12 @@ import java.util.List;
 @Mapper
 public interface SysMenuMapper extends BaseMapper<SysMenuEntity> {
 
+    /**
+     * 统计角色菜单关联表中引用指定菜单的记录数。
+     *
+     * @param menuId 菜单主键
+     * @return 引用次数
+     */
     @Select("SELECT COUNT(1) FROM lingxi_core.sys_role_menu WHERE menu_id = #{menuId}")
     long countRoleReferences(@Param("menuId") Long menuId);
 

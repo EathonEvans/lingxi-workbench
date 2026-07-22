@@ -16,6 +16,7 @@ public class KnowledgeDocumentParser {
     private static final List<String> PAGE_COUNT_KEYS = List.of("xmpTPg:NPages", "Page-Count", "meta:page-count");
     private final KnowledgeProperties properties;
 
+    /** 使用Tika解析文档输入流，返回标准化正文和页数。 */
     public ParsedDocument parse(InputStream inputStream, String fileName) throws Exception {
         Tika tika = new Tika();
         Metadata metadata = new Metadata();
@@ -27,10 +28,12 @@ public class KnowledgeDocumentParser {
         return new ParsedDocument(content, resolvePageCount(metadata));
     }
 
+    /** 标准化文本换行符并去除首尾空白。 */
     private static String normalize(String content) {
         return content.replace("\r\n", "\n").replace('\r', '\n').trim();
     }
 
+    /** 尝试从Tika元数据中提取可靠的页数信息，失败返回null。 */
     private static Integer resolvePageCount(Metadata metadata) {
         for (String key : PAGE_COUNT_KEYS) {
             String value = metadata.get(key);

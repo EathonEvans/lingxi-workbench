@@ -9,7 +9,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
-/** 在上传事务提交后异步执行文档解析。 */
+/**
+ * 在上传事务提交后异步执行文档解析。
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -22,7 +24,9 @@ public class KnowledgeParseEventListener {
         process(event.jobId());
     }
 
-    /** 定时恢复未被事件线程执行或因服务退出而遗留的解析任务。 */
+    /**
+     * 定时恢复未被事件线程执行或因服务退出而遗留的解析任务。
+     */
     @Scheduled(fixedDelayString = "${lingxi.knowledge.parsing.recovery-interval-millis:30000}")
     public void recover() {
         for (Long jobId : parseService.recoverableJobIds()) {
@@ -30,6 +34,9 @@ public class KnowledgeParseEventListener {
         }
     }
 
+    /**
+     * 执行单个解析任务：抢占任务 -> 解析文档 -> 标记完成或失败。
+     */
     private void process(Long jobId) {
         KnowledgeParseService.ParseInput input;
         try {
@@ -38,6 +45,7 @@ public class KnowledgeParseEventListener {
             log.warn("知识库文档解析任务启动失败，jobId={}", jobId, exception);
             return;
         }
+        // claim失败返回null，任务已被其他线程抢占
         if (input == null) return;
         try {
             KnowledgeParseService.ProcessingResult result = parseService.parse(input);

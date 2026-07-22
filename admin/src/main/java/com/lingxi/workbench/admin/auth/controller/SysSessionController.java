@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.auth.controller;
 
-import com.lingxi.workbench.admin.auth.context.SysUserContext;
+import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.admin.sys.user.model.vo.SysSessionVO;
 import com.lingxi.workbench.admin.auth.service.SysPermissionService;
 import com.lingxi.workbench.framework.convention.ApiResponse;
@@ -25,7 +25,7 @@ public class SysSessionController {
      */
     @GetMapping("/session")
     public ApiResponse<SysSessionVO> session() {
-        Long userId = SysUserContext.get().id();
+        Long userId = UserContext.userId();
         return ApiResponse.success(sysPermissionService.getSession(userId));
     }
 }

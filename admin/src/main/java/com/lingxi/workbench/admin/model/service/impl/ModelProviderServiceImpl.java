@@ -51,6 +51,7 @@ public class ModelProviderServiceImpl implements ModelProviderService {
     public ModelProviderVO save(
             Long id, SaveModelProviderRequest request, Long operatorId) {
         String code = request.code().trim().toLowerCase();
+        // 编码全局唯一，更新时排除自身
         if (providerRepo.existsByCode(code, id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "供应商编码已存在");
         }
@@ -58,6 +59,7 @@ public class ModelProviderServiceImpl implements ModelProviderService {
         ModelProviderEntity entity = Objects.isNull(id) ? new ModelProviderEntity() : requireProvider(id);
         entity.setName(request.name().trim());
         entity.setCode(code);
+        // 当前仅支持 OpenAI 兼容协议
         entity.setProtocol(OPENAI_COMPATIBLE);
         entity.setBaseUrl(normalizeUrl(request.baseUrl()));
         entity.setStatus(request.status());
@@ -82,6 +84,7 @@ public class ModelProviderServiceImpl implements ModelProviderService {
     @Transactional
     public void changeStatus(Long id, EnableStatus status, Long operatorId) {
         ModelProviderEntity entity = requireProvider(id);
+        // 禁用前检查是否有关联的启用模型
         if (status == EnableStatus.DISABLED && instanceRepo.existsActiveByProviderId(id)) {
             throw new BusinessException(
                     HttpStatusEnum.CONFLICT, "供应商仍有关联的启用模型，请先停用相关模型实例");
@@ -94,12 +97,14 @@ public class ModelProviderServiceImpl implements ModelProviderService {
                 "MODEL", "PROVIDER", id, operatorId, "PROVIDER_STATUS_CHANGE", "状态=" + status);
     }
 
+    /** 查询供应商，不存在时抛出 404 异常。 */
     private ModelProviderEntity requireProvider(Long id) {
         return providerRepo.findById(id)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "模型供应商不存在"));
     }
 
+    /** 归一化 Base URL：校验协议仅支持 HTTP/HTTPS，去除尾部斜杠，拒绝包含用户信息、查询参数和片段的地址。 */
     private static String normalizeUrl(String value) {
         try {
             URI uri = URI.create(value.trim());
@@ -120,6 +125,7 @@ public class ModelProviderServiceImpl implements ModelProviderService {
         }
     }
 
+    /** 空白字符串转为 null，避免空字符串存入数据库。 */
     private static String trimToNull(String value) {
         return CharSequenceUtil.isBlank(value) ? null : value.trim();
     }

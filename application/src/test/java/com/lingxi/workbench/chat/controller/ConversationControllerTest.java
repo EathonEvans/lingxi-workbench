@@ -2,7 +2,7 @@ package com.lingxi.workbench.chat.controller;
 
 import com.lingxi.workbench.auth.config.UserSaTokenAuthWebConfig;
 import com.lingxi.workbench.auth.config.interceptor.UserAuthenticationInterceptor;
-import com.lingxi.workbench.auth.context.UserContext;
+import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.chat.common.enums.ConversationStatus;
 import com.lingxi.workbench.chat.model.request.ConversationPageQuery;
 import com.lingxi.workbench.chat.model.vo.ConversationVO;

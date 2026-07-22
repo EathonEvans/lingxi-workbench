@@ -40,7 +40,9 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
-/** 知识库文档上传、文本录入和解析任务管理。 */
+/**
+ * 知识库文档上传、文本录入和解析任务管理。
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor
@@ -59,6 +61,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     @Override
     @Transactional(readOnly = true)
     public PageResult<KnowledgeDocumentVO> page(KnowledgeDocumentPageQuery query) {
+        // 先校验知识库存在
         requireBase(query.getKnowledgeBaseId());
         return documentRepo.findPage(query).map(converter::toDocumentVO);
     }
@@ -73,6 +76,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         if (file.getSize() > properties.parsing().maxFileSize()) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "文档大小超过限制");
         }
+        // 文件名安全处理和格式校验
         String fileName = normalizeFileName(file.getOriginalFilename());
         validateFileName(fileName);
         String extension = extension(fileName);
@@ -80,9 +84,11 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "仅支持TXT、Markdown、PDF和DOCX文档");
         }
         try {
+            // 计算文件SHA-256哈希用于去重
             byte[] content = file.getBytes();
             String contentHash = sha256(content);
             rejectDuplicate(knowledgeBaseId, contentHash);
+            // 上传原始文件到对象存储，发布存储成功事件用于事务补偿
             String objectKey = buildObjectKey(knowledgeBaseId, extension);
             String contentType = file.getContentType() == null ? "application/octet-stream" : file.getContentType();
             objectStorage.put(objectKey, content, contentType);
@@ -96,6 +102,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             entity.setObjectKey(objectKey);
             entity.setContentHash(contentHash);
             documentRepo.save(entity);
+            // 创建解析任务并通过事件触发异步解析
             createJobAndPublish(entity, operatorId, 0);
             auditService.record("KNOWLEDGE", "DOCUMENT", entity.getId(), operatorId,
                     "DOCUMENT_UPLOAD", "文档=" + fileName);
@@ -114,6 +121,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     @Transactional
     public KnowledgeDocumentVO createText(CreateTextDocumentRequest request, Long operatorId) {
         requireBase(request.knowledgeBaseId());
+        // 文本录入以UTF-8格式编码，统一按txt扩展名存储到对象存储
         byte[] content = request.content().getBytes(StandardCharsets.UTF_8);
         String contentHash = sha256(content);
         rejectDuplicate(request.knowledgeBaseId(), contentHash);
@@ -164,12 +172,14 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         if (jobRepo.existsRunningByDocumentId(id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "文档已有解析任务正在执行");
         }
+        // 重置文档状态为等待解析并清除错误信息
         entity.setStatus(KnowledgeDocumentStatus.UPLOADED);
         entity.setErrorCode(null);
         entity.setErrorMessage(null);
         entity.setUpdatedBy(operatorId);
         documentRepo.save(entity);
         try {
+            // 创建新解析任务，retryCount设为1表示首次重试
             createJobAndPublish(entity, operatorId, 1);
         } catch (DataIntegrityViolationException exception) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "文档已有解析任务正在执行");
@@ -181,14 +191,19 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     @Transactional
     public void delete(Long id, Long operatorId) {
         KnowledgeDocumentEntity entity = requireDocument(id);
+        // 解析中的文档不允许删除
         if (entity.getStatus() == KnowledgeDocumentStatus.PARSING || jobRepo.existsRunningByDocumentId(id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "文档正在解析，不能删除");
         }
         documentRepo.delete(id);
         auditService.record("KNOWLEDGE", "DOCUMENT", id, operatorId, "DOCUMENT_DELETE", "文档=" + entity.getName());
+        // 事务提交后异步清理对象存储中的原始文件
         eventPublisher.publishEvent(new KnowledgeObjectDeleteRequestedEvent(entity.getObjectKey()));
     }
 
+    /**
+     * 创建文档实体并设置初始状态为等待解析。
+     */
     private KnowledgeDocumentEntity newDocument(Long knowledgeBaseId, Long operatorId) {
         KnowledgeDocumentEntity entity = new KnowledgeDocumentEntity();
         entity.setKnowledgeBaseId(knowledgeBaseId);
@@ -198,6 +213,9 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         return entity;
     }
 
+    /**
+     * 创建PENDING状态的解析任务，并通过Spring事件触发异步解析。
+     */
     private void createJobAndPublish(KnowledgeDocumentEntity document, Long operatorId, int retryCount) {
         KnowledgeIngestionJobEntity job = new KnowledgeIngestionJobEntity();
         job.setKnowledgeBaseId(document.getKnowledgeBaseId());
@@ -211,26 +229,41 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         eventPublisher.publishEvent(new KnowledgeParseRequestedEvent(job.getId()));
     }
 
+    /**
+     * 检查内容哈希是否重复，已存在相同内容的文档则拒绝。
+     */
     private void rejectDuplicate(Long knowledgeBaseId, String hash) {
         if (documentRepo.existsByHash(knowledgeBaseId, hash)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "该知识库中已存在内容相同的文档");
         }
     }
 
+    /**
+     * 按ID加载知识库，不存在时抛出业务异常。
+     */
     private KnowledgeBaseEntity requireBase(Long id) {
         return baseRepo.findById(id).orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "知识库不存在"));
     }
 
+    /**
+     * 按ID加载文档，不存在时抛出业务异常。
+     */
     private KnowledgeDocumentEntity requireDocument(Long id) {
         return documentRepo.findById(id).orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "知识库文档不存在"));
     }
 
+    /**
+     * 从上传文件名中提取安全文件名，去除路径信息。
+     */
     private static String normalizeFileName(String originalFilename) {
         if (originalFilename == null || originalFilename.isBlank()) return "未命名文档";
         String normalized = originalFilename.replace('\\', '/');
         return normalized.substring(normalized.lastIndexOf('/') + 1).trim();
     }
 
+    /**
+     * 校验文件名非空且在长度限制内。
+     */
     private static void validateFileName(String fileName) {
         if (fileName.isBlank()) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "文档文件名不能为空");
@@ -240,20 +273,31 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         }
     }
 
+    /**
+     * 从文件名提取小写扩展名。
+     */
     private static String extension(String fileName) {
         int dotIndex = fileName.lastIndexOf('.');
         return dotIndex < 0 ? "" : fileName.substring(dotIndex + 1).toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * 构建对象存储路径：knowledge/{知识库ID}/{UUID}.{扩展名}。
+     */
     private static String buildObjectKey(Long knowledgeBaseId, String extension) {
         return "knowledge/" + knowledgeBaseId + "/" + UUID.randomUUID() + "." + extension;
     }
 
+    /**
+     * 计算内容的SHA-256摘要，用于知识库内的文档去重。
+     */
     private static String sha256(byte[] content) {
         try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content));
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(content));
         } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("当前JDK不支持SHA-256", exception);
+            throw new IllegalStateException("当前运行环境不支持SHA-256算法", exception);
         }
     }
+
 }

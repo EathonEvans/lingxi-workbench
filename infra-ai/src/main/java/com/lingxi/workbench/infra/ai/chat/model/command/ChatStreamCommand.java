@@ -18,6 +18,7 @@ public record ChatStreamCommand(
         ChatModelRuntimeConfig modelConfig) {
 
     public ChatStreamCommand {
+        // 防御性拷贝：防止外部修改内部历史消息列表，同时将 null 转为空列表。
         history = history == null ? List.of() : List.copyOf(history);
     }
 }

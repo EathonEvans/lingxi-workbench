@@ -1,6 +1,6 @@
 package com.lingxi.workbench.chat.controller;
 
-import com.lingxi.workbench.auth.context.UserContext;
+import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.request.CancelChatRequest;
 import com.lingxi.workbench.chat.model.request.ResumeChatRequest;
@@ -42,7 +42,7 @@ public class ChatStreamController {
      */
     @PostMapping("/start")
     public ApiResponse<ChatStartVO> start(@Valid @RequestBody StartChatRequest request) {
-        return ApiResponse.success(chatStreamService.start(request, UserContext.get().id()));
+        return ApiResponse.success(chatStreamService.start(request, UserContext.userId()));
     }
 
     /**
@@ -56,7 +56,7 @@ public class ChatStreamController {
         return chatStreamService.resume(
                         Long.valueOf(request.assistantMessageId()),
                         request.afterSequence(),
-                        UserContext.get().id())
+                        UserContext.userId())
                 .map(ChatStreamController::toSseEvent);
     }
 
@@ -66,10 +66,11 @@ public class ChatStreamController {
     @PostMapping("/cancel")
     public ApiResponse<Void> cancel(@Valid @RequestBody CancelChatRequest request) {
         chatStreamService.cancel(
-                Long.valueOf(request.assistantMessageId()), UserContext.get().id());
+                Long.valueOf(request.assistantMessageId()), UserContext.userId());
         return ApiResponse.success();
     }
 
+    /** 将生成事件转换为 SSE 事件，每个事件类型对应一个 SSE event 名称。 */
     private static ServerSentEvent<?> toSseEvent(ChatGenerationEventBO event) {
         return switch (event.type()) {
             case CHUNK -> messageEvent(event);
@@ -80,6 +81,7 @@ public class ChatStreamController {
         };
     }
 
+    /** 构建文本增量 SSE 事件，携带自增序号用于客户端恢复订阅。 */
     private static ServerSentEvent<ChatChunkVO> messageEvent(ChatGenerationEventBO event) {
         return ServerSentEvent.<ChatChunkVO>builder()
                 .id(String.valueOf(event.sequence()))
@@ -88,6 +90,7 @@ public class ChatStreamController {
                 .build();
     }
 
+    /** 构建完整回答快照 SSE 事件，用于续接时快速恢复已生成文本。 */
     private static ServerSentEvent<ChatSnapshotVO> snapshotEvent(String content) {
         return ServerSentEvent.<ChatSnapshotVO>builder()
                 .event("snapshot")
@@ -95,12 +98,14 @@ public class ChatStreamController {
                 .build();
     }
 
+    /** 构建生成完成 SSE 事件，通知客户端模型流已正常结束。 */
     private static ServerSentEvent<Void> doneEvent() {
         return ServerSentEvent.<Void>builder()
                 .event("done")
                 .build();
     }
 
+    /** 构建模型调用失败 SSE 事件。 */
     private static ServerSentEvent<ChatErrorVO> errorEvent() {
         return ServerSentEvent.<ChatErrorVO>builder()
                 .event("error")
@@ -108,6 +113,7 @@ public class ChatStreamController {
                 .build();
     }
 
+    /** 构建用户取消生成 SSE 事件。 */
     private static ServerSentEvent<ChatErrorVO> cancelledEvent() {
         return ServerSentEvent.<ChatErrorVO>builder()
                 .event("cancelled")

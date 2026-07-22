@@ -1,50 +1,53 @@
 package com.lingxi.workbench.framework.auth.password;
 
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import cn.dev33.satoken.secure.BCrypt;
+import cn.hutool.core.lang.Assert;
+import cn.hutool.core.text.CharSequenceUtil;
 import org.springframework.stereotype.Component;
 
-import java.nio.charset.StandardCharsets;
-import java.util.regex.Pattern;
-
 /**
- * BCrypt 密码哈希实现。
+ * BCrypt 密码哈希实现，基于 Sa-Token 内置的 BCrypt 工具。
  *
  * <p>统一维护计算强度，确保管理端生成的密码与用户端校验逻辑保持兼容。</p>
  */
 @Component
+@SuppressWarnings("deprecation")
 public final class BCryptPasswordHasher implements PasswordHasher {
 
+    /** BCrypt 计算强度（log_rounds），数值越大哈希越安全但耗时越长。 */
     private static final int STRENGTH = 12;
-    private static final int MAX_INPUT_BYTES = 72;
-    private static final Pattern BCRYPT_PATTERN = Pattern.compile(
-            "\\A\\$2([ayb])?\\$\\d\\d\\$[./0-9A-Za-z]{53}\\z"
-    );
-
-    private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(STRENGTH);
+    /** 固定 BCrypt 哈希串，用于用户不存在时执行常量时间比对，防止通过响应耗时探测有效账号。 */
+    private static final String DUMMY_PASSWORD_HASH = "$2y$12$FA5DZrrOlNthZ7InIh7ETeSW/geeAMPh63WEsjBSwC52li/eZ76By";
 
     @Override
     public String hash(String rawPassword) {
-        requirePassword(rawPassword);
-        return encoder.encode(rawPassword);
+        Assert.isTrue(CharSequenceUtil.isNotBlank(rawPassword), () -> new IllegalArgumentException("rawPassword must not be blank"));
+        return BCrypt.hashpw(rawPassword, BCrypt.gensalt(STRENGTH));
     }
 
     @Override
     public boolean matches(String rawPassword, String encodedPassword) {
         if (rawPassword == null
-                || rawPassword.getBytes(StandardCharsets.UTF_8).length > MAX_INPUT_BYTES
                 || encodedPassword == null
-                || !BCRYPT_PATTERN.matcher(encodedPassword).matches()) {
+                || !encodedPassword.startsWith("$2")) {
             return false;
         }
-        return encoder.matches(rawPassword, encodedPassword);
+        try {
+            return BCrypt.checkpw(rawPassword, encodedPassword);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
-    private static void requirePassword(String rawPassword) {
+    /**
+     * 执行常量时间的虚拟密码比对，用于防止通过响应耗时差异枚举有效账号。
+     *
+     * @param rawPassword 明文密码
+     */
+    public void timingSafeDummyMatch(String rawPassword) {
         if (rawPassword == null || rawPassword.isBlank()) {
-            throw new IllegalArgumentException("rawPassword must not be blank");
+            return;
         }
-        if (rawPassword.getBytes(StandardCharsets.UTF_8).length > MAX_INPUT_BYTES) {
-            throw new IllegalArgumentException("rawPassword must not exceed 72 UTF-8 bytes");
-        }
+        matches(rawPassword, DUMMY_PASSWORD_HASH);
     }
 }

@@ -19,6 +19,7 @@ import java.util.Optional;
 public class KnowledgeBaseRepo {
     private final KnowledgeBaseMapper mapper;
 
+    /** 按关键字和状态分页查询知识库，按更新时间降序排列。 */
     public PageResult<KnowledgeBaseEntity> findPage(KnowledgeBasePageQuery query) {
         IPage<KnowledgeBaseEntity> page = mapper.selectPage(query.toPage(),
                 Wrappers.<KnowledgeBaseEntity>lambdaQuery()
@@ -30,21 +31,25 @@ public class KnowledgeBaseRepo {
         return PageResult.convert(page);
     }
 
+    /** 按主键查询知识库。 */
     public Optional<KnowledgeBaseEntity> findById(Long id) {
         return Optional.ofNullable(mapper.selectById(id));
     }
 
+    /** 检查编码是否已存在，可排除指定ID用于修改场景。 */
     public boolean existsByCode(String code, Long excludedId) {
         return mapper.exists(Wrappers.<KnowledgeBaseEntity>lambdaQuery()
                 .eq(KnowledgeBaseEntity::getCode, code)
                 .ne(Objects.nonNull(excludedId), KnowledgeBaseEntity::getId, excludedId));
     }
 
+    /** 新增或更新知识库，ID为空时插入否则更新。 */
     public void save(KnowledgeBaseEntity entity) {
         if (Objects.isNull(entity.getId())) mapper.insert(entity);
         else mapper.updateById(entity);
     }
 
+    /** 按主键删除知识库。 */
     public void delete(Long id) {
         mapper.deleteById(id);
     }

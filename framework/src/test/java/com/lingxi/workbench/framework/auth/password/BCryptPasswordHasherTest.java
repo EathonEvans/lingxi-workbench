@@ -23,10 +23,10 @@ class BCryptPasswordHasherTest {
 
     @Test
     void shouldRejectInvalidInputSafely() {
+        assertThrows(IllegalArgumentException.class, () -> passwordHasher.hash(null));
         assertThrows(IllegalArgumentException.class, () -> passwordHasher.hash(" "));
-        assertThrows(IllegalArgumentException.class, () -> passwordHasher.hash("a".repeat(73)));
         assertFalse(passwordHasher.matches(null, "$2a$12$invalid"));
+        assertFalse(passwordHasher.matches("password", null));
         assertFalse(passwordHasher.matches("password", "not-a-bcrypt-hash"));
-        assertFalse(passwordHasher.matches("a".repeat(73), passwordHasher.hash("short-password")));
     }
 }

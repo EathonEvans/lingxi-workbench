@@ -9,7 +9,7 @@ import com.lingxi.workbench.auth.model.vo.UserLoginVO;
 import com.lingxi.workbench.auth.repo.UserRepo;
 import com.lingxi.workbench.framework.exceptions.AuthException;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
-import com.lingxi.workbench.framework.auth.password.PasswordHasher;
+import com.lingxi.workbench.framework.auth.password.BCryptPasswordHasher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,7 +35,7 @@ class UserLoginServiceImplTest {
     private UserConverter userConverter;
 
     @Mock
-    private PasswordHasher passwordHasher;
+    private BCryptPasswordHasher passwordHasher;
 
     @Mock
     private StpLogicDefinition stpLogicDefinition;
@@ -86,7 +86,7 @@ class UserLoginServiceImplTest {
                 () -> userLoginService.login(new UserLoginRequest("missing", "password"))
         );
 
-        verify(passwordHasher).matches(org.mockito.ArgumentMatchers.eq("password"), anyString());
+        verify(passwordHasher).timingSafeDummyMatch(org.mockito.ArgumentMatchers.eq("password"));
         verify(stpLogicDefinition, never()).login(org.mockito.ArgumentMatchers.anyLong());
     }
 

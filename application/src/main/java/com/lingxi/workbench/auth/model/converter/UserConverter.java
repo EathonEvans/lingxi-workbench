@@ -12,7 +12,19 @@ import org.mapstruct.MappingConstants;
 @Mapper(componentModel = MappingConstants.ComponentModel.SPRING)
 public interface UserConverter {
 
+    /**
+     * 将数据库实体转换为业务对象。
+     *
+     * @param entity 用户数据库实体
+     * @return 用户业务对象
+     */
     UserBO toBO(UserEntity entity);
 
+    /**
+     * 将业务对象转换为登录响应中的用户资料。
+     *
+     * @param user 用户业务对象
+     * @return 用户资料 VO
+     */
     UserLoginVO.UserProfileVO toProfileVO(UserBO user);
 }

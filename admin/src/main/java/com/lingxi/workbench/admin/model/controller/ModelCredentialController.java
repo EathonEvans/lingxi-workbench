@@ -2,7 +2,7 @@ package com.lingxi.workbench.admin.model.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaMode;
-import com.lingxi.workbench.admin.auth.context.SysUserContext;
+import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.admin.model.common.enums.ModelCredentialStatus;
 import com.lingxi.workbench.admin.model.model.request.CreateModelCredentialRequest;
 import com.lingxi.workbench.admin.model.model.request.ModelCredentialPageQuery;
@@ -52,7 +52,7 @@ public class ModelCredentialController {
     @PostMapping("/create")
     @SaCheckPermission("model:credential:manage")
     public ApiResponse<ModelCredentialVO> createCredential(@Valid @RequestBody CreateModelCredentialRequest request) {
-        return ApiResponse.success(service.create(request, operatorId()));
+        return ApiResponse.success(service.create(request, UserContext.userId()));
     }
 
     /**
@@ -61,7 +61,7 @@ public class ModelCredentialController {
     @PostMapping("/rotate/{id}")
     @SaCheckPermission("model:credential:manage")
     public ApiResponse<Void> rotateCredential(@PathVariable Long id, @Valid @RequestBody RotateModelCredentialRequest request) {
-        service.rotate(id, request, operatorId());
+        service.rotate(id, request, UserContext.userId());
         return ApiResponse.success();
     }
 
@@ -71,12 +71,7 @@ public class ModelCredentialController {
     @PostMapping("/change-status/{id}")
     @SaCheckPermission("model:credential:manage")
     public ApiResponse<Void> changeCredentialStatus(@PathVariable Long id, @RequestParam ModelCredentialStatus status) {
-        service.changeStatus(id, status, operatorId());
+        service.changeStatus(id, status, UserContext.userId());
         return ApiResponse.success();
-    }
-
-
-    private Long operatorId() {
-        return SysUserContext.get().id();
     }
 }

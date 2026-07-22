@@ -4,6 +4,9 @@ import com.baomidou.mybatisplus.annotation.EnumValue;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 用户账号状态枚举，用于控制账号启用/禁用。
+ */
 @Getter
 @RequiredArgsConstructor
 public enum UserStatus {

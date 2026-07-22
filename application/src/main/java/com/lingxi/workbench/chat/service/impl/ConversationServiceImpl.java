@@ -91,6 +91,12 @@ public class ConversationServiceImpl implements ConversationService {
         conversationRepo.save(entity);
     }
 
+    /**
+     * 在同一事务中创建本轮用户消息和 Assistant 占位消息。
+     *
+     * <p>该方法锁定用户所属会话，校验会话可写、无其他生成中回答，
+     * 并使用客户端消息标识防止重复提交。返回后两条消息均已落库。</p>
+     */
     @Override
     @Transactional
     public ChatTurnBO startTurn(Long userId, Long conversationId, String clientMessageId, String prompt, Long modelInstanceId) {
@@ -209,16 +215,19 @@ public class ConversationServiceImpl implements ConversationService {
                 OffsetDateTime.now());
     }
 
+    /** 查询并校验会话归属，不存在或不属于当前用户时抛出 NOT_FOUND 异常。 */
     private ConversationEntity requireConversation(Long conversationId, Long userId) {
         return conversationRepo.findOwnedById(conversationId, userId).orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "会话不存在"));
     }
 
+    /** 校验当前会话没有正在生成中的回答，防止并发产生消息顺序交叉。 */
     private void requireNoGeneratingMessage(Long conversationId) {
         if (messageRepo.existsGenerating(conversationId)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "当前会话仍有回答正在生成");
         }
     }
 
+    /** 构建未持久化的消息实体，createdAt 由框架填充器维护。 */
     private static ConversationMessageEntity newMessage(
             Long conversationId,
             String clientMessageId,
@@ -238,6 +247,7 @@ public class ConversationServiceImpl implements ConversationService {
         return entity;
     }
 
+    /** 从用户首条消息截取不超过 30 个 Unicode 码点的文本作为会话标题。 */
     private static String createTitle(String prompt) {
         String normalized = prompt.trim().replaceAll("\\s+", " ");
         int codePointCount = normalized.codePointCount(0, normalized.length());
@@ -248,6 +258,7 @@ public class ConversationServiceImpl implements ConversationService {
         return normalized.substring(0, endIndex) + "…";
     }
 
+    /** 截断字符串到指定长度，防止过长错误信息超出数据库字段限制。 */
     private static String truncate(String value, int maxLength) {
         if (value == null || value.length() <= maxLength) {
             return value;

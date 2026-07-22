@@ -7,7 +7,7 @@ import com.lingxi.workbench.admin.model.common.enums.ModelConnectionTestStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import com.lingxi.workbench.admin.model.common.enums.ModelCapability;
 import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
-import com.lingxi.workbench.framework.persistence.model.AuditTimeEntity;
+import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.apache.ibatis.type.JdbcType;
@@ -22,7 +22,7 @@ import java.util.List;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "lingxi_core.ai_model_instance", autoResultMap = true)
-public class ModelInstanceEntity extends AuditTimeEntity {
+public class ModelInstanceEntity extends TimeEntity {
     /** 实例主键。 */
     private Long id;
     /** 所属供应商主键。 */

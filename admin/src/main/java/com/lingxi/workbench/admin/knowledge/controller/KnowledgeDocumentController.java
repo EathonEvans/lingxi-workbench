@@ -1,7 +1,6 @@
 package com.lingxi.workbench.admin.knowledge.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
-import com.lingxi.workbench.admin.auth.context.SysUserContext;
 import com.lingxi.workbench.admin.knowledge.model.request.CreateTextDocumentRequest;
 import com.lingxi.workbench.admin.knowledge.model.request.KnowledgeDocumentPageQuery;
 import com.lingxi.workbench.admin.knowledge.model.vo.KnowledgeDocumentContentVO;
@@ -9,6 +8,7 @@ import com.lingxi.workbench.admin.knowledge.model.vo.KnowledgeDocumentVO;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeDocumentService;
 import com.lingxi.workbench.framework.convention.ApiResponse;
 import com.lingxi.workbench.framework.convention.PageResult;
+import com.lingxi.workbench.framework.context.UserContext;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
@@ -34,7 +34,7 @@ public class KnowledgeDocumentController {
     private final KnowledgeDocumentService service;
 
     /**
-     * 分页查询知识库文档及解析状态。
+     * 分页查询知识库文档及处理状态。
      */
     @GetMapping("/list")
     @SaCheckPermission("knowledge:document:list")
@@ -48,7 +48,7 @@ public class KnowledgeDocumentController {
     @PostMapping("/upload")
     @SaCheckPermission("knowledge:document:manage")
     public ApiResponse<KnowledgeDocumentVO> upload(@RequestParam @NotNull(message = "知识库ID不能为空") Long knowledgeBaseId, @RequestPart("file") MultipartFile file) {
-        return ApiResponse.success(service.upload(knowledgeBaseId, file, operatorId()));
+        return ApiResponse.success(service.upload(knowledgeBaseId, file, UserContext.userId()));
     }
 
     /**
@@ -57,7 +57,7 @@ public class KnowledgeDocumentController {
     @PostMapping("/create-text")
     @SaCheckPermission("knowledge:document:manage")
     public ApiResponse<KnowledgeDocumentVO> createText(@Valid @RequestBody CreateTextDocumentRequest request) {
-        return ApiResponse.success(service.createText(request, operatorId()));
+        return ApiResponse.success(service.createText(request, UserContext.userId()));
     }
 
     /**
@@ -69,13 +69,11 @@ public class KnowledgeDocumentController {
         return ApiResponse.success(service.content(id));
     }
 
-    /**
-     * 重试失败的文档解析任务。
-     */
+    /** 重试失败的文档解析任务。 */
     @PostMapping("/retry/{id}")
     @SaCheckPermission("knowledge:document:manage")
     public ApiResponse<Void> retry(@PathVariable Long id) {
-        service.retry(id, operatorId());
+        service.retry(id, UserContext.userId());
         return ApiResponse.success();
     }
 
@@ -85,11 +83,7 @@ public class KnowledgeDocumentController {
     @PostMapping("/delete/{id}")
     @SaCheckPermission("knowledge:document:manage")
     public ApiResponse<Void> delete(@PathVariable Long id) {
-        service.delete(id, operatorId());
+        service.delete(id, UserContext.userId());
         return ApiResponse.success();
-    }
-
-    private Long operatorId() {
-        return SysUserContext.get().id();
     }
 }

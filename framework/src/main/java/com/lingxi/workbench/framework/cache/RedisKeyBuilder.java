@@ -4,6 +4,12 @@ import cn.hutool.core.text.CharSequenceUtil;
 
 import static com.lingxi.workbench.framework.cache.RedisKeyConstants.CACHE_PREFIX;
 
+/**
+ * Redis Key 构建工具，统一添加业务前缀并规范化拼接片段。
+ *
+ * <p>所有 Key 自动拼接 {@link RedisKeyConstants#CACHE_PREFIX} 前缀，
+ * 避免不同服务或业务模块的 Key 冲突。</p>
+ */
 public final class RedisKeyBuilder {
 
     private static final String SEPARATOR = ":";
@@ -35,6 +41,9 @@ public final class RedisKeyBuilder {
         return builder.toString();
     }
 
+    /**
+     * 规范化 Key 片段，去除首尾空白与分隔符，确保拼接后 Key 格式一致。
+     */
     private static String normalizeSegment(String keyValue) {
         if (CharSequenceUtil.isBlank(keyValue)) {
             throw new IllegalArgumentException("Redis Key 片段不能是空白字符串");

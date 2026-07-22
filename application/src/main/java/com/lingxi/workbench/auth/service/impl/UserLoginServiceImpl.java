@@ -9,7 +9,7 @@ import com.lingxi.workbench.auth.repo.UserRepo;
 import com.lingxi.workbench.auth.service.UserLoginService;
 import com.lingxi.workbench.framework.exceptions.AuthException;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
-import com.lingxi.workbench.framework.auth.password.PasswordHasher;
+import com.lingxi.workbench.framework.auth.password.BCryptPasswordHasher;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,24 +17,39 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Locale;
 import java.util.Optional;
 
+/**
+ * 应用端用户登录服务实现，负责登录全流程的校验与令牌签发。
+ */
 @Service
 @RequiredArgsConstructor
 public class UserLoginServiceImpl implements UserLoginService {
 
-    private static final String DUMMY_PASSWORD_HASH = "$2y$12$FA5DZrrOlNthZ7InIh7ETeSW/geeAMPh63WEsjBSwC52li/eZ76By";
-
     private final UserRepo userRepo;
     private final UserConverter userConverter;
-    private final PasswordHasher passwordHasher;
+    private final BCryptPasswordHasher passwordHasher;
     private final StpLogicDefinition stpLogicDefinition;
 
+    /**
+     * 执行登录流程：
+     * <ol>
+     *   <li>用户名标准化处理（去空格、小写）；</li>
+     *   <li>查询用户，不存在时仍执行密码比对以防御时序攻击；</li>
+     *   <li>验证密码；</li>
+     *   <li>校验账号启用状态与应用端访问权限；</li>
+     *   <li>签发 Sa-Token 并返回令牌与用户资料。</li>
+     * </ol>
+     *
+     * @param request 登录请求参数
+     * @return 包含令牌与用户资料的登录响应
+     */
     @Override
     @Transactional(readOnly = true)
     public UserLoginVO login(UserLoginRequest request) {
         Optional<UserBO> userOpt = userRepo.findByUsername(normalizeUsername(request.username()));
 
         if (userOpt.isEmpty()) {
-            passwordHasher.matches(request.password(), DUMMY_PASSWORD_HASH);
+            // 用户不存在时执行常量时间虚拟比对，防止通过响应时间差异枚举有效账号
+            passwordHasher.timingSafeDummyMatch(request.password());
             throw AuthException.invalidCredentials();
         }
 
@@ -52,6 +67,7 @@ public class UserLoginServiceImpl implements UserLoginService {
             throw AuthException.userDisabled("账号未开通应用端访问权限，请联系管理员");
         }
 
+        // 登录成功后签发 Sa-Token
         SaTokenInfo tokenInfo = stpLogicDefinition.login(user.id());
         return new UserLoginVO(
                 tokenInfo.getTokenName(),
@@ -61,6 +77,12 @@ public class UserLoginServiceImpl implements UserLoginService {
         );
     }
 
+    /**
+     * 标准化用户名：去除首尾空格并转为小写。
+     *
+     * @param username 原始用户名
+     * @return 标准化后的用户名
+     */
     private static String normalizeUsername(String username) {
         if (username == null || username.isBlank()) {
             throw AuthException.invalidCredentials();

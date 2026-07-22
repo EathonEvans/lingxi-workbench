@@ -38,38 +38,75 @@ public class StpLogicDefinition {
         return stpLogic.getTokenInfo();
     }
 
+    /** 退出当前会话的登录状态。 */
     public void logout() {
         stpLogic.logout();
     }
 
+    /**
+     * 根据用户 ID 退出指定会话的登录状态。
+     *
+     * @param userId 用户主键
+     */
     public void logoutByLoginId(Long userId) {
         stpLogic.logout(userId);
     }
 
+    /**
+     * 根据用户 ID 踢出指定会话，使其令牌失效。
+     *
+     * @param userId 用户主键
+     */
     public void kickoutByLoginId(Long userId) {
         stpLogic.kickout(userId);
     }
 
+    /** 检查当前请求是否已登录，未登录时抛出异常。 */
     public void checkLogin() {
         stpLogic.checkLogin();
     }
 
+    /**
+     * 判断当前请求是否已登录。
+     *
+     * @return 已登录返回 {@code true}
+     */
     public boolean isLogin() {
         return stpLogic.isLogin();
     }
 
+    /**
+     * 获取当前登录用户的 ID。
+     *
+     * @return 用户主键
+     */
     public long getLoginIdAsLong() {
         return stpLogic.getLoginIdAsLong();
     }
 
+    /**
+     * 检查当前登录用户是否拥有指定权限，无权限时抛出异常。
+     *
+     * @param permission 权限编码
+     */
     public void checkPermission(String permission) {
         stpLogic.checkPermission(permission);
     }
 
+    /**
+     * 检查当前登录用户是否拥有指定角色，无角色时抛出异常。
+     *
+     * @param role 角色编码
+     */
     public void checkRole(String role) {
         stpLogic.checkRole(role);
     }
 
+    /**
+     * 获取当前服务的登录体系标识。
+     *
+     * @return 登录类型字符串
+     */
     public String getLoginType() {
         return stpLogic.getLoginType();
     }

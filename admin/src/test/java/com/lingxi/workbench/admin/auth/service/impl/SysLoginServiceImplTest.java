@@ -9,7 +9,7 @@ import com.lingxi.workbench.admin.auth.model.vo.SysLoginVO;
 import com.lingxi.workbench.admin.sys.user.repo.SysUserRepo;
 import com.lingxi.workbench.framework.exceptions.AuthException;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
-import com.lingxi.workbench.framework.auth.password.PasswordHasher;
+import com.lingxi.workbench.framework.auth.password.BCryptPasswordHasher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,7 +37,7 @@ class SysLoginServiceImplTest {
     private SysUserConverter sysUserConverter;
 
     @Mock
-    private PasswordHasher passwordHasher;
+    private BCryptPasswordHasher passwordHasher;
 
     @Mock
     private StpLogicDefinition stpLogicDefinition;
@@ -87,7 +87,7 @@ class SysLoginServiceImplTest {
                 () -> sysLoginService.login(new SysLoginRequest("missing", "password"))
         );
 
-        verify(passwordHasher).matches(eq("password"), anyString());
+        verify(passwordHasher).timingSafeDummyMatch(eq("password"));
         verify(stpLogicDefinition, never()).login(anyLong());
     }
 

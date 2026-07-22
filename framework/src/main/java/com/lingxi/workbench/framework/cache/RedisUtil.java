@@ -32,6 +32,11 @@ public class RedisUtil {
 	private final StringRedisTemplate redisTemplate;
 
 
+	/**
+	 * 获取底层 {@link StringRedisTemplate}，供需要执行原生 Redis 操作的场景使用。
+	 *
+	 * @return 当前注入的 StringRedisTemplate 实例
+	 */
 	public StringRedisTemplate getRedisTemplate() {
 		return this.redisTemplate;
 	}
@@ -361,10 +366,11 @@ public class RedisUtil {
 	}
 
 	/**
+	 * 浮点数自增，负数则为自减。
 	 *
-	 * @param key
-	 * @param value
-	 * @return
+	 * @param key       键
+	 * @param increment 自增值
+	 * @return 自增后的值
 	 */
 	public Double incrByFloat(String key, double increment) {
 		return redisTemplate.opsForValue().increment(key, increment);
@@ -415,10 +421,16 @@ public class RedisUtil {
 		return redisTemplate.opsForHash().multiGet(key, fields);
 	}
 
+	/**
+	 * 将哈希表 key 中的字段 hashKey 的值设为 value。
+	 */
 	public void hPut(String key, String hashKey, String value) {
 		redisTemplate.opsForHash().put(key, hashKey, value);
 	}
 
+	/**
+	 * 将多个 key-value 对批量写入哈希表。
+	 */
 	public void hPutAll(String key, Map<String, String> maps) {
 		redisTemplate.opsForHash().putAll(key, maps);
 	}
@@ -561,20 +573,22 @@ public class RedisUtil {
 	}
 
 	/**
+	 * 从左侧批量插入元素到列表头部。
 	 *
-	 * @param key
-	 * @param value
-	 * @return
+	 * @param key   键
+	 * @param value 元素值数组
+	 * @return 插入后列表长度
 	 */
 	public Long lLeftPushAll(String key, String... value) {
 		return redisTemplate.opsForList().leftPushAll(key, value);
 	}
 
 	/**
+	 * 从左侧批量插入元素到列表头部。
 	 *
-	 * @param key
-	 * @param value
-	 * @return
+	 * @param key   键
+	 * @param value 元素值集合
+	 * @return 插入后列表长度
 	 */
 	public Long lLeftPushAll(String key, Collection<String> value) {
 		return redisTemplate.opsForList().leftPushAll(key, value);
@@ -604,30 +618,33 @@ public class RedisUtil {
 	}
 
 	/**
+	 * 从右侧插入元素到列表尾部。
 	 *
-	 * @param key
-	 * @param value
-	 * @return
+	 * @param key   键
+	 * @param value 元素值
+	 * @return 插入后列表长度
 	 */
 	public Long lRightPush(String key, String value) {
 		return redisTemplate.opsForList().rightPush(key, value);
 	}
 
 	/**
+	 * 从右侧批量插入元素到列表尾部。
 	 *
-	 * @param key
-	 * @param value
-	 * @return
+	 * @param key   键
+	 * @param value 元素值数组
+	 * @return 插入后列表长度
 	 */
 	public Long lRightPushAll(String key, String... value) {
 		return redisTemplate.opsForList().rightPushAll(key, value);
 	}
 
 	/**
+	 * 从右侧批量插入元素到列表尾部。
 	 *
-	 * @param key
-	 * @param value
-	 * @return
+	 * @param key   键
+	 * @param value 元素值集合
+	 * @return 插入后列表长度
 	 */
 	public Long lRightPushAll(String key, Collection<String> value) {
 		return redisTemplate.opsForList().rightPushAll(key, value);
@@ -1051,10 +1068,11 @@ public class RedisUtil {
 	}
 
 	/**
+	 * 使用 SCAN 迭代集合中的元素，避免大集合下的阻塞。
 	 *
-	 * @param key
-	 * @param options
-	 * @return
+	 * @param key     键
+	 * @param options 扫描选项
+	 * @return 游标迭代器
 	 */
 	public Cursor<String> sScan(String key, ScanOptions options) {
 		return redisTemplate.opsForSet().scan(key, options);
@@ -1075,20 +1093,22 @@ public class RedisUtil {
 	}
 
 	/**
+	 * 批量添加元素到有序集合。
 	 *
-	 * @param key
-	 * @param values
-	 * @return
+	 * @param key    键
+	 * @param values 带 score 值的元素集合
+	 * @return 新增元素数量
 	 */
 	public Long zAdd(String key, Set<TypedTuple<String>> values) {
 		return redisTemplate.opsForZSet().add(key, values);
 	}
 
 	/**
+	 * 从有序集合中移除一个或多个元素。
 	 *
-	 * @param key
-	 * @param values
-	 * @return
+	 * @param key    键
+	 * @param values 待移除的元素值
+	 * @return 移除的元素数量
 	 */
 	public Long zRemove(String key, Object... values) {
 		return redisTemplate.opsForZSet().remove(key, values);
@@ -1185,13 +1205,14 @@ public class RedisUtil {
 	}
 
 	/**
+	 * 根据 Score 值范围查询带分页的集合元素，从小到大排序并返回 score。
 	 *
-	 * @param key
-	 * @param min
-	 * @param max
-	 * @param start
-	 * @param end
-	 * @return
+	 * @param key   键
+	 * @param min   score 最小值
+	 * @param max   score 最大值
+	 * @param start 偏移起始位置
+	 * @param end   偏移结束位置
+	 * @return 带 score 的元素集合
 	 */
 	public Set<TypedTuple<String>> zRangeByScoreWithScores(String key,
 			double min, double max, long start, long end) {
@@ -1253,13 +1274,14 @@ public class RedisUtil {
 	}
 
 	/**
+	 * 根据 Score 值范围查询带分页的集合元素，从大到小排序。
 	 *
-	 * @param key
-	 * @param min
-	 * @param max
-	 * @param start
-	 * @param end
-	 * @return
+	 * @param key   键
+	 * @param min   score 最小值
+	 * @param max   score 最大值
+	 * @param start 偏移起始位置
+	 * @param end   偏移结束位置
+	 * @return 元素集合
 	 */
 	public Set<String> zReverseRangeByScore(String key, double min,
 			double max, long start, long end) {
@@ -1347,11 +1369,12 @@ public class RedisUtil {
 	}
 
 	/**
+	 * 计算 key 与多个集合的并集并存储到 destKey。
 	 *
-	 * @param key
-	 * @param otherKeys
-	 * @param destKey
-	 * @return
+	 * @param key       键
+	 * @param otherKeys 其他键集合
+	 * @param destKey   目标存储键
+	 * @return 并集元素数量
 	 */
 	public Long zUnionAndStore(String key, Collection<String> otherKeys,
 			String destKey) {
@@ -1388,10 +1411,11 @@ public class RedisUtil {
 	}
 
 	/**
+	 * 使用 SCAN 迭代有序集合中的元素，避免大集合下的阻塞。
 	 *
-	 * @param key
-	 * @param options
-	 * @return
+	 * @param key     键
+	 * @param options 扫描选项
+	 * @return 带 score 的游标迭代器
 	 */
 	public Cursor<TypedTuple<String>> zScan(String key, ScanOptions options) {
 		return redisTemplate.opsForZSet().scan(key, options);

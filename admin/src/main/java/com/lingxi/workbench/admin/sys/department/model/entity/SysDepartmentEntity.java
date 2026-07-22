@@ -2,7 +2,7 @@ package com.lingxi.workbench.admin.sys.department.model.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
-import com.lingxi.workbench.framework.persistence.model.AuditTimeEntity;
+import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -12,7 +12,7 @@ import lombok.Setter;
 @Getter
 @Setter
 @TableName("lingxi_core.sys_department")
-public class SysDepartmentEntity extends AuditTimeEntity {
+public class SysDepartmentEntity extends TimeEntity {
 
     /**
      * 部门主键。

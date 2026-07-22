@@ -10,7 +10,7 @@ import com.lingxi.workbench.admin.sys.user.repo.SysUserRepo;
 import com.lingxi.workbench.admin.auth.service.SysLoginService;
 import com.lingxi.workbench.framework.exceptions.AuthException;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
-import com.lingxi.workbench.framework.auth.password.PasswordHasher;
+import com.lingxi.workbench.framework.auth.password.BCryptPasswordHasher;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,13 +26,19 @@ import java.util.Locale;
 @RequiredArgsConstructor
 public class SysLoginServiceImpl implements SysLoginService {
 
-    private static final String DUMMY_PASSWORD_HASH = "$2y$12$FA5DZrrOlNthZ7InIh7ETeSW/geeAMPh63WEsjBSwC52li/eZ76By";
-
     private final SysUserRepo sysUserRepo;
     private final SysUserConverter sysUserConverter;
-    private final PasswordHasher passwordHasher;
+    private final BCryptPasswordHasher passwordHasher;
     private final StpLogicDefinition stpLogicDefinition;
 
+    /**
+     * 执行账号密码登录流程：校验账号存在性、密码匹配、账号状态，登录成功后签发令牌。
+     *
+     * <p>账号不存在时仍执行一次 BCrypt 哈希校验，防止通过响应耗时推断有效账号。</p>
+     *
+     * @param request 登录请求参数
+     * @return 登录响应
+     */
     @Override
     @Transactional(readOnly = true)
     public SysLoginVO login(SysLoginRequest request) {
@@ -40,21 +46,26 @@ public class SysLoginServiceImpl implements SysLoginService {
                 .orElse(null);
 
         if (user == null) {
-            passwordHasher.matches(request.password(), DUMMY_PASSWORD_HASH);
+            // 账号不存在时执行常量时间虚拟比对，防止通过响应耗时探测有效账号
+            passwordHasher.timingSafeDummyMatch(request.password());
             throw AuthException.invalidCredentials();
         }
 
+        // 密码校验
         if (!passwordHasher.matches(request.password(), user.passwordHash())) {
             throw AuthException.invalidCredentials();
         }
 
+        // 账号状态校验
         if (!user.isActive()) {
             throw AuthException.userDisabled("系统用户已停用");
         }
+        // 管理端访问权限校验
         if (!user.canAccessAdmin()) {
             throw AuthException.userDisabled("账号未开通管理端访问权限");
         }
 
+        // 通过 Sa-Token 签发登录令牌
         SaTokenInfo tokenInfo = stpLogicDefinition.login(user.id());
         return new SysLoginVO(
                 tokenInfo.getTokenName(),
@@ -64,6 +75,12 @@ public class SysLoginServiceImpl implements SysLoginService {
         );
     }
 
+    /**
+     * 标准化登录账号：去除首尾空白并转为小写。
+     *
+     * @param username 原始账号名
+     * @return 标准化后的账号名
+     */
     private static String normalizeUsername(String username) {
         if (CharSequenceUtil.isBlank(username)) {
             throw AuthException.invalidCredentials();

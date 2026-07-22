@@ -15,6 +15,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.List;
 
+/**
+ * 系统用户数据仓库。
+ */
 @Repository
 @RequiredArgsConstructor
 public class SysUserRepo {
@@ -22,11 +25,13 @@ public class SysUserRepo {
     private final SysUserMapper sysUserMapper;
     private final SysUserConverter sysUserConverter;
 
+    /** 按登录账号查询用户及两端访问状态。 */
     public Optional<SysUserBO> findByUsername(String normalizedUsername) {
         SysUserEntity entity = sysUserMapper.selectUserByUsernameWithAccess(normalizedUsername);
         return Optional.ofNullable(entity).map(sysUserConverter::toBO);
     }
 
+    /** 按主键查询用户及两端访问状态。 */
     public Optional<SysUserBO> findById(Long id) {
         return Optional.ofNullable(sysUserMapper.selectUserByIdWithAccess(id))
                 .map(sysUserConverter::toBO);
@@ -43,11 +48,13 @@ public class SysUserRepo {
                 Math.toIntExact(page.getSize()), page.getTotal());
     }
 
+    /** 判断登录账号是否已存在。 */
     public boolean existsByUsername(String username) {
         return sysUserMapper.exists(Wrappers.<SysUserEntity>lambdaQuery()
                 .eq(SysUserEntity::getUsername, username));
     }
 
+    /** 判断邮箱是否已被其他用户占用，可通过 excludeId 排除当前用户。 */
     public boolean existsByEmail(String email, Long excludeId) {
         if (Objects.isNull(email)) return false;
         return sysUserMapper.exists(Wrappers.<SysUserEntity>lambdaQuery()
@@ -55,6 +62,7 @@ public class SysUserRepo {
                 .ne(Objects.nonNull(excludeId), SysUserEntity::getId, excludeId));
     }
 
+    /** 判断手机号是否已被其他用户占用，可通过 excludeId 排除当前用户。 */
     public boolean existsByMobile(String mobile, Long excludeId) {
         if (Objects.isNull(mobile)) return false;
         return sysUserMapper.exists(Wrappers.<SysUserEntity>lambdaQuery()
@@ -62,14 +70,17 @@ public class SysUserRepo {
                 .ne(Objects.nonNull(excludeId), SysUserEntity::getId, excludeId));
     }
 
+    /** 保存或更新用户应用端访问权限。 */
     public void saveApplicationAccess(Long userId, boolean enabled, Long operatorId) {
         sysUserMapper.upsertApplicationAccess(userId, enabled, operatorId);
     }
 
+    /** 新增用户。 */
     public void insert(SysUserEntity entity) {
         sysUserMapper.insert(entity);
     }
 
+    /** 更新用户。 */
     public void update(SysUserEntity entity) {
         sysUserMapper.updateById(entity);
     }

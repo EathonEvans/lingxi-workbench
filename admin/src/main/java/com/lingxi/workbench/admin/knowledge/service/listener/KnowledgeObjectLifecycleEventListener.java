@@ -1,4 +1,4 @@
-package com.lingxi.workbench.admin.knowledge.service.impl;
+package com.lingxi.workbench.admin.knowledge.service.listener;
 
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeObjectStorage;
 import com.lingxi.workbench.admin.knowledge.service.event.KnowledgeObjectDeleteRequestedEvent;
@@ -16,6 +16,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
 public class KnowledgeObjectLifecycleEventListener {
     private final KnowledgeObjectStorage objectStorage;
 
+    /** 文档记录删除后清理对象存储中的原始文件。 */
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handle(KnowledgeObjectDeleteRequestedEvent event) {
         deleteQuietly(event.objectKey(), "知识库文档记录已删除，但原始对象清理失败");
@@ -27,11 +28,11 @@ public class KnowledgeObjectLifecycleEventListener {
         deleteQuietly(event.objectKey(), "知识库文档事务已回滚，但原始对象补偿删除失败");
     }
 
+    /** 静默删除对象，失败仅记录日志不影响主流程。 */
     private void deleteQuietly(String objectKey, String failureMessage) {
         try {
             objectStorage.delete(objectKey);
         } catch (RuntimeException exception) {
-            // 事务状态已经确定，清理失败不能改变接口结果；记录日志供后续巡检处理。
             log.warn("{}，objectKey={}", failureMessage, objectKey, exception);
         }
     }

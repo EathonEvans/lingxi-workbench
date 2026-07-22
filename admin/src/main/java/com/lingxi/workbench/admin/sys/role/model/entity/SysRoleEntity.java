@@ -3,7 +3,7 @@ package com.lingxi.workbench.admin.sys.role.model.entity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.common.enums.RoleDataScope;
-import com.lingxi.workbench.framework.persistence.model.AuditTimeEntity;
+import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -13,7 +13,7 @@ import lombok.Setter;
 @Getter
 @Setter
 @TableName("lingxi_core.sys_role")
-public class SysRoleEntity extends AuditTimeEntity {
+public class SysRoleEntity extends TimeEntity {
 
     /** 角色主键。 */
     private Long id;

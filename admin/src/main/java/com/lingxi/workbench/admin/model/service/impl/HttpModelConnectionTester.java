@@ -58,6 +58,7 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
         return testOpenAiCompatible(baseUrl, apiKey, modelCode, modelType, timeoutSeconds);
     }
 
+    /** 按 OpenAI 兼容协议发起模型接口测试请求，构造最小请求体以验证连通性。 */
     private ModelConnectionTestResult testOpenAiCompatible(
             String baseUrl,
             String apiKey,
@@ -76,6 +77,7 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
             HttpResponse<String> response =
                     httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             int latencyMs = elapsedMillis(startedAt);
+            // 2xx HTTP 状态码视为连接成功
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
                 return ModelConnectionTestResult.success(latencyMs);
             }
@@ -99,10 +101,12 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
         }
     }
 
+    /** 根据供应商 baseUrl 和模型类型构造真实 API 端点地址，Chat 走 /chat/completions，Embedding 走 /embeddings。 */
     private static URI buildModelUri(String baseUrl, ModelType modelType) {
         String normalized = CharSequenceUtil.isBlank(baseUrl) ? "" : baseUrl.trim().replaceAll("/+$", "");
         String endpoint = modelType == ModelType.EMBEDDING ? "/embeddings" : "/chat/completions";
         URI uri = URI.create(normalized + endpoint);
+        // 仅允许 HTTP/HTTPS 协议
         if (!("http".equalsIgnoreCase(uri.getScheme())
                 || "https".equalsIgnoreCase(uri.getScheme()))) {
             throw new IllegalArgumentException("仅支持 HTTP 或 HTTPS 地址");
@@ -110,6 +114,7 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
         return uri;
     }
 
+    /** 构造连通性测试用的最小请求体。Embedding 模型仅发送模型标识；Chat 模型发送最小 tokens 的对话。 */
     private static String buildRequestBody(String modelCode, ModelType modelType) {
         if (modelType == ModelType.EMBEDDING) {
             return JSON.toJSONString(Map.of("model", modelCode, "input", "连通性测试"));
@@ -122,6 +127,7 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
                 "stream", false));
     }
 
+    /** 从供应商 JSON 响应体中提取错误信息，仅截取前 255 个字符避免过长消息。 */
     private static String extractErrorMessage(String responseBody, int statusCode) {
         try {
             JSONObject root = JSON.parseObject(responseBody);
@@ -136,11 +142,13 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
         return "供应商接口返回 HTTP " + statusCode;
     }
 
+    /** 计算自 startedAt 以来的耗时毫秒数。 */
     private static int elapsedMillis(long startedAt) {
         long elapsed = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
         return (int) Math.min(elapsed, Integer.MAX_VALUE);
     }
 
+    /** 截断消息至最大长度，避免接口返回异常长文本。 */
     private static String truncate(String value) {
         return value.length() <= MAX_MESSAGE_LENGTH
                 ? value

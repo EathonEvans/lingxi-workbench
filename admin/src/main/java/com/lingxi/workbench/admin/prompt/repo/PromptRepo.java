@@ -34,16 +34,19 @@ public class PromptRepo {
         return PageResult.convert(page);
     }
 
+    /** 按主键查询Prompt。 */
     public Optional<PromptEntity> findById(Long id) {
         return Optional.ofNullable(mapper.selectById(id));
     }
 
+    /** 判断Prompt编码是否已存在，可在更新时排除自身记录。 */
     public boolean existsByCode(String code, Long excludedId) {
         return mapper.exists(Wrappers.<PromptEntity>lambdaQuery()
                 .eq(PromptEntity::getCode, code)
                 .ne(Objects.nonNull(excludedId), PromptEntity::getId, excludedId));
     }
 
+    /** 新增或更新Prompt主记录。 */
     public void save(PromptEntity entity) {
         if (Objects.isNull(entity.getId())) {
             mapper.insert(entity);

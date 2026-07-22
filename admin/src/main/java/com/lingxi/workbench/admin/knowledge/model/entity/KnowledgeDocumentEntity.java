@@ -3,7 +3,7 @@ package com.lingxi.workbench.admin.knowledge.model.entity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeDocumentSourceType;
 import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeDocumentStatus;
-import com.lingxi.workbench.framework.persistence.model.AuditTimeEntity;
+import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -13,7 +13,7 @@ import java.time.OffsetDateTime;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("lingxi_core.ai_knowledge_document")
-public class KnowledgeDocumentEntity extends AuditTimeEntity {
+public class KnowledgeDocumentEntity extends TimeEntity {
     private Long id;
     private Long knowledgeBaseId;
     private String name;

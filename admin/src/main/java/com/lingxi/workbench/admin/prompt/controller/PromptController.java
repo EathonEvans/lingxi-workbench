@@ -1,7 +1,7 @@
 package com.lingxi.workbench.admin.prompt.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
-import com.lingxi.workbench.admin.auth.context.SysUserContext;
+import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.prompt.model.request.PreviewPromptRequest;
 import com.lingxi.workbench.admin.prompt.model.request.PromptPageQuery;
@@ -79,7 +79,7 @@ public class PromptController {
     @PostMapping("/create")
     @SaCheckPermission("prompt:manage")
     public ApiResponse<PromptDetailVO> create(@Valid @RequestBody SavePromptRequest request) {
-        return ApiResponse.success(promptService.save(null, request, operatorId()));
+        return ApiResponse.success(promptService.save(null, request, UserContext.userId()));
     }
 
     /**
@@ -89,7 +89,7 @@ public class PromptController {
     @SaCheckPermission("prompt:manage")
     public ApiResponse<PromptDetailVO> update(
             @PathVariable Long id, @Valid @RequestBody SavePromptRequest request) {
-        return ApiResponse.success(promptService.save(id, request, operatorId()));
+        return ApiResponse.success(promptService.save(id, request, UserContext.userId()));
     }
 
     /**
@@ -98,7 +98,7 @@ public class PromptController {
     @PostMapping("/publish/{id}")
     @SaCheckPermission("prompt:publish")
     public ApiResponse<Void> publish(@PathVariable Long id) {
-        promptService.publish(id, operatorId());
+        promptService.publish(id, UserContext.userId());
         return ApiResponse.success();
     }
 
@@ -109,7 +109,7 @@ public class PromptController {
     @SaCheckPermission("prompt:publish")
     public ApiResponse<Void> activateVersion(
             @PathVariable Long id, @PathVariable Long versionId) {
-        promptService.activateVersion(id, versionId, operatorId());
+        promptService.activateVersion(id, versionId, UserContext.userId());
         return ApiResponse.success();
     }
 
@@ -119,7 +119,7 @@ public class PromptController {
     @PostMapping("/change-status/{id}")
     @SaCheckPermission("prompt:manage")
     public ApiResponse<Void> changeStatus(@PathVariable Long id, @RequestParam EnableStatus status) {
-        promptService.changeStatus(id, status, operatorId());
+        promptService.changeStatus(id, status, UserContext.userId());
         return ApiResponse.success();
     }
 
@@ -130,9 +130,5 @@ public class PromptController {
     @SaCheckPermission("prompt:manage")
     public ApiResponse<PreviewPromptVO> preview(@Valid @RequestBody PreviewPromptRequest request) {
         return ApiResponse.success(promptService.preview(request));
-    }
-
-    private Long operatorId() {
-        return SysUserContext.get().id();
     }
 }

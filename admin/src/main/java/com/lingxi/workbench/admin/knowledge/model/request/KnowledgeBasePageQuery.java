@@ -9,6 +9,12 @@ import lombok.Setter;
 @Getter
 @Setter
 public class KnowledgeBasePageQuery extends PageQuery {
+    /**
+     * 查询关键字
+     */
     private String keyword;
+    /**
+     * 知识库状态
+     */
     private EnableStatus status;
 }

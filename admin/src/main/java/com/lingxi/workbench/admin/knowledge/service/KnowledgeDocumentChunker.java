@@ -8,12 +8,8 @@ import org.springframework.ai.tokenizer.JTokkitTokenCountEstimator;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 import org.springframework.stereotype.Component;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -53,7 +49,6 @@ public class KnowledgeDocumentChunker {
                 chunks.add(new KnowledgeChunkBO(
                         chunks.size() + 1,
                         chunkContent,
-                        sha256(chunkContent),
                         tokenEstimator.estimate(chunkContent),
                         draft.sectionTitle()));
             }
@@ -64,6 +59,7 @@ public class KnowledgeDocumentChunker {
         return List.copyOf(chunks);
     }
 
+    /** 固定长度切分：按Token预算严格切分，尽量在自然边界处分割。 */
     private List<DraftChunk> splitFixed(
             String content, int chunkSize, int chunkOverlap, String sectionTitle) {
         List<DraftChunk> chunks = new ArrayList<>();
@@ -84,6 +80,7 @@ public class KnowledgeDocumentChunker {
         return chunks;
     }
 
+    /** 段落切分：优先保持段落完整，超长段落退化为固定长度切分。 */
     private List<DraftChunk> splitParagraphs(
             String content, int chunkSize, int chunkOverlap, String sectionTitle) {
         List<DraftChunk> chunks = new ArrayList<>();
@@ -114,6 +111,7 @@ public class KnowledgeDocumentChunker {
         return chunks;
     }
 
+    /** 标题感知切分：按Markdown标题结构分段，每段内再按段落策略切分。 */
     private List<DraftChunk> splitByHeadings(String content, int chunkSize, int chunkOverlap) {
         List<Section> sections = parseSections(content);
         if (sections.stream().noneMatch(section -> section.title() != null)) {
@@ -126,6 +124,7 @@ public class KnowledgeDocumentChunker {
         return chunks;
     }
 
+    /** 解析Markdown标题层级，构建层次化的标题路径。 */
     private static List<Section> parseSections(String content) {
         List<Section> sections = new ArrayList<>();
         String[] headingPath = new String[6];
@@ -152,6 +151,7 @@ public class KnowledgeDocumentChunker {
         return sections;
     }
 
+    /** 在Token预算内找到最大可切分位置，使用扩步长+二分查找。 */
     private int findMaxEnd(String content, int start, int tokenBudget) {
         int best = nextCharBoundary(content, start + 1);
         int span = Math.max(16, (int) Math.min(Integer.MAX_VALUE, (long) tokenBudget * 4));
@@ -186,6 +186,7 @@ public class KnowledgeDocumentChunker {
         return best;
     }
 
+    /** 二分查找满足重叠Token预算的下一个Chunk起始位置。 */
     private int findOverlapStart(String content, int chunkStart, int chunkEnd, int overlapBudget) {
         if (overlapBudget == 0) {
             return chunkEnd;
@@ -207,6 +208,7 @@ public class KnowledgeDocumentChunker {
         return best;
     }
 
+    /** 提取文本末尾不超过指定Token预算的后缀，用于段落间重叠。 */
     private String suffixWithinBudget(String content, int tokenBudget) {
         if (content.isBlank() || tokenBudget == 0) {
             return "";
@@ -214,6 +216,7 @@ public class KnowledgeDocumentChunker {
         return content.substring(findOverlapStart(content, 0, content.length(), tokenBudget)).trim();
     }
 
+    /** 将切分边界调整到句子末尾或换行符等自然边界处。 */
     private static int adjustToNaturalBoundary(String content, int start, int proposedEnd) {
         if (proposedEnd >= content.length()) {
             return proposedEnd;
@@ -229,6 +232,7 @@ public class KnowledgeDocumentChunker {
         return proposedEnd;
     }
 
+    /** 确保索引不落在代理对中间，向前调整到字符边界。 */
     private static int nextCharBoundary(String content, int index) {
         if (index > 0 && index < content.length()
                 && Character.isHighSurrogate(content.charAt(index - 1))
@@ -238,6 +242,7 @@ public class KnowledgeDocumentChunker {
         return index;
     }
 
+    /** 确保索引不落在代理对中间，向后调整到字符边界。 */
     private static int previousCharBoundary(String content, int index) {
         if (index > 0 && index < content.length()
                 && Character.isHighSurrogate(content.charAt(index - 1))
@@ -247,6 +252,7 @@ public class KnowledgeDocumentChunker {
         return index;
     }
 
+    /** 将当前缓冲区内容刷入Chunk列表并清空。 */
     private static void flush(StringBuilder current, List<DraftChunk> chunks, String sectionTitle) {
         if (!current.isEmpty()) {
             chunks.add(new DraftChunk(current.toString().trim(), sectionTitle));
@@ -254,6 +260,7 @@ public class KnowledgeDocumentChunker {
         }
     }
 
+    /** 将一个文档片段添加到段落列表并清空缓冲区。 */
     private static void addSection(List<Section> sections, String title, StringBuilder content) {
         String sectionContent = content.toString().trim();
         if (!sectionContent.isBlank()) {
@@ -262,6 +269,7 @@ public class KnowledgeDocumentChunker {
         content.setLength(0);
     }
 
+    /** 校验切片策略参数合法性。 */
     private static void validatePolicy(
             KnowledgeChunkStrategy strategy, int chunkSize, int chunkOverlap) {
         if (strategy == null) {
@@ -275,18 +283,9 @@ public class KnowledgeDocumentChunker {
         }
     }
 
+    /** 标准化文本换行符并去除首尾空白。 */
     private static String normalize(String content) {
         return content == null ? "" : content.replace("\r\n", "\n").replace('\r', '\n').trim();
-    }
-
-    private static String sha256(String content) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(content.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("当前JDK不支持SHA-256", exception);
-        }
     }
 
     private record DraftChunk(String content, String sectionTitle) {

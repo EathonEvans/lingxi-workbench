@@ -30,7 +30,10 @@ public record ModelRuntimeConfigBO(
         /** 最大重试次数。 */
         Integer maxRetries) {
 
-    /** 禁止日志输出密文和 IV。 */
+    /**
+     * 覆盖默认 toString，将密钥密文和 IV 替换为 ****** 掩码，
+     * 防止加密凭证通过日志或异常堆栈外泄。
+     */
     @Override
     public String toString() {
         return "ModelRuntimeConfigBO[instanceId=" + instanceId

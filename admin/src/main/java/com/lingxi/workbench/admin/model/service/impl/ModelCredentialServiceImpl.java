@@ -53,17 +53,20 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
     @Transactional
     public ModelCredentialVO create(CreateModelCredentialRequest request, Long operatorId) {
         ModelProviderEntity provider = requireProvider(request.providerId());
+        // 停用供应商不允许创建新密钥
         if (provider.getStatus() != EnableStatus.ACTIVE) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "停用的供应商不能新增密钥");
         }
 
         String name = request.name().trim();
+        // 同一供应商下密钥名称唯一
         if (credentialRepo.existsByProviderIdAndName(request.providerId(), name)) {
             throw new BusinessException(
                     HttpStatusEnum.CONFLICT, "同一供应商下的密钥名称不能重复");
         }
 
         OffsetDateTime now = OffsetDateTime.now();
+        // 加密存储 API Key 明文
         SecretCipher.EncryptedSecret encrypted = cipher.encrypt(request.apiKey().trim());
         ModelCredentialEntity entity = new ModelCredentialEntity();
         entity.setProviderId(request.providerId());
@@ -86,11 +89,13 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
     @Transactional
     public void rotate(Long id, RotateModelCredentialRequest request, Long operatorId) {
         ModelCredentialEntity entity = requireCredential(id);
+        // 已撤销密钥不可轮换
         if (entity.getStatus() == ModelCredentialStatus.REVOKED) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "已撤销密钥不能轮换");
         }
 
         OffsetDateTime now = OffsetDateTime.now();
+        // 使用新明文重新加密存储
         SecretCipher.EncryptedSecret encrypted = cipher.encrypt(request.apiKey().trim());
         entity.setSecretCiphertext(encrypted.ciphertext());
         entity.setSecretIv(encrypted.iv());
@@ -107,20 +112,24 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
     @Transactional
     public void changeStatus(Long id, ModelCredentialStatus status, Long operatorId) {
         ModelCredentialEntity entity = requireCredential(id);
+        // 已撤销密钥不可再次变更状态
         if (entity.getStatus() == ModelCredentialStatus.REVOKED) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "已撤销密钥不能再次变更状态");
         }
+        // 禁用前检查是否仍有启用中的模型实例引用
         if (status == ModelCredentialStatus.DISABLED
                 && instanceRepo.existsActiveByCredentialId(id)) {
             throw new BusinessException(
                     HttpStatusEnum.CONFLICT, "密钥仍被启用模型使用，请先停用相关模型实例");
         }
+        // 撤销前检查是否仍有任何模型实例引用
         if (status == ModelCredentialStatus.REVOKED
                 && instanceRepo.existsByCredentialId(id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "密钥仍被模型实例引用，不能撤销");
         }
 
         entity.setStatus(status);
+        // 撤销时清除密文，不可恢复
         if (status == ModelCredentialStatus.REVOKED) {
             entity.setSecretCiphertext(null);
             entity.setSecretIv(null);
@@ -131,18 +140,21 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
                 "CREDENTIAL_STATUS_CHANGE", "状态=" + status);
     }
 
+    /** 查询供应商，不存在时抛出 404 异常。 */
     private ModelProviderEntity requireProvider(Long id) {
         return providerRepo.findById(id)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "模型供应商不存在"));
     }
 
+    /** 查询密钥，不存在时抛出 404 异常。 */
     private ModelCredentialEntity requireCredential(Long id) {
         return credentialRepo.findById(id)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "模型密钥不存在"));
     }
 
+    /** 生成密钥脱敏提示，格式为 "••••XXXX" 显示末尾 4 位。 */
     private static String secretHint(String value) {
         String secret = value.trim();
         return "••••" + secret.substring(Math.max(0, secret.length() - 4));

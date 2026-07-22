@@ -22,24 +22,29 @@ public class SysRoleRepo {
     private final SysRoleMapper sysRoleMapper;
     private final SysRoleRelationMapper relationMapper;
 
+    /** 查询全部角色，按排序序号和主键升序。 */
     public List<SysRoleEntity> findAll() {
         return sysRoleMapper.selectList(Wrappers.<SysRoleEntity>lambdaQuery()
                 .orderByAsc(SysRoleEntity::getSortOrder, SysRoleEntity::getId));
     }
 
+    /** 按主键查询角色。 */
     public Optional<SysRoleEntity> findById(Long id) {
         return Optional.ofNullable(sysRoleMapper.selectById(id));
     }
 
+    /** 按编码查询并锁定角色行，用于 ROOT 管理员串行化校验。 */
     public Optional<SysRoleEntity> findByCodeForUpdate(String code) {
         return Optional.ofNullable(sysRoleMapper.selectByCodeForUpdate(code));
     }
 
+    /** 判断角色编码是否已存在。 */
     public boolean existsByCode(String code) {
         return sysRoleMapper.exists(Wrappers.<SysRoleEntity>lambdaQuery()
                 .eq(SysRoleEntity::getCode, code));
     }
 
+    /** 判断给定的角色主键集合是否全部存在，空集合视为全部存在。 */
     public boolean existsAll(Set<Long> roleIds) {
         if (CollUtil.isEmpty(roleIds)) {
             return true;
@@ -48,42 +53,52 @@ public class SysRoleRepo {
                 .in(SysRoleEntity::getId, roleIds)) == roleIds.size();
     }
 
+    /** 查询用户当前生效的角色编码列表。 */
     public List<String> findRoleCodesByUserId(Long userId) {
         return sysRoleMapper.selectRoleCodesByUserId(userId);
     }
 
+    /** 判断系统用户是否存在。 */
     public boolean userExists(Long userId) {
         return relationMapper.countUser(userId) > 0;
     }
 
+    /** 统计拥有指定角色的管理员数量。 */
     public long countRoleUsers(Long roleId) {
         return relationMapper.countRoleUsers(roleId);
     }
 
+    /** 统计除指定用户外仍拥有目标角色编码的其他管理员数量。 */
     public long countOtherUsersByRoleCode(Long userId, String roleCode) {
         return relationMapper.countOtherUsersByRoleCode(userId, roleCode);
     }
 
+    /** 查询用户当前已分配的角色主键集合。 */
     public Set<Long> findUserRoleIds(Long userId) {
         return Set.copyOf(relationMapper.selectUserRoleIds(userId));
     }
 
+    /** 查询角色当前已分配的菜单主键集合。 */
     public Set<Long> findRoleMenuIds(Long roleId) {
         return Set.copyOf(relationMapper.selectRoleMenuIds(roleId));
     }
 
+    /** 查询角色当前已分配的部门主键集合。 */
     public Set<Long> findRoleDepartmentIds(Long roleId) {
         return Set.copyOf(relationMapper.selectRoleDepartmentIds(roleId));
     }
 
+    /** 新增角色。 */
     public void insert(SysRoleEntity entity) {
         sysRoleMapper.insert(entity);
     }
 
+    /** 更新角色。 */
     public void update(SysRoleEntity entity) {
         sysRoleMapper.updateById(entity);
     }
 
+    /** 删除角色。 */
     public void delete(Long id) {
         sysRoleMapper.deleteById(id);
     }

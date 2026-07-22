@@ -1,6 +1,6 @@
 package com.lingxi.workbench.auth.config.interceptor;
 
-import com.lingxi.workbench.auth.context.UserContext;
+import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.auth.model.bo.UserBO;
 import com.lingxi.workbench.auth.repo.UserRepo;
 import com.lingxi.workbench.framework.exceptions.AuthException;
@@ -23,6 +23,11 @@ public class UserAuthenticationInterceptor implements AsyncHandlerInterceptor {
     private final StpLogicDefinition stpLogicDefinition;
     private final UserRepo userRepo;
 
+    /**
+     * 请求前置处理：校验登录态、账号状态与应用端访问权限，并初始化用户上下文。
+     *
+     * @return 校验通过返回 true，否则抛出异常
+     */
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         // SSE 等异步请求完成时会由容器发起 ASYNC 二次分派，此时 Sa-Token 的请求线程上下文已经释放。
@@ -55,6 +60,9 @@ public class UserAuthenticationInterceptor implements AsyncHandlerInterceptor {
         UserContext.clear();
     }
 
+    /**
+     * 请求完成后清理用户上下文，防止线程复用污染。
+     */
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception exception) {
         UserContext.clear();

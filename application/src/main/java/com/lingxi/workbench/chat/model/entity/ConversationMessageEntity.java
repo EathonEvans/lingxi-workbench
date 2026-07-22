@@ -3,7 +3,7 @@ package com.lingxi.workbench.chat.model.entity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
-import com.lingxi.workbench.framework.persistence.model.AuditTimeEntity;
+import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -13,7 +13,7 @@ import java.time.OffsetDateTime;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("lingxi_core.ai_conversation_message")
-public class ConversationMessageEntity extends AuditTimeEntity {
+public class ConversationMessageEntity extends TimeEntity {
     /** 消息主键。 */
     private Long id;
     /** 所属会话主键。 */

@@ -22,8 +22,12 @@ public enum BuiltInPromptVariable {
     SESSION_ID("session.id", "会话ID", PromptVariableDataType.LONG, "当前会话主键"),
     SESSION_HISTORY("session.history", "会话历史", PromptVariableDataType.MESSAGE_LIST, "当前会话消息列表");
 
+    /** 变量唯一编码，格式为 {@code <scope>.<name>}。 */
     private final String code;
+    /** 变量在界面中展示的中文名称。 */
     private final String displayName;
+    /** 变量的数据类型。 */
     private final PromptVariableDataType type;
+    /** 变量的详细说明，用于帮助用户理解其含义。 */
     private final String describe;
 }

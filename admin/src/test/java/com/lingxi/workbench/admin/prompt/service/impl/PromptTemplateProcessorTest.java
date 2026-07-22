@@ -64,6 +64,20 @@ class PromptTemplateProcessorTest {
                 () -> processor.validate("请生成商品文案", List.of(invalidVariable)));
     }
 
+    @Test
+    void shouldApplySupportedNamespaceRuleConsistently() {
+        List<String> namespaces = List.of(
+                "system", "app", "agent", "user", "input",
+                "session", "workflow", "node", "tools", "knowledge");
+
+        for (String namespace : namespaces) {
+            String variableName = namespace + ".value";
+            processor.validate(
+                    "变量：{{" + variableName + "}}",
+                    List.of(variable(variableName, PromptVariableType.STRING, true)));
+        }
+    }
+
     private static PromptVariableRequest variable(
             String name,
             PromptVariableType type,

@@ -50,29 +50,34 @@ public class ModelInstanceRepo {
         return Optional.ofNullable(mapper.selectById(id));
     }
 
+    /** 检查编码是否已存在，排除指定 id 用于更新时校验。 */
     public boolean existsByCode(String code, Long excludedId) {
         return mapper.exists(Wrappers.<ModelInstanceEntity>lambdaQuery()
                 .eq(ModelInstanceEntity::getCode, code)
                 .ne(Objects.nonNull(excludedId), ModelInstanceEntity::getId, excludedId));
     }
 
+    /** 检查指定供应商下是否存在启用的模型实例。 */
     public boolean existsActiveByProviderId(Long providerId) {
         return mapper.exists(Wrappers.<ModelInstanceEntity>lambdaQuery()
                 .eq(ModelInstanceEntity::getProviderId, providerId)
                 .eq(ModelInstanceEntity::getStatus, EnableStatus.ACTIVE));
     }
 
+    /** 检查是否存在引用指定密钥的模型实例（不限状态）。 */
     public boolean existsByCredentialId(Long credentialId) {
         return mapper.exists(Wrappers.<ModelInstanceEntity>lambdaQuery()
                 .eq(ModelInstanceEntity::getCredentialId, credentialId));
     }
 
+    /** 检查是否存在引用指定密钥且启用中的模型实例。 */
     public boolean existsActiveByCredentialId(Long credentialId) {
         return mapper.exists(Wrappers.<ModelInstanceEntity>lambdaQuery()
                 .eq(ModelInstanceEntity::getCredentialId, credentialId)
                 .eq(ModelInstanceEntity::getStatus, EnableStatus.ACTIVE));
     }
 
+    /** 新增或更新实例，id 为空时插入，否则按主键更新。 */
     public void save(ModelInstanceEntity entity) {
         if (Objects.isNull(entity.getId())) {
             mapper.insert(entity);
@@ -81,6 +86,7 @@ public class ModelInstanceRepo {
         }
     }
 
+    /** 清除指定模型类型下所有实例的默认标记，在设置新默认实例前调用。 */
     public void clearDefault(ModelType type) {
         mapper.clearDefault(type);
     }

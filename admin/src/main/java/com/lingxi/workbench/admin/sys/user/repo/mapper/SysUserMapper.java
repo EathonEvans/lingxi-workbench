@@ -9,6 +9,9 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Insert;
 
+/**
+ * 系统用户及应用端访问权限查询 Mapper。
+ */
 @Mapper
 public interface SysUserMapper extends BaseMapper<SysUserEntity> {
 
@@ -55,6 +58,7 @@ public interface SysUserMapper extends BaseMapper<SysUserEntity> {
     @Select(USER_WITH_ACCESS_SQL + " WHERE sys_user.username = #{username}")
     SysUserEntity selectUserByUsernameWithAccess(@Param("username") String username);
 
+    /** 保存或更新用户应用端访问权限，同时记录开关时间和操作人。 */
     @Insert("""
             INSERT INTO lingxi_core.sys_user_application_access
                 (user_id, enabled, enabled_at, disabled_at, updated_by, updated_at)

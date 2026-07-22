@@ -38,6 +38,11 @@ public class SysDepartmentServiceImpl implements SysDepartmentService {
     private final SysDepartmentRepo sysDepartmentRepo;
     private final SysDepartmentConverter sysDepartmentConverter;
 
+    /**
+     * 查询完整部门树，按排序序号和主键升序排列子节点。
+     *
+     * @return 部门树根节点列表
+     */
     @Override
     public List<SysDepartmentVO> listTree() {
         List<SysDepartmentEntity> departments = sysDepartmentRepo.findAll();
@@ -54,11 +59,23 @@ public class SysDepartmentServiceImpl implements SysDepartmentService {
         return roots.stream().map(root -> toTreeNode(root, childrenByParent)).toList();
     }
 
+    /**
+     * 校验一组部门主键是否全部存在，供角色数据范围分配使用。
+     *
+     * @param departmentIds 部门主键集合
+     * @return 全部存在时返回 true
+     */
     @Override
     public boolean existsAll(Set<Long> departmentIds) {
         return sysDepartmentRepo.existsAll(departmentIds);
     }
 
+    /**
+     * 新增部门，校验上级部门存在性、编码唯一性和父子关系合法性。
+     *
+     * @param request 新增部门请求
+     * @return 新增后的部门视图
+     */
     @Override
     @Transactional
     public SysDepartmentVO create(CreateDepartmentRequest request) {
@@ -76,6 +93,13 @@ public class SysDepartmentServiceImpl implements SysDepartmentService {
         return sysDepartmentConverter.toVO(entity);
     }
 
+    /**
+     * 修改部门基础信息或调整上级部门，根部门不允许修改上级和状态。
+     *
+     * @param id      部门主键
+     * @param request 修改请求
+     * @return 修改后的部门视图
+     */
     @Override
     @Transactional
     public SysDepartmentVO update(Long id, UpdateDepartmentRequest request) {
@@ -89,6 +113,11 @@ public class SysDepartmentServiceImpl implements SysDepartmentService {
         return sysDepartmentConverter.toVO(entity);
     }
 
+    /**
+     * 删除部门，需确保无子部门、无管理员归属且无角色引用。
+     *
+     * @param id 部门主键
+     */
     @Override
     @Transactional
     public void delete(Long id) {
@@ -138,7 +167,10 @@ public class SysDepartmentServiceImpl implements SysDepartmentService {
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "部门不存在"));
     }
 
-    /** 根部门必须保持启用且没有父节点，其他部门必须归属于组织树。 */
+    /**
+     * 根部门必须保持启用且没有父节点，其他部门必须归属于组织树。
+     */
+
     private static void validateRootAndParentConstraint(SysDepartmentEntity entity,
                                                         UpdateDepartmentRequest request) {
         if (ROOT_DEPARTMENT_CODE.equals(entity.getCode())) {
@@ -152,6 +184,9 @@ public class SysDepartmentServiceImpl implements SysDepartmentService {
         }
     }
 
+    /**
+     * 递归构建部门树节点，将实体转换为视图并填充子部门列表。
+     */
     private SysDepartmentVO toTreeNode(SysDepartmentEntity entity,
                                           Map<Long, List<SysDepartmentEntity>> childrenByParent) {
         SysDepartmentVO base = sysDepartmentConverter.toVO(entity);

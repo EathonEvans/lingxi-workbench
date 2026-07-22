@@ -3,7 +3,7 @@ package com.lingxi.workbench.admin.sys.menu.model.entity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.common.enums.MenuType;
-import com.lingxi.workbench.framework.persistence.model.AuditTimeEntity;
+import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -13,7 +13,7 @@ import lombok.Setter;
 @Getter
 @Setter
 @TableName("lingxi_core.sys_menu")
-public class SysMenuEntity extends AuditTimeEntity {
+public class SysMenuEntity extends TimeEntity {
 
     /** 菜单主键。 */
     private Long id;

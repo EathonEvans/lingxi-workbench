@@ -2,7 +2,7 @@ package com.lingxi.workbench.admin.model.model.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
-import com.lingxi.workbench.framework.persistence.model.AuditTimeEntity;
+import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -12,7 +12,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("lingxi_core.ai_model_provider")
-public class ModelProviderEntity extends AuditTimeEntity {
+public class ModelProviderEntity extends TimeEntity {
     /** 供应商主键。 */
     private Long id;
     /** 供应商名称。 */

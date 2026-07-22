@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.SysUserStatus;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.FieldStrategy;
-import com.lingxi.workbench.framework.persistence.model.AuditTimeEntity;
+import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -14,7 +14,7 @@ import lombok.Setter;
 @Getter
 @Setter
 @TableName("lingxi_core.sys_user")
-public class SysUserEntity extends AuditTimeEntity {
+public class SysUserEntity extends TimeEntity {
 
     /** 用户主键。 */
     private Long id;

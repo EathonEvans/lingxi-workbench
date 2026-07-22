@@ -1,5 +1,6 @@
 package com.lingxi.workbench.admin.prompt.model.request;
 
+import com.lingxi.workbench.admin.prompt.common.constants.PromptVariableConstants;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -11,7 +12,7 @@ public record PromptVariableRequest(
         /** 变量名称。 */
         @NotBlank(message = "变量名称不能为空")
         @Pattern(
-                regexp = "^(system|app|agent|user|input|session|workflow|node|tools|knowledge)(\\.[a-z][a-z0-9_]*)+$",
+                regexp = PromptVariableConstants.VARIABLE_NAME_REGEXP,
                 message = "变量名称必须使用合法命名空间和小写英文路径")
         String name,
         /** 变量数据类型。 */

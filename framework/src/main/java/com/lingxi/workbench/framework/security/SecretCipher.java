@@ -56,6 +56,7 @@ public class SecretCipher {
         }
     }
 
+    /** 创建 AES-256-GCM Cipher 实例，传入主密钥和 IV 完成初始化。 */
     private Cipher createCipher(int mode, byte[] iv) throws Exception {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(
@@ -65,6 +66,7 @@ public class SecretCipher {
         return cipher;
     }
 
+    /** 解码并校验主密钥，要求 Base64 编码且长度恰好为 32 字节。 */
     private static byte[] decodeMasterKey(String encodedMasterKey) {
         try {
             byte[] key = Base64.getDecoder().decode(encodedMasterKey);
@@ -78,6 +80,7 @@ public class SecretCipher {
         }
     }
 
+    /** 对字节数组进行 Base64 编码。 */
     private static String encode(byte[] value) {
         return Base64.getEncoder().encodeToString(value);
     }

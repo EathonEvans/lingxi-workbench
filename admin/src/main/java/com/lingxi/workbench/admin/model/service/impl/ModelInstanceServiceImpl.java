@@ -57,9 +57,11 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
             Long id, SaveModelInstanceRequest request, Long operatorId) {
         ModelProviderEntity provider = requireProvider(request.providerId());
         ModelCredentialEntity credential = requireCredential(request.credentialId());
+        // 校验密钥归属
         if (!credential.getProviderId().equals(provider.getId())) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "密钥不属于所选供应商");
         }
+        // 启用时需确保依赖的供应商和密钥均可用
         if (request.status() == EnableStatus.ACTIVE) {
             requireAvailable(provider, credential);
         }
@@ -70,6 +72,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
         }
 
         ModelInstanceEntity entity = Objects.isNull(id) ? new ModelInstanceEntity() : requireInstance(id);
+        // 已创建实例不允许修改模型类型
         if (Objects.nonNull(id) && entity.getModelType() != request.modelType()) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "已创建的模型实例不允许修改模型类型");
         }
@@ -80,6 +83,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
         entity.setModelCode(request.modelCode().trim());
         entity.setModelType(request.modelType());
         entity.setCapabilities(normalizeCapabilities(request.modelType(), request.capabilities()));
+        // 非对话模型不设置对话相关参数
         boolean chatModel = request.modelType() == ModelType.CHAT;
         entity.setTemperature(chatModel ? request.temperature() : null);
         entity.setTopP(chatModel ? request.topP() : null);
@@ -90,6 +94,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
         entity.setMaxRetries(request.maxRetries());
         entity.setStatus(request.status());
         entity.setUpdatedBy(operatorId);
+        // 新建实例时初始化默认值
         if (Objects.isNull(id)) {
             entity.setCreatedBy(operatorId);
             entity.setIsDefault(false);
@@ -111,10 +116,12 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
     @Transactional
     public void changeStatus(Long id, EnableStatus status, Long operatorId) {
         ModelInstanceEntity entity = requireInstance(id);
+        // 默认实例不允许直接停用
         if (Boolean.TRUE.equals(entity.getIsDefault()) && status == EnableStatus.DISABLED) {
             throw new BusinessException(
                     HttpStatusEnum.CONFLICT, "默认模型不能直接停用，请先设置新的默认模型");
         }
+        // 启用时需确认依赖的供应商和密钥均可用
         if (status == EnableStatus.ACTIVE) {
             requireAvailable(
                     requireProvider(entity.getProviderId()),
@@ -139,6 +146,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
                 requireProvider(entity.getProviderId()),
                 requireCredential(entity.getCredentialId()));
 
+        // 清除同类型的旧默认标记，确保同类型只有一个默认实例
         instanceRepo.clearDefault(entity.getModelType());
         entity.setIsDefault(true);
         entity.setUpdatedBy(operatorId);
@@ -156,6 +164,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
 
         ModelConnectionTestResult result;
         try {
+            // 解密 API Key 后发起真实接口调用
             String apiKey = cipher.decrypt(
                     credential.getSecretCiphertext(), credential.getSecretIv());
             result = connectionTester.test(
@@ -170,6 +179,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
                     0, "CREDENTIAL_ERROR", "模型密钥解密失败，请检查服务端主密钥配置");
         }
 
+        // 将测试结果回写至实例记录
         OffsetDateTime now = OffsetDateTime.now();
         entity.setLastTestStatus(result.status());
         entity.setLastTestLatencyMs(result.latencyMs());
@@ -188,6 +198,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
         return modelConverter.toInstanceVO(entity);
     }
 
+    /** 校验供应商和密钥是否均处于可用状态，不满足则抛出业务异常。 */
     private static void requireAvailable(
             ModelProviderEntity provider, ModelCredentialEntity credential) {
         if (provider.getStatus() != EnableStatus.ACTIVE) {
@@ -198,24 +209,28 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
         }
     }
 
+    /** 查询供应商，不存在时抛出 404 异常。 */
     private ModelProviderEntity requireProvider(Long id) {
         return providerRepo.findById(id)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "模型供应商不存在"));
     }
 
+    /** 查询密钥，不存在时抛出 404 异常。 */
     private ModelCredentialEntity requireCredential(Long id) {
         return credentialRepo.findById(id)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "模型密钥不存在"));
     }
 
+    /** 查询实例，不存在时抛出 404 异常。 */
     private ModelInstanceEntity requireInstance(Long id) {
         return instanceRepo.findById(id)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "模型实例不存在"));
     }
 
+    /** 归一化模型能力列表：去重，并校验非对话模型不允许配置能力。 */
     private static List<ModelCapability> normalizeCapabilities(
             ModelType modelType, List<ModelCapability> capabilities) {
         List<ModelCapability> normalized = CollUtil.isEmpty(capabilities)
@@ -228,6 +243,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
         return normalized;
     }
 
+    /** 归一化列表，null 或空时返回不可变空列表，否则返回不可变副本。 */
     private static <T> List<T> normalizeList(List<T> values) {
         return CollUtil.isEmpty(values) ? List.of() : List.copyOf(values);
     }

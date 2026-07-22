@@ -26,6 +26,12 @@ public class SseResponseHeaderFilter extends OncePerRequestFilter {
 
     private static final String NO_BUFFERING_HEADER = "X-Accel-Buffering";
 
+    /**
+     * 仅对 Accept 头中包含 text/event-stream 的请求应用本过滤器。
+     *
+     * @param request HTTP 请求
+     * @return true 表示跳过此过滤器
+     */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String accept = request.getHeader(HttpHeaders.ACCEPT);
@@ -39,10 +45,17 @@ public class SseResponseHeaderFilter extends OncePerRequestFilter {
         }
     }
 
+    /** 判断媒体类型是否为 text/event-stream。 */
     private static boolean isEventStream(MediaType mediaType) {
         return MediaType.TEXT_EVENT_STREAM.getType().equalsIgnoreCase(mediaType.getType()) && MediaType.TEXT_EVENT_STREAM.getSubtype().equalsIgnoreCase(mediaType.getSubtype());
     }
 
+    /**
+     * 设置 SSE 必要的响应头，防止网关压缩和缓冲事件流。
+     *
+     * <p>设置 Cache-Control: no-cache, no-transform，
+     * Content-Encoding: identity，以及 X-Accel-Buffering: no。</p>
+     */
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache, no-transform");

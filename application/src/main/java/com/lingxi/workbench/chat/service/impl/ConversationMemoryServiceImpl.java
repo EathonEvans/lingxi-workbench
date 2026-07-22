@@ -34,6 +34,17 @@ public class ConversationMemoryServiceImpl implements ConversationMemoryService 
     private final ChatMemoryProperties properties;
     private final TokenCountEstimator tokenCountEstimator;
 
+    /**
+     * 获取当前轮之前可注入模型的窗口记忆。
+     *
+     * <p>只选择已经完成的完整问答轮次，按轮数和 Token 预算从近到远裁剪，
+     * 最终返回按时间正序排列的历史消息。</p>
+     *
+     * @param userId           当前登录用户主键，用于校验会话归属
+     * @param conversationId   会话主键
+     * @param beforeSequenceNo 当前用户消息序号，只查询该序号之前的历史消息
+     * @return 可直接注入模型上下文的历史消息，按产生时间正序排列
+     */
     @Override
     @Transactional(readOnly = true)
     public List<ChatMemoryMessageBO> getWindowMemory(Long userId, Long conversationId, Integer beforeSequenceNo) {

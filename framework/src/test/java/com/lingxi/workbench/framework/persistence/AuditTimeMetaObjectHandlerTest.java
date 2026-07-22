@@ -5,7 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfo;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
-import com.lingxi.workbench.framework.persistence.model.AuditTimeEntity;
+import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.apache.ibatis.reflection.MetaObject;
 import org.apache.ibatis.reflection.SystemMetaObject;
@@ -59,7 +59,7 @@ class AuditTimeMetaObjectHandlerTest {
     }
 
     @TableName("test_audit")
-    private static final class TestAuditEntity extends AuditTimeEntity {
+    private static final class TestAuditEntity extends TimeEntity {
         @TableId
         private Long id;
     }

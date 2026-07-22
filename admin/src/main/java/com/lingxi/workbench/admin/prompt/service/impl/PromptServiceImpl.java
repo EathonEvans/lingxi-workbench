@@ -49,6 +49,7 @@ public class PromptServiceImpl implements PromptService {
     public PageResult<PromptVO> page(PromptPageQuery query) {
         PageResult<PromptEntity> page = promptRepo.findPage(query);
         List<Long> promptIds = page.records().stream().map(PromptEntity::getId).toList();
+        // 批量查询版本信息，补充列表页需要的版本号和已发布版本号
         Map<Long, List<PromptVersionEntity>> versionsByPromptId = versionRepo
                 .findAllByPromptIds(promptIds)
                 .stream()
@@ -70,6 +71,7 @@ public class PromptServiceImpl implements PromptService {
     public PromptDetailVO detail(Long id) {
         PromptEntity prompt = requirePrompt(id);
         List<PromptVersionEntity> versions = versionRepo.findAll(id);
+        // 优先取草稿版本，没有草稿时回退到已发布版本
         PromptVersionEntity editingVersion = draftVersion(versions)
                 .orElseGet(() -> publishedVersion(prompt, versions));
         return promptConverter.toDetailVO(
@@ -102,6 +104,7 @@ public class PromptServiceImpl implements PromptService {
     @Transactional
     public PromptDetailVO save(Long id, SavePromptRequest request, Long operatorId) {
         String code = request.code().trim().toLowerCase();
+        // 先校验模板内容和变量声明一致性，再检查编码冲突
         templateProcessor.validate(request.promptContent(), request.variables());
         if (promptRepo.existsByCode(code, id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "Prompt编码已存在");
@@ -122,6 +125,7 @@ public class PromptServiceImpl implements PromptService {
         }
         promptRepo.save(prompt);
 
+        // 复用已有草稿或新建草稿版本
         PromptVersionEntity draft = versionRepo.findDraft(prompt.getId())
                 .orElseGet(() -> newDraft(prompt.getId(), operatorId));
         // Prompt中的首尾空白可能具有语义，持久化时不得擅自裁剪正文。
@@ -152,6 +156,7 @@ public class PromptServiceImpl implements PromptService {
                 .orElseThrow(
                         () -> new BusinessException(
                                 HttpStatusEnum.CONFLICT, "当前没有可发布的草稿"));
+        // 发布前再次校验模板内容与变量一致性
         templateProcessor.validate(
                 draft.getPromptContent(), promptConverter.toVariableRequests(draft.getVariables()));
 
@@ -216,6 +221,7 @@ public class PromptServiceImpl implements PromptService {
         return templateProcessor.preview(request);
     }
 
+    /** 创建新的草稿版本实体。 */
     private PromptVersionEntity newDraft(Long promptId, Long operatorId) {
         PromptVersionEntity draft = new PromptVersionEntity();
         draft.setPromptId(promptId);
@@ -226,12 +232,14 @@ public class PromptServiceImpl implements PromptService {
         return draft;
     }
 
+    /** 按主键查询Prompt，不存在时抛出异常。 */
     private PromptEntity requirePrompt(Long id) {
         return promptRepo.findById(id)
                 .orElseThrow(
                         () -> new BusinessException(HttpStatusEnum.NOT_FOUND, "Prompt不存在"));
     }
 
+    /** 从版本列表中获取当前已发布版本。 */
     private PromptVersionEntity publishedVersion(
             PromptEntity prompt, List<PromptVersionEntity> versions) {
         if (prompt.getPublishedVersionId() == null) {
@@ -246,6 +254,7 @@ public class PromptServiceImpl implements PromptService {
                                 HttpStatusEnum.CONFLICT, "Prompt正式版本数据不完整"));
     }
 
+    /** 从版本列表中提取草稿版本。 */
     private static Optional<PromptVersionEntity> draftVersion(
             List<PromptVersionEntity> versions) {
         return versions.stream()
@@ -253,6 +262,7 @@ public class PromptServiceImpl implements PromptService {
                 .findFirst();
     }
 
+    /** 从版本列表中获取已发布版本的版本号。 */
     private static Integer publishedVersionNo(
             PromptEntity prompt, List<PromptVersionEntity> versions) {
         if (prompt.getPublishedVersionId() == null) {
@@ -265,6 +275,7 @@ public class PromptServiceImpl implements PromptService {
                 .orElse(null);
     }
 
+    /** 去除首尾空白，空字符串转为null。 */
     private static String trimToNull(String value) {
         return CharSequenceUtil.isBlank(value) ? null : value.trim();
     }

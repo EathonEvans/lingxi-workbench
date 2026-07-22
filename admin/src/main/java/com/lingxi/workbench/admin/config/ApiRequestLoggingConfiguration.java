@@ -12,6 +12,11 @@ import org.springframework.core.Ordered;
 @Configuration(proxyBeanMethods = false)
 public class ApiRequestLoggingConfiguration {
 
+    /**
+     * 注册 API 请求日志过滤器，以最高优先级拦截所有请求。
+     *
+     * @return 过滤器注册 Bean
+     */
     @Bean
     public FilterRegistrationBean<ApiRequestLoggingFilter> apiRequestLoggingFilter() {
         FilterRegistrationBean<ApiRequestLoggingFilter> registration = new FilterRegistrationBean<>();

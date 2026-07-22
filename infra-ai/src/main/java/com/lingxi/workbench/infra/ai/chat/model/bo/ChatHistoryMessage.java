@@ -18,9 +18,9 @@ public record ChatHistoryMessage(Role role, String content) {
         USER("USER", "用户"),
         ASSISTANT("ASSISTANT", "助手");
 
-        /** 稳定编码。 */
+        /** 角色稳定编码，用于程序交互和持久化。 */
         private final String code;
-        /** 中文说明。 */
+        /** 角色中文说明，仅用于界面展示。 */
         private final String describe;
     }
 }

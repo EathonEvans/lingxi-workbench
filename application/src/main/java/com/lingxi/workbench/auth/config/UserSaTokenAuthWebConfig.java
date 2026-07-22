@@ -42,9 +42,6 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @RequiredArgsConstructor
 public class UserSaTokenAuthWebConfig implements WebMvcConfigurer {
 
-    /**
-     * 用户上下文拦截器
-     */
     private final UserAuthenticationInterceptor authenticationInterceptor;
     private final StpLogicDefinition stpLogicDefinition;
     private final SaTokenExtendConfig saTokenExtendConfig;

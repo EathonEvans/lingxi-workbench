@@ -22,10 +22,8 @@ class KnowledgeDocumentChunkerTest {
                 content, KnowledgeChunkStrategy.FIXED, 40, 8);
 
         assertThat(chunks).hasSizeGreaterThan(1);
-        assertThat(chunks).allSatisfy(chunk -> {
-            assertThat(chunk.tokenCount()).isLessThanOrEqualTo(40);
-            assertThat(chunk.contentHash()).hasSize(64);
-        });
+        assertThat(chunks).allSatisfy(chunk ->
+                assertThat(chunk.tokenCount()).isLessThanOrEqualTo(40));
         assertThat(chunks).extracting(KnowledgeChunkBO::chunkNo)
                 .containsExactlyElementsOf(java.util.stream.IntStream.rangeClosed(1, chunks.size()).boxed().toList());
     }

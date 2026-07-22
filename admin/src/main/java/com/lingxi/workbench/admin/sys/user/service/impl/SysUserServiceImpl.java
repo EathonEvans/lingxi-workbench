@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.sys.user.service.impl;
 
-import com.lingxi.workbench.admin.auth.context.SysUserContext;
+import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.admin.sys.user.model.bo.SysUserBO;
 import com.lingxi.workbench.admin.sys.user.model.converter.SysUserConverter;
 import com.lingxi.workbench.admin.sys.user.model.entity.SysUserEntity;
@@ -59,7 +59,7 @@ public class SysUserServiceImpl implements SysUserService {
         entity.setDepartmentId(request.departmentId());
         entity.setStatus(request.status());
         sysUserRepo.insert(entity);
-        Long operatorId = SysUserContext.get().id();
+        Long operatorId = UserContext.userId();
         sysUserRepo.saveApplicationAccess(entity.getId(), request.applicationAccessEnabled(), operatorId);
         auditService.record("SYSTEM", "USER", entity.getId(), operatorId, "USER_CREATE",
                 "创建账号，应用端访问=" + request.applicationAccessEnabled());
@@ -83,7 +83,7 @@ public class SysUserServiceImpl implements SysUserService {
         entity.setDepartmentId(request.departmentId());
         entity.setStatus(request.status());
         sysUserRepo.update(entity);
-        Long operatorId = SysUserContext.get().id();
+        Long operatorId = UserContext.userId();
         sysUserRepo.saveApplicationAccess(id, request.applicationAccessEnabled(), operatorId);
         auditService.record("SYSTEM", "USER", id, operatorId, "USER_UPDATE",
                 "账号状态=" + request.status() + "，应用端访问=" + request.applicationAccessEnabled());
@@ -93,7 +93,7 @@ public class SysUserServiceImpl implements SysUserService {
     @Override
     public void recordRoleAssignment(Long userId, Set<Long> roleIds) {
         requireUser(userId);
-        auditService.record("SYSTEM", "USER", userId, SysUserContext.get().id(), "SYS_ROLE_ASSIGNMENT",
+        auditService.record("SYSTEM", "USER", userId, UserContext.userId(), "SYS_ROLE_ASSIGNMENT",
                 "管理端角色ID=" + roleIds.stream().sorted().toList());
     }
 

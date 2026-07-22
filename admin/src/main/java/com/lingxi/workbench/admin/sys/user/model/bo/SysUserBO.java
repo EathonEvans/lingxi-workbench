@@ -45,10 +45,12 @@ public record SysUserBO(
         Objects.requireNonNull(status, "status must not be null");
     }
 
+    /** 判断账号是否处于启用状态。 */
     public boolean isActive() {
         return status == SysUserStatus.ACTIVE;
     }
 
+    /** 判断账号是否已分配至少一个有效管理角色，即可访问管理后台。 */
     public boolean canAccessAdmin() {
         return Boolean.TRUE.equals(adminAccessEnabled);
     }

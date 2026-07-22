@@ -29,7 +29,13 @@ public class PageQuery {
     private int size = 20;
 
 
-    public <T> Page<T> toPage(){
+    /**
+     * 转换为 MyBatis-Plus 分页对象，用于数据库分页查询。
+     *
+     * @param <T> 分页记录类型
+     * @return MyBatis-Plus {@link Page} 对象
+     */
+    public <T> Page<T> toPage() {
         return new Page<>(current, size);
     }
 

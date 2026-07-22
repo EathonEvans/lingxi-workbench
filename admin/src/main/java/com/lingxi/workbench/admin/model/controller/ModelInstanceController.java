@@ -1,7 +1,7 @@
 package com.lingxi.workbench.admin.model.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
-import com.lingxi.workbench.admin.auth.context.SysUserContext;
+import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.model.model.request.ModelInstancePageQuery;
 import com.lingxi.workbench.admin.model.model.request.SaveModelInstanceRequest;
@@ -39,7 +39,7 @@ public class ModelInstanceController {
     @PostMapping("/create")
     @SaCheckPermission("model:instance:manage")
     public ApiResponse<ModelInstanceVO> createInstance(@Valid @RequestBody SaveModelInstanceRequest request) {
-        return ApiResponse.success(service.save(null, request, operatorId()));
+        return ApiResponse.success(service.save(null, request, UserContext.userId()));
     }
 
     /**
@@ -48,7 +48,7 @@ public class ModelInstanceController {
     @PostMapping("/update/{id}")
     @SaCheckPermission("model:instance:manage")
     public ApiResponse<ModelInstanceVO> updateInstance(@PathVariable Long id, @Valid @RequestBody SaveModelInstanceRequest request) {
-        return ApiResponse.success(service.save(id, request, operatorId()));
+        return ApiResponse.success(service.save(id, request, UserContext.userId()));
     }
 
     /**
@@ -57,7 +57,7 @@ public class ModelInstanceController {
     @PostMapping("/change-status/{id}")
     @SaCheckPermission("model:instance:manage")
     public ApiResponse<Void> changeInstanceStatus(@PathVariable Long id, @RequestParam EnableStatus status) {
-        service.changeStatus(id, status, operatorId());
+        service.changeStatus(id, status, UserContext.userId());
         return ApiResponse.success();
     }
 
@@ -67,7 +67,7 @@ public class ModelInstanceController {
     @PostMapping("/set-default/{id}")
     @SaCheckPermission("model:instance:default")
     public ApiResponse<Void> setDefault(@PathVariable Long id) {
-        service.setDefault(id, operatorId());
+        service.setDefault(id, UserContext.userId());
         return ApiResponse.success();
     }
 
@@ -77,10 +77,6 @@ public class ModelInstanceController {
     @PostMapping("/test-connection/{id}")
     @SaCheckPermission("model:instance:test")
     public ApiResponse<ModelInstanceVO> testConnection(@PathVariable Long id) {
-        return ApiResponse.success(service.testConnection(id, operatorId()));
-    }
-
-    private Long operatorId() {
-        return SysUserContext.get().id();
+        return ApiResponse.success(service.testConnection(id, UserContext.userId()));
     }
 }

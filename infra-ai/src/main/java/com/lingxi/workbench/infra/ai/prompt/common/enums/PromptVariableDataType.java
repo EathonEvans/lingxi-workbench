@@ -13,6 +13,8 @@ public enum PromptVariableDataType {
     DATETIME("DATETIME", "日期时间"),
     MESSAGE_LIST("MESSAGE_LIST", "消息列表");
 
+    /** 数据类型稳定编码。 */
     private final String code;
+    /** 数据类型中文说明。 */
     private final String describe;
 }

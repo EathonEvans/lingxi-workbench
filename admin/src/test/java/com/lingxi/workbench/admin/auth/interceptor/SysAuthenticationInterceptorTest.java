@@ -2,7 +2,7 @@ package com.lingxi.workbench.admin.auth.interceptor;
 
 import com.lingxi.workbench.admin.common.enums.SysUserStatus;
 import com.lingxi.workbench.admin.config.interceptor.SysAuthenticationInterceptor;
-import com.lingxi.workbench.admin.auth.context.SysUserContext;
+import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.admin.sys.user.model.bo.SysUserBO;
 import com.lingxi.workbench.admin.sys.user.repo.SysUserRepo;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
@@ -34,7 +34,7 @@ class SysAuthenticationInterceptorTest {
 
     @AfterEach
     void clearContext() {
-        SysUserContext.clear();
+        UserContext.clear();
     }
 
     @Test
@@ -51,12 +51,12 @@ class SysAuthenticationInterceptorTest {
         Object handler = new Object();
 
         assertTrue(interceptor.preHandle(request, response, handler));
-        LoginUser loginUser = SysUserContext.get();
+        LoginUser loginUser = UserContext.get();
         assertEquals(1L, loginUser.id());
         assertEquals("admin", loginUser.username());
 
         interceptor.afterCompletion(request, response, handler, null);
-        assertThrows(IllegalStateException.class, SysUserContext::get);
+        assertThrows(IllegalStateException.class, UserContext::get);
     }
 
     @Test

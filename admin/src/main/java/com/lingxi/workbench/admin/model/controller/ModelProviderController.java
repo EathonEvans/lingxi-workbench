@@ -2,7 +2,7 @@ package com.lingxi.workbench.admin.model.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaMode;
-import com.lingxi.workbench.admin.auth.context.SysUserContext;
+import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.model.model.request.ModelProviderPageQuery;
 import com.lingxi.workbench.admin.model.model.request.SaveModelProviderRequest;
@@ -53,7 +53,7 @@ public class ModelProviderController {
     @SaCheckPermission("model:provider:manage")
     public ApiResponse<ModelProviderVO> createProvider(
             @Valid @RequestBody SaveModelProviderRequest request) {
-        return ApiResponse.success(service.save(null, request, operatorId()));
+        return ApiResponse.success(service.save(null, request, UserContext.userId()));
     }
 
     /** 修改模型供应商。 */
@@ -61,7 +61,7 @@ public class ModelProviderController {
     @SaCheckPermission("model:provider:manage")
     public ApiResponse<ModelProviderVO> updateProvider(
             @PathVariable Long id, @Valid @RequestBody SaveModelProviderRequest request) {
-        return ApiResponse.success(service.save(id, request, operatorId()));
+        return ApiResponse.success(service.save(id, request, UserContext.userId()));
     }
 
     /** 启用或停用模型供应商。 */
@@ -69,11 +69,7 @@ public class ModelProviderController {
     @SaCheckPermission("model:provider:manage")
     public ApiResponse<Void> changeProviderStatus(
             @PathVariable Long id, @RequestParam EnableStatus status) {
-        service.changeStatus(id, status, operatorId());
+        service.changeStatus(id, status, UserContext.userId());
         return ApiResponse.success();
-    }
-
-    private Long operatorId() {
-        return SysUserContext.get().id();
     }
 }

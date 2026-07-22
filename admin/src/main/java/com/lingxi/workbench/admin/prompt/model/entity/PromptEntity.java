@@ -3,7 +3,7 @@ package com.lingxi.workbench.admin.prompt.model.entity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptRole;
-import com.lingxi.workbench.framework.persistence.model.AuditTimeEntity;
+import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -11,7 +11,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("lingxi_core.ai_prompt")
-public class PromptEntity extends AuditTimeEntity {
+public class PromptEntity extends TimeEntity {
     /** Prompt主键。 */
     private Long id;
     /** Prompt名称。 */

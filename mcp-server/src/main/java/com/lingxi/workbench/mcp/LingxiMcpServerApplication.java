@@ -10,6 +10,11 @@ import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
         exclude = DataSourceAutoConfiguration.class)
 public class LingxiMcpServerApplication {
 
+    /**
+     * MCP 协议服务启动入口。
+     *
+     * @param args 启动参数
+     */
     public static void main(String[] args) {
         SpringApplication.run(LingxiMcpServerApplication.class, args);
     }

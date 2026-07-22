@@ -37,6 +37,7 @@ public record SavePromptRequest(
         @Size(max = 255, message = "版本说明不能超过255个字符") String changeNote) {
 
     public SavePromptRequest {
+        // 防御性拷贝，避免外部修改影响内部状态
         variables = CollUtil.isEmpty(variables) ? List.of() : List.copyOf(variables);
     }
 }

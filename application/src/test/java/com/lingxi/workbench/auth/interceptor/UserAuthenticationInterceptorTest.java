@@ -2,7 +2,7 @@ package com.lingxi.workbench.auth.interceptor;
 
 import com.lingxi.workbench.auth.common.enums.UserStatus;
 import com.lingxi.workbench.auth.config.interceptor.UserAuthenticationInterceptor;
-import com.lingxi.workbench.auth.context.UserContext;
+import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.auth.model.bo.UserBO;
 import com.lingxi.workbench.auth.repo.UserRepo;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;

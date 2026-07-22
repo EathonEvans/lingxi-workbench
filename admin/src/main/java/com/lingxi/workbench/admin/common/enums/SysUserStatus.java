@@ -4,6 +4,9 @@ import com.baomidou.mybatisplus.annotation.EnumValue;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
+/**
+ * 管理端系统用户状态枚举，与 {@link EnableStatus} 相互独立。
+ */
 @Getter
 @RequiredArgsConstructor
 public enum SysUserStatus {

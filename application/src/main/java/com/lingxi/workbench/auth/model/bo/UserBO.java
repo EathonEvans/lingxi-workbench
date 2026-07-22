@@ -36,15 +36,27 @@ public record UserBO(
         Objects.requireNonNull(status, "status must not be null");
     }
 
+    /**
+     * 判断账号是否为启用状态。
+     *
+     * @return true 表示账号已启用
+     */
     public boolean isActive() {
         return status == UserStatus.ACTIVE;
     }
 
+    /**
+     * 判断用户是否已开启应用端访问权限。
+     *
+     * @return true 表示已开启访问权限
+     */
     public boolean canAccessApplication() {
         return Boolean.TRUE.equals(applicationAccessEnabled);
     }
 
-    /** 兼容认证测试和只需要基础账号资料的构造方式。 */
+    /**
+     * 兼容认证测试和只需要基础账号资料的构造方式。
+     */
     public UserBO(Long id, String username, String passwordHash, String displayName,
                          String avatarUrl, UserStatus status) {
         this(id, username, passwordHash, displayName, avatarUrl, null, null, status, true);

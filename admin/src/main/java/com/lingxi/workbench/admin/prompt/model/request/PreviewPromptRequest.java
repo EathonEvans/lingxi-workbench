@@ -22,6 +22,7 @@ public record PreviewPromptRequest(
         Map<String, Object> values) {
 
     public PreviewPromptRequest {
+        // 防御性拷贝，避免外部修改影响内部状态
         variables = CollUtil.isEmpty(variables) ? List.of() : List.copyOf(variables);
         values = MapUtil.isEmpty(values) ? Map.of() : Map.copyOf(values);
     }

@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.lingxi.workbench.admin.model.common.enums.ModelCredentialStatus;
-import com.lingxi.workbench.framework.persistence.model.AuditTimeEntity;
+import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
@@ -17,7 +17,7 @@ import java.time.OffsetDateTime;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("lingxi_core.ai_model_credential")
-public class ModelCredentialEntity extends AuditTimeEntity {
+public class ModelCredentialEntity extends TimeEntity {
     /** 密钥主键。 */
     private Long id;
     /** 所属供应商主键。 */

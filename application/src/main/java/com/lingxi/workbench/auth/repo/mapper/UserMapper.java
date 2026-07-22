@@ -6,9 +6,18 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+/**
+ * 用户表 MyBatis Mapper，封装基础 CRUD 与联表查询。
+ */
 @Mapper
 public interface UserMapper extends BaseMapper<UserEntity> {
 
+    /**
+     * 根据用户名查询用户，联表获取应用端访问权限标记。
+     *
+     * @param username 用户名
+     * @return 用户实体，不存在时返回 null
+     */
     @Select("""
             SELECT sys_user.*,
                    COALESCE(application_access.enabled, FALSE) AS application_access_enabled
@@ -19,6 +28,12 @@ public interface UserMapper extends BaseMapper<UserEntity> {
             """)
     UserEntity selectByUsernameWithAccess(@Param("username") String username);
 
+    /**
+     * 根据用户 ID 查询用户，联表获取应用端访问权限标记。
+     *
+     * @param id 用户主键
+     * @return 用户实体，不存在时返回 null
+     */
     @Select("""
             SELECT sys_user.*,
                    COALESCE(application_access.enabled, FALSE) AS application_access_enabled

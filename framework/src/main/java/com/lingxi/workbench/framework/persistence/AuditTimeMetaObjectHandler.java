@@ -14,6 +14,11 @@ import java.time.OffsetDateTime;
 @Component
 public class AuditTimeMetaObjectHandler implements MetaObjectHandler {
 
+    /**
+     * 插入记录时自动填充创建时间和更新时间。
+     *
+     * <p>仅在未手动赋值时填充，允许业务代码显式覆盖。</p>
+     */
     @Override
     public void insertFill(MetaObject metaObject) {
         OffsetDateTime now = OffsetDateTime.now();
@@ -25,6 +30,9 @@ public class AuditTimeMetaObjectHandler implements MetaObjectHandler {
         }
     }
 
+    /**
+     * 更新记录时强制覆盖更新时间，防止从数据库查询出的旧值阻止自动填充。
+     */
     @Override
     public void updateFill(MetaObject metaObject) {
         setFieldValByName("updatedAt", OffsetDateTime.now(), metaObject);

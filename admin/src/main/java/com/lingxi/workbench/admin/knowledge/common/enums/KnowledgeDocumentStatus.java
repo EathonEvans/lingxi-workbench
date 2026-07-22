@@ -10,7 +10,7 @@ import lombok.RequiredArgsConstructor;
 public enum KnowledgeDocumentStatus {
     UPLOADED("UPLOADED", "等待解析"),
     PARSING("PARSING", "解析中"),
-    PARSED("PARSED", "解析完成"),
+    PARSED("PARSED", "待分块"),
     FAILED("FAILED", "解析失败");
 
     @EnumValue

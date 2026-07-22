@@ -16,7 +16,7 @@ import java.time.OffsetDateTime;
 @Getter
 @Setter
 @EqualsAndHashCode
-public abstract class AuditTimeEntity {
+public abstract class TimeEntity {
 
     /** 记录首次插入数据库的时间。 */
     @TableField(fill = FieldFill.INSERT)

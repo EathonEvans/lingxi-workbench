@@ -19,7 +19,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
 
-/** 知识库管理业务实现。 */
+/**
+ * 知识库管理业务实现。
+ */
 @Service
 @RequiredArgsConstructor
 public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
@@ -43,6 +45,7 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     @Override
     @Transactional
     public KnowledgeBaseVO save(Long id, SaveKnowledgeBaseRequest request, Long operatorId) {
+        // 统一转为小写编码做唯一性校验
         String code = request.code().trim().toLowerCase();
         if (baseRepo.existsByCode(code, id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "知识库编码已存在");
@@ -71,6 +74,9 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         auditService.record("KNOWLEDGE", "BASE", id, operatorId, "KNOWLEDGE_DELETE", "知识库=" + entity.getCode());
     }
 
+    /**
+     * 按ID加载知识库，不存在时抛出业务异常。
+     */
     private KnowledgeBaseEntity requireBase(Long id) {
         return baseRepo.findById(id).orElseThrow(() ->
                 new BusinessException(HttpStatusEnum.NOT_FOUND, "知识库不存在"));
