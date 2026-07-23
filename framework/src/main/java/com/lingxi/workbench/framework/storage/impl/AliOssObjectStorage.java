@@ -1,9 +1,11 @@
 package com.lingxi.workbench.framework.storage.impl;
 
 import com.aliyun.oss.OSS;
+import com.aliyun.oss.model.GeneratePresignedUrlRequest;
 import com.aliyun.oss.model.OSSObject;
 import com.aliyun.oss.model.ObjectMetadata;
 import com.aliyun.oss.model.PutObjectRequest;
+import com.aliyun.oss.model.ResponseHeaderOverrides;
 import com.lingxi.workbench.framework.storage.ObjectStorage;
 import lombok.RequiredArgsConstructor;
 
@@ -57,9 +59,21 @@ public class AliOssObjectStorage implements ObjectStorage {
 
     @Override
     public String presignedGetUrl(String objectKey, Duration expires) {
+        return presignedGetUrl(objectKey, expires, null);
+    }
+
+    @Override
+    public String presignedGetUrl(String objectKey, Duration expires, String responseContentType) {
         try {
             Date expiration = new Date(System.currentTimeMillis() + expires.toMillis());
-            return client.generatePresignedUrl(bucket, objectKey, expiration).toString();
+            GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(bucket, objectKey);
+            request.setExpiration(expiration);
+            if (responseContentType != null && !responseContentType.isBlank()) {
+                ResponseHeaderOverrides responseHeaders = new ResponseHeaderOverrides();
+                responseHeaders.setContentType(responseContentType);
+                request.setResponseHeaders(responseHeaders);
+            }
+            return client.generatePresignedUrl(request).toString();
         } catch (Exception e) {
             throw new IllegalStateException("OSS临时访问URL生成失败: " + objectKey, e);
         }

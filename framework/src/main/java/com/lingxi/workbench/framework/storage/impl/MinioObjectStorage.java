@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -63,13 +64,21 @@ public class MinioObjectStorage implements ObjectStorage {
 
     @Override
     public String presignedGetUrl(String objectKey, Duration expires) {
+        return presignedGetUrl(objectKey, expires, null);
+    }
+
+    @Override
+    public String presignedGetUrl(String objectKey, Duration expires, String responseContentType) {
         try {
-            return client.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+            GetPresignedObjectUrlArgs.Builder builder = GetPresignedObjectUrlArgs.builder()
                     .method(Method.GET)
                     .bucket(bucket)
                     .object(objectKey)
-                    .expiry((int) expires.getSeconds(), TimeUnit.SECONDS)
-                    .build());
+                    .expiry((int) expires.getSeconds(), TimeUnit.SECONDS);
+            if (responseContentType != null && !responseContentType.isBlank()) {
+                builder.extraQueryParams(Map.of("response-content-type", responseContentType));
+            }
+            return client.getPresignedObjectUrl(builder.build());
         } catch (Exception e) {
             throw new IllegalStateException("MinIO临时访问URL生成失败: " + objectKey, e);
         }

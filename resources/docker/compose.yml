@@ -47,17 +47,27 @@ services:
     environment:
       JAVA_OPT_EXT: -Xms512m -Xmx512m -Xmn256m
     healthcheck:
-      test: ["CMD", "sh", "-c", "netstat -an | grep 9876 || exit 1"]
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/9876"]
       interval: 10s
       timeout: 5s
       retries: 10
     volumes:
       - lingxi-rmq-namesrv:/home/rocketmq/logs
 
+  rocketmq-volume-init:
+    image: apache/rocketmq:5.3.1
+    user: root
+    entrypoint: sh
+    command: -c "chown -R 3000:3000 /home/rocketmq/store /home/rocketmq/broker-logs /home/rocketmq/namesrv-logs"
+    volumes:
+      - lingxi-rmq-broker-data:/home/rocketmq/store
+      - lingxi-rmq-broker-logs:/home/rocketmq/broker-logs
+      - lingxi-rmq-namesrv:/home/rocketmq/namesrv-logs
+
   rocketmq-broker:
     image: apache/rocketmq:5.3.1
     container_name: rmq-broker
-    command: sh mqbroker -n rocketmq-namesrv:9876 autoCreateTopicEnable=true
+    command: sh mqbroker -n rocketmq-namesrv:9876 -c /home/rocketmq/conf/broker.conf
     ports:
       - "10909:10909"
       - "10911:10911"
@@ -67,12 +77,15 @@ services:
     depends_on:
       rocketmq-namesrv:
         condition: service_healthy
+      rocketmq-volume-init:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "sh", "-c", "netstat -an | grep 10911 || exit 1"]
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/10911"]
       interval: 10s
       timeout: 5s
       retries: 15
     volumes:
+      - ./rocketmq/broker.conf:/home/rocketmq/conf/broker.conf:ro
       - lingxi-rmq-broker-data:/home/rocketmq/store
       - lingxi-rmq-broker-logs:/home/rocketmq/logs
 

@@ -9,6 +9,7 @@ import com.lingxi.workbench.admin.knowledge.model.vo.KnowledgeBaseVO;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeBaseRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeDocumentRepo;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeBaseService;
+import com.lingxi.workbench.admin.knowledge.service.KnowledgeEmbeddingModelResolver;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageResult;
@@ -29,6 +30,7 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     private final KnowledgeDocumentRepo documentRepo;
     private final KnowledgeConverter converter;
     private final AuditService auditService;
+    private final KnowledgeEmbeddingModelResolver embeddingModelResolver;
 
     @Override
     @Transactional(readOnly = true)
@@ -50,10 +52,18 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         if (baseRepo.existsByCode(code, id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "知识库编码已存在");
         }
+        embeddingModelResolver.validate(request.embeddingModelInstanceId());
         KnowledgeBaseEntity entity = Objects.isNull(id) ? new KnowledgeBaseEntity() : requireBase(id);
+        if (Objects.nonNull(id)
+                && !Objects.equals(entity.getEmbeddingModelInstanceId(), request.embeddingModelInstanceId())
+                && documentRepo.existsByBaseId(id)) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT,
+                    "知识库已有文档，不能直接更换Embedding模型，请新建知识库或先清空文档");
+        }
         entity.setName(request.name().trim());
         entity.setCode(code);
         entity.setDescription(CharSequenceUtil.isBlank(request.description()) ? null : request.description().trim());
+        entity.setEmbeddingModelInstanceId(request.embeddingModelInstanceId());
         entity.setStatus(request.status());
         entity.setUpdatedBy(operatorId);
         if (Objects.isNull(id)) entity.setCreatedBy(operatorId);

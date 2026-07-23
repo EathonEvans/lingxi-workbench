@@ -1,27 +1,32 @@
 package com.lingxi.workbench.admin.knowledge.service.impl;
 
+import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.knowledge.config.KnowledgeProperties;
 import com.lingxi.workbench.admin.knowledge.model.converter.KnowledgeConverter;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeBaseEntity;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeDocumentEntity;
 import com.lingxi.workbench.admin.knowledge.model.request.CreateTextDocumentRequest;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeBaseRepo;
+import com.lingxi.workbench.admin.knowledge.repo.KnowledgeChunkRepo;
+import com.lingxi.workbench.admin.knowledge.repo.KnowledgeChunkTaskRepo;
+import com.lingxi.workbench.admin.knowledge.repo.KnowledgeChunkVectorRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeDocumentRepo;
-import com.lingxi.workbench.admin.knowledge.repo.KnowledgeIngestionJobRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeObjectStorage;
-import com.lingxi.workbench.admin.knowledge.service.event.KnowledgeObjectDeleteRequestedEvent;
-import com.lingxi.workbench.admin.knowledge.service.event.KnowledgeObjectStoredEvent;
+import com.lingxi.workbench.admin.knowledge.event.event.KnowledgeObjectDeleteRequestedEvent;
+import com.lingxi.workbench.admin.knowledge.event.event.KnowledgeObjectStoredEvent;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import java.time.Duration;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,7 +43,9 @@ import static org.mockito.Mockito.when;
 class KnowledgeDocumentServiceImplTest {
     @Mock private KnowledgeBaseRepo baseRepo;
     @Mock private KnowledgeDocumentRepo documentRepo;
-    @Mock private KnowledgeIngestionJobRepo jobRepo;
+    @Mock private KnowledgeChunkTaskRepo taskRepo;
+    @Mock private KnowledgeChunkRepo chunkRepo;
+    @Mock private KnowledgeChunkVectorRepo vectorRepo;
     @Mock private KnowledgeObjectStorage objectStorage;
     @Mock private KnowledgeProperties properties;
     @Mock private KnowledgeConverter converter;
@@ -48,10 +56,12 @@ class KnowledgeDocumentServiceImplTest {
 
     @Test
     void shouldRegisterObjectCompensationWhenDatabaseTransactionFails() {
-        when(baseRepo.findById(1L)).thenReturn(Optional.of(new KnowledgeBaseEntity()));
+        KnowledgeBaseEntity knowledgeBase = new KnowledgeBaseEntity();
+        knowledgeBase.setStatus(EnableStatus.ACTIVE);
+        when(baseRepo.findById(1L)).thenReturn(Optional.of(knowledgeBase));
         when(documentRepo.existsByHash(any(), anyString())).thenReturn(false);
         doThrow(new DataIntegrityViolationException("内容哈希重复"))
-                .when(documentRepo).save(any(KnowledgeDocumentEntity.class));
+                .when(documentRepo).upsert(any(KnowledgeDocumentEntity.class));
 
         assertThatThrownBy(() -> service.createText(
                 new CreateTextDocumentRequest(1L, "测试文档", "测试内容"), 9L))
@@ -70,14 +80,40 @@ class KnowledgeDocumentServiceImplTest {
         document.setName("制度文档");
         document.setObjectKey("knowledge/1/document.pdf");
         when(documentRepo.findById(21L)).thenReturn(Optional.of(document));
-        when(jobRepo.existsRunningByDocumentId(21L)).thenReturn(false);
+        when(taskRepo.existsActive(21L)).thenReturn(false);
 
         service.delete(21L, 9L);
 
-        verify(documentRepo).delete(21L);
+        InOrder deleteOrder = inOrder(vectorRepo, chunkRepo, taskRepo, documentRepo);
+        deleteOrder.verify(vectorRepo).deleteByDocumentId(21L);
+        deleteOrder.verify(chunkRepo).deleteByDocumentId(21L);
+        deleteOrder.verify(taskRepo).deleteByDocumentId(21L);
+        deleteOrder.verify(documentRepo).delete(21L);
         ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
         verify(eventPublisher).publishEvent(eventCaptor.capture());
         assertThat(eventCaptor.getValue()).isEqualTo(
                 new KnowledgeObjectDeleteRequestedEvent("knowledge/1/document.pdf"));
+    }
+
+    @Test
+    void shouldForceUtf8ContentTypeWhenPreviewingMarkdown() {
+        KnowledgeDocumentEntity document = new KnowledgeDocumentEntity();
+        document.setId(22L);
+        document.setFileType("MD");
+        document.setObjectKey("knowledge/1/document.md");
+        when(documentRepo.findById(22L)).thenReturn(Optional.of(document));
+        when(objectStorage.presignedGetUrl(
+                "knowledge/1/document.md",
+                Duration.ofMinutes(15),
+                "text/markdown; charset=UTF-8"))
+                .thenReturn("http://localhost/preview");
+
+        String previewUrl = service.previewUrl(22L);
+
+        assertThat(previewUrl).isEqualTo("http://localhost/preview");
+        verify(objectStorage).presignedGetUrl(
+                "knowledge/1/document.md",
+                Duration.ofMinutes(15),
+                "text/markdown; charset=UTF-8");
     }
 }

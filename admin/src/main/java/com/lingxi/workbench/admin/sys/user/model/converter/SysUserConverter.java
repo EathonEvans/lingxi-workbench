@@ -24,8 +24,7 @@ public interface SysUserConverter {
      */
     @Mapping(target = "avatarUrl", source = "resolvedAvatarUrl")
     @Mapping(target = "avatarObjectKey", source = "avatarObjectKey")
-    SysLoginVO.SysProfileVO toProfileVO(
-            SysUserBO user, String resolvedAvatarUrl, String avatarObjectKey);
+    SysLoginVO.SysProfileVO toProfileVO(SysUserBO user, String resolvedAvatarUrl, String avatarObjectKey);
 
     /**
      * 业务对象转用户列表响应模型。

@@ -28,6 +28,11 @@ public class KnowledgeDocumentChunker {
 
     private final TokenCountEstimator tokenEstimator = new JTokkitTokenCountEstimator();
 
+    /** 计算人工修订后Chunk的Token数量。 */
+    public int estimateTokens(String content) {
+        return tokenEstimator.estimate(content);
+    }
+
     /**
      * 根据指定策略将标准化正文切分为顺序稳定的Chunk。
      */

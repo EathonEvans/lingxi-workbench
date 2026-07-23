@@ -1,25 +1,24 @@
 package com.lingxi.workbench.admin.knowledge.service.impl;
 
+import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeDocumentSourceType;
 import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeDocumentStatus;
-import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeJobStatus;
 import com.lingxi.workbench.admin.knowledge.config.KnowledgeProperties;
 import com.lingxi.workbench.admin.knowledge.model.converter.KnowledgeConverter;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeBaseEntity;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeDocumentEntity;
-import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeIngestionJobEntity;
 import com.lingxi.workbench.admin.knowledge.model.request.CreateTextDocumentRequest;
 import com.lingxi.workbench.admin.knowledge.model.request.KnowledgeDocumentPageQuery;
-import com.lingxi.workbench.admin.knowledge.model.vo.KnowledgeDocumentContentVO;
 import com.lingxi.workbench.admin.knowledge.model.vo.KnowledgeDocumentVO;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeBaseRepo;
+import com.lingxi.workbench.admin.knowledge.repo.KnowledgeChunkRepo;
+import com.lingxi.workbench.admin.knowledge.repo.KnowledgeChunkTaskRepo;
+import com.lingxi.workbench.admin.knowledge.repo.KnowledgeChunkVectorRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeDocumentRepo;
-import com.lingxi.workbench.admin.knowledge.repo.KnowledgeIngestionJobRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeObjectStorage;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeDocumentService;
-import com.lingxi.workbench.admin.knowledge.service.event.KnowledgeObjectDeleteRequestedEvent;
-import com.lingxi.workbench.admin.knowledge.service.event.KnowledgeObjectStoredEvent;
-import com.lingxi.workbench.admin.knowledge.service.event.KnowledgeParseRequestedEvent;
+import com.lingxi.workbench.admin.knowledge.event.event.KnowledgeObjectDeleteRequestedEvent;
+import com.lingxi.workbench.admin.knowledge.event.event.KnowledgeObjectStoredEvent;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageResult;
@@ -35,23 +34,30 @@ import org.springframework.web.multipart.MultipartFile;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * 知识库文档上传、文本录入和解析任务管理。
+ * 知识库文档上传与元数据管理。
+ *
+ * <p>上传阶段只持久化原始文件和文档记录，不执行解析、分块或向量化。
+ * 用户确认文档信息后，由分块接口统一触发完整异步处理链。</p>
  */
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     private static final Set<String> SUPPORTED_EXTENSIONS = Set.of("txt", "md", "markdown", "pdf", "docx");
+    private static final Duration PREVIEW_URL_TTL = Duration.ofMinutes(15);
 
     private final KnowledgeBaseRepo baseRepo;
     private final KnowledgeDocumentRepo documentRepo;
-    private final KnowledgeIngestionJobRepo jobRepo;
+    private final KnowledgeChunkTaskRepo taskRepo;
+    private final KnowledgeChunkRepo chunkRepo;
+    private final KnowledgeChunkVectorRepo vectorRepo;
     private final KnowledgeObjectStorage objectStorage;
     private final KnowledgeProperties properties;
     private final KnowledgeConverter converter;
@@ -69,7 +75,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     @Override
     @Transactional
     public KnowledgeDocumentVO upload(Long knowledgeBaseId, MultipartFile file, Long operatorId) {
-        requireBase(knowledgeBaseId);
+        requireWritableBase(knowledgeBaseId);
         if (file == null || file.isEmpty()) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "请选择需要上传的文档");
         }
@@ -90,7 +96,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             rejectDuplicate(knowledgeBaseId, contentHash);
             // 上传原始文件到对象存储，发布存储成功事件用于事务补偿
             String objectKey = buildObjectKey(knowledgeBaseId, extension);
-            String contentType = file.getContentType() == null ? "application/octet-stream" : file.getContentType();
+            String contentType = resolveContentType(extension);
             objectStorage.put(objectKey, content, contentType);
             eventPublisher.publishEvent(new KnowledgeObjectStoredEvent(objectKey));
             KnowledgeDocumentEntity entity = newDocument(knowledgeBaseId, operatorId);
@@ -101,9 +107,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             entity.setFileSize(file.getSize());
             entity.setObjectKey(objectKey);
             entity.setContentHash(contentHash);
-            documentRepo.save(entity);
-            // 创建解析任务并通过事件触发异步解析
-            createJobAndPublish(entity, operatorId, 0);
+            documentRepo.upsert(entity);
             auditService.record("KNOWLEDGE", "DOCUMENT", entity.getId(), operatorId,
                     "DOCUMENT_UPLOAD", "文档=" + fileName);
             return converter.toDocumentVO(entity);
@@ -120,7 +124,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     @Override
     @Transactional
     public KnowledgeDocumentVO createText(CreateTextDocumentRequest request, Long operatorId) {
-        requireBase(request.knowledgeBaseId());
+        requireWritableBase(request.knowledgeBaseId());
         // 文本录入以UTF-8格式编码，统一按txt扩展名存储到对象存储
         byte[] content = request.content().getBytes(StandardCharsets.UTF_8);
         String contentHash = sha256(content);
@@ -137,8 +141,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             entity.setFileSize((long) content.length);
             entity.setObjectKey(objectKey);
             entity.setContentHash(contentHash);
-            documentRepo.save(entity);
-            createJobAndPublish(entity, operatorId, 0);
+            documentRepo.upsert(entity);
             auditService.record("KNOWLEDGE", "DOCUMENT", entity.getId(), operatorId,
                     "DOCUMENT_TEXT_CREATE", "文档=" + entity.getName());
             return converter.toDocumentVO(entity);
@@ -154,47 +157,25 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
     @Override
     @Transactional(readOnly = true)
-    public KnowledgeDocumentContentVO content(Long id) {
-        KnowledgeDocumentEntity entity = requireDocument(id);
-        if (entity.getStatus() != KnowledgeDocumentStatus.PARSED) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "文档尚未解析完成");
-        }
-        return new KnowledgeDocumentContentVO(String.valueOf(entity.getId()), entity.getName(), entity.getParsedContent());
-    }
-
-    @Override
-    @Transactional
-    public void retry(Long id, Long operatorId) {
-        KnowledgeDocumentEntity entity = requireDocument(id);
-        if (entity.getStatus() != KnowledgeDocumentStatus.FAILED) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "只有解析失败的文档可以重试");
-        }
-        if (jobRepo.existsRunningByDocumentId(id)) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "文档已有解析任务正在执行");
-        }
-        // 重置文档状态为等待解析并清除错误信息
-        entity.setStatus(KnowledgeDocumentStatus.UPLOADED);
-        entity.setErrorCode(null);
-        entity.setErrorMessage(null);
-        entity.setUpdatedBy(operatorId);
-        documentRepo.save(entity);
-        try {
-            // 创建新解析任务，retryCount设为1表示首次重试
-            createJobAndPublish(entity, operatorId, 1);
-        } catch (DataIntegrityViolationException exception) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "文档已有解析任务正在执行");
-        }
-        auditService.record("KNOWLEDGE", "DOCUMENT", id, operatorId, "DOCUMENT_PARSE_RETRY", "重新解析文档");
+    public String previewUrl(Long id) {
+        KnowledgeDocumentEntity document = requireDocument(id);
+        return objectStorage.presignedGetUrl(
+                document.getObjectKey(),
+                PREVIEW_URL_TTL,
+                resolveContentType(document.getFileType()));
     }
 
     @Override
     @Transactional
     public void delete(Long id, Long operatorId) {
         KnowledgeDocumentEntity entity = requireDocument(id);
-        // 解析中的文档不允许删除
-        if (entity.getStatus() == KnowledgeDocumentStatus.PARSING || jobRepo.existsRunningByDocumentId(id)) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "文档正在解析，不能删除");
+        if (entity.getStatus() == KnowledgeDocumentStatus.RUNNING || taskRepo.existsActive(id)) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "文档正在处理，不能删除");
         }
+        // 仅使用逻辑外键，必须按派生数据到主数据的顺序显式清理。
+        vectorRepo.deleteByDocumentId(id);
+        chunkRepo.deleteByDocumentId(id);
+        taskRepo.deleteByDocumentId(id);
         documentRepo.delete(id);
         auditService.record("KNOWLEDGE", "DOCUMENT", id, operatorId, "DOCUMENT_DELETE", "文档=" + entity.getName());
         // 事务提交后异步清理对象存储中的原始文件
@@ -202,31 +183,16 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     }
 
     /**
-     * 创建文档实体并设置初始状态为等待解析。
+     * 创建文档实体并设置初始状态为待处理。
      */
     private KnowledgeDocumentEntity newDocument(Long knowledgeBaseId, Long operatorId) {
         KnowledgeDocumentEntity entity = new KnowledgeDocumentEntity();
         entity.setKnowledgeBaseId(knowledgeBaseId);
-        entity.setStatus(KnowledgeDocumentStatus.UPLOADED);
+        entity.setStatus(KnowledgeDocumentStatus.PENDING);
+        entity.setChunkCount(0);
         entity.setCreatedBy(operatorId);
         entity.setUpdatedBy(operatorId);
         return entity;
-    }
-
-    /**
-     * 创建PENDING状态的解析任务，并通过Spring事件触发异步解析。
-     */
-    private void createJobAndPublish(KnowledgeDocumentEntity document, Long operatorId, int retryCount) {
-        KnowledgeIngestionJobEntity job = new KnowledgeIngestionJobEntity();
-        job.setKnowledgeBaseId(document.getKnowledgeBaseId());
-        job.setDocumentId(document.getId());
-        job.setStatus(KnowledgeJobStatus.PENDING);
-        job.setProgress(0);
-        job.setRetryCount(retryCount);
-        job.setCreatedBy(operatorId);
-        job.setUpdatedBy(operatorId);
-        jobRepo.save(job);
-        eventPublisher.publishEvent(new KnowledgeParseRequestedEvent(job.getId()));
     }
 
     /**
@@ -246,10 +212,39 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     }
 
     /**
+     * 校验知识库可写，停用知识库只允许查看已有数据。
+     */
+    private KnowledgeBaseEntity requireWritableBase(Long id) {
+        KnowledgeBaseEntity knowledgeBase = requireBase(id);
+        if (knowledgeBase.getStatus() != EnableStatus.ACTIVE) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "知识库已停用，不能新增文档");
+        }
+        return knowledgeBase;
+    }
+
+    /**
      * 按ID加载文档，不存在时抛出业务异常。
      */
     private KnowledgeDocumentEntity requireDocument(Long id) {
         return documentRepo.findById(id).orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "知识库文档不存在"));
+    }
+
+    /**
+     * 根据文件扩展名确定稳定的响应类型。
+     *
+     * <p>文本类型必须显式声明UTF-8，否则对象存储直出时浏览器可能按本地编码解析中文。</p>
+     */
+    private static String resolveContentType(String fileType) {
+        if (fileType == null) {
+            return "application/octet-stream";
+        }
+        return switch (fileType.toLowerCase(Locale.ROOT)) {
+            case "txt" -> "text/plain; charset=UTF-8";
+            case "md", "markdown" -> "text/markdown; charset=UTF-8";
+            case "pdf" -> "application/pdf";
+            case "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            default -> "application/octet-stream";
+        };
     }
 
     /**

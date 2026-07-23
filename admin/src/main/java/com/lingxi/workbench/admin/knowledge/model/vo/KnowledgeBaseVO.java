@@ -5,4 +5,5 @@ import java.time.OffsetDateTime;
 
 /** 知识库列表响应。 */
 public record KnowledgeBaseVO(String id, String name, String code, String description,
+                              String embeddingModelInstanceId,
                               EnableStatus status, OffsetDateTime createdAt, OffsetDateTime updatedAt) {}

@@ -36,7 +36,9 @@ public class SysSessionController {
         return ApiResponse.success(sysPermissionService.getSession(userId));
     }
 
-    /** 修改当前管理员头像，不复用系统用户全量编辑接口。 */
+    /**
+     * 修改当前管理员头像，不复用系统用户全量编辑接口。
+     */
     @PostMapping("/update-avatar")
     public ApiResponse<SysAvatarVO> updateAvatar(
             @Valid @RequestBody UpdateCurrentAvatarRequest request) {

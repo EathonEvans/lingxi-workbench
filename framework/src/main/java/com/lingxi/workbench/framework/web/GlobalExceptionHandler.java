@@ -25,32 +25,42 @@ public class GlobalExceptionHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    /** 处理业务异常，返回异常中携带的自定义错误码和提示信息。 */
+    /**
+     * 处理业务异常，返回异常中携带的自定义错误码和提示信息。
+     */
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException exception) {
         return ResponseEntity.status(exception.getHttpStatus().getCode())
                 .body(ApiResponse.failure(exception.getCode(), exception.getMessage()));
     }
 
-    /** 处理 JSR-303 参数校验失败，返回 400 通用提示。 */
+    /**
+     * 处理 JSR-303 参数校验失败，返回 400 通用提示。
+     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Void>> handleValidationException() {
         return failure(HttpStatusEnum.BAD_REQUEST, "请求参数不合法");
     }
 
-    /** 处理请求体 JSON 解析或类型转换失败，返回 400 通用提示。 */
+    /**
+     * 处理请求体 JSON 解析或类型转换失败，返回 400 通用提示。
+     */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiResponse<Void>> handleUnreadableMessage() {
         return failure(HttpStatusEnum.BAD_REQUEST, "请求体格式不正确");
     }
 
-    /** 处理登录态失效或未登录，返回 401 通用提示。 */
+    /**
+     * 处理登录态失效或未登录，返回 401 通用提示。
+     */
     @ExceptionHandler(NotLoginException.class)
     public ResponseEntity<ApiResponse<Void>> handleNotLoginException() {
         return failure(HttpStatusEnum.UNAUTHORIZED, "登录状态无效，请重新登录");
     }
 
-    /** 处理权限不足和角色不匹配，返回 403 通用提示。 */
+    /**
+     * 处理权限不足和角色不匹配，返回 403 通用提示。
+     */
     @ExceptionHandler({NotPermissionException.class, NotRoleException.class})
     public ResponseEntity<ApiResponse<Void>> handleForbiddenException() {
         return failure(HttpStatusEnum.FORBIDDEN, "无权访问该资源");
@@ -67,7 +77,9 @@ public class GlobalExceptionHandler {
         return failure(HttpStatusEnum.INTERNAL_SERVER_ERROR, "系统内部错误");
     }
 
-    /** 构建统一失败响应体，包含 HTTP 状态码和错误信息。 */
+    /**
+     * 构建统一失败响应体，包含 HTTP 状态码和错误信息。
+     */
     private static ResponseEntity<ApiResponse<Void>> failure(HttpStatusEnum status, String message) {
         return ResponseEntity.status(status.getCode())
                 .body(ApiResponse.failure(status, message));

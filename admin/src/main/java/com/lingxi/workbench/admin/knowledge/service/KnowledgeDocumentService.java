@@ -2,13 +2,12 @@ package com.lingxi.workbench.admin.knowledge.service;
 
 import com.lingxi.workbench.admin.knowledge.model.request.CreateTextDocumentRequest;
 import com.lingxi.workbench.admin.knowledge.model.request.KnowledgeDocumentPageQuery;
-import com.lingxi.workbench.admin.knowledge.model.vo.KnowledgeDocumentContentVO;
 import com.lingxi.workbench.admin.knowledge.model.vo.KnowledgeDocumentVO;
 import com.lingxi.workbench.framework.convention.PageResult;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 知识库文档管理与解析业务。
+ * 知识库文档上传与管理业务。
  */
 public interface KnowledgeDocumentService {
     /**
@@ -17,27 +16,22 @@ public interface KnowledgeDocumentService {
     PageResult<KnowledgeDocumentVO> page(KnowledgeDocumentPageQuery query);
 
     /**
-     * 上传文档文件并创建异步解析任务。
+     * 上传文档文件，仅保存原文件和元数据。
      */
     KnowledgeDocumentVO upload(Long knowledgeBaseId, MultipartFile file, Long operatorId);
 
     /**
-     * 录入文本内容并创建异步解析任务。
+     * 录入文本内容，仅保存原文件和元数据。
      */
     KnowledgeDocumentVO createText(CreateTextDocumentRequest request, Long operatorId);
 
     /**
-     * 查询已解析文档的纯文本正文。
+     * 获取原始文档的临时预览地址。
      */
-    KnowledgeDocumentContentVO content(Long id);
+    String previewUrl(Long id);
 
     /**
-     * 重试失败的文档解析任务。
-     */
-    void retry(Long id, Long operatorId);
-
-    /**
-     * 删除非解析中的文档及原始文件。
+     * 删除非处理中的文档及原始文件。
      */
     void delete(Long id, Long operatorId);
 }

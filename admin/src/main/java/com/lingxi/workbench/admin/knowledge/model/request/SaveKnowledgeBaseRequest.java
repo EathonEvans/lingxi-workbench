@@ -12,4 +12,5 @@ public record SaveKnowledgeBaseRequest(
         @NotBlank(message = "知识库编码不能为空")
         @Pattern(regexp = "^[a-z][a-z0-9_-]{1,63}$", message = "知识库编码格式不正确") String code,
         @Size(max = 500, message = "知识库描述不能超过500个字符") String description,
+        @NotNull(message = "请选择Embedding模型") Long embeddingModelInstanceId,
         @NotNull(message = "知识库状态不能为空") EnableStatus status) {}

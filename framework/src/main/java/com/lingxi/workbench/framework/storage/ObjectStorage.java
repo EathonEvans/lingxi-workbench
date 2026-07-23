@@ -42,4 +42,19 @@ public interface ObjectStorage {
      * @return 带签名的临时访问URL
      */
     String presignedGetUrl(String objectKey, Duration expires);
+
+    /**
+     * 生成可覆盖响应Content-Type的临时访问URL。
+     *
+     * <p>适用于文本预览等需要明确字符集的场景。对象历史元数据不正确时，
+     * 也可以通过响应头覆盖避免浏览器错误推断编码。</p>
+     *
+     * @param objectKey          对象唯一标识
+     * @param expires            有效期
+     * @param responseContentType 下载响应使用的Content-Type
+     * @return 带签名的临时访问URL
+     */
+    default String presignedGetUrl(String objectKey, Duration expires, String responseContentType) {
+        return presignedGetUrl(objectKey, expires);
+    }
 }

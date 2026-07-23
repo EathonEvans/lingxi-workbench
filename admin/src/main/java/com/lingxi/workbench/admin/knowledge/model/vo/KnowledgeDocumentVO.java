@@ -1,5 +1,6 @@
 package com.lingxi.workbench.admin.knowledge.model.vo;
 
+import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeChunkStrategy;
 import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeDocumentSourceType;
 import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeDocumentStatus;
 import java.time.OffsetDateTime;
@@ -8,5 +9,7 @@ import java.time.OffsetDateTime;
 public record KnowledgeDocumentVO(String id, String knowledgeBaseId, String name,
                                   KnowledgeDocumentSourceType sourceType, String fileName,
                                   String fileType, Long fileSize, KnowledgeDocumentStatus status,
-                                  Integer pageCount, String errorMessage, OffsetDateTime parsedAt,
+                                  Integer pageCount, KnowledgeChunkStrategy chunkStrategy,
+                                  Integer chunkSize, Integer chunkOverlap, Integer chunkCount,
+                                  String errorMessage, String activeChunkTaskId,
                                   OffsetDateTime createdAt, OffsetDateTime updatedAt) {}

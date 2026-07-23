@@ -1,11 +1,12 @@
 package com.lingxi.workbench.admin.knowledge.model.vo;
 
-import com.lingxi.workbench.admin.knowledge.common.enums.DocChunkStrategy;
+import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeChunkStrategy;
+import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeChunkTaskStatus;
 
-import java.util.List;
+import java.time.OffsetDateTime;
 
 /**
- * 手动执行文档分块结果；当前仅用于用户确认，不代表Chunk已经持久化。
+ * 文档分块与向量化任务状态。
  *
  * @param documentId 文档ID
  * @param documentName 文档名称
@@ -14,14 +15,21 @@ import java.util.List;
  * @param chunkOverlap 相邻Chunk的重叠Token数
  * @param chunkCount Chunk总数
  * @param totalTokens 所有Chunk的Token数量之和
- * @param chunks Chunk预览列表
+ * @param retryCount 已执行的自动重试次数
  */
 public record KnowledgeChunkResultVO(
+        String taskId,
         String documentId,
         String documentName,
-        DocChunkStrategy strategy,
+        KnowledgeChunkStrategy strategy,
         int chunkSize,
         int chunkOverlap,
+        KnowledgeChunkTaskStatus status,
+        int progress,
         int chunkCount,
+        int vectorizedCount,
         long totalTokens,
-        List<KnowledgeChunkVO> chunks) {}
+        int retryCount,
+        String errorMessage,
+        OffsetDateTime createdAt,
+        OffsetDateTime finishedAt) {}

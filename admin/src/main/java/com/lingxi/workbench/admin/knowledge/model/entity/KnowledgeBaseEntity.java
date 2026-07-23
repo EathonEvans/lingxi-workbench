@@ -15,6 +15,8 @@ public class KnowledgeBaseEntity extends TimeEntity {
     private String name;
     private String code;
     private String description;
+    /** 知识库固定使用的Embedding模型实例。 */
+    private Long embeddingModelInstanceId;
     private EnableStatus status;
     private Long createdBy;
     private Long updatedBy;

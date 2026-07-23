@@ -4,6 +4,7 @@ import cn.hutool.core.text.CharSequenceUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeDocumentEntity;
+import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeChunkStrategy;
 import com.lingxi.workbench.admin.knowledge.model.request.KnowledgeDocumentPageQuery;
 import com.lingxi.workbench.admin.knowledge.repo.mapper.KnowledgeDocumentMapper;
 import com.lingxi.workbench.framework.convention.PageResult;
@@ -59,11 +60,22 @@ public class KnowledgeDocumentRepo {
     }
 
     /**
+     * 原子标记文档为处理中，同时持久化本次分块配置。
+     */
+    public boolean claimProcessing(Long id, KnowledgeChunkStrategy strategy,
+                                   Integer chunkSize, Integer chunkOverlap, Long operatorId) {
+        return mapper.claimProcessing(id, strategy.getCode(), chunkSize, chunkOverlap, operatorId) == 1;
+    }
+
+    /**
      * 新增或更新文档，ID为空时插入否则更新。
      */
-    public void save(KnowledgeDocumentEntity entity) {
-        if (Objects.isNull(entity.getId())) mapper.insert(entity);
-        else mapper.updateById(entity);
+    public void upsert(KnowledgeDocumentEntity entity) {
+        if (Objects.isNull(entity.getId())){
+            mapper.insert(entity);
+        } else {
+            mapper.updateById(entity);
+        }
     }
 
     /**

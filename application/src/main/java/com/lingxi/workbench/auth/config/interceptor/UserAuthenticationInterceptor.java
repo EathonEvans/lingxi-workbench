@@ -52,11 +52,7 @@ public class UserAuthenticationInterceptor implements AsyncHandlerInterceptor {
      * 请求进入异步处理后，原 Servlet 线程会立即归还线程池，必须同步清理用户上下文，避免线程复用污染。
      */
     @Override
-    public void afterConcurrentHandlingStarted(
-            HttpServletRequest request,
-            HttpServletResponse response,
-            Object handler
-    ) {
+    public void afterConcurrentHandlingStarted(HttpServletRequest request, HttpServletResponse response, Object handler) {
         UserContext.clear();
     }
 

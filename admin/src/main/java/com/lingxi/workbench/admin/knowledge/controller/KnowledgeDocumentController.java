@@ -3,7 +3,6 @@ package com.lingxi.workbench.admin.knowledge.controller;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.lingxi.workbench.admin.knowledge.model.request.CreateTextDocumentRequest;
 import com.lingxi.workbench.admin.knowledge.model.request.KnowledgeDocumentPageQuery;
-import com.lingxi.workbench.admin.knowledge.model.vo.KnowledgeDocumentContentVO;
 import com.lingxi.workbench.admin.knowledge.model.vo.KnowledgeDocumentVO;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeDocumentService;
 import com.lingxi.workbench.framework.convention.ApiResponse;
@@ -24,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 管理端知识库文档上传与解析接口。
+ * 管理端知识库文档上传与管理接口。
  */
 @Validated
 @RestController
@@ -43,7 +42,7 @@ public class KnowledgeDocumentController {
     }
 
     /**
-     * 上传文档并创建异步解析任务。
+     * 上传文档，仅保存原始文件和元数据。
      */
     @PostMapping("/upload")
     @SaCheckPermission("knowledge:document:manage")
@@ -52,7 +51,7 @@ public class KnowledgeDocumentController {
     }
 
     /**
-     * 录入文本并创建异步解析任务。
+     * 录入文本，仅保存原始文件和元数据。
      */
     @PostMapping("/create-text")
     @SaCheckPermission("knowledge:document:manage")
@@ -61,24 +60,16 @@ public class KnowledgeDocumentController {
     }
 
     /**
-     * 查询解析后的纯文本正文。
+     * 获取原始文档的临时云存储预览地址。
      */
-    @GetMapping("/content/{id}")
+    @GetMapping("/preview/{id}")
     @SaCheckPermission("knowledge:document:list")
-    public ApiResponse<KnowledgeDocumentContentVO> content(@PathVariable Long id) {
-        return ApiResponse.success(service.content(id));
-    }
-
-    /** 重试失败的文档解析任务。 */
-    @PostMapping("/retry/{id}")
-    @SaCheckPermission("knowledge:document:manage")
-    public ApiResponse<Void> retry(@PathVariable Long id) {
-        service.retry(id, UserContext.userId());
-        return ApiResponse.success();
+    public ApiResponse<String> preview(@PathVariable Long id) {
+        return ApiResponse.success(service.previewUrl(id));
     }
 
     /**
-     * 删除非解析中的文档及其原始文件。
+     * 删除非处理中的文档及其原始文件。
      */
     @PostMapping("/delete/{id}")
     @SaCheckPermission("knowledge:document:manage")

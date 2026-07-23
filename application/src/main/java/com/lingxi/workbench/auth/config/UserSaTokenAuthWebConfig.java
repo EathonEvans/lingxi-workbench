@@ -19,13 +19,13 @@ package com.lingxi.workbench.auth.config;
 
 import cn.dev33.satoken.context.SaHolder;
 import cn.dev33.satoken.filter.SaServletFilter;
-import cn.dev33.satoken.interceptor.SaInterceptor;
 import cn.dev33.satoken.router.SaHttpMethod;
 import cn.dev33.satoken.router.SaRouter;
 import com.alibaba.fastjson2.JSON;
 import com.lingxi.workbench.auth.config.interceptor.UserAuthenticationInterceptor;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
 import com.lingxi.workbench.framework.auth.config.SaTokenExtendConfig;
+import com.lingxi.workbench.framework.auth.interceptor.SaTokenAnnotationInterceptor;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.ApiResponse;
 import lombok.RequiredArgsConstructor;
@@ -56,7 +56,7 @@ public class UserSaTokenAuthWebConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         // SaInterceptor 专门解析 @SaCheckPermission、@SaCheckRole 等方法注解。
         // 全局过滤器只负责登录态校验，二者职责不同，不能只注册其中一个。
-        registry.addInterceptor(new SaInterceptor())
+        registry.addInterceptor(new SaTokenAnnotationInterceptor())
                 .addPathPatterns("/**")
                 .excludePathPatterns(saTokenExtendConfig.getExcludeUri());
 
