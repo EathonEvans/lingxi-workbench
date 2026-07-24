@@ -34,7 +34,11 @@ public class AvatarUrlService {
         return new AvatarUrl(objectStorage.presignedGetUrl(storedValue, expires), storedValue);
     }
 
-    /** 头像可访问地址及其持久化对象Key。 */
+    /** 头像可访问地址及其持久化对象Key。
+     *
+     * @param url       前端可访问的地址（签名临时URL或历史外链地址）
+     * @param objectKey 对象存储中的持久化标识
+     */
     public record AvatarUrl(String url, String objectKey) {
     }
 }

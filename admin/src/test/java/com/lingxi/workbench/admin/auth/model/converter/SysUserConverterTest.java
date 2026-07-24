@@ -25,11 +25,11 @@ class SysUserConverterTest {
 
         SysUserBO user = converter.toBO(entity);
 
-        assertEquals(1L, user.id());
-        assertEquals("admin", user.username());
-        assertEquals("password-hash", user.passwordHash());
-        assertEquals("系统管理员", user.displayName());
-        assertEquals("avatar-url", user.avatarUrl());
-        assertEquals(SysUserStatus.ACTIVE, user.status());
+        assertEquals(1L, user.getId());
+        assertEquals("admin", user.getUsername());
+        assertEquals("password-hash", user.getPasswordHash());
+        assertEquals("系统管理员", user.getDisplayName());
+        assertEquals("avatar-url", user.getAvatarUrl());
+        assertEquals(SysUserStatus.ACTIVE, user.getStatus());
     }
 }

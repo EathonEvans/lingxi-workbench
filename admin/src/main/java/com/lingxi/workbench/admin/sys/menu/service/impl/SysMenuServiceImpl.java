@@ -105,10 +105,10 @@ public class SysMenuServiceImpl implements SysMenuService {
     @Override
     @Transactional
     public SysMenuVO create(CreateMenuRequest request) {
-        String permissionCode = normalizeNullable(request.permissionCode());
-        validateParent(request.parentId(), null, request.menuType());
-        validateMenuFields(request.menuType(), request.parentId(), request.routePath(), permissionCode, null);
-        validateUnique(request.code(), permissionCode, null);
+        String permissionCode = normalizeNullable(request.getPermissionCode());
+        validateParent(request.getParentId(), null, request.getMenuType());
+        validateMenuFields(request.getMenuType(), request.getParentId(), request.getRoutePath(), permissionCode, null);
+        validateUnique(request.getCode(), permissionCode, null);
 
         SysMenuEntity entity = sysMenuConverter.toEntity(request);
         normalizeEntity(entity);
@@ -127,9 +127,9 @@ public class SysMenuServiceImpl implements SysMenuService {
     @Transactional
     public SysMenuVO update(Long id, UpdateMenuRequest request) {
         SysMenuEntity entity = requireMenu(id);
-        String permissionCode = normalizeNullable(request.permissionCode());
-        validateParent(request.parentId(), id, request.menuType());
-        validateMenuFields(request.menuType(), request.parentId(), request.routePath(), permissionCode, id);
+        String permissionCode = normalizeNullable(request.getPermissionCode());
+        validateParent(request.getParentId(), id, request.getMenuType());
+        validateMenuFields(request.getMenuType(), request.getParentId(), request.getRoutePath(), permissionCode, id);
         validateUnique(entity.getCode(), permissionCode, id);
 
         sysMenuConverter.updateEntity(request, entity);
@@ -274,11 +274,13 @@ public class SysMenuServiceImpl implements SysMenuService {
         List<SysMenuVO> children = childrenByParent.getOrDefault(entity.getId(), List.of()).stream()
                 .map(child -> toTreeNode(child, childrenByParent))
                 .toList();
-        return new SysMenuVO(
-                base.id(), base.parentId(), base.name(), base.code(), base.menuType(),
-                base.routePath(), base.component(), base.icon(), base.permissionCode(),
-                base.sortOrder(), base.visible(), base.status(), children
-        );
+        return SysMenuVO.builder()
+                .id(base.getId()).parentId(base.getParentId()).name(base.getName())
+                .code(base.getCode()).menuType(base.getMenuType())
+                .routePath(base.getRoutePath()).component(base.getComponent())
+                .icon(base.getIcon()).permissionCode(base.getPermissionCode())
+                .sortOrder(base.getSortOrder()).visible(base.getVisible())
+                .status(base.getStatus()).children(children).build();
     }
 
     /**

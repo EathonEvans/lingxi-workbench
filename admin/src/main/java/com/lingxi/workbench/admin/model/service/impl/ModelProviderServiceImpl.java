@@ -50,20 +50,20 @@ public class ModelProviderServiceImpl implements ModelProviderService {
     @Transactional
     public ModelProviderVO save(
             Long id, SaveModelProviderRequest request, Long operatorId) {
-        String code = request.code().trim().toLowerCase();
+        String code = request.getCode().trim().toLowerCase();
         // 编码全局唯一，更新时排除自身
         if (providerRepo.existsByCode(code, id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "供应商编码已存在");
         }
 
         ModelProviderEntity entity = Objects.isNull(id) ? new ModelProviderEntity() : requireProvider(id);
-        entity.setName(request.name().trim());
+        entity.setName(request.getName().trim());
         entity.setCode(code);
         // 当前仅支持 OpenAI 兼容协议
         entity.setProtocol(OPENAI_COMPATIBLE);
-        entity.setBaseUrl(normalizeUrl(request.baseUrl()));
-        entity.setStatus(request.status());
-        entity.setRemark(trimToNull(request.remark()));
+        entity.setBaseUrl(normalizeUrl(request.getBaseUrl()));
+        entity.setStatus(request.getStatus());
+        entity.setRemark(trimToNull(request.getRemark()));
         entity.setUpdatedBy(operatorId);
         if (Objects.isNull(id)) {
             entity.setCreatedBy(operatorId);

@@ -44,7 +44,7 @@ public class UserAuthenticationInterceptor implements AsyncHandlerInterceptor {
             throw AuthException.userDisabled("应用端访问权限已关闭，请联系管理员");
         }
 
-        UserContext.set(new LoginUser(user.id(), user.username(), user.displayName(), user.avatarUrl()));
+        UserContext.set(new LoginUser(user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl()));
         return true;
     }
 

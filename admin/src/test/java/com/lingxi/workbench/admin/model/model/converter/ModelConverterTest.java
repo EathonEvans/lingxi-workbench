@@ -27,12 +27,12 @@ class ModelConverterTest {
 
         ModelInstanceVO result = converter.toInstanceVO(entity);
 
-        assertEquals("2077574496283791361", result.id());
-        assertEquals("2077574496283791362", result.providerId());
-        assertEquals("2077574496283791363", result.credentialId());
-        assertEquals("CHAT", result.modelType());
-        assertEquals(List.of("STREAMING", "TOOL_CALLING"), result.capabilities());
-        assertEquals(List.of("END"), result.stopSequences());
+        assertEquals("2077574496283791361", result.getId());
+        assertEquals("2077574496283791362", result.getProviderId());
+        assertEquals("2077574496283791363", result.getCredentialId());
+        assertEquals("CHAT", result.getModelType());
+        assertEquals(List.of("STREAMING", "TOOL_CALLING"), result.getCapabilities());
+        assertEquals(List.of("END"), result.getStopSequences());
     }
 
 }

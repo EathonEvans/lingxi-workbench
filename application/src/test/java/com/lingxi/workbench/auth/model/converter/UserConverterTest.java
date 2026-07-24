@@ -24,11 +24,11 @@ class UserConverterTest {
 
         UserBO user = converter.toBO(entity);
 
-        assertEquals(1L, user.id());
-        assertEquals("alice", user.username());
-        assertEquals("password-hash", user.passwordHash());
-        assertEquals("Alice", user.displayName());
-        assertEquals("avatar-url", user.avatarUrl());
-        assertEquals(UserStatus.ACTIVE, user.status());
+        assertEquals(1L, user.getId());
+        assertEquals("alice", user.getUsername());
+        assertEquals("password-hash", user.getPasswordHash());
+        assertEquals("Alice", user.getDisplayName());
+        assertEquals("avatar-url", user.getAvatarUrl());
+        assertEquals(UserStatus.ACTIVE, user.getStatus());
     }
 }

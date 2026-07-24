@@ -55,44 +55,44 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
     @Transactional
     public ModelInstanceVO save(
             Long id, SaveModelInstanceRequest request, Long operatorId) {
-        ModelProviderEntity provider = requireProvider(request.providerId());
-        ModelCredentialEntity credential = requireCredential(request.credentialId());
+        ModelProviderEntity provider = requireProvider(request.getProviderId());
+        ModelCredentialEntity credential = requireCredential(request.getCredentialId());
         // 校验密钥归属
         if (!credential.getProviderId().equals(provider.getId())) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "密钥不属于所选供应商");
         }
         // 启用时需确保依赖的供应商和密钥均可用
-        if (request.status() == EnableStatus.ACTIVE) {
+        if (request.getStatus() == EnableStatus.ACTIVE) {
             requireAvailable(provider, credential);
         }
 
-        String code = request.code().trim().toLowerCase();
+        String code = request.getCode().trim().toLowerCase();
         if (instanceRepo.existsByCode(code, id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "模型实例编码已存在");
         }
 
         ModelInstanceEntity entity = Objects.isNull(id) ? new ModelInstanceEntity() : requireInstance(id);
         // 已创建实例不允许修改模型类型
-        if (Objects.nonNull(id) && entity.getModelType() != request.modelType()) {
+        if (Objects.nonNull(id) && entity.getModelType() != request.getModelType()) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "已创建的模型实例不允许修改模型类型");
         }
         entity.setProviderId(provider.getId());
         entity.setCredentialId(credential.getId());
-        entity.setName(request.name().trim());
+        entity.setName(request.getName().trim());
         entity.setCode(code);
-        entity.setModelCode(request.modelCode().trim());
-        entity.setModelType(request.modelType());
-        entity.setCapabilities(normalizeCapabilities(request.modelType(), request.capabilities()));
+        entity.setModelCode(request.getModelCode().trim());
+        entity.setModelType(request.getModelType());
+        entity.setCapabilities(normalizeCapabilities(request.getModelType(), request.getCapabilities()));
         // 非对话模型不设置对话相关参数
-        boolean chatModel = request.modelType() == ModelType.CHAT;
-        entity.setTemperature(chatModel ? request.temperature() : null);
-        entity.setTopP(chatModel ? request.topP() : null);
-        entity.setMaxTokens(chatModel ? request.maxTokens() : null);
-        entity.setContextWindow(request.contextWindow());
-        entity.setStopSequences(normalizeList(chatModel ? request.stopSequences() : List.of()));
-        entity.setTimeoutSeconds(request.timeoutSeconds());
-        entity.setMaxRetries(request.maxRetries());
-        entity.setStatus(request.status());
+        boolean chatModel = request.getModelType() == ModelType.CHAT;
+        entity.setTemperature(chatModel ? request.getTemperature() : null);
+        entity.setTopP(chatModel ? request.getTopP() : null);
+        entity.setMaxTokens(chatModel ? request.getMaxTokens() : null);
+        entity.setContextWindow(request.getContextWindow());
+        entity.setStopSequences(normalizeList(chatModel ? request.getStopSequences() : List.of()));
+        entity.setTimeoutSeconds(request.getTimeoutSeconds());
+        entity.setMaxRetries(request.getMaxRetries());
+        entity.setStatus(request.getStatus());
         entity.setUpdatedBy(operatorId);
         // 新建实例时初始化默认值
         if (Objects.isNull(id)) {
@@ -108,7 +108,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
                 entity.getId(),
                 operatorId,
                 Objects.isNull(id) ? "MODEL_CREATE" : "MODEL_UPDATE",
-                "模型实例=" + code + "，类型=" + request.modelType());
+                "模型实例=" + code + "，类型=" + request.getModelType());
         return modelConverter.toInstanceVO(entity);
     }
 

@@ -65,9 +65,17 @@ class SpringAiStreamingChatGatewayTest {
     }
 
     private static ChatModelRuntimeConfig config() {
-        return new ChatModelRuntimeConfig(
-                1L, "https://api.deepseek.com", "secret", "deepseek-chat",
-                0.7, null, 1024, List.of(), 60, 1);
+        return ChatModelRuntimeConfig.builder()
+                .instanceId(1L)
+                .baseUrl("https://api.deepseek.com")
+                .apiKey("secret")
+                .modelCode("deepseek-chat")
+                .temperature(0.7)
+                .maxTokens(1024)
+                .stopSequences(List.of())
+                .timeoutSeconds(60)
+                .maxRetries(1)
+                .build();
     }
 
     private static ChatResponse response(String content) {

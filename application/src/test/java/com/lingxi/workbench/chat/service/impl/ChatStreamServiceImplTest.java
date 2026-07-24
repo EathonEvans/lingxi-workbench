@@ -47,9 +47,16 @@ class ChatStreamServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        ChatModelRuntimeConfig config = new ChatModelRuntimeConfig(
-                1L, "https://api.deepseek.com", "secret", "deepseek-chat",
-                0.7, null, null, List.of(), 60, 1);
+        ChatModelRuntimeConfig config = ChatModelRuntimeConfig.builder()
+                .instanceId(1L)
+                .baseUrl("https://api.deepseek.com")
+                .apiKey("secret")
+                .modelCode("deepseek-chat")
+                .temperature(0.7)
+                .stopSequences(List.of())
+                .timeoutSeconds(60)
+                .maxRetries(1)
+                .build();
         when(configService.getDefaultChatModel()).thenReturn(config);
         when(conversationService.startTurn(7L, 10L, "client-001", "你好", 1L))
                 .thenReturn(new ChatTurnBO(10L, 11L, 12L, 3));

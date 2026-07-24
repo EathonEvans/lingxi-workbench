@@ -79,16 +79,16 @@ public class SysDepartmentServiceImpl implements SysDepartmentService {
     @Override
     @Transactional
     public SysDepartmentVO create(CreateDepartmentRequest request) {
-        if (Objects.isNull(request.parentId())) {
+        if (Objects.isNull(request.getParentId())) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "新部门必须设置上级部门");
         }
-        validateParent(request.parentId(), null);
-        if (sysDepartmentRepo.existsByCode(request.code())) {
+        validateParent(request.getParentId(), null);
+        if (sysDepartmentRepo.existsByCode(request.getCode())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "部门编码已存在");
         }
         SysDepartmentEntity entity = sysDepartmentConverter.toEntity(request);
-        entity.setName(request.name().trim());
-        entity.setSortOrder(Objects.isNull(request.sortOrder()) ? 0 : request.sortOrder());
+        entity.setName(request.getName().trim());
+        entity.setSortOrder(Objects.isNull(request.getSortOrder()) ? 0 : request.getSortOrder());
         sysDepartmentRepo.insert(entity);
         return sysDepartmentConverter.toVO(entity);
     }
@@ -193,7 +193,9 @@ public class SysDepartmentServiceImpl implements SysDepartmentService {
         List<SysDepartmentVO> children = childrenByParent.getOrDefault(entity.getId(), List.of()).stream()
                 .map(child -> toTreeNode(child, childrenByParent))
                 .toList();
-        return new SysDepartmentVO(base.id(), base.parentId(), base.name(), base.code(),
-                base.sortOrder(), base.status(), children);
+        return SysDepartmentVO.builder()
+                .id(base.getId()).parentId(base.getParentId()).name(base.getName())
+                .code(base.getCode()).sortOrder(base.getSortOrder()).status(base.getStatus())
+                .children(children).build();
     }
 }

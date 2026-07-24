@@ -44,28 +44,60 @@ class KnowledgeChunkTaskConsumerTest {
     void shouldExecuteWholePipelineInOneConsumer() throws Exception {
         Long taskId = 1L;
         KnowledgeChunkPipelineService.ProcessingInput processingInput =
-                new KnowledgeChunkPipelineService.ProcessingInput(taskId, 2L, 3L,
-                        KnowledgeChunkStrategy.PARAGRAPH, 600, 80, 4L,
-                        "knowledge/2/source.pdf", "测试文档", "source.pdf",
-                        "PDF", KnowledgeDocumentSourceType.FILE);
+                KnowledgeChunkPipelineService.ProcessingInput.builder()
+                        .taskId(taskId)
+                        .knowledgeBaseId(2L)
+                        .documentId(3L)
+                        .strategy(KnowledgeChunkStrategy.PARAGRAPH)
+                        .chunkSize(600)
+                        .chunkOverlap(80)
+                        .operatorId(4L)
+                        .objectKey("knowledge/2/source.pdf")
+                        .documentName("测试文档")
+                        .fileName("source.pdf")
+                        .fileType("PDF")
+                        .sourceType(KnowledgeDocumentSourceType.FILE)
+                        .build();
         KnowledgeDocumentParser.ParsedDocument parsedDocument =
                 new KnowledgeDocumentParser.ParsedDocument("第一段\n\n第二段", 1);
         KnowledgeChunkPipelineService.ChunkInput chunkInput =
-                new KnowledgeChunkPipelineService.ChunkInput(taskId, 2L, 3L,
-                        KnowledgeChunkStrategy.PARAGRAPH, 600, 80, 4L,
-                        parsedDocument.content(), "测试文档", "source.pdf",
-                        "PDF", KnowledgeDocumentSourceType.FILE, 1);
+                KnowledgeChunkPipelineService.ChunkInput.builder()
+                        .taskId(taskId)
+                        .knowledgeBaseId(2L)
+                        .documentId(3L)
+                        .strategy(KnowledgeChunkStrategy.PARAGRAPH)
+                        .chunkSize(600)
+                        .chunkOverlap(80)
+                        .operatorId(4L)
+                        .content(parsedDocument.content())
+                        .documentName("测试文档")
+                        .fileName("source.pdf")
+                        .fileType("PDF")
+                        .sourceType(KnowledgeDocumentSourceType.FILE)
+                        .pageCount(1)
+                        .build();
         List<KnowledgeChunkBO> chunkResults = List.of(
                 new KnowledgeChunkBO(1, "第一段", 3, null),
                 new KnowledgeChunkBO(2, "第二段", 3, null));
         KnowledgeChunkEntity firstChunk = chunk(1, "第一段");
         KnowledgeChunkEntity secondChunk = chunk(2, "第二段");
         EmbeddingModelRuntimeConfig modelConfig =
-                new EmbeddingModelRuntimeConfig(5L, "https://example.com", "key",
-                        "embedding-model", 30, 1);
+                EmbeddingModelRuntimeConfig.builder()
+                        .instanceId(5L)
+                        .baseUrl("https://example.com")
+                        .apiKey("key")
+                        .modelCode("embedding-model")
+                        .timeoutSeconds(30)
+                        .maxRetries(1)
+                        .build();
         KnowledgeChunkPipelineService.VectorInput vectorInput =
-                new KnowledgeChunkPipelineService.VectorInput(taskId, 3L, 4L,
-                        List.of(firstChunk, secondChunk), modelConfig);
+                KnowledgeChunkPipelineService.VectorInput.builder()
+                        .taskId(taskId)
+                        .documentId(3L)
+                        .operatorId(4L)
+                        .chunks(List.of(firstChunk, secondChunk))
+                        .modelConfig(modelConfig)
+                        .build();
 
         when(pipelineService.startProcessing(taskId)).thenReturn(Optional.of(processingInput));
         when(pipelineService.parse(processingInput)).thenReturn(parsedDocument);
@@ -89,7 +121,7 @@ class KnowledgeChunkTaskConsumerTest {
     @Test
     void shouldIgnoreDuplicatedMessageWhenTaskCannotBeClaimed() throws Exception {
         Long taskId = 1L;
-        when(pipelineService.startProcessing(taskId)).thenReturn(null);
+        when(pipelineService.startProcessing(taskId)).thenReturn(Optional.empty());
 
         consumer.onMessage(new KnowledgeChunkTaskMessage(taskId));
 

@@ -50,7 +50,8 @@ class UserLoginControllerTest {
                         "Authorization",
                         "token-value",
                         7200,
-                        new UserLoginVO.UserProfileVO(1L, "alice", "Alice", null)
+                        UserLoginVO.UserProfileVO.builder()
+                                .id(1L).username("alice").displayName("Alice").build()
                 )
         );
 

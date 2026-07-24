@@ -16,17 +16,18 @@ class OpenAiCompatibleChatModelFactoryTest {
 
     @Test
     void shouldApplyDatabaseRuntimeOptionsToChatModel() {
-        ChatModelRuntimeConfig config = new ChatModelRuntimeConfig(
-                9L,
-                "https://api.deepseek.com",
-                "secret",
-                "deepseek-chat",
-                0.6,
-                0.9,
-                2048,
-                List.of("END"),
-                45,
-                2);
+        ChatModelRuntimeConfig config = ChatModelRuntimeConfig.builder()
+                .instanceId(9L)
+                .baseUrl("https://api.deepseek.com")
+                .apiKey("secret")
+                .modelCode("deepseek-chat")
+                .temperature(0.6)
+                .topP(0.9)
+                .maxTokens(2048)
+                .stopSequences(List.of("END"))
+                .timeoutSeconds(45)
+                .maxRetries(2)
+                .build();
 
         OpenAiChatModel model = new OpenAiCompatibleChatModelFactory().create(config);
         OpenAiChatOptions options = model.getOptions();

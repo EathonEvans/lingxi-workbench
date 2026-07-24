@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * 系统用户密码登录实现。
@@ -44,17 +45,18 @@ public class SysLoginServiceImpl implements SysLoginService {
     @Override
     @Transactional(readOnly = true)
     public SysLoginVO login(SysLoginRequest request) {
-        SysUserBO user = sysUserRepo.findByUsername(normalizeUsername(request.username()))
-                .orElse(null);
+        Optional<SysUserBO> userOpt = sysUserRepo.findByUsername(normalizeUsername(request.username()));
 
-        if (user == null) {
+        if (userOpt.isEmpty()) {
             // 账号不存在时执行常量时间虚拟比对，防止通过响应耗时探测有效账号
             passwordHasher.timingSafeDummyMatch(request.password());
             throw AuthException.invalidCredentials();
         }
 
+        SysUserBO user = userOpt.get();
+
         // 密码校验
-        if (!passwordHasher.matches(request.password(), user.passwordHash())) {
+        if (!passwordHasher.matches(request.password(), user.getPasswordHash())) {
             throw AuthException.invalidCredentials();
         }
 
@@ -68,8 +70,8 @@ public class SysLoginServiceImpl implements SysLoginService {
         }
 
         // 通过 Sa-Token 签发登录令牌
-        SaTokenInfo tokenInfo = stpLogicDefinition.login(user.id());
-        AvatarUrlService.AvatarUrl avatar = resolveAvatar(user.avatarUrl());
+        SaTokenInfo tokenInfo = stpLogicDefinition.login(user.getId());
+        AvatarUrlService.AvatarUrl avatar = resolveAvatar(user.getAvatarUrl());
         SysLoginVO.SysProfileVO profile = sysUserConverter.toProfileVO(
                 user, avatar.url(), avatar.objectKey());
         return new SysLoginVO(

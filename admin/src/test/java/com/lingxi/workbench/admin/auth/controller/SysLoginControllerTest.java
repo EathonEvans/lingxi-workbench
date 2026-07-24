@@ -51,7 +51,7 @@ class SysLoginControllerTest {
                         "Authorization",
                         "admin-token",
                         7200,
-                        new SysLoginVO.SysProfileVO(1L, "admin", "系统管理员", null, 1L)
+                        SysLoginVO.SysProfileVO.of(1L, "admin", "系统管理员", null, 1L)
                 )
         );
 

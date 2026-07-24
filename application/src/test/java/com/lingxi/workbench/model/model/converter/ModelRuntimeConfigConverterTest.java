@@ -35,11 +35,11 @@ class ModelRuntimeConfigConverterTest {
         ChatModelRuntimeConfig runtimeConfig =
                 converter.toRuntimeConfig(businessConfig, "secret");
 
-        assertEquals(2077574496283791361L, runtimeConfig.instanceId());
-        assertEquals("secret", runtimeConfig.apiKey());
-        assertEquals("deepseek-chat", runtimeConfig.modelCode());
-        assertEquals(0.7, runtimeConfig.temperature());
-        assertEquals(0.9, runtimeConfig.topP());
-        assertEquals(List.of("END"), runtimeConfig.stopSequences());
+        assertEquals(2077574496283791361L, runtimeConfig.getInstanceId());
+        assertEquals("secret", runtimeConfig.getApiKey());
+        assertEquals("deepseek-chat", runtimeConfig.getModelCode());
+        assertEquals(0.7, runtimeConfig.getTemperature());
+        assertEquals(0.9, runtimeConfig.getTopP());
+        assertEquals(List.of("END"), runtimeConfig.getStopSequences());
     }
 }

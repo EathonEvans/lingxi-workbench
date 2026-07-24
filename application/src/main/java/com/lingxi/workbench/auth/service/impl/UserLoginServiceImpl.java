@@ -55,7 +55,7 @@ public class UserLoginServiceImpl implements UserLoginService {
 
         UserBO user = userOpt.get();
 
-        if (!passwordHasher.matches(request.password(), user.passwordHash())) {
+        if (!passwordHasher.matches(request.password(), user.getPasswordHash())) {
             throw AuthException.invalidCredentials();
         }
 
@@ -68,7 +68,7 @@ public class UserLoginServiceImpl implements UserLoginService {
         }
 
         // 登录成功后签发 Sa-Token
-        SaTokenInfo tokenInfo = stpLogicDefinition.login(user.id());
+        SaTokenInfo tokenInfo = stpLogicDefinition.login(user.getId());
         return new UserLoginVO(
                 tokenInfo.getTokenName(),
                 tokenInfo.getTokenValue(),

@@ -20,6 +20,11 @@ import com.lingxi.workbench.admin.knowledge.service.KnowledgeEmbeddingModelResol
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.infra.ai.embedding.EmbeddingGateway;
 import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -63,26 +68,28 @@ public class KnowledgeChunkPipelineService {
         }
         KnowledgeChunkTaskEntity task = requireTask(taskId);
         KnowledgeDocumentEntity document = requireDocument(task.getDocumentId());
-        return Optional.of(new ProcessingInput(task.getId(),
-                task.getKnowledgeBaseId(),
-                task.getDocumentId(),
-                task.getStrategy(),
-                task.getChunkSize(),
-                task.getChunkOverlap(),
-                task.getCreatedBy(),
-                document.getObjectKey(),
-                document.getName(),
-                document.getFileName(),
-                document.getFileType(),
-                document.getSourceType()));
+        return Optional.of(ProcessingInput.builder()
+                .taskId(task.getId())
+                .knowledgeBaseId(task.getKnowledgeBaseId())
+                .documentId(task.getDocumentId())
+                .strategy(task.getStrategy())
+                .chunkSize(task.getChunkSize())
+                .chunkOverlap(task.getChunkOverlap())
+                .operatorId(task.getCreatedBy())
+                .objectKey(document.getObjectKey())
+                .documentName(document.getName())
+                .fileName(document.getFileName())
+                .fileType(document.getFileType())
+                .sourceType(document.getSourceType())
+                .build());
     }
 
     /**
      * 从对象存储读取原始文件并提取标准化正文，长耗时解析不持有数据库事务。
      */
     public KnowledgeDocumentParser.ParsedDocument parse(ProcessingInput input) throws Exception {
-        try (InputStream stream = objectStorage.get(input.objectKey())) {
-            return documentParser.parse(stream, input.fileName());
+        try (InputStream stream = objectStorage.get(input.getObjectKey())) {
+            return documentParser.parse(stream, input.getFileName());
         }
     }
 
@@ -91,32 +98,34 @@ public class KnowledgeChunkPipelineService {
      */
     @Transactional
     public ChunkInput startChunking(ProcessingInput input, KnowledgeDocumentParser.ParsedDocument parsedDocument) {
-        if (!taskRepo.markChunking(input.taskId())) {
-            throw new IllegalStateException("文档任务状态已变化，无法开始分块：" + input.taskId());
+        if (!taskRepo.markChunking(input.getTaskId())) {
+            throw new IllegalStateException("文档任务状态已变化，无法开始分块：" + input.getTaskId());
         }
-        KnowledgeDocumentEntity document = requireDocument(input.documentId());
+        KnowledgeDocumentEntity document = requireDocument(input.getDocumentId());
         document.setPageCount(parsedDocument.pageCount());
         documentRepo.upsert(document);
-        return new ChunkInput(input.taskId(),
-                input.knowledgeBaseId(),
-                input.documentId(),
-                input.strategy(),
-                input.chunkSize(),
-                input.chunkOverlap(),
-                input.operatorId(),
-                parsedDocument.content(),
-                input.documentName(),
-                input.fileName(),
-                input.fileType(),
-                input.sourceType(),
-                parsedDocument.pageCount());
+        return ChunkInput.builder()
+                .taskId(input.getTaskId())
+                .knowledgeBaseId(input.getKnowledgeBaseId())
+                .documentId(input.getDocumentId())
+                .strategy(input.getStrategy())
+                .chunkSize(input.getChunkSize())
+                .chunkOverlap(input.getChunkOverlap())
+                .operatorId(input.getOperatorId())
+                .content(parsedDocument.content())
+                .documentName(input.getDocumentName())
+                .fileName(input.getFileName())
+                .fileType(input.getFileType())
+                .sourceType(input.getSourceType())
+                .pageCount(parsedDocument.pageCount())
+                .build();
     }
 
     /**
      * 纯CPU分块在事务外执行，避免长时间占用数据库连接。
      */
     public List<KnowledgeChunkBO> chunk(ChunkInput input) {
-        return documentChunker.chunk(input.content(), input.strategy(), input.chunkSize(), input.chunkOverlap());
+        return documentChunker.chunk(input.getContent(), input.getStrategy(), input.getChunkSize(), input.getChunkOverlap());
     }
 
     /**
@@ -130,15 +139,15 @@ public class KnowledgeChunkPipelineService {
         if (chunks.isEmpty()) {
             throw new IllegalStateException("文档解析后没有生成有效Chunk");
         }
-        if (!taskRepo.markVectorizing(input.taskId())) {
-            throw new IllegalStateException("文档任务状态已变化，无法开始向量化：" + input.taskId());
+        if (!taskRepo.markVectorizing(input.getTaskId())) {
+            throw new IllegalStateException("文档任务状态已变化，无法开始向量化：" + input.getTaskId());
         }
         List<KnowledgeChunkEntity> entities = new ArrayList<>(chunks.size());
         long totalTokens = 0L;
         int previousStart = -1;
         for (KnowledgeChunkBO chunk : chunks) {
             // 计算截取开始位置
-            int charStart = input.content().indexOf(chunk.content(), previousStart + 1);
+            int charStart = input.getContent().indexOf(chunk.content(), previousStart + 1);
 
             KnowledgeChunkEntity entity = build(input, chunk, charStart);
 
@@ -148,23 +157,28 @@ public class KnowledgeChunkPipelineService {
                 previousStart = charStart;
             }
         }
-        KnowledgeChunkTaskEntity task = requireTask(input.taskId());
+        KnowledgeChunkTaskEntity task = requireTask(input.getTaskId());
         task.setProgress(60);
         task.setChunkCount(entities.size());
         task.setVectorizedCount(0);
         task.setTotalTokens(totalTokens);
         taskRepo.upsert(task);
         EmbeddingModelRuntimeConfig modelConfig = modelResolver.resolve(task.getEmbeddingModelInstanceId());
-        return new VectorInput(task.getId(), task.getDocumentId(), task.getCreatedBy(),
-                List.copyOf(entities), modelConfig);
+        return VectorInput.builder()
+                .taskId(task.getId())
+                .documentId(task.getDocumentId())
+                .operatorId(task.getCreatedBy())
+                .chunks(List.copyOf(entities))
+                .modelConfig(modelConfig)
+                .build();
     }
 
     private KnowledgeChunkEntity build(ChunkInput input, KnowledgeChunkBO chunk, int charStart) {
 
         KnowledgeChunkEntity entity = new KnowledgeChunkEntity();
-        entity.setTaskId(input.taskId());
-        entity.setKnowledgeBaseId(input.knowledgeBaseId());
-        entity.setDocumentId(input.documentId());
+        entity.setTaskId(input.getTaskId());
+        entity.setKnowledgeBaseId(input.getKnowledgeBaseId());
+        entity.setDocumentId(input.getDocumentId());
         entity.setChunkNo(chunk.chunkNo());
         entity.setContent(chunk.content());
         entity.setContentHash(sha256(chunk.content()));
@@ -172,13 +186,21 @@ public class KnowledgeChunkPipelineService {
         entity.setTokenCount(chunk.tokenCount());
         Integer startOffset = charStart >= 0 ? charStart : null;
         Integer endOffset = charStart >= 0 ? charStart + chunk.content().length() : null;
-        entity.setMetadata(new KnowledgeChunkMetadata(
-                input.documentName(), input.fileName(), input.fileType(), input.sourceType(),
-                input.strategy(), chunk.sectionTitle(), null, input.pageCount(),
-                startOffset, endOffset));
+        entity.setMetadata(KnowledgeChunkMetadata.builder()
+                .documentName(input.getDocumentName())
+                .fileName(input.getFileName())
+                .fileType(input.getFileType())
+                .sourceType(input.getSourceType())
+                .strategy(input.getStrategy())
+                .sectionTitle(chunk.sectionTitle())
+                .pageNumber(null)
+                .pageCount(input.getPageCount())
+                .charStart(startOffset)
+                .charEnd(endOffset)
+                .build());
         entity.setEnabled(true);
-        entity.setCreatedBy(input.operatorId());
-        entity.setUpdatedBy(input.operatorId());
+        entity.setCreatedBy(input.getOperatorId());
+        entity.setUpdatedBy(input.getOperatorId());
 
         return entity;
     }
@@ -196,12 +218,12 @@ public class KnowledgeChunkPipelineService {
      */
     @Transactional
     public void updateVectorizeProgress(VectorInput input, int processedCount) {
-        KnowledgeChunkTaskEntity task = requireTask(input.taskId());
+        KnowledgeChunkTaskEntity task = requireTask(input.getTaskId());
         if (task.getStatus() != KnowledgeChunkTaskStatus.VECTORIZING) {
-            throw new IllegalStateException("文档任务不处于向量化状态：" + input.taskId());
+            throw new IllegalStateException("文档任务不处于向量化状态：" + input.getTaskId());
         }
         task.setVectorizedCount(processedCount);
-        task.setProgress(60 + (int) Math.floor(processedCount * 35D / input.chunks().size()));
+        task.setProgress(60 + (int) Math.floor(processedCount * 35D / input.getChunks().size()));
         taskRepo.upsert(task);
     }
 
@@ -213,17 +235,17 @@ public class KnowledgeChunkPipelineService {
      */
     @Transactional
     public void completeProcessing(VectorInput input, List<float[]> vectors) {
-        if (input.chunks().size() != vectors.size()) {
+        if (input.getChunks().size() != vectors.size()) {
             throw new IllegalArgumentException("Chunk数量与向量数量不一致");
         }
-        KnowledgeChunkTaskEntity task = requireTask(input.taskId());
+        KnowledgeChunkTaskEntity task = requireTask(input.getTaskId());
         if (task.getStatus() != KnowledgeChunkTaskStatus.VECTORIZING) {
-            throw new IllegalStateException("文档任务不处于向量化状态：" + input.taskId());
+            throw new IllegalStateException("文档任务不处于向量化状态：" + input.getTaskId());
         }
-        KnowledgeDocumentEntity document = requireDocument(input.documentId());
-        vectorRepo.deleteByTaskId(input.taskId());
-        chunkRepo.replaceTaskChunks(input.taskId(), input.chunks());
-        List<KnowledgeChunkEntity> persistedChunks = chunkRepo.findByTaskId(input.taskId());
+        KnowledgeDocumentEntity document = requireDocument(input.getDocumentId());
+        vectorRepo.deleteByTaskId(input.getTaskId());
+        chunkRepo.replaceTaskChunks(input.getTaskId(), input.getChunks());
+        List<KnowledgeChunkEntity> persistedChunks = chunkRepo.findByTaskId(input.getTaskId());
         if (persistedChunks.size() != vectors.size()) {
             throw new IllegalStateException("持久化后的Chunk数量与向量数量不一致");
         }
@@ -239,7 +261,7 @@ public class KnowledgeChunkPipelineService {
         document.setErrorCode(null);
         document.setErrorMessage(null);
         documentRepo.upsert(document);
-        auditService.record("KNOWLEDGE", "DOCUMENT", document.getId(), input.operatorId(),
+        auditService.record("KNOWLEDGE", "DOCUMENT", document.getId(), input.getOperatorId(),
                 "DOCUMENT_PROCESS_COMPLETE", "任务=" + task.getId() + "，Chunk数量=" + task.getChunkCount());
     }
 
@@ -251,7 +273,7 @@ public class KnowledgeChunkPipelineService {
      */
     @Transactional
     public boolean handleFailure(Long taskId, KnowledgeChunkTaskStatus retryStatus,
-                                 String errorCode, Exception exception) {
+                                  String errorCode, Exception exception) {
         KnowledgeChunkTaskEntity task = requireTask(taskId);
         int retryCount = task.getRetryCount() == null ? 0 : task.getRetryCount();
         String errorMessage = safeMessage(exception);
@@ -303,22 +325,93 @@ public class KnowledgeChunkPipelineService {
         return sanitized.length() > 500 ? sanitized.substring(0, 500) : sanitized;
     }
 
-    public record ProcessingInput(Long taskId, Long knowledgeBaseId, Long documentId,
-                                  KnowledgeChunkStrategy strategy,
-                                  int chunkSize, int chunkOverlap, Long operatorId,
-                                  String objectKey, String documentName, String fileName,
-                                  String fileType, KnowledgeDocumentSourceType sourceType) {
+    /**
+     * 解析阶段输入参数。
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor(access = AccessLevel.PRIVATE)
+    public static class ProcessingInput {
+        /** 分块任务ID */
+        private Long taskId;
+        /** 知识库ID */
+        private Long knowledgeBaseId;
+        /** 文档ID */
+        private Long documentId;
+        /** 分块策略 */
+        private KnowledgeChunkStrategy strategy;
+        /** Chunk目标Token数 */
+        private int chunkSize;
+        /** Chunk重叠Token数 */
+        private int chunkOverlap;
+        /** 操作人ID */
+        private Long operatorId;
+        /** 对象存储Key */
+        private String objectKey;
+        /** 文档名称 */
+        private String documentName;
+        /** 原始文件名 */
+        private String fileName;
+        /** 文件类型 */
+        private String fileType;
+        /** 文档来源类型 */
+        private KnowledgeDocumentSourceType sourceType;
     }
 
-    public record ChunkInput(Long taskId, Long knowledgeBaseId, Long documentId,
-                             KnowledgeChunkStrategy strategy,
-                             int chunkSize, int chunkOverlap, Long operatorId, String content,
-                             String documentName, String fileName, String fileType,
-                             KnowledgeDocumentSourceType sourceType, Integer pageCount) {
+    /**
+     * 分块阶段输入参数。
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor(access = AccessLevel.PRIVATE)
+    public static class ChunkInput {
+        /** 分块任务ID */
+        private Long taskId;
+        /** 知识库ID */
+        private Long knowledgeBaseId;
+        /** 文档ID */
+        private Long documentId;
+        /** 分块策略 */
+        private KnowledgeChunkStrategy strategy;
+        /** Chunk目标Token数 */
+        private int chunkSize;
+        /** Chunk重叠Token数 */
+        private int chunkOverlap;
+        /** 操作人ID */
+        private Long operatorId;
+        /** 解析标准化正文 */
+        private String content;
+        /** 文档名称 */
+        private String documentName;
+        /** 原始文件名 */
+        private String fileName;
+        /** 文件类型 */
+        private String fileType;
+        /** 文档来源类型 */
+        private KnowledgeDocumentSourceType sourceType;
+        /** 文档总页数 */
+        private Integer pageCount;
     }
 
-    public record VectorInput(Long taskId, Long documentId, Long operatorId,
-                              List<KnowledgeChunkEntity> chunks,
-                              EmbeddingModelRuntimeConfig modelConfig) {
+    /**
+     * 向量化阶段输入参数。
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor(access = AccessLevel.PRIVATE)
+    public static class VectorInput {
+        /** 分块任务ID */
+        private Long taskId;
+        /** 文档ID */
+        private Long documentId;
+        /** 操作人ID */
+        private Long operatorId;
+        /** 待向量化的Chunk实体列表 */
+        private List<KnowledgeChunkEntity> chunks;
+        /** Embedding模型运行时配置 */
+        private EmbeddingModelRuntimeConfig modelConfig;
     }
 }

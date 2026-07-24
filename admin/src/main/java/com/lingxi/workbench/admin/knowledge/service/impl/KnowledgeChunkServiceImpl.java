@@ -191,7 +191,18 @@ public class KnowledgeChunkServiceImpl implements KnowledgeChunkService {
         if (metadata == null) {
             return null;
         }
-        return new KnowledgeChunkMetadata(metadata.documentName(), metadata.fileName(), metadata.fileType(), metadata.sourceType(), metadata.strategy(), metadata.sectionTitle(), metadata.pageNumber(), metadata.pageCount(), null, null);
+        return KnowledgeChunkMetadata.builder()
+                .documentName(metadata.getDocumentName())
+                .fileName(metadata.getFileName())
+                .fileType(metadata.getFileType())
+                .sourceType(metadata.getSourceType())
+                .strategy(metadata.getStrategy())
+                .sectionTitle(metadata.getSectionTitle())
+                .pageNumber(metadata.getPageNumber())
+                .pageCount(metadata.getPageCount())
+                .charStart(null)
+                .charEnd(null)
+                .build();
     }
 
     private static String sha256(String content) {

@@ -91,13 +91,13 @@ class UserAuthenticationInterceptorTest {
     }
 
     private static UserBO user() {
-        return new UserBO(
-                1L,
-                "alice",
-                "password-hash",
-                "Alice",
-                null,
-                UserStatus.ACTIVE
-        );
+        return UserBO.builder()
+                .id(1L)
+                .username("alice")
+                .passwordHash("password-hash")
+                .displayName("Alice")
+                .status(UserStatus.ACTIVE)
+                .applicationAccessEnabled(true)
+                .build();
     }
 }

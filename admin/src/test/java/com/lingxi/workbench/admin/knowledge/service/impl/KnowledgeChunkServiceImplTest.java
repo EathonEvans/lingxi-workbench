@@ -131,10 +131,17 @@ class KnowledgeChunkServiceImplTest {
         KnowledgeDocumentEntity document = pendingDocument();
         document.setActiveChunkTaskId(19L);
         EmbeddingModelRuntimeConfig modelConfig =
-                new EmbeddingModelRuntimeConfig(7L, "http://localhost", "secret", "embedding", 30, 1);
+                EmbeddingModelRuntimeConfig.builder()
+                        .instanceId(7L)
+                        .baseUrl("http://localhost")
+                        .apiKey("secret")
+                        .modelCode("embedding")
+                        .timeoutSeconds(30)
+                        .maxRetries(1)
+                        .build();
         float[] vector = new float[]{0.1F, 0.2F};
-        KnowledgeChunkVO expected = new KnowledgeChunkVO(
-                "31", 2, "新正文", 3, 4, null);
+        KnowledgeChunkVO expected = KnowledgeChunkVO.builder()
+                .id("31").chunkNo(2).content("新正文").charCount(3).tokenCount(4).metadata(null).build();
 
         when(chunkRepo.findById(31L)).thenReturn(Optional.of(chunk));
         when(taskRepo.findById(19L)).thenReturn(Optional.of(task));

@@ -103,9 +103,9 @@ public class PromptServiceImpl implements PromptService {
     @Override
     @Transactional
     public PromptDetailVO save(Long id, SavePromptRequest request, Long operatorId) {
-        String code = request.code().trim().toLowerCase();
+        String code = request.getCode().trim().toLowerCase();
         // 先校验模板内容和变量声明一致性，再检查编码冲突
-        templateProcessor.validate(request.promptContent(), request.variables());
+        templateProcessor.validate(request.getPromptContent(), request.getVariables());
         if (promptRepo.existsByCode(code, id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "Prompt编码已存在");
         }
@@ -114,10 +114,10 @@ public class PromptServiceImpl implements PromptService {
         if (Objects.nonNull(id) && !prompt.getCode().equals(code)) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "已创建的Prompt不允许修改编码");
         }
-        prompt.setName(request.name().trim());
+        prompt.setName(request.getName().trim());
         prompt.setCode(code);
-        prompt.setRole(request.role());
-        prompt.setDescription(trimToNull(request.description()));
+        prompt.setRole(request.getRole());
+        prompt.setDescription(trimToNull(request.getDescription()));
         prompt.setUpdatedBy(operatorId);
         if (Objects.isNull(id)) {
             prompt.setStatus(EnableStatus.ACTIVE);
@@ -129,9 +129,9 @@ public class PromptServiceImpl implements PromptService {
         PromptVersionEntity draft = versionRepo.findDraft(prompt.getId())
                 .orElseGet(() -> newDraft(prompt.getId(), operatorId));
         // Prompt中的首尾空白可能具有语义，持久化时不得擅自裁剪正文。
-        draft.setPromptContent(request.promptContent());
-        draft.setVariables(promptConverter.toDefinitions(request.variables()));
-        draft.setChangeNote(trimToNull(request.changeNote()));
+        draft.setPromptContent(request.getPromptContent());
+        draft.setVariables(promptConverter.toDefinitions(request.getVariables()));
+        draft.setChangeNote(trimToNull(request.getChangeNote()));
         draft.setUpdatedBy(operatorId);
         versionRepo.save(draft);
 

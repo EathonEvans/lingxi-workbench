@@ -58,9 +58,10 @@ class UserLoginServiceImplTest {
     @Test
     void shouldLoginActiveUserAndIssueSession() {
         UserBO user = user(UserStatus.ACTIVE);
-        UserLoginVO.UserProfileVO profile = new UserLoginVO.UserProfileVO(1L, "alice", "Alice", null);
+        UserLoginVO.UserProfileVO profile = UserLoginVO.UserProfileVO.builder()
+                .id(1L).username("alice").displayName("Alice").build();
         when(userRepo.findByUsername("alice")).thenReturn(Optional.of(user));
-        when(passwordHasher.matches("correct-password", user.passwordHash())).thenReturn(true);
+        when(passwordHasher.matches("correct-password", user.getPasswordHash())).thenReturn(true);
         when(stpLogicDefinition.login(1L)).thenReturn(tokenInfo);
         when(tokenInfo.getTokenName()).thenReturn("Authorization");
         when(tokenInfo.getTokenValue()).thenReturn("user-token");
@@ -72,8 +73,8 @@ class UserLoginServiceImplTest {
         );
 
         assertEquals("user-token", result.tokenValue());
-        assertEquals(1L, result.user().id());
-        assertEquals("alice", result.user().username());
+        assertEquals(1L, result.user().getId());
+        assertEquals("alice", result.user().getUsername());
     }
 
 
@@ -94,7 +95,7 @@ class UserLoginServiceImplTest {
     void shouldRejectInvalidPassword() {
         UserBO user = user(UserStatus.ACTIVE);
         when(userRepo.findByUsername("alice")).thenReturn(Optional.of(user));
-        when(passwordHasher.matches("wrong-password", user.passwordHash())).thenReturn(false);
+        when(passwordHasher.matches("wrong-password", user.getPasswordHash())).thenReturn(false);
 
         assertThrows(
                 AuthException.class,
@@ -108,7 +109,7 @@ class UserLoginServiceImplTest {
     void shouldRejectDisabledUserAfterPasswordVerification() {
         UserBO user = user(UserStatus.DISABLED);
         when(userRepo.findByUsername("alice")).thenReturn(Optional.of(user));
-        when(passwordHasher.matches("correct-password", user.passwordHash())).thenReturn(true);
+        when(passwordHasher.matches("correct-password", user.getPasswordHash())).thenReturn(true);
 
         assertThrows(
                 AuthException.class,
@@ -120,12 +121,12 @@ class UserLoginServiceImplTest {
 
     @Test
     void shouldRejectUserWithoutApplicationAccess() {
-        UserBO user = new UserBO(
-                1L, "alice", "$2a$12$password-hash", "Alice", null,
-                null, null, UserStatus.ACTIVE, false
-        );
+        UserBO user = UserBO.builder()
+                .id(1L).username("alice").passwordHash("$2a$12$password-hash")
+                .displayName("Alice").status(UserStatus.ACTIVE)
+                .applicationAccessEnabled(false).build();
         when(userRepo.findByUsername("alice")).thenReturn(Optional.of(user));
-        when(passwordHasher.matches("correct-password", user.passwordHash())).thenReturn(true);
+        when(passwordHasher.matches("correct-password", user.getPasswordHash())).thenReturn(true);
 
         assertThrows(
                 AuthException.class,
@@ -136,13 +137,13 @@ class UserLoginServiceImplTest {
     }
 
     private static UserBO user(UserStatus status) {
-        return new UserBO(
-                1L,
-                "alice",
-                "$2a$12$password-hash",
-                "Alice",
-                null,
-                status
-        );
+        return UserBO.builder()
+                .id(1L)
+                .username("alice")
+                .passwordHash("$2a$12$password-hash")
+                .displayName("Alice")
+                .status(status)
+                .applicationAccessEnabled(true)
+                .build();
     }
 }

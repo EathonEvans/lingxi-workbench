@@ -7,6 +7,8 @@ import java.util.Set;
 
 /**
  * 角色、菜单或部门关联关系的批量分配请求。
+ *
+ * @param ids 待分配的主键集合
  */
 public record AssignIdsRequest(
         /** 待分配的主键集合。 */

@@ -49,7 +49,7 @@ public class SysAuthenticationInterceptor implements AsyncHandlerInterceptor {
             throw AuthException.userDisabled("管理端访问权限已关闭");
         }
 
-        UserContext.set(new LoginUser(user.id(), user.username(), user.displayName(), user.avatarUrl()));
+        UserContext.set(new LoginUser(user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl()));
         return true;
     }
 

@@ -21,8 +21,8 @@ class ConversationConverterTest {
 
         ConversationMessageVO result = converter.toMessageVO(entity);
 
-        assertEquals("2077574496283791361", result.id());
-        assertEquals("2077574496283791362", result.conversationId());
-        assertEquals("2077574496283791363", result.modelInstanceId());
+        assertEquals("2077574496283791361", result.getId());
+        assertEquals("2077574496283791362", result.getConversationId());
+        assertEquals("2077574496283791363", result.getModelInstanceId());
     }
 }

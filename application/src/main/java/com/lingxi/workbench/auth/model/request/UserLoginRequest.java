@@ -5,6 +5,9 @@ import jakarta.validation.constraints.Size;
 
 /**
  * 应用端用户登录请求。
+ *
+ * @param username 登录账号
+ * @param password 登录密码
  */
 public record UserLoginRequest(
         /** 登录账号。 */

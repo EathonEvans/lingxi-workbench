@@ -48,23 +48,23 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     @Transactional
     public KnowledgeBaseVO save(Long id, SaveKnowledgeBaseRequest request, Long operatorId) {
         // 统一转为小写编码做唯一性校验
-        String code = request.code().trim().toLowerCase();
+        String code = request.getCode().trim().toLowerCase();
         if (baseRepo.existsByCode(code, id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "知识库编码已存在");
         }
-        embeddingModelResolver.validate(request.embeddingModelInstanceId());
+        embeddingModelResolver.validate(request.getEmbeddingModelInstanceId());
         KnowledgeBaseEntity entity = Objects.isNull(id) ? new KnowledgeBaseEntity() : requireBase(id);
         if (Objects.nonNull(id)
-                && !Objects.equals(entity.getEmbeddingModelInstanceId(), request.embeddingModelInstanceId())
+                && !Objects.equals(entity.getEmbeddingModelInstanceId(), request.getEmbeddingModelInstanceId())
                 && documentRepo.existsByBaseId(id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT,
                     "知识库已有文档，不能直接更换Embedding模型，请新建知识库或先清空文档");
         }
-        entity.setName(request.name().trim());
+        entity.setName(request.getName().trim());
         entity.setCode(code);
-        entity.setDescription(CharSequenceUtil.isBlank(request.description()) ? null : request.description().trim());
-        entity.setEmbeddingModelInstanceId(request.embeddingModelInstanceId());
-        entity.setStatus(request.status());
+        entity.setDescription(CharSequenceUtil.isBlank(request.getDescription()) ? null : request.getDescription().trim());
+        entity.setEmbeddingModelInstanceId(request.getEmbeddingModelInstanceId());
+        entity.setStatus(request.getStatus());
         entity.setUpdatedBy(operatorId);
         if (Objects.isNull(id)) entity.setCreatedBy(operatorId);
         baseRepo.save(entity);

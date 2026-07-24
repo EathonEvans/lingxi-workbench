@@ -66,8 +66,14 @@ class SysUserServiceImplTest {
     }
 
     private static SysUserBO user() {
-        return new SysUserBO(
-                7L, "admin", "password", "管理员", null, null, null, 1L,
-                SysUserStatus.ACTIVE, true, true, null, null);
+        return SysUserBO.builder()
+                .id(7L).username("admin").passwordHash("password")
+                .displayName("管理员").avatarUrl(null).email(null)
+                .mobile(null).departmentId(1L)
+                .status(SysUserStatus.ACTIVE)
+                .applicationAccessEnabled(true)
+                .adminAccessEnabled(true)
+                .createdAt(null).updatedAt(null)
+                .build();
     }
 }

@@ -1,20 +1,40 @@
 package com.lingxi.workbench.admin.prompt.model.entity;
 
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableType;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
  * Prompt版本内嵌的变量声明。
  *
  * <p>该对象随Prompt版本整体存储在JSONB字段中，不对应独立数据表。
+ *
+ * @param name        变量名称
+ * @param type        变量数据类型
+ * @param required    是否必填
+ * @param description 变量说明
+ * @param example     测试渲染示例值
  */
-public record PromptVariableDefinition(
-        /** 变量名称。 */
-        String name,
-        /** 变量数据类型。 */
-        PromptVariableType type,
-        /** 是否必填。 */
-        boolean required,
-        /** 变量说明。 */
-        String description,
-        /** 测试渲染示例值。 */
-        Object example) {}
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class PromptVariableDefinition {
+
+    /** 变量名称。 */
+    private String name;
+
+    /** 变量数据类型。 */
+    private PromptVariableType type;
+
+    /** 是否必填。 */
+    private boolean required;
+
+    /** 变量说明。 */
+    private String description;
+
+    /** 测试渲染示例值。 */
+    private Object example;
+}

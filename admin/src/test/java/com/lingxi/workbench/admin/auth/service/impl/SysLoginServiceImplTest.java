@@ -65,9 +65,9 @@ class SysLoginServiceImplTest {
     @Test
     void shouldLoginActiveSysAndIssueSession() {
         SysUserBO user = user(SysUserStatus.ACTIVE, true);
-        SysLoginVO.SysProfileVO profile = new SysLoginVO.SysProfileVO(1L, "admin", "系统管理员", null, 1L);
+        SysLoginVO.SysProfileVO profile = SysLoginVO.SysProfileVO.of(1L, "admin", "系统管理员", null, 1L);
         when(sysUserRepo.findByUsername("admin")).thenReturn(Optional.of(user));
-        when(passwordHasher.matches("correct-password", user.passwordHash())).thenReturn(true);
+        when(passwordHasher.matches("correct-password", user.getPasswordHash())).thenReturn(true);
         when(stpLogicDefinition.login(1L)).thenReturn(tokenInfo);
         when(tokenInfo.getTokenName()).thenReturn("Authorization");
         when(tokenInfo.getTokenValue()).thenReturn("admin-token");
@@ -79,8 +79,8 @@ class SysLoginServiceImplTest {
         );
 
         assertEquals("admin-token", result.tokenValue());
-        assertEquals(1L, result.user().id());
-        assertEquals("admin", result.user().username());
+        assertEquals(1L, result.user().getId());
+        assertEquals("admin", result.user().getUsername());
     }
 
     @Test
@@ -100,7 +100,7 @@ class SysLoginServiceImplTest {
     void shouldRejectInvalidPassword() {
         SysUserBO user = user(SysUserStatus.ACTIVE, true);
         when(sysUserRepo.findByUsername("admin")).thenReturn(Optional.of(user));
-        when(passwordHasher.matches("wrong-password", user.passwordHash())).thenReturn(false);
+        when(passwordHasher.matches("wrong-password", user.getPasswordHash())).thenReturn(false);
 
         assertThrows(
                 AuthException.class,
@@ -114,7 +114,7 @@ class SysLoginServiceImplTest {
     void shouldRejectDisabledSysAfterPasswordVerification() {
         SysUserBO user = user(SysUserStatus.DISABLED, true);
         when(sysUserRepo.findByUsername("admin")).thenReturn(Optional.of(user));
-        when(passwordHasher.matches("correct-password", user.passwordHash())).thenReturn(true);
+        when(passwordHasher.matches("correct-password", user.getPasswordHash())).thenReturn(true);
 
         assertThrows(
                 AuthException.class,
@@ -128,7 +128,7 @@ class SysLoginServiceImplTest {
     void shouldRejectUserWithoutAdminAccess() {
         SysUserBO user = user(SysUserStatus.ACTIVE, false);
         when(sysUserRepo.findByUsername("admin")).thenReturn(Optional.of(user));
-        when(passwordHasher.matches("correct-password", user.passwordHash())).thenReturn(true);
+        when(passwordHasher.matches("correct-password", user.getPasswordHash())).thenReturn(true);
 
         assertThrows(
                 AuthException.class,
@@ -139,20 +139,20 @@ class SysLoginServiceImplTest {
     }
 
     private static SysUserBO user(SysUserStatus status, boolean adminAccessEnabled) {
-        return new SysUserBO(
-                1L,
-                "admin",
-                "$2a$12$password-hash",
-                "系统管理员",
-                null,
-                null,
-                null,
-                1L,
-                status,
-                false,
-                adminAccessEnabled,
-                null,
-                null
-        );
+        return SysUserBO.builder()
+                .id(1L)
+                .username("admin")
+                .passwordHash("$2a$12$password-hash")
+                .displayName("系统管理员")
+                .avatarUrl(null)
+                .email(null)
+                .mobile(null)
+                .departmentId(1L)
+                .status(status)
+                .applicationAccessEnabled(false)
+                .adminAccessEnabled(adminAccessEnabled)
+                .createdAt(null)
+                .updatedAt(null)
+                .build();
     }
 }

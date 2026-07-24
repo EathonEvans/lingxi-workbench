@@ -107,8 +107,9 @@ public enum EnableStatus {
 4. 已有工具方法与业务语义完全一致时直接复用，例如 `CharSequenceUtil.isBlank`、MyBatis-Plus `Wrappers`、MapStruct Converter、`@EnumValue` 和项目统一的 JSON TypeHandler。
 5. 工具方法不能准确表达业务规则时，应封装语义清晰的业务方法，禁止为了“使用工具类”拼接晦涩调用或改变原有业务语义。
 6. 优化现有代码时优先删除重复实现和无效封装，不新增仅转调一次、没有统一策略价值的工具类。
+7. 当字段包含超过四个字段以上，禁止使用`record`类型,统一使用`class`. 当`class`字段超过5个字段，则使用Lombok的builder模式构建对象
 
-### 注释规范
+## 注释规范
 1. 对于实体对象字段及其他对象关键字段以及接口方法和Api方法添加标准JavaDoc注释（中文）
 2. 关键方法执行步骤需要添加必要中文注释
 3. recode类型，需要在类注释中对成员变量使用@param 注解进行注释说明

@@ -74,20 +74,22 @@ class PromptServiceImplTest {
     private static PromptVariableRequest variable(
             String name,
             boolean required) {
-        return new PromptVariableRequest(
-                name,
-                PromptVariableType.STRING,
-                required,
-                name,
-                null);
+        return PromptVariableRequest.builder()
+                .name(name)
+                .type(PromptVariableType.STRING)
+                .required(required)
+                .description(name)
+                .example(null)
+                .build();
     }
 
     private static PromptVariableDefinition definition(PromptVariableRequest request) {
-        return new PromptVariableDefinition(
-                request.name(),
-                request.type(),
-                request.required(),
-                request.description(),
-                request.example());
+        return PromptVariableDefinition.builder()
+                .name(request.getName())
+                .type(request.getType())
+                .required(request.isRequired())
+                .description(request.getDescription())
+                .example(request.getExample())
+                .build();
     }
 }

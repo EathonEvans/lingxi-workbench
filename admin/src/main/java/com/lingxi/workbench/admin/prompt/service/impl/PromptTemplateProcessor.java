@@ -42,9 +42,9 @@ public class PromptTemplateProcessor {
         Set<String> declaredNames = new LinkedHashSet<>();
         for (PromptVariableRequest variable : variables) {
             validateVariableDefinition(variable);
-            if (!declaredNames.add(variable.name())) {
+            if (!declaredNames.add(variable.getName())) {
                 throw new BusinessException(
-                        HttpStatusEnum.BAD_REQUEST, "变量重复声明：" + variable.name());
+                        HttpStatusEnum.BAD_REQUEST, "变量重复声明：" + variable.getName());
             }
         }
 
@@ -82,7 +82,7 @@ public class PromptTemplateProcessor {
         // 建立变量名到声明信息的索引
         Map<String, PromptVariableRequest> declarations = request.variables().stream()
                 .collect(Collectors.toMap(
-                        PromptVariableRequest::name,
+                        PromptVariableRequest::getName,
                         variable -> variable,
                         (left, right) -> left,
                         LinkedHashMap::new));
@@ -91,11 +91,11 @@ public class PromptTemplateProcessor {
         Map<String, String> renderValues = new LinkedHashMap<>();
         declarations.forEach((name, declaration) -> {
             Object value = resolvePath(request.values(), name);
-            if (declaration.required() && isMissing(value)) {
+            if (declaration.isRequired() && isMissing(value)) {
                 throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "变量" + name + "不能为空");
             }
             if (!isMissing(value)) {
-                validateValueType(name, declaration.type(), value, "变量值");
+                validateValueType(name, declaration.getType(), value, "变量值");
             }
             renderValues.put(name, renderValue(value));
         });
@@ -124,13 +124,13 @@ public class PromptTemplateProcessor {
 
     /** 校验变量Schema内部约束，确保从历史版本读取的数据也符合当前规范。 */
     private static void validateVariableDefinition(PromptVariableRequest variable) {
-        if (variable.name() == null || !VARIABLE_NAME_PATTERN.matcher(variable.name()).matches()) {
+        if (variable.getName() == null || !VARIABLE_NAME_PATTERN.matcher(variable.getName()).matches()) {
             throw new BusinessException(
                     HttpStatusEnum.BAD_REQUEST,
-                    "变量名称必须使用受支持的命名空间和小写点路径：" + variable.name());
+                    "变量名称必须使用受支持的命名空间和小写点路径：" + variable.getName());
         }
-        if (!isMissing(variable.example())) {
-            validateValueType(variable.name(), variable.type(), variable.example(), "示例值");
+        if (!isMissing(variable.getExample())) {
+            validateValueType(variable.getName(), variable.getType(), variable.getExample(), "示例值");
         }
     }
 

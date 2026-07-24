@@ -2,7 +2,13 @@ package com.lingxi.workbench.chat.model.bo;
 
 import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 
-/** 模型生成任务向观察者发布的事件。 */
+/**
+ * 模型生成任务向观察者发布的事件。
+ *
+ * @param type     事件类型：CHUNK / SNAPSHOT / COMPLETED / FAILED / CANCELLED
+ * @param sequence 当前任务内单调递增的增量序号
+ * @param content  文本增量或快照内容
+ */
 public record ChatGenerationEventBO(
         /** 事件类型：CHUNK / SNAPSHOT / COMPLETED / FAILED / CANCELLED。 */
         ChatGenerationEventType type,

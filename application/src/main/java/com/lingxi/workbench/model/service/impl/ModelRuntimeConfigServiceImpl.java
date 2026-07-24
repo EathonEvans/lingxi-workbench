@@ -36,12 +36,12 @@ public class ModelRuntimeConfigServiceImpl implements ModelRuntimeConfigService 
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "当前没有可用的默认对话模型"));
         // application 当前只接入 OpenAI 兼容协议，防止未知协议误入现有网关。
-        if (!OPENAI_COMPATIBLE.equals(config.protocol())) {
+        if (!OPENAI_COMPATIBLE.equals(config.getProtocol())) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "默认模型协议暂不支持");
         }
 
         // 密钥只在真正发起模型调用前解密，明文仅存在于当前 JVM 内存，不回写数据库或进入日志。
-        String apiKey = secretCipher.decrypt(config.secretCiphertext(), config.secretIv());
+        String apiKey = secretCipher.decrypt(config.getSecretCiphertext(), config.getSecretIv());
 
         // MapStruct 将数据库业务对象与明文密钥组装成 infra-ai 所需的最小运行参数。
         return converter.toRuntimeConfig(config, apiKey);

@@ -16,11 +16,11 @@ public class OpenAiCompatibleEmbeddingGateway implements EmbeddingGateway {
     @Override
     public List<float[]> embed(List<String> texts, EmbeddingModelRuntimeConfig config) {
         OpenAiEmbeddingOptions options = OpenAiEmbeddingOptions.builder()
-                .baseUrl(config.baseUrl())
-                .apiKey(config.apiKey())
-                .model(config.modelCode())
-                .timeout(Duration.ofSeconds(config.timeoutSeconds()))
-                .maxRetries(config.maxRetries())
+                .baseUrl(config.getBaseUrl())
+                .apiKey(config.getApiKey())
+                .model(config.getModelCode())
+                .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
+                .maxRetries(config.getMaxRetries())
                 .build();
         OpenAiEmbeddingModel model = OpenAiEmbeddingModel.builder()
                 .options(options)

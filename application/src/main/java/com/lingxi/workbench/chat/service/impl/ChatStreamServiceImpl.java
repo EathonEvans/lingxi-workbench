@@ -108,7 +108,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 Long.valueOf(request.conversationId()),
                 request.clientMessageId(),
                 prompt,
-                modelConfig.instanceId());
+                modelConfig.getInstanceId());
 
         // Assistant 消息主键同时作为生成任务主键，便于 SSE 续接、取消和数据库终态恢复使用同一标识。
         RunningGenerationTask task = new RunningGenerationTask(turn.assistantMessageId());

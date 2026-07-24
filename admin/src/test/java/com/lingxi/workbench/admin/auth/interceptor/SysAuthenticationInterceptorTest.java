@@ -79,20 +79,20 @@ class SysAuthenticationInterceptorTest {
     }
 
     private static SysUserBO user(boolean adminAccessEnabled) {
-        return new SysUserBO(
-                1L,
-                "admin",
-                "password-hash",
-                "系统管理员",
-                null,
-                null,
-                null,
-                1L,
-                SysUserStatus.ACTIVE,
-                false,
-                adminAccessEnabled,
-                null,
-                null
-        );
+        return SysUserBO.builder()
+                .id(1L)
+                .username("admin")
+                .passwordHash("password-hash")
+                .displayName("系统管理员")
+                .avatarUrl(null)
+                .email(null)
+                .mobile(null)
+                .departmentId(1L)
+                .status(SysUserStatus.ACTIVE)
+                .applicationAccessEnabled(false)
+                .adminAccessEnabled(adminAccessEnabled)
+                .createdAt(null)
+                .updatedAt(null)
+                .build();
     }
 }

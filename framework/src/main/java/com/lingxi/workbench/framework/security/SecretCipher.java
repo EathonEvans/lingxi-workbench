@@ -97,6 +97,9 @@ public class SecretCipher {
 
     /**
      * 加密结果，密文和 IV 必须成对保存。
+     *
+     * @param ciphertext Base64 编码的密文
+     * @param iv         Base64 编码的初始化向量
      */
     public record EncryptedSecret(String ciphertext, String iv) {
 

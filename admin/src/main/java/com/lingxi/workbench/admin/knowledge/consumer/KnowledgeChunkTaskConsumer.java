@@ -69,11 +69,11 @@ public class KnowledgeChunkTaskConsumer implements RocketMQListener<KnowledgeChu
      */
     private List<float[]> embedInBatches(KnowledgeChunkPipelineService.VectorInput input) {
         int effectiveBatchSize = Math.max(1, batchSize);
-        List<float[]> vectors = new ArrayList<>(input.chunks().size());
-        for (int start = 0; start < input.chunks().size(); start += effectiveBatchSize) {
-            int end = Math.min(start + effectiveBatchSize, input.chunks().size());
-            List<KnowledgeChunkEntity> batch = List.copyOf(input.chunks().subList(start, end));
-            vectors.addAll(pipelineService.embed(batch, input.modelConfig()));
+        List<float[]> vectors = new ArrayList<>(input.getChunks().size());
+        for (int start = 0; start < input.getChunks().size(); start += effectiveBatchSize) {
+            int end = Math.min(start + effectiveBatchSize, input.getChunks().size());
+            List<KnowledgeChunkEntity> batch = List.copyOf(input.getChunks().subList(start, end));
+            vectors.addAll(pipelineService.embed(batch, input.getModelConfig()));
             pipelineService.updateVectorizeProgress(input, end);
         }
         return vectors;

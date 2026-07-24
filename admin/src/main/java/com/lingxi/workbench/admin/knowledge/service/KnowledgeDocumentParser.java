@@ -48,6 +48,11 @@ public class KnowledgeDocumentParser {
         return null;
     }
 
-    /** 文档解析结果。 */
+    /**
+     * 文档解析结果。
+     *
+     * @param content   标准化正文
+     * @param pageCount 页数，无可靠元数据时为null
+     */
     public record ParsedDocument(String content, Integer pageCount) {}
 }

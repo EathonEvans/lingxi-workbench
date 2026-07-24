@@ -82,11 +82,12 @@ class PromptTemplateProcessorTest {
             String name,
             PromptVariableType type,
             boolean required) {
-        return new PromptVariableRequest(
-                name,
-                type,
-                required,
-                name,
-                null);
+        return PromptVariableRequest.builder()
+                .name(name)
+                .type(type)
+                .required(required)
+                .description(name)
+                .example(null)
+                .build();
     }
 }

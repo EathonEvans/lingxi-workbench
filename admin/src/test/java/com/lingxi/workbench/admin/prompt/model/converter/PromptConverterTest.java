@@ -22,9 +22,13 @@ class PromptConverterTest {
     @Test
     void shouldConvertStrongTypedVariableDefinitionsWithoutJsonParsing() {
         PromptVariableDefinition definition =
-                new PromptVariableDefinition(
-                        "input.language", PromptVariableType.STRING,
-                        true, "回答语言", "中文");
+                PromptVariableDefinition.builder()
+                        .name("input.language")
+                        .type(PromptVariableType.STRING)
+                        .required(true)
+                        .description("回答语言")
+                        .example("中文")
+                        .build();
         PromptVersionEntity entity = new PromptVersionEntity();
         entity.setId(2077574496283791361L);
         entity.setVariables(List.of(definition));
@@ -32,9 +36,9 @@ class PromptConverterTest {
 
         PromptVersionVO result = converter.toVersionVO(entity);
 
-        assertEquals("2077574496283791361", result.id());
-        assertEquals("input.language", result.variables().getFirst().name());
-        assertEquals("中文", result.variables().getFirst().example());
+        assertEquals("2077574496283791361", result.getId());
+        assertEquals("input.language", result.getVariables().getFirst().getName());
+        assertEquals("中文", result.getVariables().getFirst().getExample());
     }
 
     @Test
@@ -43,10 +47,10 @@ class PromptConverterTest {
         entity.setId(1L);
         entity.setRole(PromptRole.USER);
 
-        assertEquals(PromptRole.USER, converter.toPromptVO(entity, null, null).role());
+        assertEquals(PromptRole.USER, converter.toPromptVO(entity, null, null).getRole());
         assertEquals(
                 PromptRole.USER,
-                converter.toDetailVO(entity, null, null, null, "", List.of(), null).role());
+                converter.toDetailVO(entity, null, null, null, "", List.of(), null).getRole());
     }
 
     @Test
@@ -59,9 +63,13 @@ class PromptConverterTest {
     @Test
     void shouldRoundTripRequestAndEmbeddedDefinition() {
         PromptVariableRequest request =
-                new PromptVariableRequest(
-                        "agent.name", PromptVariableType.STRING,
-                        true, "Agent名称", "灵析助手");
+                PromptVariableRequest.builder()
+                        .name("agent.name")
+                        .type(PromptVariableType.STRING)
+                        .required(true)
+                        .description("Agent名称")
+                        .example("灵析助手")
+                        .build();
 
         PromptVariableDefinition definition = converter.toDefinition(request);
         PromptVariableRequest restored = converter.toVariableRequest(definition);

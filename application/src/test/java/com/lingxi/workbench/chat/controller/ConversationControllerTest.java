@@ -66,14 +66,15 @@ class ConversationControllerTest {
     @Test
     void shouldBindConversationSearchAndReturnStringId() throws Exception {
         OffsetDateTime now = OffsetDateTime.parse("2026-07-16T20:00:00+08:00");
-        ConversationVO conversation = new ConversationVO(
-                "2077574496283791361",
-                "市场分析",
-                ConversationStatus.ARCHIVED,
-                6,
-                now,
-                now,
-                now);
+        ConversationVO conversation = ConversationVO.builder()
+                .id("2077574496283791361")
+                .title("市场分析")
+                .status(ConversationStatus.ARCHIVED)
+                .messageCount(6)
+                .lastMessageAt(now)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
         when(conversationService.page(eq(1L), any()))
                 .thenReturn(new PageResult<>(List.of(conversation), 2, 10, 11));
 

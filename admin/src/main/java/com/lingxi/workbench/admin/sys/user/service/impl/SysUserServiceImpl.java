@@ -46,9 +46,9 @@ public class SysUserServiceImpl implements SysUserService {
     @Override
     @Transactional
     public SysUserVO create(CreateSysUserRequest request) {
-        String username = normalizeUsername(request.username());
-        String email = normalizeEmail(request.email());
-        String mobile = normalizeNullable(request.mobile());
+        String username = normalizeUsername(request.getUsername());
+        String email = normalizeEmail(request.getEmail());
+        String mobile = normalizeNullable(request.getMobile());
         if (sysUserRepo.existsByUsername(username)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "用户名已存在");
         }
@@ -56,18 +56,18 @@ public class SysUserServiceImpl implements SysUserService {
 
         SysUserEntity entity = new SysUserEntity();
         entity.setUsername(username);
-        entity.setPasswordHash(passwordHasher.hash(request.password()));
-        entity.setDisplayName(request.displayName().trim());
-        entity.setAvatarUrl(normalizeNullable(request.avatarUrl()));
+        entity.setPasswordHash(passwordHasher.hash(request.getPassword()));
+        entity.setDisplayName(request.getDisplayName().trim());
+        entity.setAvatarUrl(normalizeNullable(request.getAvatarUrl()));
         entity.setEmail(email);
         entity.setMobile(mobile);
-        entity.setDepartmentId(request.departmentId());
-        entity.setStatus(request.status());
+        entity.setDepartmentId(request.getDepartmentId());
+        entity.setStatus(request.getStatus());
         sysUserRepo.insert(entity);
         Long operatorId = UserContext.userId();
-        sysUserRepo.saveApplicationAccess(entity.getId(), request.applicationAccessEnabled(), operatorId);
+        sysUserRepo.saveApplicationAccess(entity.getId(), request.getApplicationAccessEnabled(), operatorId);
         auditService.record("SYSTEM", "USER", entity.getId(), operatorId, "USER_CREATE",
-                "创建账号，应用端访问=" + request.applicationAccessEnabled());
+                "创建账号，应用端访问=" + request.getApplicationAccessEnabled());
         return requireUserView(entity.getId());
     }
 
@@ -75,23 +75,23 @@ public class SysUserServiceImpl implements SysUserService {
     @Transactional
     public SysUserVO update(Long id, UpdateSysUserRequest request) {
         SysUserBO before = requireUser(id);
-        String email = normalizeEmail(request.email());
-        String mobile = normalizeNullable(request.mobile());
+        String email = normalizeEmail(request.getEmail());
+        String mobile = normalizeNullable(request.getMobile());
         validateContactUniqueness(email, mobile, id);
 
         SysUserEntity entity = new SysUserEntity();
-        entity.setId(before.id());
-        entity.setDisplayName(request.displayName().trim());
-        entity.setAvatarUrl(normalizeNullable(request.avatarUrl()));
+        entity.setId(before.getId());
+        entity.setDisplayName(request.getDisplayName().trim());
+        entity.setAvatarUrl(normalizeNullable(request.getAvatarUrl()));
         entity.setEmail(email);
         entity.setMobile(mobile);
-        entity.setDepartmentId(request.departmentId());
-        entity.setStatus(request.status());
+        entity.setDepartmentId(request.getDepartmentId());
+        entity.setStatus(request.getStatus());
         sysUserRepo.update(entity);
         Long operatorId = UserContext.userId();
-        sysUserRepo.saveApplicationAccess(id, request.applicationAccessEnabled(), operatorId);
+        sysUserRepo.saveApplicationAccess(id, request.getApplicationAccessEnabled(), operatorId);
         auditService.record("SYSTEM", "USER", id, operatorId, "USER_UPDATE",
-                "账号状态=" + request.status() + "，应用端访问=" + request.applicationAccessEnabled());
+                "账号状态=" + request.getStatus() + "，应用端访问=" + request.getApplicationAccessEnabled());
         return requireUserView(id);
     }
 
@@ -135,7 +135,7 @@ public class SysUserServiceImpl implements SysUserService {
      * <p>如果存储值是已过期的签名 URL（历史数据），直接透传不做二次签名。</p>
      */
     private SysUserVO toUserView(SysUserBO user) {
-        AvatarUrlService.AvatarUrl avatar = avatarUrlService.resolve(user.avatarUrl());
+        AvatarUrlService.AvatarUrl avatar = avatarUrlService.resolve(user.getAvatarUrl());
         return sysUserConverter.toVO(user, avatar.url(), avatar.objectKey());
     }
 

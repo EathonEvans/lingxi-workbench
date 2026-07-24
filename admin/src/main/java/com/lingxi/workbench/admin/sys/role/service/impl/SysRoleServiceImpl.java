@@ -75,13 +75,13 @@ public class SysRoleServiceImpl implements SysRoleService {
     @Override
     @Transactional
     public SysRoleVO create(CreateRoleRequest request) {
-        if (sysRoleRepo.existsByCode(request.code())) {
+        if (sysRoleRepo.existsByCode(request.getCode())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "角色编码已存在");
         }
         SysRoleEntity entity = sysRoleConverter.toEntity(request);
-        entity.setName(request.name().trim());
-        entity.setRemark(normalizeNullable(request.remark()));
-        entity.setSortOrder(Objects.isNull(request.sortOrder()) ? 0 : request.sortOrder());
+        entity.setName(request.getName().trim());
+        entity.setRemark(normalizeNullable(request.getRemark()));
+        entity.setSortOrder(Objects.isNull(request.getSortOrder()) ? 0 : request.getSortOrder());
         sysRoleRepo.insert(entity);
         return sysRoleConverter.toVO(entity);
     }
@@ -91,18 +91,18 @@ public class SysRoleServiceImpl implements SysRoleService {
     public SysRoleVO update(Long id, UpdateRoleRequest request) {
         SysRoleEntity entity = requireRole(id);
         if (Boolean.TRUE.equals(entity.getBuiltIn())
-                && (request.dataScope() != RoleDataScope.ALL
-                || request.status() != EnableStatus.ACTIVE)) {
+                && (request.getDataScope() != RoleDataScope.ALL
+                || request.getStatus() != EnableStatus.ACTIVE)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "系统内置角色必须保持启用且拥有全部数据范围");
         }
         sysRoleConverter.updateEntity(request, entity);
-        entity.setName(request.name().trim());
-        entity.setRemark(normalizeNullable(request.remark()));
-        entity.setSortOrder(Objects.isNull(request.sortOrder()) ? 0 : request.sortOrder());
+        entity.setName(request.getName().trim());
+        entity.setRemark(normalizeNullable(request.getRemark()));
+        entity.setSortOrder(Objects.isNull(request.getSortOrder()) ? 0 : request.getSortOrder());
         sysRoleRepo.update(entity);
 
         // 数据范围离开 CUSTOM 后，旧的部门关联已无业务含义，立即清理避免脏数据误导后续维护者。
-        if (request.dataScope() != RoleDataScope.CUSTOM) {
+        if (request.getDataScope() != RoleDataScope.CUSTOM) {
             sysRoleRepo.replaceRoleDepartments(id, Set.of());
         }
         return sysRoleConverter.toVO(entity);

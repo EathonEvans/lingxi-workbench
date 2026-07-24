@@ -49,21 +49,22 @@ class SysMenuServiceImplTest {
 
     @Test
     void shouldRejectRootLevelButton() {
-        CreateMenuRequest request = new CreateMenuRequest(
-                null, "新增角色", "ROLE_CREATE", MenuType.BUTTON,
-                null, null, null, "system:role:create", 10, true, EnableStatus.ACTIVE
-        );
+        CreateMenuRequest request = CreateMenuRequest.builder()
+                .parentId(null).name("新增角色").code("ROLE_CREATE").menuType(MenuType.BUTTON)
+                .routePath(null).component(null).icon(null)
+                .permissionCode("system:role:create").sortOrder(10).visible(true)
+                .status(EnableStatus.ACTIVE).build();
 
         assertThrows(BusinessException.class, () -> service.create(request));
     }
 
     @Test
     void shouldRejectRootLevelPage() {
-        CreateMenuRequest request = new CreateMenuRequest(
-                null, "工作台", "DASHBOARD_CONSOLE", MenuType.MENU,
-                "/dashboard/console", "dashboard/console/index", null,
-                null, 10, true, EnableStatus.ACTIVE
-        );
+        CreateMenuRequest request = CreateMenuRequest.builder()
+                .parentId(null).name("工作台").code("DASHBOARD_CONSOLE").menuType(MenuType.MENU)
+                .routePath("/dashboard/console").component("dashboard/console/index").icon(null)
+                .permissionCode(null).sortOrder(10).visible(true)
+                .status(EnableStatus.ACTIVE).build();
 
         BusinessException exception = assertThrows(BusinessException.class, () -> service.create(request));
 
@@ -75,11 +76,11 @@ class SysMenuServiceImplTest {
         SysMenuEntity parent = menu(1L, null);
         parent.setMenuType(MenuType.MENU);
         when(sysMenuRepo.findById(1L)).thenReturn(Optional.of(parent));
-        CreateMenuRequest request = new CreateMenuRequest(
-                1L, "子页面", "NESTED_PAGE", MenuType.MENU,
-                "/nested/page", "nested/page/index", null,
-                null, 10, true, EnableStatus.ACTIVE
-        );
+        CreateMenuRequest request = CreateMenuRequest.builder()
+                .parentId(1L).name("子页面").code("NESTED_PAGE").menuType(MenuType.MENU)
+                .routePath("/nested/page").component("nested/page/index").icon(null)
+                .permissionCode(null).sortOrder(10).visible(true)
+                .status(EnableStatus.ACTIVE).build();
 
         BusinessException exception = assertThrows(BusinessException.class, () -> service.create(request));
 

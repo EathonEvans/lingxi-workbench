@@ -7,6 +7,11 @@ import jakarta.validation.constraints.Size;
 
 /**
  * 修改部门请求。部门编码创建后保持稳定。
+ *
+ * @param parentId  上级部门主键
+ * @param name      部门名称
+ * @param sortOrder 同级排序序号
+ * @param status    部门状态
  */
 public record UpdateDepartmentRequest(
         /** 上级部门主键。 */

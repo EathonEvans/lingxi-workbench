@@ -47,13 +47,14 @@ public class KnowledgeEmbeddingModelResolver {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "Embedding模型密钥解密失败");
         }
         ModelInstanceEntity instance = bundle.instance();
-        return new EmbeddingModelRuntimeConfig(
-                instance.getId(),
-                bundle.provider().getBaseUrl(),
-                apiKey,
-                instance.getModelCode(),
-                instance.getTimeoutSeconds(),
-                instance.getMaxRetries());
+        return EmbeddingModelRuntimeConfig.builder()
+                .instanceId(instance.getId())
+                .baseUrl(bundle.provider().getBaseUrl())
+                .apiKey(apiKey)
+                .modelCode(instance.getModelCode())
+                .timeoutSeconds(instance.getTimeoutSeconds())
+                .maxRetries(instance.getMaxRetries())
+                .build();
     }
 
     private ModelBundle requireAvailable(Long instanceId) {

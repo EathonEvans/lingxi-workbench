@@ -33,7 +33,7 @@ public class KnowledgeDocumentController {
     private final KnowledgeDocumentService service;
 
     /**
-     * 分页查询知识库文档及处理状态。
+     * 分页查询知识库文档及处理状态
      */
     @GetMapping("/list")
     @SaCheckPermission("knowledge:document:list")

@@ -27,9 +27,17 @@ class ModelRuntimeConfigServiceImplTest {
         ModelRuntimeConfigConverter converter = mock(ModelRuntimeConfigConverter.class);
         SecretCipher cipher = mock(SecretCipher.class);
         ModelRuntimeConfigBO config = config("OPENAI_COMPATIBLE");
-        ChatModelRuntimeConfig expected = new ChatModelRuntimeConfig(
-                1L, "https://api.deepseek.com", "secret", "deepseek-chat",
-                0.7, null, 1024, List.of(), 60, 1);
+        ChatModelRuntimeConfig expected = ChatModelRuntimeConfig.builder()
+                .instanceId(1L)
+                .baseUrl("https://api.deepseek.com")
+                .apiKey("secret")
+                .modelCode("deepseek-chat")
+                .temperature(0.7)
+                .maxTokens(1024)
+                .stopSequences(List.of())
+                .timeoutSeconds(60)
+                .maxRetries(1)
+                .build();
         when(repo.findDefaultChatModel()).thenReturn(Optional.of(config));
         when(cipher.decrypt("ciphertext", "iv")).thenReturn("secret");
         when(converter.toRuntimeConfig(config, "secret")).thenReturn(expected);
@@ -67,18 +75,18 @@ class ModelRuntimeConfigServiceImplTest {
     }
 
     private static ModelRuntimeConfigBO config(String protocol) {
-        return new ModelRuntimeConfigBO(
-                1L,
-                protocol,
-                "https://api.deepseek.com",
-                "ciphertext",
-                "iv",
-                "deepseek-chat",
-                new BigDecimal("0.7"),
-                null,
-                1024,
-                List.of(),
-                60,
-                1);
+        return ModelRuntimeConfigBO.builder()
+                .instanceId(1L)
+                .protocol(protocol)
+                .baseUrl("https://api.deepseek.com")
+                .secretCiphertext("ciphertext")
+                .secretIv("iv")
+                .modelCode("deepseek-chat")
+                .temperature(new BigDecimal("0.7"))
+                .maxTokens(1024)
+                .stopSequences(List.of())
+                .timeoutSeconds(60)
+                .maxRetries(1)
+                .build();
     }
 }
