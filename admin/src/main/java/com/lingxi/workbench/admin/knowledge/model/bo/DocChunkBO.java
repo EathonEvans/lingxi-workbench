@@ -8,12 +8,5 @@ package com.lingxi.workbench.admin.knowledge.model.bo;
  * @param tokenCount   分块Token数量
  * @param sectionTitle 所属章节标题
  */
-public record KnowledgeChunkBO(
-        int chunkNo,
-
-        String content,
-
-        int tokenCount,
-
-        String sectionTitle) {
+public record DocChunkBO(int chunkNo, String content, int tokenCount, String sectionTitle) {
 }

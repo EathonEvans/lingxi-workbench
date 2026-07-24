@@ -4,7 +4,7 @@ import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeChunkTaskStatu
 import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeChunkStrategy;
 import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeDocumentSourceType;
 import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeDocumentStatus;
-import com.lingxi.workbench.admin.knowledge.model.bo.KnowledgeChunkBO;
+import com.lingxi.workbench.admin.knowledge.model.bo.DocChunkBO;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeChunkEntity;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeChunkMetadata;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeChunkTaskEntity;
@@ -124,7 +124,7 @@ public class KnowledgeChunkPipelineService {
     /**
      * 纯CPU分块在事务外执行，避免长时间占用数据库连接。
      */
-    public List<KnowledgeChunkBO> chunk(ChunkInput input) {
+    public List<DocChunkBO> chunk(ChunkInput input) {
         return documentChunker.chunk(input.getContent(), input.getStrategy(), input.getChunkSize(), input.getChunkOverlap());
     }
 
@@ -135,7 +135,7 @@ public class KnowledgeChunkPipelineService {
      * Chunk、向量、任务和文档会在同一个数据库事务中统一提交，避免暴露半成品。</p>
      */
     @Transactional
-    public VectorInput startVectorize(ChunkInput input, List<KnowledgeChunkBO> chunks) {
+    public VectorInput startVectorize(ChunkInput input, List<DocChunkBO> chunks) {
         if (chunks.isEmpty()) {
             throw new IllegalStateException("文档解析后没有生成有效Chunk");
         }
@@ -145,7 +145,7 @@ public class KnowledgeChunkPipelineService {
         List<KnowledgeChunkEntity> entities = new ArrayList<>(chunks.size());
         long totalTokens = 0L;
         int previousStart = -1;
-        for (KnowledgeChunkBO chunk : chunks) {
+        for (DocChunkBO chunk : chunks) {
             // 计算截取开始位置
             int charStart = input.getContent().indexOf(chunk.content(), previousStart + 1);
 
@@ -173,7 +173,7 @@ public class KnowledgeChunkPipelineService {
                 .build();
     }
 
-    private KnowledgeChunkEntity build(ChunkInput input, KnowledgeChunkBO chunk, int charStart) {
+    private KnowledgeChunkEntity build(ChunkInput input, DocChunkBO chunk, int charStart) {
 
         KnowledgeChunkEntity entity = new KnowledgeChunkEntity();
         entity.setTaskId(input.getTaskId());

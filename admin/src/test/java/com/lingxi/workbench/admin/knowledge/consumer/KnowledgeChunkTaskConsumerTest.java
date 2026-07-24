@@ -3,7 +3,7 @@ package com.lingxi.workbench.admin.knowledge.consumer;
 import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeChunkStrategy;
 import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeChunkTaskStatus;
 import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeDocumentSourceType;
-import com.lingxi.workbench.admin.knowledge.model.bo.KnowledgeChunkBO;
+import com.lingxi.workbench.admin.knowledge.model.bo.DocChunkBO;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeChunkEntity;
 import com.lingxi.workbench.admin.knowledge.model.message.KnowledgeChunkTaskMessage;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeDocumentParser;
@@ -76,9 +76,9 @@ class KnowledgeChunkTaskConsumerTest {
                         .sourceType(KnowledgeDocumentSourceType.FILE)
                         .pageCount(1)
                         .build();
-        List<KnowledgeChunkBO> chunkResults = List.of(
-                new KnowledgeChunkBO(1, "第一段", 3, null),
-                new KnowledgeChunkBO(2, "第二段", 3, null));
+        List<DocChunkBO> chunkResults = List.of(
+                new DocChunkBO(1, "第一段", 3, null),
+                new DocChunkBO(2, "第二段", 3, null));
         KnowledgeChunkEntity firstChunk = chunk(1, "第一段");
         KnowledgeChunkEntity secondChunk = chunk(2, "第二段");
         EmbeddingModelRuntimeConfig modelConfig =

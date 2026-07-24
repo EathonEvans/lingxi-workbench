@@ -2,7 +2,7 @@ package com.lingxi.workbench.admin.knowledge.consumer;
 
 import com.lingxi.workbench.admin.common.persistence.KnowledgeMqTopics;
 import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeChunkTaskStatus;
-import com.lingxi.workbench.admin.knowledge.model.bo.KnowledgeChunkBO;
+import com.lingxi.workbench.admin.knowledge.model.bo.DocChunkBO;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeChunkEntity;
 import com.lingxi.workbench.admin.knowledge.model.message.KnowledgeChunkTaskMessage;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeDocumentParser;
@@ -47,7 +47,7 @@ public class KnowledgeChunkTaskConsumer implements RocketMQListener<KnowledgeChu
                 }
                 KnowledgeChunkPipelineService.ChunkInput chunkInput = pipelineService.startChunking(processingInput, parsedDocument);
                 // 执行分块
-                List<KnowledgeChunkBO> chunks = pipelineService.chunk(chunkInput);
+                List<DocChunkBO> chunks = pipelineService.chunk(chunkInput);
                 // 开始向量化
                 KnowledgeChunkPipelineService.VectorInput vectorInput = pipelineService.startVectorize(chunkInput, chunks);
                 List<float[]> vectors = embedInBatches(vectorInput);
