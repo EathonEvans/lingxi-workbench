@@ -1,4 +1,7 @@
 .shell {
+  --conversation-blue: linear-gradient(135deg, #2e72ed, #4d63e8);
+  --conversation-blue-hover: linear-gradient(135deg, #2867dc, #4458d4);
+
   display: flex;
   width: 100vw;
   height: 100dvh;
@@ -108,21 +111,21 @@
 
 .newChat {
   height: 40px !important;
-  margin-bottom: 16px;
+  margin-bottom: 0;
+  border-color: #2e72ed !important;
   border-radius: 10px !important;
+  background: var(--conversation-blue) !important;
   font-weight: 600;
-  box-shadow: 0 7px 18px rgba(22, 100, 255, 0.18) !important;
+  box-shadow: 0 7px 18px rgba(45, 101, 225, 0.2) !important;
 }
 
-.primaryNav,
 .sidebarFooter {
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
 
-.navItem,
-.navItemActive {
+.navItem {
   display: flex;
   align-items: center;
   width: 100%;
@@ -139,14 +142,15 @@
   transition: 160ms ease;
 }
 
-.navItem:hover,
-.navItemActive {
+.navItem:hover {
   color: #215fd7;
   background: #edf4ff;
 }
 
-.navItemActive {
-  font-weight: 600;
+.newChat:hover,
+.newChat:focus-visible {
+  border-color: #245fda !important;
+  background: var(--conversation-blue-hover) !important;
 }
 
 .historyHeader {
@@ -159,6 +163,18 @@
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
+}
+
+.pinnedConversationList {
+  min-height: 35px;
+}
+
+.pinnedConversationList .conversationEmpty {
+  min-height: 35px;
+}
+
+.recentHistoryHeader {
+  margin-top: 12px;
 }
 
 .conversationList {
@@ -330,6 +346,7 @@
 
 .modelPicker {
   display: flex;
+  max-width: 320px;
   align-items: center;
   padding: 5px 8px 5px 5px;
   gap: 9px;
@@ -359,8 +376,38 @@
 }
 
 .modelPicker strong {
+  overflow: hidden;
   font-size: 12px;
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelPicker small {
+  overflow: hidden;
+  max-width: 220px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.applicationOption {
+  display: flex;
+  min-width: 220px;
+  max-width: 320px;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.applicationOption strong,
+.applicationOption small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.applicationOption small {
+  color: #8a9099;
+  font-size: 11px;
 }
 
 .headerActions {
@@ -609,7 +656,7 @@
   padding: 10px 14px;
   border-radius: 16px 4px 16px 16px;
   color: #fff;
-  background: linear-gradient(135deg, #2e72ed, #4d63e8);
+  background: var(--conversation-blue);
   box-shadow: 0 6px 18px rgba(45, 101, 225, 0.16);
   line-height: 1.65;
   white-space: pre-wrap;
@@ -816,6 +863,9 @@
 }
 
 .shell[data-theme="dark"] {
+  --conversation-blue: linear-gradient(135deg, #2863cf, #4857c9);
+  --conversation-blue-hover: linear-gradient(135deg, #2459bb, #404db6);
+
   color: #e8ebf0;
   background: #0b0d12;
 }
@@ -838,8 +888,7 @@
   color: #9299a5;
 }
 
-.shell[data-theme="dark"] .navItem:hover,
-.shell[data-theme="dark"] .navItemActive {
+.shell[data-theme="dark"] .navItem:hover {
   color: #83adff;
   background: rgba(60, 113, 224, 0.16);
 }
@@ -948,7 +997,7 @@
 
 .shell[data-theme="dark"] .userMessage .messageContent {
   color: #fff;
-  background: linear-gradient(135deg, #2863cf, #4857c9);
+  background: var(--conversation-blue);
   box-shadow: 0 7px 20px rgba(0, 0, 0, 0.22);
 }
 

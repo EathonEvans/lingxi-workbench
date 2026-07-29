@@ -33,6 +33,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   archiveConversation,
+  type AvailableApplication,
   cancelChat,
   ChatStreamError,
   createConversation,
@@ -41,6 +42,7 @@ import {
   type ConversationMessage,
   listConversationMessages,
   listConversations,
+  listAvailableApplications,
   renameConversation,
   resumeChat,
   streamChat,
@@ -157,6 +159,9 @@ export function WorkbenchShell() {
   const { logout, ready, session } = useAuth();
   const { appearance, toggleAppearance } = useThemeMode();
   const [input, setInput] = useState("");
+  const [applications, setApplications] = useState<AvailableApplication[]>([]);
+  const [applicationLoading, setApplicationLoading] = useState(true);
+  const [selectedApplicationCode, setSelectedApplicationCode] = useState<string>();
   const [conversationId, setConversationId] = useState<string>();
   const [conversationStatus, setConversationStatus] = useState<Conversation["status"]>();
   const [recentConversations, setRecentConversations] = useState<Conversation[]>([]);
@@ -206,6 +211,32 @@ export function WorkbenchShell() {
         );
       })
       .finally(() => setConversationLoading(false));
+  }, [logout, ready, router, session]);
+
+  useEffect(() => {
+    if (!ready || !session) return;
+    listAvailableApplications(session)
+      .then((availableApplications) => {
+        setApplications(availableApplications);
+        setSelectedApplicationCode((currentCode) => {
+          const currentApplicationExists = availableApplications.some(
+            (application) => application.code === currentCode,
+          );
+          if (currentApplicationExists) return currentCode;
+          return availableApplications[0]?.code;
+        });
+      })
+      .catch((error) => {
+        if (error instanceof ChatStreamError && error.status === 401) {
+          logout();
+          router.replace("/login");
+          return;
+        }
+        setStreamError(
+          error instanceof ChatStreamError ? error.message : "查询可用应用失败",
+        );
+      })
+      .finally(() => setApplicationLoading(false));
   }, [logout, ready, router, session]);
 
   useEffect(() => {
@@ -564,6 +595,10 @@ export function WorkbenchShell() {
   const sendPrompt = async (prompt: string) => {
     const normalizedPrompt = prompt.trim();
     if (!normalizedPrompt || streaming || !session) return;
+    if (!selectedApplicationCode) {
+      setStreamError("请先选择一个已发布的 AI 应用");
+      return;
+    }
     if (conversationStatus === "ARCHIVED") {
       setStreamError("当前会话已归档，请新建对话后继续提问");
       return;
@@ -601,6 +636,7 @@ export function WorkbenchShell() {
         setConversationStatus(conversation.status);
       }
       await streamChat({
+        applicationCode: selectedApplicationCode,
         clientMessageId: crypto.randomUUID(),
         conversationId: activeConversationId,
         onChunk: (content, sequence) => {
@@ -646,7 +682,7 @@ export function WorkbenchShell() {
         onCancelled: () => {
           cancelled = true;
         },
-        prompt: normalizedPrompt,
+        query: normalizedPrompt,
         session,
         signal: controller.signal,
       });
@@ -706,6 +742,19 @@ export function WorkbenchShell() {
     );
     void sendPrompt(lastUserMessage.content);
   };
+
+  const selectedApplication = applications.find(
+    (application) => application.code === selectedApplicationCode,
+  );
+  const applicationMenuItems = applications.map((application) => ({
+    key: application.code,
+    label: (
+      <span className={styles.applicationOption}>
+        <strong>{application.name}</strong>
+        <small>{application.description || application.code}</small>
+      </span>
+    ),
+  }));
 
   const renderConversation = (conversation: Conversation, showStatus = false) => {
     const selected = conversation.id === conversationId;
@@ -812,22 +861,14 @@ export function WorkbenchShell() {
           新建对话
         </Button>
 
-        <nav className={styles.primaryNav} aria-label="主导航">
-          <button className={styles.navItemActive} type="button">
-            <MessageSquareText size={17} />
-            对话
-          </button>
-          <button className={styles.navItem} type="button">
-            <Boxes size={17} />
-            智能体
-          </button>
-          <button className={styles.navItem} type="button">
-            <FolderKanban size={17} />
-            知识库
-          </button>
-        </nav>
-
         <div className={styles.historyHeader}>
+          <span>置顶对话</span>
+        </div>
+        <div className={styles.pinnedConversationList}>
+          <span className={styles.conversationEmpty}>暂无置顶对话</span>
+        </div>
+
+        <div className={`${styles.historyHeader} ${styles.recentHistoryHeader}`}>
           <span>最近对话</span>
           <ActionIcon icon={Search} onClick={openHistory} size="small" title="搜索对话" />
         </div>
@@ -920,16 +961,38 @@ export function WorkbenchShell() {
             onClick={() => setSidebarOpen(true)}
             title="打开导航"
           />
-          <button className={styles.modelPicker} type="button">
-            <span className={styles.modelIcon}>
-              <Bot size={17} />
-            </span>
-            <span>
-              <strong>灵析通用助手</strong>
-              <small>智能选择模型</small>
-            </span>
-            <ChevronsUpDown size={14} />
-          </button>
+          <Dropdown
+            disabled={applicationLoading || applications.length === 0 || streaming}
+            menu={{
+              items: applicationMenuItems,
+              onClick: ({ key }) => setSelectedApplicationCode(key),
+              selectedKeys: selectedApplicationCode ? [selectedApplicationCode] : [],
+            }}
+            placement="bottomLeft"
+            trigger={["click"]}
+          >
+            <button
+              aria-label="选择 AI 应用"
+              className={styles.modelPicker}
+              type="button"
+            >
+              <span className={styles.modelIcon}>
+                <Bot size={17} />
+              </span>
+              <span>
+                <strong>
+                  {selectedApplication?.name ||
+                    (applicationLoading ? "正在加载应用…" : "暂无可用应用")}
+                </strong>
+                <small>
+                  {selectedApplication?.description ||
+                    selectedApplication?.code ||
+                    (applicationLoading ? "请稍候" : "请先在管理端发布应用")}
+                </small>
+              </span>
+              <ChevronsUpDown size={14} />
+            </button>
+          </Dropdown>
           <div className={styles.headerActions}>
             <Tag color="blue" variant="filled">
               工作台预览
@@ -1093,12 +1156,21 @@ export function WorkbenchShell() {
             )}
             <div className={styles.composer}>
               <ChatInputArea.Inner
-                disabled={conversationStatus === "ARCHIVED" || messageLoading}
+                disabled={
+                  conversationStatus === "ARCHIVED" ||
+                  messageLoading ||
+                  applicationLoading ||
+                  !selectedApplicationCode
+                }
                 onChange={(event) => setInput(event.target.value)}
                 onSend={() => void sendPrompt(input)}
                 placeholder={
                   conversationStatus === "ARCHIVED"
                     ? "该会话已归档"
+                    : applicationLoading
+                      ? "正在加载可用应用…"
+                      : !selectedApplicationCode
+                        ? "请先在管理端发布可用应用"
                     : "向灵析提问，或描述你想完成的工作…"
                 }
                 rows={3}
@@ -1125,7 +1197,13 @@ export function WorkbenchShell() {
                     <button
                       aria-label="发送消息"
                       className={styles.sendButton}
-                      disabled={!input.trim() || conversationStatus === "ARCHIVED" || messageLoading}
+                      disabled={
+                        !input.trim() ||
+                        conversationStatus === "ARCHIVED" ||
+                        messageLoading ||
+                        applicationLoading ||
+                        !selectedApplicationCode
+                      }
                       onClick={() => void sendPrompt(input)}
                       title="发送消息"
                       type="button"

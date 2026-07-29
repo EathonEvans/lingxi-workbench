@@ -11,6 +11,12 @@ export type ChatStart = {
   userMessageId: string;
 };
 
+export type AvailableApplication = {
+  code: string;
+  description?: string;
+  name: string;
+};
+
 export type Conversation = {
   createdAt: string;
   id: string;
@@ -55,20 +61,21 @@ type ChatErrorPayload = {
 };
 
 type StreamChatOptions = {
+  applicationCode: string;
   clientMessageId: string;
   conversationId: string;
   onCancelled?: () => void;
   onChunk: (content: string, sequence: number) => void;
   onSnapshot?: (content: string) => void;
   onStart?: (start: ChatStart) => void;
-  prompt: string;
+  query: string;
   session: AuthSession;
   signal?: AbortSignal;
 };
 
 type ResumeChatOptions = Omit<
   StreamChatOptions,
-  "clientMessageId" | "conversationId" | "onStart" | "prompt"
+  "applicationCode" | "clientMessageId" | "conversationId" | "onStart" | "query"
 > & {
   afterSequence: number;
   assistantMessageId: string;
@@ -239,13 +246,14 @@ function conversationQueryString(query: ConversationQuery) {
  * fetch 支持 POST 和动态认证头，EventSource 无法满足这两个条件。
  */
 export async function streamChat({
+  applicationCode,
   clientMessageId,
   conversationId,
   onChunk,
   onCancelled,
   onSnapshot,
   onStart,
-  prompt,
+  query,
   session,
   signal,
 }: StreamChatOptions) {
@@ -253,7 +261,7 @@ export async function streamChat({
 
   try {
     response = await fetch(`${API_BASE_URL}/v1/ai/chat/start`, {
-      body: JSON.stringify({ clientMessageId, conversationId, prompt }),
+      body: JSON.stringify({ applicationCode, clientMessageId, conversationId, query }),
       headers: {
         "Content-Type": "application/json",
         [session.tokenName]: session.tokenValue,
@@ -283,6 +291,16 @@ export async function streamChat({
     session,
     signal,
   });
+}
+
+/** 查询用户端允许选择的已启用、已发布 AI 应用。 */
+export async function listAvailableApplications(
+  session: AuthSession,
+): Promise<AvailableApplication[]> {
+  const response = await fetch(`${API_BASE_URL}/v1/applications/available`, {
+    headers: { [session.tokenName]: session.tokenValue },
+  });
+  return readApiData(response, "查询可用应用失败，请稍后重试");
 }
 
 /** 浏览器刷新或网络恢复后，从最后一个增量序号继续订阅生成任务。 */
