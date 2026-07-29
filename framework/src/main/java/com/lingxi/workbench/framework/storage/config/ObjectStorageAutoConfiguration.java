@@ -27,6 +27,9 @@ import org.springframework.util.StringUtils;
 public class ObjectStorageAutoConfiguration {
 
 
+    /**
+     * 阿里云 OSS 存储 Bean，当配置为 {@code lingxi.storage.type=oss} 时生效。
+     */
     @Bean(destroyMethod = "shutdown")
     @ConditionalOnProperty(prefix = "lingxi.storage", name = "type", havingValue = "oss")
     public ObjectStorage aliOssObjectStorage(ObjectStorageProperties properties) {

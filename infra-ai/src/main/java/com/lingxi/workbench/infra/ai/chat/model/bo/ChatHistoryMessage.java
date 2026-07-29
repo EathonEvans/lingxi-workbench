@@ -15,7 +15,9 @@ public record ChatHistoryMessage(Role role, String content) {
     @Getter
     @RequiredArgsConstructor
     public enum Role {
+        /** 用户消息。 */
         USER("USER", "用户"),
+        /** 助手消息。 */
         ASSISTANT("ASSISTANT", "助手");
 
         /** 角色稳定编码，用于程序交互和持久化。 */

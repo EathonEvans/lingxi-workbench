@@ -45,12 +45,20 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
     private final ModelConnectionTester connectionTester;
     private final ModelConverter modelConverter;
 
+    /**
+     * 按关键字、供应商、模型类型和状态分页查询模型实例。
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResult<ModelInstanceVO> page(ModelInstancePageQuery query) {
         return instanceRepo.findPage(query).map(modelConverter::toInstanceVO);
     }
 
+    /**
+     * 新增或修改模型实例。
+     *
+     * <p>校验供应商归属、密钥可用性和编码唯一性。已创建实例不允许修改模型类型。</p>
+     */
     @Override
     @Transactional
     public ModelInstanceVO save(
@@ -90,6 +98,8 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
         entity.setMaxTokens(chatModel ? request.getMaxTokens() : null);
         entity.setContextWindow(request.getContextWindow());
         entity.setStopSequences(normalizeList(chatModel ? request.getStopSequences() : List.of()));
+        entity.setExtensionParameters(ModelExtensionParameterValidator.normalize(
+                chatModel ? request.getExtensionParameters() : null));
         entity.setTimeoutSeconds(request.getTimeoutSeconds());
         entity.setMaxRetries(request.getMaxRetries());
         entity.setStatus(request.getStatus());
@@ -112,6 +122,11 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
         return modelConverter.toInstanceVO(entity);
     }
 
+    /**
+     * 启用或停用模型实例。
+     *
+     * <p>默认实例不允许直接停用。启用时需确认依赖的供应商和密钥均可用。</p>
+     */
     @Override
     @Transactional
     public void changeStatus(Long id, EnableStatus status, Long operatorId) {
@@ -135,6 +150,11 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
                 "MODEL", "INSTANCE", id, operatorId, "MODEL_STATUS_CHANGE", "状态=" + status);
     }
 
+    /**
+     * 将指定实例设置为当前模型类型的默认实例。
+     *
+     * <p>先清除同类型的旧默认标记，确保同一类型只有一个默认实例。</p>
+     */
     @Override
     @Transactional
     public void setDefault(Long id, Long operatorId) {
@@ -155,6 +175,11 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
                 "MODEL", "INSTANCE", id, operatorId, "MODEL_SET_DEFAULT", "设置默认模型");
     }
 
+    /**
+     * 使用当前供应商、密钥和模型配置执行真实连通性测试，并回写测试结果。
+     *
+     * <p>解密 API Key 后发起真实接口调用，测试结果写回实例记录。</p>
+     */
     @Override
     public ModelInstanceVO testConnection(Long id, Long operatorId) {
         ModelInstanceEntity entity = requireInstance(id);
@@ -173,6 +198,7 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
                     apiKey,
                     entity.getModelCode(),
                     entity.getModelType(),
+                    entity.getExtensionParameters(),
                     entity.getTimeoutSeconds());
         } catch (IllegalStateException exception) {
             result = ModelConnectionTestResult.failed(

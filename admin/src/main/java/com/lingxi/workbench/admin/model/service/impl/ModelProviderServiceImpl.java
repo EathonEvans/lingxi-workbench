@@ -34,18 +34,29 @@ public class ModelProviderServiceImpl implements ModelProviderService {
     private final AuditService auditService;
     private final ModelConverter modelConverter;
 
+    /**
+     * 按名称、编码和状态分页查询模型供应商。
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResult<ModelProviderVO> page(ModelProviderPageQuery query) {
         return providerRepo.findPage(query).map(modelConverter::toProviderVO);
     }
 
+    /**
+     * 查询全部供应商选项，供关联配置下拉选择。
+     */
     @Override
     @Transactional(readOnly = true)
     public List<ModelProviderVO> options() {
         return providerRepo.findAll().stream().map(modelConverter::toProviderVO).toList();
     }
 
+    /**
+     * 新增或修改模型供应商。
+     *
+     * <p>编码全局唯一且统一转为小写，Base URL 经过合法性与安全校验。</p>
+     */
     @Override
     @Transactional
     public ModelProviderVO save(
@@ -80,6 +91,9 @@ public class ModelProviderServiceImpl implements ModelProviderService {
         return modelConverter.toProviderVO(entity);
     }
 
+    /**
+     * 启用或停用模型供应商，停用前需确保无活跃模型实例。
+     */
     @Override
     @Transactional
     public void changeStatus(Long id, EnableStatus status, Long operatorId) {

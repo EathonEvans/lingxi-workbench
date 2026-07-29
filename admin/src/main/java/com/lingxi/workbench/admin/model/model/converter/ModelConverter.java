@@ -1,5 +1,7 @@
 package com.lingxi.workbench.admin.model.model.converter;
 
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import cn.hutool.core.collection.CollUtil;
 import com.lingxi.workbench.admin.model.common.enums.ModelCapability;
 import com.lingxi.workbench.admin.model.model.entity.ModelCredentialEntity;
@@ -27,6 +29,7 @@ public interface ModelConverter {
 
     /** 将模型实例实体转换为响应对象。 */
     @Mapping(target = "stopSequences", qualifiedByName = "emptyIfNull")
+    @Mapping(target = "extensionParameters", qualifiedByName = "emptyJsonIfNull")
     ModelInstanceVO toInstanceVO(ModelInstanceEntity entity);
 
     /** 将模型能力枚举转换为保持现有接口格式的字符串列表。 */
@@ -40,5 +43,14 @@ public interface ModelConverter {
     @Named("emptyIfNull")
     default List<String> emptyIfNull(List<String> values) {
         return CollUtil.isEmpty(values) ? List.of() : values;
+    }
+
+    /** 保证接口始终返回 JSON Object，并与持久化实体解除可变引用。 */
+    @Named("emptyJsonIfNull")
+    default JSONObject emptyJsonIfNull(JSONObject value) {
+        if (value == null) {
+            return new JSONObject();
+        }
+        return JSON.parseObject(JSON.toJSONString(value));
     }
 }

@@ -1,5 +1,6 @@
 package com.lingxi.workbench.admin.model.model.request;
 
+import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelCapability;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
@@ -36,6 +37,7 @@ import java.util.List;
  * @param maxTokens      单次生成最大 Token 数
  * @param contextWindow  模型上下文窗口大小
  * @param stopSequences  停止生成序列列表
+ * @param extensionParameters 供应商特有的 OpenAI Chat 请求体扩展参数
  * @param timeoutSeconds 请求超时时间（秒），范围 1~600
  * @param maxRetries     最大重试次数，范围 0~2
  * @param status         启用状态：ACTIVE / DISABLED
@@ -86,6 +88,8 @@ public class SaveModelInstanceRequest {
     private Integer contextWindow;
 
     private List<@Size(max = 128) String> stopSequences;
+
+    private JSONObject extensionParameters;
 
     @NotNull
     @Min(1)

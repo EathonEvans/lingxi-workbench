@@ -4,7 +4,7 @@ import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.request.CancelChatRequest;
 import com.lingxi.workbench.chat.model.request.ResumeChatRequest;
-import com.lingxi.workbench.chat.model.request.StartChatRequest;
+import com.lingxi.workbench.chat.model.request.ChatRequest;
 import com.lingxi.workbench.chat.model.vo.ChatChunkVO;
 import com.lingxi.workbench.chat.model.vo.ChatErrorVO;
 import com.lingxi.workbench.chat.model.vo.ChatSnapshotVO;
@@ -21,6 +21,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 
+import static com.lingxi.workbench.chat.common.constants.ChatErrorConstants.GENERATION_CANCELLED_CODE;
+import static com.lingxi.workbench.chat.common.constants.ChatErrorConstants.GENERATION_CANCELLED_MESSAGE;
+import static com.lingxi.workbench.chat.common.constants.ChatErrorConstants.MODEL_ERROR_CLIENT_MESSAGE;
+import static com.lingxi.workbench.chat.common.constants.ChatErrorConstants.MODEL_ERROR_CODE;
+
 /**
  * AI 流式对话接口。
  */
@@ -29,11 +34,6 @@ import reactor.core.publisher.Flux;
 @RequiredArgsConstructor
 public class ChatStreamController {
 
-    private static final String MODEL_ERROR_CODE = "AI_MODEL_ERROR";
-    private static final String MODEL_ERROR_MESSAGE = "模型服务暂时不可用，请稍后重试";
-    private static final String CANCELLED_CODE = "GENERATION_CANCELLED";
-    private static final String CANCELLED_MESSAGE = "已停止生成";
-
     private final ChatStreamService chatStreamService;
 
     /**
@@ -41,8 +41,8 @@ public class ChatStreamController {
      * 后续是否订阅 SSE 不影响该任务继续执行。
      */
     @PostMapping("/start")
-    public ApiResponse<ChatStartVO> start(@Valid @RequestBody StartChatRequest request) {
-        return ApiResponse.success(chatStreamService.start(request, UserContext.userId()));
+    public ApiResponse<ChatStartVO> start(@Valid @RequestBody ChatRequest request) {
+        return ApiResponse.success(chatStreamService.start(request, UserContext.get()));
     }
 
     /**
@@ -109,7 +109,9 @@ public class ChatStreamController {
     private static ServerSentEvent<ChatErrorVO> errorEvent() {
         return ServerSentEvent.<ChatErrorVO>builder()
                 .event("error")
-                .data(new ChatErrorVO(MODEL_ERROR_CODE, MODEL_ERROR_MESSAGE))
+                .data(new ChatErrorVO(
+                        MODEL_ERROR_CODE,
+                        MODEL_ERROR_CLIENT_MESSAGE))
                 .build();
     }
 
@@ -117,7 +119,9 @@ public class ChatStreamController {
     private static ServerSentEvent<ChatErrorVO> cancelledEvent() {
         return ServerSentEvent.<ChatErrorVO>builder()
                 .event("cancelled")
-                .data(new ChatErrorVO(CANCELLED_CODE, CANCELLED_MESSAGE))
+                .data(new ChatErrorVO(
+                        GENERATION_CANCELLED_CODE,
+                        GENERATION_CANCELLED_MESSAGE))
                 .build();
     }
 }

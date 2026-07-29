@@ -22,6 +22,9 @@ import java.util.Objects;
 
 /**
  * 知识库管理业务实现。
+ *
+ * <p>负责知识库的增删改查，包括编码唯一性校验、Embedding 模型绑定校验
+ * 以及有文档时禁止更换模型和删除的保护逻辑。</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -32,18 +35,30 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     private final AuditService auditService;
     private final KnowledgeEmbeddingModelResolver embeddingModelResolver;
 
+    /**
+     * 分页查询知识库列表，按关键字和状态过滤，按更新时间降序排列。
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResult<KnowledgeBaseVO> page(KnowledgeBasePageQuery query) {
         return baseRepo.findPage(query).map(converter::toBaseVO);
     }
 
+    /**
+     * 按主键加载知识库详情，不存在时抛出业务异常。
+     */
     @Override
     @Transactional(readOnly = true)
     public KnowledgeBaseVO detail(Long id) {
         return converter.toBaseVO(requireBase(id));
     }
 
+    /**
+     * 新增或修改知识库。
+     *
+     * <p>新增和修改统一入口，ID 为空时新增否则修改。
+     * 修改时若已有文档，不允许更换 Embedding 模型，以免索引契约不兼容。</p>
+     */
     @Override
     @Transactional
     public KnowledgeBaseVO save(Long id, SaveKnowledgeBaseRequest request, Long operatorId) {
@@ -73,6 +88,11 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         return converter.toBaseVO(entity);
     }
 
+    /**
+     * 删除无文档的知识库。
+     *
+     * <p>知识库内仍有文档时拒绝删除，防止遗留孤儿文档和向量数据。</p>
+     */
     @Override
     @Transactional
     public void delete(Long id, Long operatorId) {
@@ -84,9 +104,7 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         auditService.record("KNOWLEDGE", "BASE", id, operatorId, "KNOWLEDGE_DELETE", "知识库=" + entity.getCode());
     }
 
-    /**
-     * 按ID加载知识库，不存在时抛出业务异常。
-     */
+    /** 按 ID 加载知识库，不存在时抛出业务异常。 */
     private KnowledgeBaseEntity requireBase(Long id) {
         return baseRepo.findById(id).orElseThrow(() ->
                 new BusinessException(HttpStatusEnum.NOT_FOUND, "知识库不存在"));

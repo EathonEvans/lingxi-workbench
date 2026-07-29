@@ -1,5 +1,6 @@
 package com.lingxi.workbench.admin.model.model.vo;
 
+import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -27,6 +28,7 @@ import java.util.List;
  * @param maxTokens        单次生成最大 Token 数
  * @param contextWindow    模型上下文窗口大小
  * @param stopSequences    停止生成序列列表
+ * @param extensionParameters 供应商特有的 OpenAI Chat 请求体扩展参数
  * @param timeoutSeconds   请求超时时间（秒）
  * @param maxRetries       最大重试次数
  * @param isDefault        是否为默认实例
@@ -69,6 +71,8 @@ public class ModelInstanceVO {
     private Integer contextWindow;
 
     private List<String> stopSequences;
+
+    private JSONObject extensionParameters;
 
     private Integer timeoutSeconds;
 

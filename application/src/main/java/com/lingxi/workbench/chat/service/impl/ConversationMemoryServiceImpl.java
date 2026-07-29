@@ -45,24 +45,33 @@ public class ConversationMemoryServiceImpl implements ConversationMemoryService 
      * @param beforeSequenceNo 当前用户消息序号，只查询该序号之前的历史消息
      * @return 可直接注入模型上下文的历史消息，按产生时间正序排列
      */
+    /**
+     * 使用默认配置的窗口记忆限制读取历史消息。
+     * 轮数和 Token 上限均取自 ChatMemoryProperties 配置。
+     */
     @Override
     @Transactional(readOnly = true)
     public List<ChatMemoryMessageBO> getWindowMemory(Long userId, Long conversationId, Integer beforeSequenceNo) {
+        return getWindowMemory(userId, conversationId, beforeSequenceNo, properties.getMaxRounds(), properties.getMaxTokens());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ChatMemoryMessageBO> getWindowMemory(Long userId, Long conversationId, Integer beforeSequenceNo, int configuredMaxRounds, int configuredMaxTokens) {
         // 记忆查询同样必须校验会话归属，不能仅依赖上游已经执行过权限校验。
         if (conversationRepo.findOwnedById(conversationId, userId).isEmpty()) {
             throw new BusinessException(HttpStatusEnum.NOT_FOUND, "会话不存在");
         }
 
         // 配置出现负数时按 0 处理；任一限制为 0 都代表本次关闭历史记忆。
-        int maxRounds = Math.max(properties.getMaxRounds(), 0);
-        int maxTokens = Math.max(properties.getMaxTokens(), 0);
+        int maxRounds = Math.max(configuredMaxRounds, 0);
+        int maxTokens = Math.max(configuredMaxTokens, 0);
         if (maxRounds == 0 || maxTokens == 0) {
             return List.of();
         }
 
         // Repo 只返回当前轮之前、状态完整且角色配对的最近问答轮次，结果按消息序号正序排列。
-        List<ConversationMessageEntity> messages = messageRepo.findRecentCompletedRounds(
-                conversationId, beforeSequenceNo, maxRounds);
+        List<ConversationMessageEntity> messages = messageRepo.findRecentCompletedRounds(conversationId, beforeSequenceNo, maxRounds);
         if (messages.isEmpty()) {
             return List.of();
         }
@@ -90,7 +99,9 @@ public class ConversationMemoryServiceImpl implements ConversationMemoryService 
         return List.copyOf(selectedReversed);
     }
 
-    /** 估算消息文本 Token，并为角色名及消息协议结构预留固定开销。 */
+    /**
+     * 估算消息文本 Token，并为角色名及消息协议结构预留固定开销。
+     */
     private int estimate(ConversationMessageEntity message) {
         return tokenCountEstimator.estimate(message.getContent()) + MESSAGE_OVERHEAD_TOKENS;
     }

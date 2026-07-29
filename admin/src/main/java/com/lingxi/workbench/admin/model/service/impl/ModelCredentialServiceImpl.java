@@ -37,18 +37,29 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
     private final SecretCipher cipher;
     private final ModelConverter modelConverter;
 
+    /**
+     * 按名称、供应商和状态分页查询模型访问密钥。
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResult<ModelCredentialVO> page(ModelCredentialPageQuery query) {
         return credentialRepo.findPage(query).map(modelConverter::toCredentialVO);
     }
 
+    /**
+     * 查询全部密钥选项，供模型实例下拉选择。
+     */
     @Override
     @Transactional(readOnly = true)
     public List<ModelCredentialVO> options() {
         return credentialRepo.findAll().stream().map(modelConverter::toCredentialVO).toList();
     }
 
+    /**
+     * 创建模型访问密钥。
+     *
+     * <p>校验供应商可用且同供应商下名称唯一，加密存储 API Key 明文。</p>
+     */
     @Override
     @Transactional
     public ModelCredentialVO create(CreateModelCredentialRequest request, Long operatorId) {
@@ -85,6 +96,11 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
         return modelConverter.toCredentialVO(entity);
     }
 
+    /**
+     * 使用新 API Key 替换原有密钥，旧值不保留。
+     *
+     * <p>已撤销密钥不可轮换。</p>
+     */
     @Override
     @Transactional
     public void rotate(Long id, RotateModelCredentialRequest request, Long operatorId) {
@@ -108,6 +124,12 @@ public class ModelCredentialServiceImpl implements ModelCredentialService {
                 "CREDENTIAL_ROTATE", "轮换密钥=" + entity.getName());
     }
 
+    /**
+     * 启用、停用或永久撤销模型访问密钥。
+     *
+     * <p>停用前需确保无活跃模型实例引用，撤销前需确保无任何模型实例引用。
+     * 撤销时同时清除密文，不可恢复。</p>
+     */
     @Override
     @Transactional
     public void changeStatus(Long id, ModelCredentialStatus status, Long operatorId) {

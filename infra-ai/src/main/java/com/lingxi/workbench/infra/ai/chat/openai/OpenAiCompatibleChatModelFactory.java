@@ -6,6 +6,7 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.Objects;
 
 /** 根据数据库运行配置创建 OpenAI 兼容协议 ChatModel。 */
@@ -41,6 +42,11 @@ public class OpenAiCompatibleChatModelFactory {
         // 空停止序列不能下发，否则部分 OpenAI 兼容实现会拒绝请求。
         if (Objects.nonNull(config.getStopSequences()) && !config.getStopSequences().isEmpty()) {
             options.stop(config.getStopSequences());
+        }
+        // 扩展参数只在协议适配器边界转成 Map，避免供应商私有字段侵入领域模型。
+        if (Objects.nonNull(config.getExtensionParameters())
+                && !config.getExtensionParameters().isEmpty()) {
+            options.extraBody(new LinkedHashMap<>(config.getExtensionParameters()));
         }
 
         // ChatModel 只服务当前调用，不缓存包含明文 API Key 的客户端对象。

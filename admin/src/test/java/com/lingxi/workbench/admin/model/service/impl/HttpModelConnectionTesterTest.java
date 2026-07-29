@@ -1,5 +1,6 @@
 package com.lingxi.workbench.admin.model.service.impl;
 
+import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.admin.model.model.bo.ModelConnectionTestResult;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import com.sun.net.httpserver.HttpServer;
@@ -41,12 +42,24 @@ class HttpModelConnectionTesterTest {
         server.start();
 
         HttpModelConnectionTester tester = new HttpModelConnectionTester();
+        JSONObject extensionParameters = new JSONObject();
+        extensionParameters.put(
+                "thinking",
+                JSONObject.of("type", "disabled"));
         ModelConnectionTestResult result = tester.test(
-                "OPENAI_COMPATIBLE", baseUrl(), "secret-key", "gpt-test", ModelType.CHAT, 3);
+                "OPENAI_COMPATIBLE",
+                baseUrl(),
+                "secret-key",
+                "gpt-test",
+                ModelType.CHAT,
+                extensionParameters,
+                3);
 
         assertEquals("SUCCESS", result.status().name());
         assertEquals("Bearer secret-key", authorization.get());
         assertTrue(requestBody.get().contains("\"model\":\"gpt-test\""));
+        assertTrue(requestBody.get().contains(
+                "\"thinking\":{\"type\":\"disabled\"}"));
     }
 
     @Test
@@ -62,7 +75,13 @@ class HttpModelConnectionTesterTest {
         server.start();
 
         ModelConnectionTestResult result = new HttpModelConnectionTester().test(
-                "OPENAI_COMPATIBLE", baseUrl(), "wrong-key", "gpt-test", ModelType.CHAT, 3);
+                "OPENAI_COMPATIBLE",
+                baseUrl(),
+                "wrong-key",
+                "gpt-test",
+                ModelType.CHAT,
+                new JSONObject(),
+                3);
 
         assertEquals("FAILED", result.status().name());
         assertEquals("HTTP_401", result.errorCode());
@@ -72,7 +91,13 @@ class HttpModelConnectionTesterTest {
     @Test
     void shouldRejectUnsupportedProtocolWithoutSendingRequest() {
         ModelConnectionTestResult result = new HttpModelConnectionTester().test(
-                "ANTHROPIC", "https://example.com/v1", "secret", "claude", ModelType.CHAT, 3);
+                "ANTHROPIC",
+                "https://example.com/v1",
+                "secret",
+                "claude",
+                ModelType.CHAT,
+                new JSONObject(),
+                3);
 
         assertEquals("FAILED", result.status().name());
         assertEquals("UNSUPPORTED_PROTOCOL", result.errorCode());
@@ -93,7 +118,13 @@ class HttpModelConnectionTesterTest {
         server.start();
 
         ModelConnectionTestResult result = new HttpModelConnectionTester().test(
-                "OPENAI_COMPATIBLE", baseUrl(), "secret", "embedding-test", ModelType.EMBEDDING, 3);
+                "OPENAI_COMPATIBLE",
+                baseUrl(),
+                "secret",
+                "embedding-test",
+                ModelType.EMBEDDING,
+                new JSONObject(),
+                3);
 
         assertEquals("SUCCESS", result.status().name());
         assertTrue(requestBody.get().contains("\"input\":\"连通性测试\""));
@@ -102,7 +133,13 @@ class HttpModelConnectionTesterTest {
     @Test
     void shouldRejectRerankUntilProviderProtocolIsAvailable() {
         ModelConnectionTestResult result = new HttpModelConnectionTester().test(
-                "OPENAI_COMPATIBLE", "https://example.com/v1", "secret", "rerank-test", ModelType.RERANK, 3);
+                "OPENAI_COMPATIBLE",
+                "https://example.com/v1",
+                "secret",
+                "rerank-test",
+                ModelType.RERANK,
+                new JSONObject(),
+                3);
 
         assertEquals("FAILED", result.status().name());
         assertEquals("UNSUPPORTED_MODEL_TYPE", result.errorCode());

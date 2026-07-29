@@ -1,5 +1,6 @@
 package com.lingxi.workbench.admin.model.model.entity;
 
+import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
@@ -51,6 +52,9 @@ public class ModelInstanceEntity extends TimeEntity {
     /** 停止生成序列列表。 */
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private List<String> stopSequences;
+    /** 供应商特有的 OpenAI Chat 请求体扩展参数。 */
+    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    private JSONObject extensionParameters;
     /** 请求超时时间（秒）。 */
     private Integer timeoutSeconds;
     /** 最大重试次数，范围 0~2。 */

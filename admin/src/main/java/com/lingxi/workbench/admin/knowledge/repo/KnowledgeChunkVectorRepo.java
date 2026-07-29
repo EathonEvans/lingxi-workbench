@@ -8,7 +8,12 @@ import org.springframework.stereotype.Repository;
 import java.util.ArrayList;
 import java.util.List;
 
-/** pgvector知识库Chunk向量数据仓库。 */
+/**
+ * pgvector 知识库 Chunk 向量数据仓库。
+ *
+ * <p>向量存储在独立的 lingxi_vector Schema 中，通过 Chunk ID 外键关联。
+ * 所有写入使用 ON CONFLICT 实现幂等 Upsert。</p>
+ */
 @Repository
 @RequiredArgsConstructor
 public class KnowledgeChunkVectorRepo {
@@ -23,7 +28,7 @@ public class KnowledgeChunkVectorRepo {
 
     private final JdbcTemplate jdbcTemplate;
 
-    /** 按处理任务删除派生向量，必须在删除对应Chunk之前调用。 */
+    /** 按处理任务删除派生向量，必须在删除对应 Chunk 之前调用。 */
     public void deleteByTaskId(Long taskId) {
         jdbcTemplate.update("""
                 DELETE FROM lingxi_vector.knowledge_chunk_vector
@@ -33,7 +38,7 @@ public class KnowledgeChunkVectorRepo {
                 """, taskId);
     }
 
-    /** 按文档删除全部派生向量，必须在删除对应Chunk之前调用。 */
+    /** 按文档删除全部派生向量，必须在删除对应 Chunk 之前调用。 */
     public void deleteByDocumentId(Long documentId) {
         jdbcTemplate.update("""
                 DELETE FROM lingxi_vector.knowledge_chunk_vector
@@ -61,11 +66,12 @@ public class KnowledgeChunkVectorRepo {
         });
     }
 
-    /** 更新单个Chunk对应的正文和向量。 */
+    /** 更新单个 Chunk 对应的正文和向量，人工修订后调用。 */
     public void upsert(KnowledgeChunkEntity chunk, float[] vector) {
         upsertBatch(List.of(chunk), List.of(vector));
     }
 
+    /** 将 float 数组转换为 pgvector 字面量格式 [v1,v2,...]。 */
     private static String toVectorLiteral(float[] vector) {
         StringBuilder builder = new StringBuilder(vector.length * 10).append('[');
         for (int index = 0; index < vector.length; index++) {

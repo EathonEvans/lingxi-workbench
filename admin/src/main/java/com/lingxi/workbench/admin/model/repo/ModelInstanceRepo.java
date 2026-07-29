@@ -46,6 +46,7 @@ public class ModelInstanceRepo {
         return PageResult.convert(page);
     }
 
+    /** 按主键查询模型实例。 */
     public Optional<ModelInstanceEntity> findById(Long id) {
         return Optional.ofNullable(mapper.selectById(id));
     }
@@ -90,5 +91,4 @@ public class ModelInstanceRepo {
     public void clearDefault(ModelType type) {
         mapper.clearDefault(type);
     }
-
 }

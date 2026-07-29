@@ -57,7 +57,30 @@ public interface ConversationService {
      * @param modelInstanceId 本轮使用的模型实例主键
      * @return 会话、用户消息、Assistant 消息主键以及当前用户消息序号
      */
-    ChatTurnBO startTurn(Long userId, Long conversationId, String clientMessageId, String prompt, Long modelInstanceId);
+    default ChatTurnBO startTurn(
+            Long userId,
+            Long conversationId,
+            String clientMessageId,
+            String prompt,
+            Long modelInstanceId) {
+        return startTurn(
+                userId,
+                conversationId,
+                clientMessageId,
+                prompt,
+                modelInstanceId,
+                null,
+                null);
+    }
+
+    ChatTurnBO startTurn(
+            Long userId,
+            Long conversationId,
+            String clientMessageId,
+            String prompt,
+            Long modelInstanceId,
+            Long applicationId,
+            Long applicationVersionId);
 
     /**
      * 将 Assistant 消息更新为完整回答。

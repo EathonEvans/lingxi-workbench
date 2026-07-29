@@ -2,22 +2,24 @@ package com.lingxi.workbench.admin.prompt.service.impl;
 
 import cn.hutool.core.collection.CollUtil;
 import com.alibaba.fastjson2.JSON;
-import com.lingxi.workbench.admin.prompt.common.constants.PromptVariableConstants;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableType;
 import com.lingxi.workbench.admin.prompt.model.request.PreviewPromptRequest;
 import com.lingxi.workbench.admin.prompt.model.request.PromptVariableRequest;
 import com.lingxi.workbench.admin.prompt.model.vo.PreviewPromptVO;
 import com.lingxi.workbench.admin.prompt.model.vo.AvailablePromptVariableVO;
+import com.lingxi.workbench.admin.prompt.model.vo.AvailablePromptVariableCatalogVO;
+import com.lingxi.workbench.admin.prompt.model.vo.AvailablePromptVariableGroupVO;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
-import com.lingxi.workbench.infra.ai.prompt.common.enums.BuiltInPromptVariable;
+import com.lingxi.workbench.infra.ai.variable.common.enums.BuiltInRuntimeVariable;
+import com.lingxi.workbench.infra.ai.variable.RuntimeVariableCatalog;
+import com.lingxi.workbench.infra.ai.prompt.common.constants.PromptVariableConstants;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.Collection;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -112,14 +114,37 @@ public class PromptTemplateProcessor {
     }
 
     /** 查询当前平台已经具备运行时来源的内置变量。 */
-    public List<AvailablePromptVariableVO> availableVariables() {
-        return Arrays.stream(BuiltInPromptVariable.values())
-                .map(variable -> new AvailablePromptVariableVO(
-                        variable.getCode(),
-                        variable.getDisplayName(),
-                        PromptVariableType.fromCode(variable.getType().getCode()),
-                        variable.getDescribe()))
-                .toList();
+    public AvailablePromptVariableCatalogVO availableVariables() {
+        List<AvailablePromptVariableGroupVO> groups =
+                RuntimeVariableCatalog.groups().stream()
+                        .map(group -> new AvailablePromptVariableGroupVO(
+                                group.getCode(),
+                                group.getDisplayName(),
+                                group.getSort(),
+                                RuntimeVariableCatalog.variables(group).stream()
+                                        .map(PromptTemplateProcessor::toVariableVO)
+                                        .toList()))
+                        .filter(group -> !group.variables().isEmpty())
+                        .toList();
+        return new AvailablePromptVariableCatalogVO(groups);
+    }
+
+    private static AvailablePromptVariableVO toVariableVO(
+            BuiltInRuntimeVariable variable) {
+        return AvailablePromptVariableVO.builder()
+                .code(variable.getCode())
+                .key(variable.getKey())
+                .groupCode(variable.getGroup().getCode())
+                .displayName(variable.getDisplayName())
+                .type(PromptVariableType.fromCode(
+                        variable.getType().getCode()))
+                .description(variable.getDescribe())
+                .channels(variable.getChannels().stream()
+                        .map(channel -> channel.getCode())
+                        .toList())
+                .producer(variable.getProducer().getCode())
+                .producerDisplayName(variable.getProducer().getDescribe())
+                .build();
     }
 
     /** 校验变量Schema内部约束，确保从历史版本读取的数据也符合当前规范。 */
@@ -129,6 +154,26 @@ public class PromptTemplateProcessor {
                     HttpStatusEnum.BAD_REQUEST,
                     "变量名称必须使用受支持的命名空间和小写点路径：" + variable.getName());
         }
+        String groupCode = variable.getName().substring(
+                0,
+                variable.getName().indexOf('.'));
+        if (RuntimeVariableCatalog.findGroup(groupCode).isEmpty()) {
+            throw new BusinessException(
+                    HttpStatusEnum.BAD_REQUEST,
+                    "变量使用了不支持的分组：" + groupCode);
+        }
+        RuntimeVariableCatalog.find(variable.getName())
+                .ifPresent(builtInVariable -> {
+                    String expectedType = builtInVariable.getType().getCode();
+                    if (!expectedType.equals(variable.getType().getCode())) {
+                        throw new BusinessException(
+                                HttpStatusEnum.BAD_REQUEST,
+                                "内置变量"
+                                        + variable.getName()
+                                        + "的类型必须为"
+                                        + expectedType);
+                    }
+                });
         if (!isMissing(variable.getExample())) {
             validateValueType(variable.getName(), variable.getType(), variable.getExample(), "示例值");
         }

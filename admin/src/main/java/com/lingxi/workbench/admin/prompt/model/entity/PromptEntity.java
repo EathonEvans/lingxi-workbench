@@ -2,8 +2,8 @@ package com.lingxi.workbench.admin.prompt.model.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
-import com.lingxi.workbench.admin.prompt.common.enums.PromptRole;
 import com.lingxi.workbench.framework.persistence.model.TimeEntity;
+import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 

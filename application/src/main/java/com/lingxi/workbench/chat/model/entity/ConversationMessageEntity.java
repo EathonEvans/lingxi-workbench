@@ -30,6 +30,10 @@ public class ConversationMessageEntity extends TimeEntity {
     private MessageStatus status;
     /** 使用的模型实例主键。 */
     private Long modelInstanceId;
+    /** 本轮执行的 Application 稳定主键。 */
+    private Long applicationId;
+    /** 本轮冻结的 ApplicationVersion 主键。 */
+    private Long applicationVersionId;
     /** 错误码。 */
     private String errorCode;
     /** 错误消息。 */

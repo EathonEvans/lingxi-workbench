@@ -1,6 +1,8 @@
 package com.lingxi.workbench.admin.sys.user.model.bo;
 
 import com.lingxi.workbench.admin.common.enums.SysUserStatus;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -14,7 +16,9 @@ import java.util.Objects;
  */
 @Getter
 @Setter
+@Builder
 @NoArgsConstructor
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class SysUserBO {
     /**
      * 用户主键。

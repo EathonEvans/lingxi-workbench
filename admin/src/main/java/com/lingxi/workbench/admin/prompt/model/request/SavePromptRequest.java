@@ -1,7 +1,7 @@
 package com.lingxi.workbench.admin.prompt.model.request;
 
 import cn.hutool.core.collection.CollUtil;
-import com.lingxi.workbench.admin.prompt.common.enums.PromptRole;
+import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;

@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.prompt.model.converter;
 
-import com.lingxi.workbench.admin.prompt.common.enums.PromptRole;
+import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableType;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVersionStatus;
 import com.lingxi.workbench.admin.prompt.model.entity.PromptEntity;

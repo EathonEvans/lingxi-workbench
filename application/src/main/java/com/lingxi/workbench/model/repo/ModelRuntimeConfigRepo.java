@@ -18,12 +18,28 @@ public class ModelRuntimeConfigRepo {
 
     /**
      * 查询当前可用于对话的默认模型配置。
-     *
-     * <p>Mapper 返回联合查询实体，Converter 在仓库边界将其转换为业务对象；
-     * 未配置可用模型时返回空 Optional，由 Service 转换为明确的业务异常。</p>
      */
     public Optional<ModelRuntimeConfigBO> findDefaultChatModel() {
         return Optional.ofNullable(mapper.selectDefaultChatModel())
+                .map(converter::toBO);
+    }
+
+    /**
+     * 按模型实例 ID 查询当前可用的对话模型配置。
+     *
+     * @param instanceId 模型实例主键
+     * @return 模型运行配置业务对象，不存在时返回空 Optional
+     */
+    public Optional<ModelRuntimeConfigBO> findChatModel(Long instanceId) {
+        return Optional.ofNullable(mapper.selectChatModel(instanceId))
+                .map(converter::toBO);
+    }
+
+    /**
+     * 查询库中最新创建的可用 Embedding 模型配置。
+     */
+    public Optional<ModelRuntimeConfigBO> getEmbedModelConfigBO(Long instanceId) {
+        return Optional.ofNullable(mapper.selectEmbeddingModel(instanceId))
                 .map(converter::toBO);
     }
 }

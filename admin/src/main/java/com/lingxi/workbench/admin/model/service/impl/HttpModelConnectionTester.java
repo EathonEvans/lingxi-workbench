@@ -46,6 +46,7 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
             String apiKey,
             String modelCode,
             ModelType modelType,
+            JSONObject extensionParameters,
             int timeoutSeconds) {
         if (!OPENAI_COMPATIBLE.equals(protocol)) {
             return ModelConnectionTestResult.failed(
@@ -55,7 +56,13 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
             return ModelConnectionTestResult.failed(
                     0, "UNSUPPORTED_MODEL_TYPE", "Rerank 模型需要按供应商协议适配连通性测试");
         }
-        return testOpenAiCompatible(baseUrl, apiKey, modelCode, modelType, timeoutSeconds);
+        return testOpenAiCompatible(
+                baseUrl,
+                apiKey,
+                modelCode,
+                modelType,
+                extensionParameters,
+                timeoutSeconds);
     }
 
     /** 按 OpenAI 兼容协议发起模型接口测试请求，构造最小请求体以验证连通性。 */
@@ -64,6 +71,7 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
             String apiKey,
             String modelCode,
             ModelType modelType,
+            JSONObject extensionParameters,
             int timeoutSeconds) {
         long startedAt = System.nanoTime();
         try {
@@ -72,7 +80,10 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
                     .header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(buildRequestBody(modelCode, modelType)))
+                    .POST(HttpRequest.BodyPublishers.ofString(buildRequestBody(
+                            modelCode,
+                            modelType,
+                            extensionParameters)))
                     .build();
             HttpResponse<String> response =
                     httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -115,16 +126,28 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
     }
 
     /** 构造连通性测试用的最小请求体。Embedding 模型仅发送模型标识；Chat 模型发送最小 tokens 的对话。 */
-    private static String buildRequestBody(String modelCode, ModelType modelType) {
-        if (modelType == ModelType.EMBEDDING) {
-            return JSON.toJSONString(Map.of("model", modelCode, "input", "连通性测试"));
+    private static String buildRequestBody(
+            String modelCode,
+            ModelType modelType,
+            JSONObject extensionParameters) {
+        JSONObject body = new JSONObject();
+        if (extensionParameters != null) {
+            body = JSON.parseObject(JSON.toJSONString(extensionParameters));
         }
-        return JSON.toJSONString(Map.of(
-                "model", modelCode,
-                "messages", List.of(Map.of("role", "user", "content", "请回复 OK")),
-                "max_tokens", 1,
-                "temperature", 0,
-                "stream", false));
+        // 核心字段最后写入，即使校验器被绕过，也不能被扩展参数覆盖。
+        if (modelType == ModelType.EMBEDDING) {
+            body.put("model", modelCode);
+            body.put("input", "连通性测试");
+            return JSON.toJSONString(body);
+        }
+        body.put("model", modelCode);
+        body.put(
+                "messages",
+                List.of(Map.of("role", "user", "content", "请回复 OK")));
+        body.put("max_tokens", 1);
+        body.put("temperature", 0);
+        body.put("stream", false);
+        return JSON.toJSONString(body);
     }
 
     /** 从供应商 JSON 响应体中提取错误信息，仅截取前 255 个字符避免过长消息。 */

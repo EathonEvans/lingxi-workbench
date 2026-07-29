@@ -39,6 +39,9 @@ public class ConversationServiceImpl implements ConversationService {
     private final ConversationMessageRepo messageRepo;
     private final ConversationConverter converter;
 
+    /**
+     * 创建新的空会话，初始标题为"新会话"，状态为 ACTIVE。
+     */
     @Override
     @Transactional
     public ConversationVO create(Long userId) {
@@ -51,12 +54,18 @@ public class ConversationServiceImpl implements ConversationService {
         return converter.toVO(entity);
     }
 
+    /**
+     * 分页查询当前用户的会话，支持关键字和状态过滤。
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResult<ConversationVO> page(Long userId, ConversationPageQuery query) {
         return conversationRepo.findPage(userId, query).map(converter::toVO);
     }
 
+    /**
+     * 分页查询指定会话的消息历史，先校验会话归属再按序号倒序返回。
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResult<ConversationMessageVO> messagePage(Long userId, Long conversationId, PageQuery query) {
@@ -64,6 +73,9 @@ public class ConversationServiceImpl implements ConversationService {
         return messageRepo.findPage(conversationId, query).map(converter::toMessageVO);
     }
 
+    /**
+     * 修改会话标题，校验用户归属后覆盖已有标题。
+     */
     @Override
     @Transactional
     public void rename(Long userId, Long conversationId, RenameConversationRequest request) {
@@ -72,6 +84,9 @@ public class ConversationServiceImpl implements ConversationService {
         conversationRepo.save(entity);
     }
 
+    /**
+     * 归档会话，前提是当前没有正在生成中的回答。
+     */
     @Override
     @Transactional
     public void archive(Long userId, Long conversationId) {
@@ -81,6 +96,9 @@ public class ConversationServiceImpl implements ConversationService {
         conversationRepo.save(entity);
     }
 
+    /**
+     * 软删除会话，设置删除时间标记，保留数据追溯能力。
+     */
     @Override
     @Transactional
     public void delete(Long userId, Long conversationId) {
@@ -99,7 +117,14 @@ public class ConversationServiceImpl implements ConversationService {
      */
     @Override
     @Transactional
-    public ChatTurnBO startTurn(Long userId, Long conversationId, String clientMessageId, String prompt, Long modelInstanceId) {
+    public ChatTurnBO startTurn(
+            Long userId,
+            Long conversationId,
+            String clientMessageId,
+            String prompt,
+            Long modelInstanceId,
+            Long applicationId,
+            Long applicationVersionId) {
         // 悲观锁串行化同一会话的发送请求，避免两个请求同时计算出相同的消息序号。
         ConversationEntity conversation = conversationRepo.lockOwnedById(conversationId, userId).orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "会话不存在"));
         if (conversation.getStatus() != ConversationStatus.ACTIVE) {
@@ -140,6 +165,8 @@ public class ConversationServiceImpl implements ConversationService {
                 "",
                 MessageStatus.GENERATING,
                 modelInstanceId);
+        assistantMessage.setApplicationId(applicationId);
+        assistantMessage.setApplicationVersionId(applicationVersionId);
         messageRepo.save(assistantMessage);
 
         // 第一次提问自动生成会话标题，之后由用户主动重命名，避免每轮回答都覆盖已有标题。
@@ -155,6 +182,9 @@ public class ConversationServiceImpl implements ConversationService {
         return new ChatTurnBO(conversationId, userMessage.getId(), assistantMessage.getId(), userSequence);
     }
 
+    /**
+     * 将 Assistant 消息更新为完整回答，记录内容、Token 用量并标记完成。
+     */
     @Override
     @Transactional
     public void completeAssistant(
@@ -169,6 +199,9 @@ public class ConversationServiceImpl implements ConversationService {
                 OffsetDateTime.now());
     }
 
+    /**
+     * 记录模型调用失败，保留已生成的文本片段和错误信息。
+     */
     @Override
     @Transactional
     public void failAssistant(
@@ -187,6 +220,9 @@ public class ConversationServiceImpl implements ConversationService {
                 OffsetDateTime.now());
     }
 
+    /**
+     * 记录客户端主动取消生成，保留已生成部分并标记取消原因。
+     */
     @Override
     @Transactional
     public void cancelAssistant(
@@ -201,6 +237,9 @@ public class ConversationServiceImpl implements ConversationService {
                 OffsetDateTime.now());
     }
 
+    /**
+     * 记录服务进程异常中断导致未完成的回答。
+     */
     @Override
     @Transactional
     public void interruptAssistant(

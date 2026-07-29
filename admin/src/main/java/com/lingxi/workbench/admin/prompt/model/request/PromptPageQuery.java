@@ -1,7 +1,7 @@
 package com.lingxi.workbench.admin.prompt.model.request;
 
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
-import com.lingxi.workbench.admin.prompt.common.enums.PromptRole;
+import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import com.lingxi.workbench.framework.convention.PageQuery;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;

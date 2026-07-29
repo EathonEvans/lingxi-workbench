@@ -1,177 +1,211 @@
 package com.lingxi.workbench.chat.service.impl;
 
+import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.WorkflowChatResult;
+import com.lingxi.workbench.application.runtime.service.ApplicationRuntimeService;
+import com.lingxi.workbench.application.runtime.service.ApplicationWorkflowChatService;
 import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
-import com.lingxi.workbench.chat.model.bo.ChatMemoryMessageBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.bo.MessageTokenUsageBO;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
-import com.lingxi.workbench.chat.model.request.StartChatRequest;
-import com.lingxi.workbench.chat.model.vo.ChatStartVO;
+import com.lingxi.workbench.chat.model.request.ChatRequest;
 import com.lingxi.workbench.chat.repo.ConversationMessageRepo;
-import com.lingxi.workbench.chat.service.ConversationMemoryService;
 import com.lingxi.workbench.chat.service.ConversationService;
-import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
-import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
-import com.lingxi.workbench.infra.ai.chat.model.command.ChatStreamCommand;
-import com.lingxi.workbench.infra.ai.chat.StreamingChatGateway;
-import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
+import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
+import com.lingxi.workbench.framework.context.LoginUser;
+import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.workflow.model.ApplicationDefinition;
+import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-import reactor.core.Disposable;
-import reactor.core.publisher.Sinks;
 
-import java.util.ArrayList;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ChatStreamServiceImplTest {
 
-    private final StreamingChatGateway gateway = mock(StreamingChatGateway.class);
-    private final ModelRuntimeConfigService configService = mock(ModelRuntimeConfigService.class);
+    private static final LoginUser LOGIN_USER =
+            new LoginUser(7L, "tester", "测试用户", null);
+
+    private static final ApplicationRuntimeSnapshot APPLICATION_SNAPSHOT =
+            new ApplicationRuntimeSnapshot(
+                    20L,
+                    "support",
+                    30L,
+                    new ApplicationDefinition(
+                            1,
+                            new WorkflowDefinition(
+                                    1,
+                                    "main",
+                                    List.of(),
+                                    List.of())));
+
     private final ConversationService conversationService = mock(ConversationService.class);
-    private final ConversationMemoryService memoryService = mock(ConversationMemoryService.class);
     private final ConversationMessageRepo messageRepo = mock(ConversationMessageRepo.class);
+    private final ApplicationRuntimeService applicationRuntimeService =
+            mock(ApplicationRuntimeService.class);
+    private final ApplicationWorkflowChatService applicationWorkflowChatService =
+            mock(ApplicationWorkflowChatService.class);
 
     private ChatStreamServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        ChatModelRuntimeConfig config = ChatModelRuntimeConfig.builder()
-                .instanceId(1L)
-                .baseUrl("https://api.deepseek.com")
-                .apiKey("secret")
-                .modelCode("deepseek-chat")
-                .temperature(0.7)
-                .stopSequences(List.of())
-                .timeoutSeconds(60)
-                .maxRetries(1)
-                .build();
-        when(configService.getDefaultChatModel()).thenReturn(config);
-        when(conversationService.startTurn(7L, 10L, "client-001", "你好", 1L))
+        when(applicationRuntimeService.resolvePublished("support"))
+                .thenReturn(APPLICATION_SNAPSHOT);
+        when(applicationWorkflowChatService.resolveEntryModelInstanceId(APPLICATION_SNAPSHOT))
+                .thenReturn(1L);
+        when(conversationService.startTurn(
+                        7L, 10L, "client-001", "你好", 1L, 20L, 30L))
                 .thenReturn(new ChatTurnBO(10L, 11L, 12L, 3));
-        when(memoryService.getWindowMemory(7L, 10L, 3)).thenReturn(List.of(
-                new ChatMemoryMessageBO(MessageRole.USER, "上一问"),
-                new ChatMemoryMessageBO(MessageRole.ASSISTANT, "上一答")
-        ));
+        when(messageRepo.findOwnedAssistantMessage(12L, 7L))
+                .thenReturn(Optional.of(assistant(MessageStatus.GENERATING, "")));
+
         service = new ChatStreamServiceImpl(
-                gateway, configService, conversationService, memoryService, messageRepo);
+                conversationService,
+                messageRepo,
+                applicationRuntimeService,
+                applicationWorkflowChatService);
     }
 
     @Test
-    void shouldContinueGenerationAfterSseObserverDisconnects() {
-        Sinks.Many<ChatStreamChunk> modelSink = Sinks.many().unicast().onBackpressureBuffer();
-        when(gateway.stream(any())).thenReturn(modelSink.asFlux());
+    void shouldResolvePublishedApplicationBeforeCreatingTurn() {
+        WorkflowExecutionGate gate = prepareWorkflow("应用回答");
 
-        ChatStartVO start = service.start(
-                new StartChatRequest("10", "client-001", "你好"), 7L);
-        when(messageRepo.findOwnedAssistantMessage(12L, 7L))
-                .thenReturn(Optional.of(assistant(MessageStatus.GENERATING, "")));
-        List<ChatGenerationEventBO> received = new ArrayList<>();
-        Disposable observer = service.resume(12L, 0, 7L).subscribe(received::add);
-        modelSink.tryEmitNext(new ChatStreamChunk("你"));
-        observer.dispose();
-        modelSink.tryEmitNext(new ChatStreamChunk("好"));
-        modelSink.tryEmitNext(new ChatStreamChunk("", 12, 2, 14));
-        modelSink.tryEmitComplete();
+        service.start(createChatRequest(), LOGIN_USER);
+        gate.awaitStarted();
 
-        assertEquals("10", start.conversationId());
-        assertEquals(List.of(ChatGenerationEventBO.chunk(1, "你")), received);
-        verify(conversationService).completeAssistant(
-                12L, "你好", new MessageTokenUsageBO(12, 2, 14));
-        ArgumentCaptor<ChatStreamCommand> commandCaptor =
-                ArgumentCaptor.forClass(ChatStreamCommand.class);
-        verify(gateway).stream(commandCaptor.capture());
-        assertEquals("上一问", commandCaptor.getValue().history().get(0).content());
-        assertEquals("上一答", commandCaptor.getValue().history().get(1).content());
+        verify(applicationRuntimeService).resolvePublished("support");
+        verify(applicationWorkflowChatService)
+                .resolveEntryModelInstanceId(APPLICATION_SNAPSHOT);
+        verify(conversationService).startTurn(
+                7L, 10L, "client-001", "你好", 1L, 20L, 30L);
+
+        gate.release();
     }
 
     @Test
-    void shouldReplayOnlyChunksAfterClientSequence() {
-        Sinks.Many<ChatStreamChunk> modelSink = Sinks.many().unicast().onBackpressureBuffer();
-        when(gateway.stream(any())).thenReturn(modelSink.asFlux());
-        service.start(new StartChatRequest("10", "client-001", "你好"), 7L);
-        modelSink.tryEmitNext(new ChatStreamChunk("你"));
-        when(messageRepo.findOwnedAssistantMessage(12L, 7L))
-                .thenReturn(Optional.of(assistant(MessageStatus.GENERATING, "")));
-        List<ChatGenerationEventBO> resumed = new ArrayList<>();
-        service.resume(12L, 1, 7L).subscribe(resumed::add);
+    void shouldNotCreateMessageWhenApplicationCannotBeResolved() {
+        when(applicationRuntimeService.resolvePublished("support"))
+                .thenThrow(new BusinessException(
+                        HttpStatusEnum.NOT_FOUND,
+                        "AI应用不存在或已停用"));
 
-        modelSink.tryEmitNext(new ChatStreamChunk("好"));
-        modelSink.tryEmitComplete();
+        assertThrows(
+                BusinessException.class,
+                () -> service.start(createChatRequest(), LOGIN_USER));
+
+        verify(conversationService, never()).startTurn(
+                any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldPublishAndPersistWorkflowAnswer() {
+        WorkflowExecutionGate gate = prepareWorkflow("完整回答");
+
+        service.start(createChatRequest(), LOGIN_USER);
+        gate.awaitStarted();
+        CompletableFuture<List<ChatGenerationEventBO>> eventsFuture =
+                service.resume(12L, 0, 7L)
+                        .collectList()
+                        .toFuture();
+        gate.release();
+
+        List<ChatGenerationEventBO> events = eventsFuture
+                .orTimeout(Duration.ofSeconds(2).toMillis(), TimeUnit.MILLISECONDS)
+                .join();
 
         assertEquals(List.of(
-                ChatGenerationEventBO.chunk(2, "好"),
-                ChatGenerationEventBO.completed()), resumed);
+                ChatGenerationEventBO.chunk(1, "完整回答"),
+                ChatGenerationEventBO.completed()), events);
+        verify(conversationService).completeAssistant(
+                12L,
+                "完整回答",
+                new MessageTokenUsageBO(12, 4, 16));
     }
 
     @Test
     void shouldCancelOnlyOnExplicitRequest() {
-        Sinks.Many<ChatStreamChunk> modelSink = Sinks.many().unicast().onBackpressureBuffer();
-        when(gateway.stream(any())).thenReturn(modelSink.asFlux());
-        service.start(new StartChatRequest("10", "client-001", "你好"), 7L);
-        modelSink.tryEmitNext(new ChatStreamChunk("部"));
-        when(messageRepo.findOwnedAssistantMessage(12L, 7L))
-                .thenReturn(Optional.of(assistant(MessageStatus.GENERATING, "")));
+        WorkflowExecutionGate gate = prepareWorkflow("不会返回");
 
+        service.start(createChatRequest(), LOGIN_USER);
+        gate.awaitStarted();
         service.cancel(12L, 7L);
 
         verify(conversationService).cancelAssistant(
-                12L, "部", MessageTokenUsageBO.empty());
+                12L,
+                "",
+                MessageTokenUsageBO.empty());
+    }
+
+    @Test
+    void shouldInterruptRunningTaskWhenApplicationShutsDown() {
+        WorkflowExecutionGate gate = prepareWorkflow("不会返回");
+
+        service.start(createChatRequest(), LOGIN_USER);
+        gate.awaitStarted();
+        service.shutdownRunningTasks();
+
+        verify(conversationService).interruptAssistant(
+                12L,
+                "",
+                MessageTokenUsageBO.empty());
     }
 
     @Test
     void shouldRestoreCompletedAnswerFromDatabaseWhenTaskIsNotRunning() {
         when(messageRepo.findOwnedAssistantMessage(12L, 7L))
-                .thenReturn(Optional.of(assistant(MessageStatus.COMPLETED, "完整回答")));
+                .thenReturn(Optional.of(assistant(
+                        MessageStatus.COMPLETED,
+                        "数据库中的完整回答")));
 
         List<ChatGenerationEventBO> events = service.resume(12L, 0, 7L)
                 .collectList()
                 .block();
 
         assertEquals(List.of(
-                ChatGenerationEventBO.snapshot("完整回答"),
+                ChatGenerationEventBO.snapshot("数据库中的完整回答"),
                 ChatGenerationEventBO.completed()), events);
         assertEquals(ChatGenerationEventType.COMPLETED, events.get(1).type());
     }
 
-    @Test
-    void shouldFailAssistantWhenTaskPreparationFails() {
-        when(memoryService.getWindowMemory(7L, 10L, 3))
-                .thenThrow(new IllegalStateException("memory unavailable"));
-
-        assertThrows(IllegalStateException.class, () -> service.start(
-                new StartChatRequest("10", "client-001", "你好"), 7L));
-
-        verify(conversationService).failAssistant(
-                12L,
-                "",
-                "GENERATION_START_ERROR",
-                "模型生成任务启动失败",
-                MessageTokenUsageBO.empty());
-    }
-
-    @Test
-    void shouldInterruptRunningTaskWhenApplicationShutsDown() {
-        Sinks.Many<ChatStreamChunk> modelSink = Sinks.many().unicast().onBackpressureBuffer();
-        when(gateway.stream(any())).thenReturn(modelSink.asFlux());
-        service.start(new StartChatRequest("10", "client-001", "你好"), 7L);
-        modelSink.tryEmitNext(new ChatStreamChunk("部分回答"));
-
-        service.shutdownRunningTasks();
-
-        verify(conversationService).interruptAssistant(
-                12L, "部分回答", MessageTokenUsageBO.empty());
+    /**
+     * 让同步 Workflow 调用停在后台线程，测试可以稳定观察“任务运行中”的状态，
+     * 避免依赖线程调度快慢产生偶发失败。
+     */
+    private WorkflowExecutionGate prepareWorkflow(String answer) {
+        WorkflowExecutionGate gate = new WorkflowExecutionGate();
+        doAnswer(invocation -> {
+            gate.markStarted();
+            gate.awaitRelease();
+            return new WorkflowChatResult(
+                    answer,
+                    new MessageTokenUsageBO(12, 4, 16),
+                    List.of());
+        }).when(applicationWorkflowChatService)
+                .execute(
+                        APPLICATION_SNAPSHOT,
+                        "你好",
+                        LOGIN_USER,
+                        new ChatTurnBO(10L, 11L, 12L, 3));
+        return gate;
     }
 
     private static ConversationMessageEntity assistant(
@@ -182,5 +216,56 @@ class ChatStreamServiceImplTest {
         entity.setStatus(status);
         entity.setContent(content);
         return entity;
+    }
+
+    private static ChatRequest createChatRequest() {
+        return ChatRequest.builder()
+                .conversationId("10")
+                .clientMessageId("client-001")
+                .query("你好")
+                .applicationCode("support")
+                .build();
+    }
+
+    /**
+     * 测试专用的两阶段门闩：started 表示 Workflow 已进入后台线程，
+     * release 由测试决定何时允许它返回最终回答。
+     */
+    private static final class WorkflowExecutionGate {
+
+        private final CountDownLatch started = new CountDownLatch(1);
+        private final CountDownLatch release = new CountDownLatch(1);
+
+        void markStarted() {
+            started.countDown();
+        }
+
+        void awaitStarted() {
+            assertTrue(await(started), "Workflow 未在预期时间内启动");
+        }
+
+        void release() {
+            release.countDown();
+        }
+
+        void awaitRelease() {
+            try {
+                if (!release.await(2, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("等待测试释放 Workflow 超时");
+                }
+            } catch (InterruptedException exception) {
+                // cancel/shutdown 会主动 dispose 后台订阅；线程中断正是这两个测试期望的停止方式。
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        private static boolean await(CountDownLatch latch) {
+            try {
+                return latch.await(2, TimeUnit.SECONDS);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
     }
 }

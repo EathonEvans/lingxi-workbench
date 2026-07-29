@@ -10,7 +10,7 @@ import com.lingxi.workbench.admin.prompt.model.request.PreviewPromptRequest;
 import com.lingxi.workbench.admin.prompt.model.request.PromptPageQuery;
 import com.lingxi.workbench.admin.prompt.model.request.SavePromptRequest;
 import com.lingxi.workbench.admin.prompt.model.vo.PreviewPromptVO;
-import com.lingxi.workbench.admin.prompt.model.vo.AvailablePromptVariableVO;
+import com.lingxi.workbench.admin.prompt.model.vo.AvailablePromptVariableCatalogVO;
 import com.lingxi.workbench.admin.prompt.model.vo.PromptDetailVO;
 import com.lingxi.workbench.admin.prompt.model.vo.PromptVO;
 import com.lingxi.workbench.admin.prompt.model.vo.PromptVariableVO;
@@ -96,7 +96,7 @@ public class PromptServiceImpl implements PromptService {
     }
 
     @Override
-    public List<AvailablePromptVariableVO> availableVariables() {
+    public AvailablePromptVariableCatalogVO availableVariables() {
         return templateProcessor.availableVariables();
     }
 

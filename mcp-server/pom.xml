@@ -15,7 +15,6 @@
         <dependency>
             <groupId>com.lingxi.ai</groupId>
             <artifactId>framework</artifactId>
-            <version>${project.version}</version>
         </dependency>
     </dependencies>
 

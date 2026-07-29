@@ -3,6 +3,7 @@ package com.lingxi.workbench.admin.prompt.service.impl;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableType;
 import com.lingxi.workbench.admin.prompt.model.request.PreviewPromptRequest;
 import com.lingxi.workbench.admin.prompt.model.request.PromptVariableRequest;
+import com.lingxi.workbench.admin.prompt.model.vo.AvailablePromptVariableCatalogVO;
 import com.lingxi.workbench.admin.prompt.model.vo.PreviewPromptVO;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PromptTemplateProcessorTest {
 
@@ -65,10 +67,24 @@ class PromptTemplateProcessorTest {
     }
 
     @Test
+    void shouldRejectBuiltInVariableWithWrongType() {
+        PromptVariableRequest invalidVariable = variable(
+                "system.current_date",
+                PromptVariableType.STRING,
+                true);
+
+        assertThrows(
+                BusinessException.class,
+                () -> processor.validate(
+                        "当前日期：{{system.current_date}}",
+                        List.of(invalidVariable)));
+    }
+
+    @Test
     void shouldApplySupportedNamespaceRuleConsistently() {
         List<String> namespaces = List.of(
                 "system", "app", "agent", "user", "input",
-                "session", "workflow", "node", "tools", "knowledge");
+                "session", "query", "workflow", "node", "tools", "knowledge");
 
         for (String namespace : namespaces) {
             String variableName = namespace + ".value";
@@ -76,6 +92,57 @@ class PromptTemplateProcessorTest {
                     "变量：{{" + variableName + "}}",
                     List.of(variable(variableName, PromptVariableType.STRING, true)));
         }
+    }
+
+    @Test
+    void shouldExposeCompleteRuntimeVariableCatalogToPromptEditor() {
+        AvailablePromptVariableCatalogVO catalog =
+                processor.availableVariables();
+        List<String> variableCodes = catalog.groups().stream()
+                .flatMap(group -> group.variables().stream())
+                .map(variable -> variable.getCode())
+                .toList();
+
+        /*
+         * 前端只负责展示后端变量目录，变量能否进入具体角色 Prompt，
+         * 以及是否由运行节点特殊消费，仍由后端契约决定。
+         */
+        assertTrue(variableCodes.contains("session.history"));
+        assertTrue(variableCodes.contains("query.rewrite_history"));
+        assertTrue(variableCodes.contains("knowledge.retrieval_query"));
+        assertEquals(
+                "问题处理",
+                catalog.groups().stream()
+                        .filter(group -> group.code().equals("query"))
+                        .findFirst()
+                        .orElseThrow()
+                        .displayName());
+    }
+
+    @Test
+    void shouldAcceptQueryRewriteHistoryPlaceholder() {
+        PromptVariableRequest rewriteHistory = variable(
+                "query.rewrite_history",
+                PromptVariableType.MESSAGE_LIST,
+                true);
+
+        processor.validate(
+                "历史消息：{{query.rewrite_history}}",
+                List.of(rewriteHistory));
+    }
+
+    @Test
+    void shouldRejectVariableFromUnknownGroup() {
+        PromptVariableRequest unknownVariable = variable(
+                "unknown.value",
+                PromptVariableType.STRING,
+                true);
+
+        assertThrows(
+                BusinessException.class,
+                () -> processor.validate(
+                        "变量：{{unknown.value}}",
+                        List.of(unknownVariable)));
     }
 
     private static PromptVariableRequest variable(

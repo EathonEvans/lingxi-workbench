@@ -1,5 +1,6 @@
 package com.lingxi.workbench.model.model.converter;
 
+import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.model.model.entity.ModelRuntimeConfigEntity;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.model.model.bo.ModelRuntimeConfigBO;
@@ -28,6 +29,9 @@ class ModelRuntimeConfigConverterTest {
         entity.setTemperature(new BigDecimal("0.700"));
         entity.setTopP(new BigDecimal("0.900"));
         entity.setStopSequences(List.of("END"));
+        entity.setExtensionParameters(JSONObject.of(
+                "thinking",
+                JSONObject.of("type", "disabled")));
         entity.setTimeoutSeconds(60);
         entity.setMaxRetries(1);
 
@@ -41,5 +45,10 @@ class ModelRuntimeConfigConverterTest {
         assertEquals(0.7, runtimeConfig.getTemperature());
         assertEquals(0.9, runtimeConfig.getTopP());
         assertEquals(List.of("END"), runtimeConfig.getStopSequences());
+        assertEquals(
+                "disabled",
+                runtimeConfig.getExtensionParameters()
+                        .getJSONObject("thinking")
+                        .getString("type"));
     }
 }

@@ -21,6 +21,7 @@ public class SysStpInterface implements StpInterface {
     private final SysPermissionService sysPermissionService;
     private final SaTokenExtendConfig saTokenExtendConfig;
 
+    /** Sa-Token 回调：查询当前登录用户的功能权限编码集合。 */
     @Override
     public List<String> getPermissionList(Object loginId, String loginType) {
         if (!saTokenExtendConfig.getLoginType().equals(loginType)) {
@@ -29,6 +30,7 @@ public class SysStpInterface implements StpInterface {
         return sysPermissionService.listPermissions(toUserId(loginId));
     }
 
+    /** Sa-Token 回调：查询当前登录用户的角色编码集合。 */
     @Override
     public List<String> getRoleList(Object loginId, String loginType) {
         if (!saTokenExtendConfig.getLoginType().equals(loginType)) {

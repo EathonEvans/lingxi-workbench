@@ -1,5 +1,6 @@
 package com.lingxi.workbench.admin.model.service.impl;
 
+import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelConnectionTestStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelCredentialStatus;
@@ -62,6 +63,10 @@ class ModelInstanceServiceImplTest {
         instance.setModelCode("gpt-test");
         instance.setModelType(ModelType.CHAT);
         instance.setTimeoutSeconds(30);
+        JSONObject extensionParameters = JSONObject.of(
+                "thinking",
+                JSONObject.of("type", "disabled"));
+        instance.setExtensionParameters(extensionParameters);
 
         when(instanceRepo.findById(13L)).thenReturn(Optional.of(instance));
         when(providerRepo.findById(11L)).thenReturn(Optional.of(provider));
@@ -73,6 +78,7 @@ class ModelInstanceServiceImplTest {
                         "secret-key",
                         "gpt-test",
                         ModelType.CHAT,
+                        extensionParameters,
                         30))
                 .thenReturn(ModelConnectionTestResult.success(86));
 

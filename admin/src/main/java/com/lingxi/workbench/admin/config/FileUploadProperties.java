@@ -6,6 +6,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.validation.annotation.Validated;
 
+/**
+ * 文件上传统一配置，绑定 {@code lingxi.file} 前缀的配置项。
+ *
+ * <p>控制单文件大小上限和私有对象临时访问地址的有效时长。</p>
+ */
 @Data
 @Validated
 @Configuration

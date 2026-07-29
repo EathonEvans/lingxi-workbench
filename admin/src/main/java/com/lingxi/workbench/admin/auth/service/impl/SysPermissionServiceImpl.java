@@ -23,18 +23,21 @@ public class SysPermissionServiceImpl implements SysPermissionService {
     private final SysRoleService sysRoleService;
     private final SysMenuService sysMenuService;
 
+    /** 查询指定管理员当前拥有的角色编码集合，供 Sa-Token 权限校验使用。 */
     @Override
     @Transactional(readOnly = true)
     public List<String> listRoles(Long userId) {
         return sysRoleService.listRoleCodes(userId);
     }
 
+    /** 查询指定管理员当前拥有的功能权限编码集合，供 Sa-Token 权限校验使用。 */
     @Override
     @Transactional(readOnly = true)
     public List<String> listPermissions(Long userId) {
         return sysMenuService.listPermissionCodes(userId);
     }
 
+    /** 组装管理员登录后的完整权限快照：角色编码、功能权限编码和可访问菜单树。 */
     @Override
     @Transactional(readOnly = true)
     public SysSessionVO getSession(Long userId) {

@@ -17,27 +17,37 @@ public record ChatGenerationEventBO(
         /** 文本增量或快照内容。 */
         String content) {
 
-    /** 创建文本增量事件。 */
+    /**
+     * 创建文本增量事件。
+     */
     public static ChatGenerationEventBO chunk(long sequence, String content) {
         return new ChatGenerationEventBO(ChatGenerationEventType.CHUNK, sequence, content);
     }
 
-    /** 创建回答快照事件，用于断线重连时恢复已生成内容。 */
+    /**
+     * 创建回答快照事件，用于断线重连时恢复已生成内容。
+     */
     public static ChatGenerationEventBO snapshot(String content) {
         return new ChatGenerationEventBO(ChatGenerationEventType.SNAPSHOT, 0, content);
     }
 
-    /** 创建生成完成事件。 */
+    /**
+     * 创建生成完成事件。
+     */
     public static ChatGenerationEventBO completed() {
         return new ChatGenerationEventBO(ChatGenerationEventType.COMPLETED, 0, null);
     }
 
-    /** 创建生成失败事件。 */
+    /**
+     * 创建生成失败事件。
+     */
     public static ChatGenerationEventBO failed() {
         return new ChatGenerationEventBO(ChatGenerationEventType.FAILED, 0, null);
     }
 
-    /** 创建用户主动取消生成事件。 */
+    /**
+     * 创建用户主动取消生成事件。
+     */
     public static ChatGenerationEventBO cancelled() {
         return new ChatGenerationEventBO(ChatGenerationEventType.CANCELLED, 0, null);
     }

@@ -312,6 +312,105 @@ SET parent_id = EXCLUDED.parent_id,
     visible = FALSE,
     status = 'ACTIVE';
 
+-- Agent 与 Application 分开管理。
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, route_path, component, icon, permission_code, sort_order, visible, status)
+VALUES (NULL, 'Agent管理', 'AGENT', 'DIRECTORY', '/agent', 'Layout',
+        'ri:robot-3-line', NULL, 80, TRUE, 'ACTIVE')
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    menu_type = EXCLUDED.menu_type,
+    route_path = EXCLUDED.route_path,
+    component = EXCLUDED.component,
+    icon = EXCLUDED.icon,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = TRUE,
+    status = 'ACTIVE';
+
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, route_path, component, icon, permission_code, sort_order, visible, status)
+SELECT parent.id, 'Agent列表', 'AGENT_LIST', 'MENU', '/agent/list',
+       'agent/index', 'ri:settings-3-line', 'agent:list', 10, TRUE, 'ACTIVE'
+FROM lingxi_core.sys_menu parent
+WHERE parent.code = 'AGENT'
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    route_path = EXCLUDED.route_path,
+    component = EXCLUDED.component,
+    icon = EXCLUDED.icon,
+    permission_code = EXCLUDED.permission_code,
+    visible = TRUE,
+    status = 'ACTIVE';
+
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, permission_code, sort_order, visible, status)
+SELECT parent.id, action.name, action.code, 'BUTTON', action.permission_code,
+       action.sort_order, FALSE, 'ACTIVE'
+FROM (VALUES
+    ('Agent维护', 'AGENT_MANAGE', 'agent:manage', 10),
+    ('Agent发布', 'AGENT_PUBLISH', 'agent:publish', 20)
+) AS action(name, code, permission_code, sort_order)
+JOIN lingxi_core.sys_menu parent ON parent.code = 'AGENT_LIST'
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = FALSE,
+    status = 'ACTIVE';
+
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, route_path, component, icon, permission_code, sort_order, visible, status)
+VALUES (NULL, '应用管理', 'APPLICATION', 'DIRECTORY', '/application', 'Layout',
+        'ri:apps-2-line', NULL, 90, TRUE, 'ACTIVE')
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    menu_type = EXCLUDED.menu_type,
+    route_path = EXCLUDED.route_path,
+    component = EXCLUDED.component,
+    icon = EXCLUDED.icon,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = TRUE,
+    status = 'ACTIVE';
+
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, route_path, component, icon, permission_code, sort_order, visible, status)
+SELECT parent.id, 'Application列表', 'APPLICATION_LIST', 'MENU', '/application/list',
+       'application/index', 'ri:flow-chart', 'application:list', 10, TRUE, 'ACTIVE'
+FROM lingxi_core.sys_menu parent
+WHERE parent.code = 'APPLICATION'
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    route_path = EXCLUDED.route_path,
+    component = EXCLUDED.component,
+    icon = EXCLUDED.icon,
+    permission_code = EXCLUDED.permission_code,
+    visible = TRUE,
+    status = 'ACTIVE';
+
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, permission_code, sort_order, visible, status)
+SELECT parent.id, action.name, action.code, 'BUTTON', action.permission_code,
+       action.sort_order, FALSE, 'ACTIVE'
+FROM (VALUES
+    ('Application维护', 'APPLICATION_MANAGE', 'application:manage', 10),
+    ('Application发布', 'APPLICATION_PUBLISH', 'application:publish', 20)
+) AS action(name, code, permission_code, sort_order)
+JOIN lingxi_core.sys_menu parent ON parent.code = 'APPLICATION_LIST'
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = FALSE,
+    status = 'ACTIVE';
+
 -- root账号绑定ROOT角色。
 INSERT INTO lingxi_core.sys_user_role (user_id, role_id)
 SELECT sys_user.id, role.id

@@ -1,5 +1,6 @@
 package com.lingxi.workbench.infra.ai.chat.openai;
 
+import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.openai.OpenAiChatModel;
@@ -25,6 +26,9 @@ class OpenAiCompatibleChatModelFactoryTest {
                 .topP(0.9)
                 .maxTokens(2048)
                 .stopSequences(List.of("END"))
+                .extensionParameters(JSONObject.of(
+                        "thinking",
+                        JSONObject.of("type", "disabled")))
                 .timeoutSeconds(45)
                 .maxRetries(2)
                 .build();
@@ -38,6 +42,9 @@ class OpenAiCompatibleChatModelFactoryTest {
         assertEquals(0.9, options.getTopP());
         assertEquals(2048, options.getMaxTokens());
         assertEquals(List.of("END"), options.getStopSequences());
+        assertEquals(
+                JSONObject.of("type", "disabled"),
+                options.getExtraBody().get("thinking"));
         assertEquals(Duration.ofSeconds(45), options.getTimeout());
         assertEquals(2, options.getMaxRetries());
         assertTrue(options.getStreamOptions().includeUsage());

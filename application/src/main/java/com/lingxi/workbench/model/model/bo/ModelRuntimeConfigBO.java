@@ -1,5 +1,6 @@
 package com.lingxi.workbench.model.model.bo;
 
+import com.alibaba.fastjson2.JSONObject;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -7,6 +8,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * application 内部使用的模型运行配置业务对象。
@@ -36,6 +38,8 @@ public class ModelRuntimeConfigBO {
     private Integer maxTokens;
     /** 停止生成序列列表。 */
     private List<String> stopSequences;
+    /** 供应商特有的 OpenAI Chat 请求体扩展参数。 */
+    private JSONObject extensionParameters;
     /** 请求超时时间（秒）。 */
     private Integer timeoutSeconds;
     /** 最大重试次数。 */
@@ -57,6 +61,9 @@ public class ModelRuntimeConfigBO {
                 + ", topP=" + topP
                 + ", maxTokens=" + maxTokens
                 + ", stopSequences=" + stopSequences
+                + ", extensionParameterKeys="
+                + Objects.requireNonNullElseGet(
+                        extensionParameters, JSONObject::new).keySet()
                 + ", timeoutSeconds=" + timeoutSeconds
                 + ", maxRetries=" + maxRetries + "]";
     }

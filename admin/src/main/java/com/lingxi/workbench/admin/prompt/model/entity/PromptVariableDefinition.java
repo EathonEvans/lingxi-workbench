@@ -10,12 +10,6 @@ import lombok.NoArgsConstructor;
  * Prompt版本内嵌的变量声明。
  *
  * <p>该对象随Prompt版本整体存储在JSONB字段中，不对应独立数据表。
- *
- * @param name        变量名称
- * @param type        变量数据类型
- * @param required    是否必填
- * @param description 变量说明
- * @param example     测试渲染示例值
  */
 @Data
 @Builder
@@ -23,18 +17,28 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class PromptVariableDefinition {
 
-    /** 变量名称。 */
+    /**
+     * 变量名称。
+     */
     private String name;
 
-    /** 变量数据类型。 */
+    /**
+     * 变量数据类型。
+     */
     private PromptVariableType type;
 
-    /** 是否必填。 */
+    /**
+     * 是否必填。
+     */
     private boolean required;
 
-    /** 变量说明。 */
+    /**
+     * 变量说明。
+     */
     private String description;
 
-    /** 测试渲染示例值。 */
+    /**
+     * 测试渲染示例值。
+     */
     private Object example;
 }

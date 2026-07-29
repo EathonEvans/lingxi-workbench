@@ -14,6 +14,7 @@ import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 
 import java.util.ArrayList;
@@ -51,7 +52,10 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
 
         // 系统提示词位于消息首位，用于约束本次模型回答的全局行为。
         List<Message> messages = new ArrayList<>();
-        messages.add(new SystemMessage(SYSTEM_PROMPT));
+        String systemPrompt = StringUtils.hasText(command.systemPrompt())
+                ? SYSTEM_PROMPT + "\n" + command.systemPrompt()
+                : SYSTEM_PROMPT;
+        messages.add(new SystemMessage(systemPrompt));
 
         // 历史记忆已经由 application 完成轮数和 Token 裁剪，此处只负责转换为 Spring AI 消息类型。
         command.history()

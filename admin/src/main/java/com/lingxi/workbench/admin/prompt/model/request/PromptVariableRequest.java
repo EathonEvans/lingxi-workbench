@@ -1,7 +1,7 @@
 package com.lingxi.workbench.admin.prompt.model.request;
 
-import com.lingxi.workbench.admin.prompt.common.constants.PromptVariableConstants;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableType;
+import com.lingxi.workbench.infra.ai.prompt.common.constants.PromptVariableConstants;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;

@@ -1,5 +1,6 @@
 package com.lingxi.workbench.admin.model.model.converter;
 
+import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.admin.model.common.enums.ModelCapability;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import com.lingxi.workbench.admin.model.model.entity.ModelInstanceEntity;
@@ -10,6 +11,7 @@ import org.mapstruct.factory.Mappers;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 
 class ModelConverterTest {
 
@@ -24,6 +26,9 @@ class ModelConverterTest {
         entity.setModelType(ModelType.CHAT);
         entity.setCapabilities(List.of(ModelCapability.STREAMING, ModelCapability.TOOL_CALLING));
         entity.setStopSequences(List.of("END"));
+        entity.setExtensionParameters(JSONObject.of(
+                "thinking",
+                JSONObject.of("type", "disabled")));
 
         ModelInstanceVO result = converter.toInstanceVO(entity);
 
@@ -33,6 +38,10 @@ class ModelConverterTest {
         assertEquals("CHAT", result.getModelType());
         assertEquals(List.of("STREAMING", "TOOL_CALLING"), result.getCapabilities());
         assertEquals(List.of("END"), result.getStopSequences());
+        assertEquals(
+                "disabled",
+                result.getExtensionParameters().getJSONObject("thinking").getString("type"));
+        assertNotSame(entity.getExtensionParameters(), result.getExtensionParameters());
     }
 
 }

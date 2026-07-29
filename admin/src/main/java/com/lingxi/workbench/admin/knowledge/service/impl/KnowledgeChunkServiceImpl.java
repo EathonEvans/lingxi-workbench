@@ -44,6 +44,8 @@ import java.util.Objects;
 
 /**
  * 知识库文档异步处理任务业务实现。
+ *
+ * <p>负责提交分块任务、查询任务状态、分页查询 Chunk 以及人工修订已生效 Chunk。</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -61,6 +63,12 @@ public class KnowledgeChunkServiceImpl implements KnowledgeChunkService {
     private final ApplicationEventPublisher eventPublisher;
     private final TransactionTemplate transactionTemplate;
 
+    /**
+     * 提交文档解析、分块、向量化和入库任务。
+     *
+     * <p>校验文档状态、知识库启用状态和 Embedding 模型可用性后，
+     * 原子抢占文档处理权并创建任务记录，事务提交后通过事件触发异步处理链。</p>
+     */
     @Override
     @Transactional
     public KnowledgeChunkResultVO execute(Long documentId, ExecuteKnowledgeChunkRequest request, Long operatorId) {
@@ -109,6 +117,9 @@ public class KnowledgeChunkServiceImpl implements KnowledgeChunkService {
         return converter.toChunkTaskVO(task, document.getName());
     }
 
+    /**
+     * 查询任务当前状态和进度。
+     */
     @Override
     @Transactional(readOnly = true)
     public KnowledgeChunkResultVO task(Long taskId) {
@@ -116,6 +127,11 @@ public class KnowledgeChunkServiceImpl implements KnowledgeChunkService {
         return converter.toChunkTaskVO(task, requireDocument(task.getDocumentId()).getName());
     }
 
+    /**
+     * 查询文档最近一次分块任务。
+     *
+     * <p>按版本号降序取第一条，文档尚未执行过时返回 null。</p>
+     */
     @Override
     @Transactional(readOnly = true)
     public KnowledgeChunkResultVO latestTask(Long documentId) {
@@ -123,6 +139,9 @@ public class KnowledgeChunkServiceImpl implements KnowledgeChunkService {
         return taskRepo.findLatestByDocumentId(documentId).map(task -> converter.toChunkTaskVO(task, document.getName())).orElse(null);
     }
 
+    /**
+     * 分页查询指定任务的 Chunk 列表，按顺序号升序排列。
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResult<KnowledgeChunkVO> page(KnowledgeChunkPageQuery query) {
@@ -130,6 +149,12 @@ public class KnowledgeChunkServiceImpl implements KnowledgeChunkService {
         return chunkRepo.findPage(query).map(converter::toChunkVO);
     }
 
+    /**
+     * 人工修订已生效版本中的单个 Chunk。
+     *
+     * <p>仅当前文档生效任务中的 Chunk 可被编辑。修订后重新计算 Token、
+     * 调用 Embedding 模型生成新向量，并在事务中原子更新 Chunk、向量和任务 Token 汇总。</p>
+     */
     @Override
     public KnowledgeChunkVO update(Long chunkId, UpdateKnowledgeChunkRequest request, Long operatorId) {
         KnowledgeChunkEntity snapshot = requireChunk(chunkId);

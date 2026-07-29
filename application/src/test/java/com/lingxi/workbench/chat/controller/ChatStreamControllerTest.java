@@ -43,6 +43,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 )
 class ChatStreamControllerTest {
 
+    private static final LoginUser LOGIN_USER =
+            new LoginUser(1L, "tester", "测试用户", null);
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -54,7 +57,7 @@ class ChatStreamControllerTest {
 
     @BeforeEach
     void setUserContext() {
-        UserContext.set(new LoginUser(1L, "tester", "测试用户", null));
+        UserContext.set(LOGIN_USER);
     }
 
     @AfterEach
@@ -64,13 +67,18 @@ class ChatStreamControllerTest {
 
     @Test
     void shouldCreateGenerationTaskBeforeSseSubscription() throws Exception {
-        when(chatStreamService.start(any(), eq(1L)))
+        when(chatStreamService.start(any(), eq(LOGIN_USER)))
                 .thenReturn(new ChatStartVO("10", "11", "12"));
 
         mockMvc.perform(post("/api/v1/ai/chat/start")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"conversationId":"10","clientMessageId":"client-start","prompt":"你好"}
+                                {
+                                  "conversationId": "10",
+                                  "clientMessageId": "client-start",
+                                  "query": "你好",
+                                  "applicationCode": "support"
+                                }
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
@@ -153,7 +161,33 @@ class ChatStreamControllerTest {
         mockMvc.perform(post("/api/v1/ai/chat/start")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"conversationId":"10","clientMessageId":"client-003","prompt":""}
+                                {
+                                  "conversationId": "10",
+                                  "clientMessageId": "client-003",
+                                  "query": "",
+                                  "applicationCode": "support"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(content().json("""
+                        {"code":400,"msg":"请求参数不合法"}
+                        """));
+
+        verifyNoInteractions(chatStreamService);
+    }
+
+    @Test
+    void shouldRejectBlankApplicationCodeBeforeCallingService() throws Exception {
+        mockMvc.perform(post("/api/v1/ai/chat/start")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "conversationId": "10",
+                                  "clientMessageId": "client-004",
+                                  "query": "你好",
+                                  "applicationCode": ""
+                                }
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
