@@ -8,11 +8,14 @@ import {
   ArrowUp,
   Bot,
   Boxes,
+  CircleCheck,
+  CircleX,
   ChevronsUpDown,
   FileSearch,
   FolderKanban,
   History,
   ListTodo,
+  LoaderCircle,
   LogOut,
   Menu,
   MessageSquareText,
@@ -28,12 +31,14 @@ import {
   Sun,
   Trash2,
   WandSparkles,
+  Wrench,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   archiveConversation,
   type AvailableApplication,
+  type ChatToolEvent,
   cancelChat,
   ChatStreamError,
   createConversation,
@@ -81,6 +86,7 @@ type ChatMessage = {
   id: string;
   role: "assistant" | "user";
   status?: "done" | "error" | "stopped" | "streaming";
+  tools?: ChatToolEvent[];
 };
 
 type PendingGeneration = {
@@ -89,6 +95,7 @@ type PendingGeneration = {
   conversationId: string;
   lastSequence: number;
   prompt: string;
+  tools: ChatToolEvent[];
   userMessageId: string;
 };
 
@@ -97,11 +104,43 @@ const PENDING_GENERATION_KEY = "lingxi-pending-generation";
 function readPendingGeneration(): PendingGeneration | undefined {
   try {
     const value = sessionStorage.getItem(PENDING_GENERATION_KEY);
-    return value ? (JSON.parse(value) as PendingGeneration) : undefined;
+    if (!value) return undefined;
+    const pending = JSON.parse(value) as PendingGeneration;
+    return { ...pending, tools: pending.tools ?? [] };
   } catch {
     sessionStorage.removeItem(PENDING_GENERATION_KEY);
     return undefined;
   }
+}
+
+function mergeToolEvents(events: ChatToolEvent[] | undefined, nextEvent: ChatToolEvent) {
+  const currentEvents = events ?? [];
+  const existing = currentEvents.some((event) => event.invocationId === nextEvent.invocationId);
+  if (!existing) return [...currentEvents, nextEvent];
+  return currentEvents.map((event) => event.invocationId === nextEvent.invocationId ? nextEvent : event);
+}
+
+function ToolExecutionList({ tools }: { tools: ChatToolEvent[] }) {
+  return (
+    <div className={styles.toolList} aria-label="工具调用状态">
+      {tools.map((tool) => (
+        <div className={`${styles.toolItem} ${styles[`tool${tool.status}`]}`} key={tool.invocationId}>
+          <span className={styles.toolIcon} aria-hidden="true">
+            {tool.status === "RUNNING" && <LoaderCircle size={14} />}
+            {tool.status === "SUCCEEDED" && <CircleCheck size={14} />}
+            {tool.status === "FAILED" && <CircleX size={14} />}
+          </span>
+          <Wrench size={13} aria-hidden="true" />
+          <span>{tool.displayName}</span>
+          <small>
+            {tool.status === "RUNNING" && "调用中"}
+            {tool.status === "SUCCEEDED" && `已完成${tool.durationMillis === undefined ? "" : ` · ${tool.durationMillis}ms`}`}
+            {tool.status === "FAILED" && "调用失败"}
+          </small>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function savePendingGeneration(value: PendingGeneration) {
@@ -274,6 +313,7 @@ export function WorkbenchShell() {
           id: pending.assistantMessageId,
           role: "assistant",
           status: "streaming",
+          tools: pending.tools,
         },
       ]);
       setStreaming(true);
@@ -320,6 +360,21 @@ export function WorkbenchShell() {
           messages.map((message) =>
             message.id === pending.assistantMessageId
               ? { ...message, content }
+              : message,
+          ),
+        );
+      },
+      onTool: (tool) => {
+        const current = pendingGenerationRef.current;
+        if (current) {
+          current.tools = mergeToolEvents(current.tools, tool);
+          current.lastSequence = tool.sequence;
+          savePendingGeneration(current);
+        }
+        setMessages((messages) =>
+          messages.map((message) =>
+            message.id === pending.assistantMessageId
+              ? { ...message, tools: mergeToolEvents(message.tools, tool) }
               : message,
           ),
         );
@@ -615,7 +670,7 @@ export function WorkbenchShell() {
         role: "user",
         status: "done",
       },
-      { content: "", id: assistantId, role: "assistant", status: "streaming" },
+      { content: "", id: assistantId, role: "assistant", status: "streaming", tools: [] },
     ];
 
     setMessages((current) => [...current, ...nextMessages]);
@@ -663,6 +718,7 @@ export function WorkbenchShell() {
             conversationId: start.conversationId,
             lastSequence: 0,
             prompt: normalizedPrompt,
+            tools: [],
             userMessageId: start.userMessageId,
           };
           savePendingGeneration(pendingGenerationRef.current);
@@ -681,6 +737,21 @@ export function WorkbenchShell() {
         },
         onCancelled: () => {
           cancelled = true;
+        },
+        onTool: (tool) => {
+          const pending = pendingGenerationRef.current;
+          if (pending) {
+            pending.tools = mergeToolEvents(pending.tools, tool);
+            pending.lastSequence = tool.sequence;
+            savePendingGeneration(pending);
+          }
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === activeAssistantId
+                ? { ...message, tools: mergeToolEvents(message.tools, tool) }
+                : message,
+            ),
+          );
         },
         query: normalizedPrompt,
         session,
@@ -1085,6 +1156,9 @@ export function WorkbenchShell() {
                       <span className={styles.messageAuthor}>
                         {message.role === "user" ? "你" : "灵析通用助手"}
                       </span>
+                      {message.role === "assistant" && message.tools?.length ? (
+                        <ToolExecutionList tools={message.tools} />
+                      ) : null}
                       <div
                         aria-live={message.role === "assistant" ? "polite" : undefined}
                         className={styles.messageContent}

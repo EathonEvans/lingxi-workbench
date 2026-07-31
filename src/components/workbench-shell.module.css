@@ -642,6 +642,55 @@
   white-space: normal;
 }
 
+.toolList {
+  display: grid;
+  margin: 0 0 10px;
+  gap: 6px;
+}
+
+.toolItem {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid #e5e9f0;
+  border-radius: 9px;
+  color: #596273;
+  background: #f8fafc;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.toolItem small {
+  margin-left: 5px;
+  color: #9299a5;
+  font-size: 10px;
+}
+
+.toolIcon {
+  display: inline-flex;
+}
+
+.toolRUNNING .toolIcon {
+  color: #4775d0;
+  animation: tool-spin 1s linear infinite;
+}
+
+.toolSUCCEEDED .toolIcon {
+  color: #20a779;
+}
+
+.toolFAILED .toolIcon {
+  color: #c14f4f;
+}
+
+@keyframes tool-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .userMessage {
   justify-content: flex-end;
 }
@@ -993,6 +1042,12 @@
 
 .shell[data-theme="dark"] .messageContent {
   color: #dce1e8;
+}
+
+.shell[data-theme="dark"] .toolItem {
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #c5ccd7;
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .shell[data-theme="dark"] .userMessage .messageContent {

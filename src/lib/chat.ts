@@ -5,6 +5,16 @@ type ChatChunk = {
   sequence: number;
 };
 
+export type ChatToolEvent = {
+  displayName: string;
+  durationMillis?: number;
+  errorCode?: string;
+  invocationId: string;
+  sequence: number;
+  status: "FAILED" | "RUNNING" | "SUCCEEDED";
+  toolCode: string;
+};
+
 export type ChatStart = {
   assistantMessageId: string;
   conversationId: string;
@@ -68,6 +78,7 @@ type StreamChatOptions = {
   onChunk: (content: string, sequence: number) => void;
   onSnapshot?: (content: string) => void;
   onStart?: (start: ChatStart) => void;
+  onTool?: (event: ChatToolEvent) => void;
   query: string;
   session: AuthSession;
   signal?: AbortSignal;
@@ -109,7 +120,7 @@ function handleEvent(
   block: string,
   options: Pick<
     StreamChatOptions,
-    "onCancelled" | "onChunk" | "onSnapshot" | "onStart"
+    "onCancelled" | "onChunk" | "onSnapshot" | "onStart" | "onTool"
   >,
 ) {
   const { data, event } = parseEventBlock(block);
@@ -117,9 +128,9 @@ function handleEvent(
   if (event === "done") return true;
   if (!data) return false;
 
-  let payload: ChatChunk | ChatErrorPayload;
+  let payload: ChatChunk | ChatErrorPayload | ChatToolEvent;
   try {
-    payload = JSON.parse(data) as ChatChunk | ChatErrorPayload;
+    payload = JSON.parse(data) as ChatChunk | ChatErrorPayload | ChatToolEvent;
   } catch {
     throw new ChatStreamError("模型返回的数据格式不正确，请稍后重试");
   }
@@ -146,6 +157,11 @@ function handleEvent(
     return false;
   }
 
+  if (event === "tool") {
+    options.onTool?.(payload as ChatToolEvent);
+    return false;
+  }
+
   const chunk = payload as ChatChunk;
   if (typeof chunk.content === "string" && chunk.content) {
     options.onChunk(chunk.content, chunk.sequence || 0);
@@ -157,7 +173,7 @@ async function consumeEventStream(
   response: Response,
   options: Pick<
     StreamChatOptions,
-    "onCancelled" | "onChunk" | "onSnapshot" | "onStart"
+    "onCancelled" | "onChunk" | "onSnapshot" | "onStart" | "onTool"
   >,
 ) {
   if (!response.body) throw new ChatStreamError("当前浏览器无法读取流式响应");
@@ -253,6 +269,7 @@ export async function streamChat({
   onCancelled,
   onSnapshot,
   onStart,
+  onTool,
   query,
   session,
   signal,
@@ -288,6 +305,7 @@ export async function streamChat({
     onCancelled,
     onChunk,
     onSnapshot,
+    onTool,
     session,
     signal,
   });
@@ -310,6 +328,7 @@ export async function resumeChat({
   onCancelled,
   onChunk,
   onSnapshot,
+  onTool,
   session,
   signal,
 }: ResumeChatOptions) {
@@ -330,7 +349,7 @@ export async function resumeChat({
     throw new ChatStreamError("无法重新连接模型生成任务，请稍后重试");
   }
   await requireSuccessfulResponse(response);
-  await consumeEventStream(response, { onCancelled, onChunk, onSnapshot });
+  await consumeEventStream(response, { onCancelled, onChunk, onSnapshot, onTool });
 }
 
 /** 显式取消模型生成；单纯中断 SSE 连接不会调用该接口。 */
