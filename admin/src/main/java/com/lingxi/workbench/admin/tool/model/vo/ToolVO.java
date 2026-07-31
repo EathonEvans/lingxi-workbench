@@ -26,6 +26,10 @@ public class ToolVO {
 
     private ToolSourceType sourceType;
 
+    private String mcpServerId;
+
+    private String remoteToolName;
+
     private List<ToolParameterDefinition> parameters;
 
     private EnableStatus status;

@@ -2,6 +2,10 @@ package com.lingxi.workbench.application.runtime.service.impl;
 
 import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.application.runtime.model.entity.RuntimeToolEntity;
+import com.lingxi.workbench.application.runtime.common.enums.RuntimeToolSourceType;
+import com.lingxi.workbench.application.runtime.common.enums.RuntimeMcpAuthenticationType;
+import com.lingxi.workbench.application.runtime.model.entity.RuntimeMcpServerEntity;
+import com.lingxi.workbench.application.runtime.repo.McpServerRuntimeRepo;
 import com.lingxi.workbench.application.runtime.repo.ToolRuntimeRepo;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.AgentToolException;
@@ -24,7 +28,7 @@ class ToolRuntimeServiceImplTest {
     @Test
     void shouldUseManagedDefinitionAndDeployedExecutor() {
         RuntimeToolEntity managedDefinition = activeDefinition();
-        ToolRuntimeServiceImpl service = new ToolRuntimeServiceImpl(new StubToolRuntimeRepo(List.of(managedDefinition)), new AgentToolRegistry(List.of(new StubAgentTool())));
+        ToolRuntimeServiceImpl service = new ToolRuntimeServiceImpl(new StubToolRuntimeRepo(List.of(managedDefinition)), new StubMcpServerRuntimeRepo(), new AgentToolRegistry(List.of(new StubAgentTool())), null, null);
 
         AgentTool resolved = service.resolveActiveTools(List.of("weather_query")).getFirst();
         JSONObject runtimeSchema = JSONObject.parseObject(resolved.callback().getToolDefinition().inputSchema());
@@ -40,11 +44,33 @@ class ToolRuntimeServiceImplTest {
 
     @Test
     void shouldRejectToolWithoutActiveManagedDefinition() {
-        ToolRuntimeServiceImpl service = new ToolRuntimeServiceImpl(new StubToolRuntimeRepo(List.of()), new AgentToolRegistry(List.of(new StubAgentTool())));
+        ToolRuntimeServiceImpl service = new ToolRuntimeServiceImpl(new StubToolRuntimeRepo(List.of()), new StubMcpServerRuntimeRepo(), new AgentToolRegistry(List.of(new StubAgentTool())), null, null);
 
         AgentToolException exception = assertThrows(AgentToolException.class, () -> service.resolveActiveTools(List.of("weather_query")));
 
         assertEquals("Tool不存在、已停用或来源类型不受支持：weather_query", exception.getMessage());
+    }
+
+    @Test
+    void shouldResolveMcpToolWithoutLocalJavaExecutor() {
+        RuntimeToolEntity definition = activeMcpDefinition();
+        ToolRuntimeServiceImpl service = new ToolRuntimeServiceImpl(new StubToolRuntimeRepo(List.of(definition)), new StubMcpServerRuntimeRepo(List.of(activeMcpServer())), new AgentToolRegistry(List.of()), null, null);
+
+        AgentTool resolved = service.resolveActiveTools(List.of("local_mcp_calculator")).getFirst();
+
+        assertEquals("local_mcp_calculator", resolved.callback().getToolDefinition().name());
+        assertEquals("远端基础计算器", resolved.callback().getToolDefinition().description());
+        assertTrue(resolved.callback().getToolDefinition().inputSchema().contains("leftOperand"));
+    }
+
+    @Test
+    void shouldRejectMcpToolWhenServerIsNotRuntimeAvailable() {
+        RuntimeToolEntity definition = activeMcpDefinition();
+        ToolRuntimeServiceImpl service = new ToolRuntimeServiceImpl(new StubToolRuntimeRepo(List.of(definition)), new StubMcpServerRuntimeRepo(List.of()), new AgentToolRegistry(List.of()), null, null);
+
+        AgentToolException exception = assertThrows(AgentToolException.class, () -> service.resolveActiveTools(List.of("local_mcp_calculator")));
+
+        assertEquals("MCP Server不存在、未启用或最近连接测试未成功：tool=local_mcp_calculator", exception.getMessage());
     }
 
     private static RuntimeToolEntity activeDefinition() {
@@ -52,7 +78,7 @@ class ToolRuntimeServiceImplTest {
         entity.setCode("weather_query");
         entity.setName("天气查询");
         entity.setDescription("查询指定城市天气");
-        entity.setSourceType("LOCAL_FUNCTION");
+        entity.setSourceType(RuntimeToolSourceType.LOCAL_FUNCTION);
         entity.setStatus("ACTIVE");
         entity.setParameterSchema(JSONObject.of(
                 "type", "object",
@@ -63,6 +89,57 @@ class ToolRuntimeServiceImplTest {
                 "required", List.of("city"),
                 "additionalProperties", false));
         return entity;
+    }
+
+    private static RuntimeToolEntity activeMcpDefinition() {
+        RuntimeToolEntity entity = new RuntimeToolEntity();
+        entity.setCode("local_mcp_calculator");
+        entity.setName("MCP 计算器");
+        entity.setDescription("远端基础计算器");
+        entity.setSourceType(RuntimeToolSourceType.MCP);
+        entity.setMcpServerId(20L);
+        entity.setRemoteToolName("system_calculator");
+        entity.setStatus("ACTIVE");
+        entity.setParameterSchema(JSONObject.of(
+                "type", "object",
+                "properties", JSONObject.of(
+                        "leftOperand", JSONObject.of("type", "number"),
+                        "operator", JSONObject.of("type", "string"),
+                        "rightOperand", JSONObject.of("type", "number"))));
+        return entity;
+    }
+
+    private static RuntimeMcpServerEntity activeMcpServer() {
+        RuntimeMcpServerEntity entity = new RuntimeMcpServerEntity();
+        entity.setId(20L);
+        entity.setCode("local_mcp");
+        entity.setTransportType("STREAMABLE_HTTP");
+        entity.setBaseUrl("http://127.0.0.1:8091");
+        entity.setEndpoint("/mcp");
+        entity.setAuthenticationType(RuntimeMcpAuthenticationType.NONE);
+        entity.setRequestTimeoutSeconds(5);
+        entity.setStatus("ACTIVE");
+        entity.setLastTestStatus("SUCCESS");
+        return entity;
+    }
+
+    private static final class StubMcpServerRuntimeRepo extends McpServerRuntimeRepo {
+
+        private final List<RuntimeMcpServerEntity> servers;
+
+        private StubMcpServerRuntimeRepo() {
+            this(List.of());
+        }
+
+        private StubMcpServerRuntimeRepo(List<RuntimeMcpServerEntity> servers) {
+            super(null);
+            this.servers = servers;
+        }
+
+        @Override
+        public List<RuntimeMcpServerEntity> findRuntimeAvailableByIds(List<Long> ids) {
+            return servers;
+        }
     }
 
     private static final class StubToolRuntimeRepo extends ToolRuntimeRepo {

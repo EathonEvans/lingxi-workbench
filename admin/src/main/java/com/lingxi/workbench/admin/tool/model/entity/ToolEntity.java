@@ -34,8 +34,14 @@ public class ToolEntity extends TimeEntity {
     /** 提供给模型判断调用时机的清晰说明。 */
     private String description;
 
-    /** Tool 来源类型；第一阶段仅支持本地函数。 */
+    /** Tool 执行来源。 */
     private ToolSourceType sourceType;
+
+    /** MCP 来源工具绑定的 Server 主体主键；本地函数为空。 */
+    private Long mcpServerId;
+
+    /** MCP Server 暴露的原始工具名称；本地函数为空。 */
+    private String remoteToolName;
 
     /** 符合 OpenAI Function Calling 规范的参数 JSON Schema。 */
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)

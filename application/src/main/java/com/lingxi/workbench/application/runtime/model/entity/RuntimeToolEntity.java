@@ -4,6 +4,7 @@ import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
+import com.lingxi.workbench.application.runtime.common.enums.RuntimeToolSourceType;
 import lombok.Data;
 import org.apache.ibatis.type.JdbcType;
 
@@ -25,7 +26,11 @@ public class RuntimeToolEntity {
 
     private String description;
 
-    private String sourceType;
+    private RuntimeToolSourceType sourceType;
+
+    private Long mcpServerId;
+
+    private String remoteToolName;
 
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private JSONObject parameterSchema;

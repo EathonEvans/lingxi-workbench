@@ -14,7 +14,26 @@
     <dependencies>
         <dependency>
             <groupId>com.lingxi.ai</groupId>
-            <artifactId>framework</artifactId>
+            <artifactId>infra-ai</artifactId>
+            <!--
+                当前仅复用 infra-ai 的纯 Tool 契约与执行器；MCP 进程不需要
+                framework 中的数据源、Redis、Sa-Token、MyBatis 和 RocketMQ。
+            -->
+            <exclusions>
+                <exclusion>
+                    <groupId>com.lingxi.ai</groupId>
+                    <artifactId>framework</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

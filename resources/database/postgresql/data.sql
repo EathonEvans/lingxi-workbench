@@ -377,6 +377,60 @@ FROM lingxi_core.sys_user root_user
 WHERE root_user.username = 'root'
 ON CONFLICT (code) DO NOTHING;
 
+INSERT INTO lingxi_core.ai_tool
+    (name, code, description, source_type, parameter_schema, status, created_by, updated_by)
+SELECT '基础计算器',
+       'system_calculator',
+       '对两个十进制数执行加、减、乘、除运算。只要用户要求进行明确数值的四则运算，即使模型能够心算，也必须调用本工具。',
+       'LOCAL_FUNCTION',
+       '{
+          "type": "object",
+          "properties": {
+            "leftOperand": {"type": "number", "description": "左操作数"},
+            "operator": {"type": "string", "description": "运算符，仅支持ADD、SUBTRACT、MULTIPLY、DIVIDE或+、-、*、/"},
+            "rightOperand": {"type": "number", "description": "右操作数"},
+            "scale": {"type": "integer", "description": "除法结果保留的小数位数，范围0到10，默认6"}
+          },
+          "required": ["leftOperand", "operator", "rightOperand"],
+          "additionalProperties": false
+        }'::JSONB,
+       'ACTIVE',
+       root_user.id,
+       root_user.id
+FROM lingxi_core.sys_user root_user
+WHERE root_user.username = 'root'
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, route_path, component, icon, permission_code, sort_order, visible, status)
+SELECT parent.id, 'MCP服务', 'MCP_SERVER_LIST', 'MENU', '/agent/mcp-server',
+       'mcp-server/index', 'ri:server-line', 'mcp-server:list', 30, TRUE, 'ACTIVE'
+FROM lingxi_core.sys_menu parent
+WHERE parent.code = 'AGENT'
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    route_path = EXCLUDED.route_path,
+    component = EXCLUDED.component,
+    icon = EXCLUDED.icon,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = TRUE,
+    status = 'ACTIVE';
+
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, permission_code, sort_order, visible, status)
+SELECT parent.id, 'MCP服务维护', 'MCP_SERVER_MANAGE', 'BUTTON', 'mcp-server:manage', 10, FALSE, 'ACTIVE'
+FROM lingxi_core.sys_menu parent
+WHERE parent.code = 'MCP_SERVER_LIST'
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = FALSE,
+    status = 'ACTIVE';
+
 INSERT INTO lingxi_core.sys_menu
     (parent_id, name, code, menu_type, route_path, component, icon, permission_code, sort_order, visible, status)
 SELECT parent.id, 'Tool管理', 'TOOL_LIST', 'MENU', '/agent/tool',

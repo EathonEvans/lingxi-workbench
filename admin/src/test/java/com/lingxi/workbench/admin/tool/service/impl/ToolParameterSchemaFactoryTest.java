@@ -7,6 +7,7 @@ import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -67,6 +68,20 @@ class ToolParameterSchemaFactoryTest {
         BusinessException exception = assertThrows(BusinessException.class, () -> factory.build(parameters));
 
         assertEquals("一个 Tool 最多配置 5 个参数", exception.getMessage());
+    }
+
+    @Test
+    void shouldParseMapBackedSchemaDiscoveredFromMcpSdk() {
+        JSONObject schema = new JSONObject(Map.of(
+                "type", "object",
+                "properties", Map.of("city", Map.of("type", "string", "description", "目标城市")),
+                "required", List.of("city")));
+
+        List<ToolParameterDefinition> parameters = factory.parse(schema);
+
+        assertEquals(1, parameters.size());
+        assertEquals("city", parameters.getFirst().getName());
+        assertTrue(parameters.getFirst().getRequired());
     }
 
     private static ToolParameterDefinition parameter(String name, String description, ToolParameterDataType dataType, boolean required) {

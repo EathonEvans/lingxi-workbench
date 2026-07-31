@@ -38,3 +38,7 @@ lingxi:
       ttl-hours: 24
   security:
     secret-master-key: YU1xZXA1T21TTkRlQVl4TkU2Zm5YSGRHd3dINzhVcjQ=
+  mcp:
+    security:
+      # 私网和本机地址默认拒绝；开发环境只显式开放本机 MCP Server。
+      allowed-private-hosts: ${LINGXI_MCP_ALLOWED_PRIVATE_HOSTS:localhost,127.0.0.1,::1}

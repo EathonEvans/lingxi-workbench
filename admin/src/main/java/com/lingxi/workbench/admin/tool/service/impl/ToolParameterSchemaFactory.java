@@ -46,9 +46,15 @@ public class ToolParameterSchemaFactory {
 
     /** 将本服务生成的 Schema 还原成管理端参数定义。 */
     public List<ToolParameterDefinition> parse(JSONObject schema) {
+        if (!"object".equals(schema.getString("type"))) {
+            throw invalid("Tool 参数 Schema 顶层类型必须是 object");
+        }
         JSONObject properties = schema.getJSONObject("properties");
         if (Objects.isNull(properties)) {
             throw invalid("Tool 参数 Schema 缺少 properties");
+        }
+        if (properties.size() > MAX_PARAMETER_COUNT) {
+            throw invalid("一个 Tool 最多配置 " + MAX_PARAMETER_COUNT + " 个参数");
         }
         Set<String> requiredNames = requiredNames(schema.getJSONArray("required"));
         return properties.entrySet().stream()
@@ -87,14 +93,21 @@ public class ToolParameterSchemaFactory {
     }
 
     private static ToolParameterDefinition toDefinition(String name, Object propertyValue, Set<String> requiredNames) {
-        if (!(propertyValue instanceof JSONObject property)) {
+        JSONObject property;
+        try {
+            property = propertyValue instanceof JSONObject jsonObject ? jsonObject : JSONObject.from(propertyValue);
+        } catch (RuntimeException exception) {
             throw invalid("Tool 参数 Schema 属性格式不正确：" + name);
         }
         ToolParameterDataType dataType = ToolParameterDataType.fromSchemaType(property.getString("type"))
                 .orElseThrow(() -> invalid("Tool 参数类型暂不支持：" + property.getString("type")));
+        String description = property.getString("description");
+        if (Objects.isNull(description) || description.isBlank()) {
+            throw invalid("Tool 参数缺少描述：" + name);
+        }
         return ToolParameterDefinition.builder()
                 .name(name)
-                .description(Objects.requireNonNullElse(property.getString("description"), ""))
+                .description(description)
                 .dataType(dataType)
                 .required(requiredNames.contains(name))
                 .build();

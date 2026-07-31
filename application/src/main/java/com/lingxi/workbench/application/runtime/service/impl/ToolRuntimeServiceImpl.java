@@ -1,8 +1,14 @@
 package com.lingxi.workbench.application.runtime.service.impl;
 
+import com.lingxi.workbench.application.runtime.common.enums.RuntimeToolSourceType;
+import com.lingxi.workbench.application.runtime.model.entity.RuntimeMcpServerEntity;
 import com.lingxi.workbench.application.runtime.model.entity.RuntimeToolEntity;
+import com.lingxi.workbench.application.runtime.repo.McpServerRuntimeRepo;
 import com.lingxi.workbench.application.runtime.repo.ToolRuntimeRepo;
 import com.lingxi.workbench.application.runtime.service.ToolRuntimeService;
+import com.lingxi.workbench.application.runtime.tool.McpRuntimeToolCallback;
+import com.lingxi.workbench.framework.security.SecretCipher;
+import com.lingxi.workbench.infra.ai.mcp.McpSyncClientFactory;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.AgentToolException;
 import com.lingxi.workbench.infra.ai.tool.AgentToolRegistry;
@@ -32,7 +38,10 @@ import java.util.stream.Collectors;
 public class ToolRuntimeServiceImpl implements ToolRuntimeService {
 
     private final ToolRuntimeRepo toolRuntimeRepo;
+    private final McpServerRuntimeRepo mcpServerRuntimeRepo;
     private final AgentToolRegistry agentToolRegistry;
+    private final McpSyncClientFactory mcpSyncClientFactory;
+    private final SecretCipher secretCipher;
 
     /** 读取启用定义并按 Agent 配置顺序装配执行器。 */
     @Override
@@ -40,13 +49,53 @@ public class ToolRuntimeServiceImpl implements ToolRuntimeService {
     public List<AgentTool> resolveActiveTools(List<String> toolCodes) {
         Map<String, RuntimeToolEntity> definitions = toolRuntimeRepo.findActiveByCodes(toolCodes).stream()
                 .collect(Collectors.toMap(RuntimeToolEntity::getCode, Function.identity()));
+        Map<Long, RuntimeMcpServerEntity> mcpServers = loadMcpServers(definitions.values().stream().toList());
         return toolCodes.stream()
-                .map(code -> managedTool(requireDefinition(definitions, code), requireExecutor(code)))
+                .map(code -> requireDefinition(definitions, code))
+                .map(definition -> managedTool(definition, resolveExecutor(definition, mcpServers)))
                 .toList();
     }
 
-    private AgentTool requireExecutor(String code) {
+    private Map<Long, RuntimeMcpServerEntity> loadMcpServers(List<RuntimeToolEntity> definitions) {
+        List<Long> serverIds = definitions.stream()
+                .filter(definition -> definition.getSourceType() == RuntimeToolSourceType.MCP)
+                .map(RuntimeToolEntity::getMcpServerId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        return mcpServerRuntimeRepo.findRuntimeAvailableByIds(serverIds).stream()
+                .collect(Collectors.toMap(RuntimeMcpServerEntity::getId, Function.identity()));
+    }
+
+    private AgentTool resolveExecutor(RuntimeToolEntity definition, Map<Long, RuntimeMcpServerEntity> mcpServers) {
+        if (Objects.isNull(definition.getSourceType())) {
+            throw new AgentToolException("Tool来源类型为空：" + definition.getCode());
+        }
+        return switch (definition.getSourceType()) {
+            case LOCAL_FUNCTION -> requireLocalExecutor(definition.getCode());
+            case MCP -> mcpExecutor(definition, requireMcpServer(mcpServers, definition));
+        };
+    }
+
+    private AgentTool requireLocalExecutor(String code) {
         return agentToolRegistry.find(code).orElseThrow(() -> new AgentToolException("应用运行端未部署Tool执行器：" + code));
+    }
+
+    private AgentTool mcpExecutor(RuntimeToolEntity definition, RuntimeMcpServerEntity server) {
+        if (Objects.isNull(definition.getRemoteToolName()) || definition.getRemoteToolName().isBlank()) {
+            throw new AgentToolException("MCP Tool缺少远端工具名称：" + definition.getCode());
+        }
+        AgentToolDefinition runtimeDefinition = runtimeDefinition(definition);
+        ToolCallback callback = new McpRuntimeToolCallback(definition, server, mcpSyncClientFactory, secretCipher);
+        return new ManagedAgentTool(runtimeDefinition, callback);
+    }
+
+    private static RuntimeMcpServerEntity requireMcpServer(Map<Long, RuntimeMcpServerEntity> mcpServers, RuntimeToolEntity definition) {
+        RuntimeMcpServerEntity server = mcpServers.get(definition.getMcpServerId());
+        if (Objects.isNull(server)) {
+            throw new AgentToolException("MCP Server不存在、未启用或最近连接测试未成功：tool=" + definition.getCode());
+        }
+        return server;
     }
 
     private static RuntimeToolEntity requireDefinition(Map<String, RuntimeToolEntity> definitions, String code) {
@@ -58,13 +107,17 @@ public class ToolRuntimeServiceImpl implements ToolRuntimeService {
     }
 
     private static AgentTool managedTool(RuntimeToolEntity definition, AgentTool executor) {
-        AgentToolDefinition runtimeDefinition = AgentToolDefinition.builder()
+        AgentToolDefinition runtimeDefinition = runtimeDefinition(definition);
+        ToolCallback callback = new ManagedToolCallback(definition, executor.callback());
+        return new ManagedAgentTool(runtimeDefinition, callback);
+    }
+
+    private static AgentToolDefinition runtimeDefinition(RuntimeToolEntity definition) {
+        return AgentToolDefinition.builder()
                 .code(definition.getCode())
                 .displayName(definition.getName())
                 .description(definition.getDescription())
                 .build();
-        ToolCallback callback = new ManagedToolCallback(definition, executor.callback());
-        return new ManagedAgentTool(runtimeDefinition, callback);
     }
 
     /** 将控制面模型契约和运行端执行回调组合为不可变工具。 */

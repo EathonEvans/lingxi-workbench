@@ -7,6 +7,8 @@ import com.lingxi.workbench.admin.tool.service.impl.ToolParameterSchemaFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.Optional;
+
 /** Tool 持久化模型和接口模型转换器。 */
 @Component
 @RequiredArgsConstructor
@@ -22,6 +24,8 @@ public class ToolConverter {
                 .code(entity.getCode())
                 .description(entity.getDescription())
                 .sourceType(entity.getSourceType())
+                .mcpServerId(Optional.ofNullable(entity.getMcpServerId()).map(String::valueOf).orElse(null))
+                .remoteToolName(entity.getRemoteToolName())
                 .parameters(parameterSchemaFactory.parse(entity.getParameterSchema()))
                 .status(entity.getStatus())
                 .createdAt(entity.getCreatedAt())

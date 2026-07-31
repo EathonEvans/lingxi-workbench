@@ -4,6 +4,7 @@ import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.tool.model.request.CreateToolRequest;
 import com.lingxi.workbench.admin.tool.model.request.ToolPageQuery;
 import com.lingxi.workbench.admin.tool.model.request.UpdateToolRequest;
+import com.lingxi.workbench.admin.tool.model.bo.McpToolImport;
 import com.lingxi.workbench.admin.tool.model.vo.ToolOptionVO;
 import com.lingxi.workbench.admin.tool.model.vo.ToolVO;
 import com.lingxi.workbench.framework.convention.PageResult;
@@ -23,6 +24,8 @@ public interface ToolService {
     Set<String> findActiveCodes(List<String> codes);
 
     ToolVO create(CreateToolRequest request, Long operatorId);
+
+    ToolVO importMcpTool(McpToolImport source, Long operatorId);
 
     ToolVO update(Long id, UpdateToolRequest request, Long operatorId);
 

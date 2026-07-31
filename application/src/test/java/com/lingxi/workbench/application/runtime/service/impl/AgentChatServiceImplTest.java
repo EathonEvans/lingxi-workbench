@@ -174,7 +174,7 @@ class AgentChatServiceImplTest {
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
         AgentChatServiceImpl service = new AgentChatServiceImpl(
                 (agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition),
-                promptVersionId -> promptSnapshot(),
+                promptVersionId -> new PromptRuntimeSnapshot(promptVersionId, "只能依据知识片段回答，不得调用工具", List.of(), PromptRole.SYSTEM),
                 modelService(),
                 new ChatProcessChain(new PreparingNode()),
                 command -> {
@@ -192,6 +192,11 @@ class AgentChatServiceImplTest {
 
         assertEquals("现在是10点", answer);
         assertTrue(captured.get().toolRuntimeConfig().isPresent());
+        assertTrue(captured.get().systemPrompt().indexOf("平台工具调用规则") > captured.get().systemPrompt().indexOf("不得调用工具"));
+        assertTrue(captured.get().systemPrompt().contains("只能依据知识片段或系统授权工具的执行结果"));
+        assertTrue(captured.get().systemPrompt().contains("在因为知识片段不足而拒绝回答之前"));
+        assertTrue(captured.get().systemPrompt().contains("必须调用该工具"));
+        assertTrue(captured.get().systemPrompt().contains("不得使用模型记忆、心算或猜测替代工具执行"));
         assertTrue(captured.get().systemPrompt().contains("工具执行结果是本轮回答可使用的可信事实来源"));
         assertTrue(captured.get().systemPrompt().contains("不得因为知识片段缺少相关内容而拒绝回答"));
     }

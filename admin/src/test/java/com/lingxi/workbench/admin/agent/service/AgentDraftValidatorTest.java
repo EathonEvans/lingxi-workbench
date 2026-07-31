@@ -66,7 +66,7 @@ class AgentDraftValidatorTest {
         promptVersionRepo = new InMemoryPromptVersionRepo();
         knowledgeBaseRepo = new InMemoryKnowledgeBaseRepo();
         ToolParameterSchemaFactory parameterSchemaFactory = new ToolParameterSchemaFactory();
-        ToolService toolService = new ToolServiceImpl(new InMemoryToolRepo(), new ToolConverter(parameterSchemaFactory), parameterSchemaFactory, null);
+        ToolService toolService = new ToolServiceImpl(new InMemoryToolRepo(), new ToolConverter(parameterSchemaFactory), parameterSchemaFactory, null, null);
         validator = new AgentDraftValidator(
                 modelRepo,
                 promptRepo,

@@ -71,6 +71,13 @@ public class ToolRepo {
         return mapper.exists(Wrappers.<ToolEntity>lambdaQuery().eq(ToolEntity::getCode, code));
     }
 
+    /** 判断同一 MCP Server 的远端工具是否已经导入。 */
+    public boolean existsMcpBinding(Long mcpServerId, String remoteToolName) {
+        return mapper.exists(Wrappers.<ToolEntity>lambdaQuery()
+                .eq(ToolEntity::getMcpServerId, mcpServerId)
+                .eq(ToolEntity::getRemoteToolName, remoteToolName));
+    }
+
     /** 根据主键是否存在选择插入或更新。 */
     public void save(ToolEntity entity) {
         if (Objects.isNull(entity.getId())) {

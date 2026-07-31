@@ -16,14 +16,13 @@ public class ToolRuntimeRepo {
 
     private final RuntimeToolMapper mapper;
 
-    /** 批量读取启用的本地 Tool 定义，返回顺序不作为业务契约。 */
+    /** 批量读取启用的 Tool 定义，返回顺序不作为业务契约。 */
     public List<RuntimeToolEntity> findActiveByCodes(List<String> codes) {
         if (CollUtil.isEmpty(codes)) {
             return List.of();
         }
         return mapper.selectList(Wrappers.<RuntimeToolEntity>lambdaQuery()
                 .in(RuntimeToolEntity::getCode, codes)
-                .eq(RuntimeToolEntity::getStatus, "ACTIVE")
-                .eq(RuntimeToolEntity::getSourceType, "LOCAL_FUNCTION"));
+                .eq(RuntimeToolEntity::getStatus, "ACTIVE"));
     }
 }
