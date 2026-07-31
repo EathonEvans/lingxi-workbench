@@ -7,6 +7,8 @@ import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.vo.ChatStartVO;
 import com.lingxi.workbench.chat.service.ChatStreamService;
 import com.lingxi.workbench.framework.context.LoginUser;
+import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -138,6 +140,41 @@ class ChatStreamControllerTest {
                 completedResult.getResponse().getContentAsByteArray(), StandardCharsets.UTF_8);
         assertTrue(content.contains("id:4"));
         assertTrue(content.contains("data:{\"content\":\"继续\",\"sequence\":4}"));
+        assertTrue(content.contains("event:done"));
+    }
+
+    @Test
+    void shouldConvertToolStatusToStructuredSseEvent() throws Exception {
+        AgentToolExecutionEvent toolEvent = AgentToolExecutionEvent.builder()
+                .invocationId("tool-1")
+                .toolCode("system_current_time")
+                .displayName("查询当前时间")
+                .status(AgentToolExecutionStatus.SUCCEEDED)
+                .durationMillis(36L)
+                .build();
+        when(chatStreamService.resume(12L, 0, 1L)).thenReturn(Flux.just(
+                ChatGenerationEventBO.tool(1, toolEvent),
+                ChatGenerationEventBO.completed()));
+
+        MvcResult result = mockMvc.perform(post("/api/v1/ai/chat/resume")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .content("""
+                                {"assistantMessageId":"12","afterSequence":0}
+                                """))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        MvcResult completedResult = mockMvc.perform(asyncDispatch(result))
+                .andExpect(status().isOk())
+                .andReturn();
+        String content = new String(completedResult.getResponse().getContentAsByteArray(), StandardCharsets.UTF_8);
+
+        assertTrue(content.contains("event:tool"));
+        assertTrue(content.contains("\"toolCode\":\"system_current_time\""));
+        assertTrue(content.contains("\"displayName\":\"查询当前时间\""));
+        assertTrue(content.contains("\"status\":\"SUCCEEDED\""));
+        assertTrue(content.contains("\"durationMillis\":36"));
         assertTrue(content.contains("event:done"));
     }
 

@@ -4,6 +4,7 @@ import com.alibaba.fastjson2.JSON;
 import com.lingxi.workbench.workflow.model.config.AgentNodeConfig;
 import com.lingxi.workbench.workflow.model.config.EndNodeConfig;
 import com.lingxi.workbench.workflow.model.config.StartNodeConfig;
+import com.lingxi.workbench.workflow.service.WorkflowDefinitionValidator;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -28,8 +29,8 @@ class WorkflowDefinitionJsonTest {
                                 "问答Agent",
                                 WorkflowNodeType.AGENT,
                                 new AgentNodeConfig(
-                                        "1",
-                                        "2",
+                                        1L,
+                                        2L,
                                         Map.of("query", "query"),
                                         Map.of("answer", "answer"))),
                         new WorkflowNodeDefinition(
@@ -61,8 +62,8 @@ class WorkflowDefinitionJsonTest {
                                 "问答Agent",
                                 WorkflowNodeType.AGENT,
                                 new AgentNodeConfig(
-                                        "9007199254740993",
-                                        "9007199254740995",
+                                        9007199254740993L,
+                                        9007199254740995L,
                                         Map.of("query", "query"),
                                         Map.of("answer", "answer"))),
                         new WorkflowNodeDefinition(
@@ -81,6 +82,10 @@ class WorkflowDefinitionJsonTest {
 
         assertThat(restored).isEqualTo(source);
         assertThat(json).contains("\"agentId\":\"9007199254740993\"");
+        AgentNodeConfig restoredConfig = (AgentNodeConfig)
+                restored.workflow().nodes().get(1).config();
+        assertThat(restoredConfig.agentId()).isEqualTo(9007199254740993L);
+        assertThat(restoredConfig.agentVersionId()).isEqualTo(9007199254740995L);
     }
 
     @Test
@@ -96,7 +101,7 @@ class WorkflowDefinitionJsonTest {
                                 "问答Agent",
                                 WorkflowNodeType.AGENT,
                                 new AgentNodeConfig(
-                                        "1",
+                                        1L,
                                         null,
                                         Map.of("query", "query"),
                                         Map.of("answer", "answer"))),
@@ -109,7 +114,7 @@ class WorkflowDefinitionJsonTest {
                         WorkflowEdgeDefinition.direct("start", "agent"),
                         WorkflowEdgeDefinition.direct("agent", "end")));
 
-        var validator = new com.lingxi.workbench.workflow.service.WorkflowDefinitionValidator();
+        WorkflowDefinitionValidator validator = new WorkflowDefinitionValidator();
 
         assertThatCode(() -> validator.validateDraft(draft)).doesNotThrowAnyException();
         assertThatThrownBy(() -> validator.validate(draft))

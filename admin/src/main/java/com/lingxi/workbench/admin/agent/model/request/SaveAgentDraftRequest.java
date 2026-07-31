@@ -2,6 +2,7 @@ package com.lingxi.workbench.admin.agent.model.request;
 
 import com.lingxi.workbench.admin.agent.model.config.AgentMemoryPolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
+import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.QueryRewritePolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
@@ -15,6 +16,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 /** 保存 Agent 草稿请求。资源引用允许暂时为空，发布前执行完整校验。 */
 @Data
 @Builder
@@ -27,6 +30,13 @@ public class SaveAgentDraftRequest {
     private Long userPromptVersionId;
     private Long rewritePromptVersionId;
     private Long knowledgeBaseId;
+    /** 允许暴露给模型的本地工具编码；空列表表示关闭工具调用。 */
+    @NotNull(message = "工具编码列表不能为空")
+    @Size(max = 20, message = "单个Agent最多绑定20个工具")
+    private List<String> toolCodes;
+    @NotNull(message = "请配置工具调用策略")
+    @Valid
+    private AgentToolPolicy toolPolicy;
     @NotNull(message = "请配置会话记忆策略")
     @Valid
     private AgentMemoryPolicy memoryPolicy;

@@ -4,19 +4,24 @@ import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot
 import com.lingxi.workbench.application.runtime.model.WorkflowChatResult;
 import com.lingxi.workbench.application.runtime.service.ApplicationRuntimeService;
 import com.lingxi.workbench.application.runtime.service.ApplicationWorkflowChatService;
+import com.lingxi.workbench.application.runtime.service.ChatExecutionEventPublisher;
 import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
-import com.lingxi.workbench.chat.model.bo.MessageTokenUsageBO;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
 import com.lingxi.workbench.chat.model.request.ChatRequest;
 import com.lingxi.workbench.chat.repo.ConversationMessageRepo;
+import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.chat.service.ConversationService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
+import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +38,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -59,6 +66,7 @@ class ChatStreamServiceImplTest {
 
     private final ConversationService conversationService = mock(ConversationService.class);
     private final ConversationMessageRepo messageRepo = mock(ConversationMessageRepo.class);
+    private final ChatGenerationEventRepo generationEventRepo = mock(ChatGenerationEventRepo.class);
     private final ApplicationRuntimeService applicationRuntimeService =
             mock(ApplicationRuntimeService.class);
     private final ApplicationWorkflowChatService applicationWorkflowChatService =
@@ -77,12 +85,9 @@ class ChatStreamServiceImplTest {
                 .thenReturn(new ChatTurnBO(10L, 11L, 12L, 3));
         when(messageRepo.findOwnedAssistantMessage(12L, 7L))
                 .thenReturn(Optional.of(assistant(MessageStatus.GENERATING, "")));
+        when(generationEventRepo.findAfter(any(), anyLong())).thenReturn(List.of());
 
-        service = new ChatStreamServiceImpl(
-                conversationService,
-                messageRepo,
-                applicationRuntimeService,
-                applicationWorkflowChatService);
+        service = new ChatStreamServiceImpl(conversationService, messageRepo, generationEventRepo, applicationRuntimeService, applicationWorkflowChatService);
     }
 
     @Test
@@ -138,7 +143,7 @@ class ChatStreamServiceImplTest {
         verify(conversationService).completeAssistant(
                 12L,
                 "完整回答",
-                new MessageTokenUsageBO(12, 4, 16));
+                TokenUsage.of(12, 4, 16));
     }
 
     @Test
@@ -152,7 +157,7 @@ class ChatStreamServiceImplTest {
         verify(conversationService).cancelAssistant(
                 12L,
                 "",
-                MessageTokenUsageBO.empty());
+                TokenUsage.empty());
     }
 
     @Test
@@ -166,7 +171,7 @@ class ChatStreamServiceImplTest {
         verify(conversationService).interruptAssistant(
                 12L,
                 "",
-                MessageTokenUsageBO.empty());
+                TokenUsage.empty());
     }
 
     @Test
@@ -186,6 +191,26 @@ class ChatStreamServiceImplTest {
         assertEquals(ChatGenerationEventType.COMPLETED, events.get(1).type());
     }
 
+    @Test
+    void shouldRestoreToolEventsFromRedisBeforeDatabaseTerminalState() {
+        AgentToolExecutionEvent tool = AgentToolExecutionEvent.builder()
+                .invocationId("tool-1")
+                .toolCode("system_current_time")
+                .displayName("查询当前时间")
+                .status(AgentToolExecutionStatus.SUCCEEDED)
+                .durationMillis(18L)
+                .build();
+        when(generationEventRepo.findAfter(12L, 1L)).thenReturn(List.of(ChatGenerationEventBO.tool(2, tool)));
+        when(messageRepo.findOwnedAssistantMessage(12L, 7L)).thenReturn(Optional.of(assistant(MessageStatus.COMPLETED, "数据库中的完整回答")));
+
+        List<ChatGenerationEventBO> events = service.resume(12L, 1L, 7L).collectList().block();
+
+        assertEquals(ChatGenerationEventType.TOOL, events.get(0).type());
+        assertEquals(AgentToolExecutionStatus.SUCCEEDED, events.get(0).tool().getStatus());
+        assertEquals(ChatGenerationEventType.SNAPSHOT, events.get(1).type());
+        assertEquals(ChatGenerationEventType.COMPLETED, events.get(2).type());
+    }
+
     /**
      * 让同步 Workflow 调用停在后台线程，测试可以稳定观察“任务运行中”的状态，
      * 避免依赖线程调度快慢产生偶发失败。
@@ -195,21 +220,14 @@ class ChatStreamServiceImplTest {
         doAnswer(invocation -> {
             gate.markStarted();
             gate.awaitRelease();
-            return new WorkflowChatResult(
-                    answer,
-                    new MessageTokenUsageBO(12, 4, 16),
-                    List.of());
-        }).when(applicationWorkflowChatService)
-                .execute(
-                        APPLICATION_SNAPSHOT,
-                        "你好",
-                        LOGIN_USER,
-                        new ChatTurnBO(10L, 11L, 12L, 3));
+            ChatExecutionEventPublisher eventPublisher = invocation.getArgument(4);
+            eventPublisher.publishText(new ChatStreamChunk(answer, TokenUsage.of(12, 4, 16)));
+            return new WorkflowChatResult(answer, TokenUsage.of(12, 4, 16), List.of());
+        }).when(applicationWorkflowChatService).execute(eq(APPLICATION_SNAPSHOT), eq("你好"), eq(LOGIN_USER), eq(new ChatTurnBO(10L, 11L, 12L, 3)), any(ChatExecutionEventPublisher.class));
         return gate;
     }
 
-    private static ConversationMessageEntity assistant(
-            MessageStatus status, String content) {
+    private static ConversationMessageEntity assistant(MessageStatus status, String content) {
         ConversationMessageEntity entity = new ConversationMessageEntity();
         entity.setId(12L);
         entity.setRole(MessageRole.ASSISTANT);

@@ -80,4 +80,26 @@ class AgentRuntimeDefinitionJsonTest {
         assertEquals(20L, definition.resolveSystemPromptVersionId());
         assertEquals(21L, definition.getUserPromptVersionId());
     }
+
+    @Test
+    void shouldReadSchemaV3ToolBindings() {
+        AgentRuntimeDefinition definition = JSON.parseObject(
+                """
+                        {
+                          "schemaVersion": 3,
+                          "agentType": "RAG_CHAT",
+                          "toolCodes": ["system_current_time"],
+                          "toolPolicy": {
+                            "maxToolCalls": 2,
+                            "maxResultCharacters": 8000
+                          }
+                        }
+                        """,
+                AgentRuntimeDefinition.class);
+
+        assertEquals(
+                "system_current_time",
+                definition.resolveToolCodes().getFirst());
+        assertEquals(2, definition.getToolPolicy().maxToolCalls());
+    }
 }

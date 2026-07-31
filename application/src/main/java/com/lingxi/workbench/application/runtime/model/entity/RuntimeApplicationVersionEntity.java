@@ -7,7 +7,9 @@ import com.lingxi.workbench.workflow.model.ApplicationDefinition;
 import lombok.Data;
 import org.apache.ibatis.type.JdbcType;
 
-/** ApplicationVersion 运行端只读实体。 */
+/**
+ * ApplicationVersion 运行端只读实体。
+ */
 @Data
 @TableName(value = "lingxi_core.ai_application_version", autoResultMap = true)
 public class RuntimeApplicationVersionEntity {

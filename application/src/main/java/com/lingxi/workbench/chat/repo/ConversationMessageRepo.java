@@ -5,7 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
-import com.lingxi.workbench.chat.model.bo.MessageTokenUsageBO;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.chat.repo.mapper.ConversationMessageMapper;
 import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
@@ -29,11 +29,7 @@ public class ConversationMessageRepo {
      * 按消息序号倒序分页查询，前端可按页向上加载历史消息。
      */
     public PageResult<ConversationMessageEntity> findPage(Long conversationId, PageQuery query) {
-        IPage<ConversationMessageEntity> page = mapper.selectPage(
-                query.toPage(),
-                Wrappers.<ConversationMessageEntity>lambdaQuery()
-                        .eq(ConversationMessageEntity::getConversationId, conversationId)
-                        .orderByDesc(ConversationMessageEntity::getSequenceNo));
+        IPage<ConversationMessageEntity> page = mapper.selectPage(query.toPage(), Wrappers.<ConversationMessageEntity>lambdaQuery().eq(ConversationMessageEntity::getConversationId, conversationId).orderByDesc(ConversationMessageEntity::getSequenceNo));
         return PageResult.convert(page);
     }
 
@@ -67,7 +63,9 @@ public class ConversationMessageRepo {
         return mapper.selectRecentCompletedRounds(conversationId, beforeSequenceNo, maxRounds);
     }
 
-    /** 新增一条会话消息；消息内容更新统一通过明确的终态方法完成。 */
+    /**
+     * 新增一条会话消息；消息内容更新统一通过明确的终态方法完成。
+     */
     public void save(ConversationMessageEntity entity) {
         mapper.insert(entity);
     }
@@ -83,14 +81,7 @@ public class ConversationMessageRepo {
      * 只允许尚在生成中的 Assistant 消息进入终态，避免并发覆盖。
      * 条件更新失败时返回 false，表示该消息已经被其他完成、失败或取消流程处理。
      */
-    public boolean finish(
-            Long id,
-            MessageStatus status,
-            String content,
-            String errorCode,
-            String errorMessage,
-            MessageTokenUsageBO tokenUsage,
-            OffsetDateTime now) {
+    public boolean finish(Long id, MessageStatus status, String content, String errorCode, String errorMessage, TokenUsage tokenUsage, OffsetDateTime now) {
         ConversationMessageEntity update = new ConversationMessageEntity();
         update.setStatus(status);
         update.setContent(content);

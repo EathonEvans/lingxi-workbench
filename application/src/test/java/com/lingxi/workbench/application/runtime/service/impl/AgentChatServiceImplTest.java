@@ -1,0 +1,355 @@
+package com.lingxi.workbench.application.runtime.service.impl;
+
+import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
+import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
+import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
+import com.lingxi.workbench.chat.common.enums.RetrievalStatus;
+import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
+import com.lingxi.workbench.chat.model.bo.PromptPair;
+import com.lingxi.workbench.chat.model.ccontext.ModelChatContext;
+import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;
+import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
+import com.lingxi.workbench.chat.service.ChatProcessChain;
+import com.lingxi.workbench.chat.service.ChatProcessNode;
+import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.framework.context.LoginUser;
+import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
+import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
+import com.lingxi.workbench.infra.ai.chat.model.command.ChatStreamCommand;
+import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig;
+import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
+import com.lingxi.workbench.infra.ai.tool.AgentTool;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
+import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
+import org.junit.jupiter.api.Test;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
+import org.springframework.ai.tool.metadata.ToolMetadata;
+import reactor.core.publisher.Flux;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+class AgentChatServiceImplTest {
+
+    @Test
+    void shouldRunLockedAgentVersionThroughExistingChatChain() {
+        AgentRuntimeDefinition definition = definition();
+        ChatExecutionContext execution = ChatExecutionContext.builder()
+                .executionId("run-1")
+                .runtimeVariables(runtimeVariables())
+                .turn(new ChatTurnBO(10L, 11L, 12L, 3))
+                .build();
+        AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
+
+        AgentChatServiceImpl service = new AgentChatServiceImpl(
+                (agentId, versionId) ->
+                        new AgentRuntimeSnapshot(agentId, versionId, definition),
+                promptVersionId -> promptSnapshot(),
+                modelService(),
+                new ChatProcessChain(new PreparingNode()),
+                command -> {
+                    captured.set(command);
+                    return Flux.just(
+                            new ChatStreamChunk("工作流"),
+                            new ChatStreamChunk("回答"),
+                            new ChatStreamChunk("", TokenUsage.of(12, 4, 16)));
+                },
+                toolCodes -> List.of());
+
+        String answer = service.chat(10L, 20L, "如何退款", execution);
+
+        assertEquals("工作流回答", answer);
+        assertEquals("你是售后助手", captured.get().systemPrompt());
+        assertEquals(0.2D, captured.get().modelConfig().getTemperature());
+        assertEquals(2048, captured.get().modelConfig().getMaxTokens());
+        assertEquals(
+                "disabled",
+                captured.get().modelConfig().getExtensionParameters()
+                        .getJSONObject("thinking")
+                        .getString("type"));
+        assertEquals(16, execution.tokenUsage().totalTokens());
+        assertFalse(captured.get().history().isEmpty());
+    }
+
+    @Test
+    void shouldRejectAgentVersionWithoutKnowledgeBinding() {
+        AgentRuntimeDefinition definition = definition();
+        definition.setKnowledge(null);
+        AgentChatServiceImpl service = new AgentChatServiceImpl(
+                (agentId, versionId) ->
+                        new AgentRuntimeSnapshot(agentId, versionId, definition),
+                promptVersionId -> promptSnapshot(),
+                modelService(),
+                new ChatProcessChain(new PreparingNode()),
+                command -> Flux.empty(),
+                toolCodes -> List.of());
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.chat(
+                        10L,
+                        20L,
+                        "如何退款",
+                        ChatExecutionContext.builder()
+                                .executionId("run-invalid")
+                                .runtimeVariables(runtimeVariables())
+                                .turn(new ChatTurnBO(10L, 11L, 12L, 3))
+                                .build()));
+
+        assertEquals("AgentVersion知识库配置不完整", exception.getMessage());
+    }
+
+    @Test
+    void shouldRejectNodeQueryThatDoesNotMatchEntryQuery() {
+        ChatExecutionContext execution = ChatExecutionContext.builder()
+                .executionId("run-query-mismatch")
+                .runtimeVariables(runtimeVariables())
+                .turn(new ChatTurnBO(10L, 11L, 12L, 3))
+                .build();
+        AgentChatServiceImpl service = new AgentChatServiceImpl(
+                (agentId, versionId) ->
+                        new AgentRuntimeSnapshot(
+                                agentId,
+                                versionId,
+                                definition()),
+                promptVersionId -> promptSnapshot(),
+                modelService(),
+                new ChatProcessChain(new PreparingNode()),
+                command -> Flux.empty(),
+                toolCodes -> List.of());
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.chat(
+                        10L,
+                        20L,
+                        "不同的问题",
+                        execution));
+
+        assertEquals(
+                "当前阶段仅支持入口Agent使用用户原始query",
+                exception.getMessage());
+    }
+
+    @Test
+    void shouldRejectInvalidToolLimitsBeforeCallingGateway() {
+        AgentRuntimeDefinition definition = definition();
+        definition.setToolCodes(List.of("system_current_time"));
+        definition.setToolPolicy(new AgentRuntimeDefinition.ToolPolicy(0, 1000));
+        AgentChatServiceImpl service = new AgentChatServiceImpl(
+                (agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition),
+                promptVersionId -> promptSnapshot(),
+                modelService(),
+                new ChatProcessChain(new PreparingNode()),
+                command -> {
+                    throw new AssertionError("非法工具配置不应进入模型网关");
+                },
+                toolCodes -> List.of());
+        ChatExecutionContext execution = ChatExecutionContext.builder()
+                .executionId("run-invalid-tool-limit")
+                .runtimeVariables(runtimeVariables())
+                .turn(new ChatTurnBO(10L, 11L, 12L, 3))
+                .build();
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.chat(10L, 20L, "如何退款", execution));
+
+        assertEquals("AgentVersion工具调用配置超出允许范围", exception.getMessage());
+    }
+
+    @Test
+    void shouldAppendToolEvidencePolicyWhenAgentEnablesTools() {
+        AgentRuntimeDefinition definition = definition();
+        definition.setToolCodes(List.of("system_current_time"));
+        definition.setToolPolicy(new AgentRuntimeDefinition.ToolPolicy(1, 1000));
+        AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
+        AgentChatServiceImpl service = new AgentChatServiceImpl(
+                (agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition),
+                promptVersionId -> promptSnapshot(),
+                modelService(),
+                new ChatProcessChain(new PreparingNode()),
+                command -> {
+                    captured.set(command);
+                    return Flux.just(new ChatStreamChunk("现在是10点"));
+                },
+                toolCodes -> List.of(new StubAgentTool()));
+        ChatExecutionContext execution = ChatExecutionContext.builder()
+                .executionId("run-with-tool")
+                .runtimeVariables(runtimeVariables("现在是几点"))
+                .turn(new ChatTurnBO(10L, 11L, 12L, 3))
+                .build();
+
+        String answer = service.chat(10L, 20L, "现在是几点", execution);
+
+        assertEquals("现在是10点", answer);
+        assertTrue(captured.get().toolRuntimeConfig().isPresent());
+        assertTrue(captured.get().systemPrompt().contains("工具执行结果是本轮回答可使用的可信事实来源"));
+        assertTrue(captured.get().systemPrompt().contains("不得因为知识片段缺少相关内容而拒绝回答"));
+    }
+
+    private static ModelRuntimeConfigService modelService() {
+        return new ModelRuntimeConfigService() {
+            @Override
+            public ChatModelRuntimeConfig getDefaultChatModel() {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public ChatModelRuntimeConfig getChatModelConfig(Long instanceId) {
+                return ChatModelRuntimeConfig.builder()
+                        .instanceId(instanceId)
+                        .baseUrl("http://localhost")
+                        .apiKey("secret")
+                        .modelCode("chat")
+                        .temperature(0.7)
+                        .topP(1.0)
+                        .maxTokens(4096)
+                        .stopSequences(List.of())
+                        .extensionParameters(JSONObject.of(
+                                "thinking",
+                                JSONObject.of("type", "disabled")))
+                        .timeoutSeconds(120)
+                        .maxRetries(0)
+                        .build();
+            }
+
+            @Override
+            public EmbeddingModelRuntimeConfig getEmbeddingModelConfig(
+                    Long instanceId) {
+                throw new UnsupportedOperationException();
+            }
+        };
+    }
+
+    private static AgentRuntimeDefinition definition() {
+        return AgentRuntimeDefinition.builder()
+                .schemaVersion(1)
+                .agentType("RAG_CHAT")
+                .chatModelInstanceId(99L)
+                .answerPromptVersionId(88L)
+                .knowledge(new AgentRuntimeDefinition.KnowledgeBinding(
+                        30L, 40L, "LATEST", 0))
+                .memoryPolicy(new AgentRuntimeDefinition.MemoryPolicy(
+                        true, 10, 4000))
+                .rewritePolicy(AgentRuntimeDefinition.RewritePolicy.builder()
+                        .enabled(false)
+                        .maxHistoryRounds(6)
+                        .maxHistoryTokens(2000)
+                        .temperature(new BigDecimal("0.1"))
+                        .maxOutputTokens(128)
+                        .maxOutputCharacters(500)
+                        .timeoutMillis(3000)
+                        .fallbackToOriginal(true)
+                        .build())
+                .retrievalPolicy(AgentRuntimeDefinition.RetrievalPolicy.builder()
+                        .topK(5)
+                        .similarityThreshold(new BigDecimal("0.65"))
+                        .maxContextTokens(4000)
+                        .emptyResultStrategy("ANSWER_WITHOUT_CONTEXT")
+                        .failureStrategy("FAIL_REQUEST")
+                        .build())
+                .generationPolicy(AgentRuntimeDefinition.GenerationPolicy.builder()
+                        .temperature(new BigDecimal("0.2"))
+                        .topP(new BigDecimal("0.9"))
+                        .maxOutputTokens(2048)
+                        .timeoutSeconds(60)
+                        .maxRetries(1)
+                        .build())
+                .runtimePolicy(new AgentRuntimeDefinition.RuntimePolicy(
+                        90, 3, 12000, 2048))
+                .build();
+    }
+
+    private static LoginUser loginUser() {
+        return new LoginUser(7L, "tester", "测试用户", null);
+    }
+
+    private static RuntimeVariables runtimeVariables() {
+        return runtimeVariables("如何退款");
+    }
+
+    private static RuntimeVariables runtimeVariables(String query) {
+        return new RuntimeVariablesInitializer("Lingxi Workbench")
+                .initialize(loginUser(), query, 10L);
+    }
+
+    private static PromptRuntimeSnapshot promptSnapshot() {
+        return new PromptRuntimeSnapshot(
+                88L,
+                "你是售后助手",
+                List.of(),
+                PromptRole.SYSTEM);
+    }
+
+    private static final class PreparingNode implements ChatProcessNode {
+
+        @Override
+        public ChatProcessNode next(ChatProcessNode next) {
+            return next;
+        }
+
+        @Override
+        public void process(ModelChatContext context) {
+            assertEquals(30L, context.getKnowledgeBaseId());
+            assertEquals(40L, context.getEmbeddingModelInstanceId());
+            assertEquals(5, context.getRetrievalTopK());
+            assertEquals("FAIL_REQUEST", context.getRetrievalFailureStrategy());
+            context.setRetrievalStatus(RetrievalStatus.SUCCESS);
+            context.getRuntimeVariables().put(
+                    RuntimeVariableAccessors.SESSION_HISTORY,
+                    List.of(
+                    new com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage(
+                            com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage.Role.USER,
+                            "历史问题")));
+            context.setPromptPair(new PromptPair(
+                    context.getRuntimeVariables().require(
+                            RuntimeVariableAccessors.USER_QUERY),
+                    context.getSystemPrompt().content()));
+        }
+    }
+
+    private static final class StubAgentTool implements AgentTool {
+
+        @Override
+        public AgentToolDefinition definition() {
+            return AgentToolDefinition.builder()
+                    .code("system_current_time")
+                    .displayName("查询当前时间")
+                    .description("查询当前时间")
+                    .build();
+        }
+
+        @Override
+        public ToolCallback callback() {
+            return new ToolCallback() {
+                @Override
+                public ToolDefinition getToolDefinition() {
+                    return ToolDefinition.builder()
+                            .name("system_current_time")
+                            .description("查询当前时间")
+                            .inputSchema("{\"type\":\"object\",\"properties\":{}}")
+                            .build();
+                }
+
+                @Override
+                public ToolMetadata getToolMetadata() {
+                    return ToolMetadata.builder().build();
+                }
+
+                @Override
+                public String call(String toolInput) {
+                    return "{\"currentTime\":\"2026-07-31T10:00:00+08:00\"}";
+                }
+            };
+        }
+    }
+}

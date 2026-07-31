@@ -1,7 +1,7 @@
 package com.lingxi.workbench.chat.service;
 
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
-import com.lingxi.workbench.chat.model.bo.MessageTokenUsageBO;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.chat.model.request.ConversationPageQuery;
 import com.lingxi.workbench.chat.model.request.RenameConversationRequest;
 import com.lingxi.workbench.chat.model.vo.ConversationMessageVO;
@@ -50,63 +50,36 @@ public interface ConversationService {
      * <p>该方法会锁定用户所属会话，校验会话可写、没有其他生成中回答，
      * 并使用客户端消息标识防止重复提交。返回后两条消息均已落库。</p>
      *
-     * @param userId 当前登录用户主键
-     * @param conversationId 会话主键
+     * @param userId          当前登录用户主键
+     * @param conversationId  会话主键
      * @param clientMessageId 客户端生成的幂等消息标识
-     * @param prompt 已规范化的用户输入
+     * @param prompt          已规范化的用户输入
      * @param modelInstanceId 本轮使用的模型实例主键
      * @return 会话、用户消息、Assistant 消息主键以及当前用户消息序号
      */
-    default ChatTurnBO startTurn(
-            Long userId,
-            Long conversationId,
-            String clientMessageId,
-            String prompt,
-            Long modelInstanceId) {
-        return startTurn(
-                userId,
-                conversationId,
-                clientMessageId,
-                prompt,
-                modelInstanceId,
-                null,
-                null);
+    default ChatTurnBO startTurn(Long userId, Long conversationId, String clientMessageId, String prompt, Long modelInstanceId) {
+        return startTurn(userId, conversationId, clientMessageId, prompt, modelInstanceId, null, null);
     }
 
-    ChatTurnBO startTurn(
-            Long userId,
-            Long conversationId,
-            String clientMessageId,
-            String prompt,
-            Long modelInstanceId,
-            Long applicationId,
-            Long applicationVersionId);
+    ChatTurnBO startTurn(Long userId, Long conversationId, String clientMessageId, String prompt, Long modelInstanceId, Long applicationId, Long applicationVersionId);
 
     /**
      * 将 Assistant 消息更新为完整回答。
      */
-    void completeAssistant(
-            Long assistantMessageId, String content, MessageTokenUsageBO tokenUsage);
+    void completeAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage);
 
     /**
      * 记录模型调用失败及已经生成的部分回答。
      */
-    void failAssistant(
-            Long assistantMessageId,
-            String content,
-            String errorCode,
-            String errorMessage,
-            MessageTokenUsageBO tokenUsage);
+    void failAssistant(Long assistantMessageId, String content, String errorCode, String errorMessage, TokenUsage tokenUsage);
 
     /**
      * 记录客户端取消及已经生成的部分回答。
      */
-    void cancelAssistant(
-            Long assistantMessageId, String content, MessageTokenUsageBO tokenUsage);
+    void cancelAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage);
 
     /**
      * 记录服务进程中断造成的未完成回答。
      */
-    void interruptAssistant(
-            Long assistantMessageId, String content, MessageTokenUsageBO tokenUsage);
+    void interruptAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage);
 }

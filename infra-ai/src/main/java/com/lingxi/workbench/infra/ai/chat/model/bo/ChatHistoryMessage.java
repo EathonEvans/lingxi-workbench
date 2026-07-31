@@ -2,6 +2,11 @@ package com.lingxi.workbench.infra.ai.chat.model.bo;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
+
+import java.util.List;
 
 /**
  * 模型调用所需的一条历史消息。
@@ -10,6 +15,16 @@ import lombok.RequiredArgsConstructor;
  * @param content 已完成消息的完整文本内容
  */
 public record ChatHistoryMessage(Role role, String content) {
+
+    /**
+     * 将项目内部历史消息角色转换为 Spring AI 消息实现。
+     */
+    public Message format() {
+        return switch (role) {
+            case USER -> new UserMessage(content());
+            case ASSISTANT -> new AssistantMessage(content());
+        };
+    }
 
     /** 模型上下文支持的历史消息角色。 */
     @Getter

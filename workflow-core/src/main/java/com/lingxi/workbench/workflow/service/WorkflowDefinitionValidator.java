@@ -99,9 +99,9 @@ public class WorkflowDefinitionValidator {
             validateConfigType(node);
 
             if (node.config() instanceof AgentNodeConfig config) {
-                require(isNotBlank(config.agentId()), "Agent节点缺少agentId: " + node.id());
+                require(config.agentId() != null, "Agent节点缺少agentId: " + node.id());
                 require(
-                        !requireLockedAgentVersion || isNotBlank(config.agentVersionId()),
+                        !requireLockedAgentVersion || config.agentVersionId() != null,
                         "Agent节点必须锁定agentVersionId: " + node.id());
                 validateMapping(config.inputMapping(), "Agent输入映射", node.id());
                 validateMapping(config.outputMapping(), "Agent输出映射", node.id());

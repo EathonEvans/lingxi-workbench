@@ -2,7 +2,7 @@ package com.lingxi.workbench.chat.repo;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
-import com.lingxi.workbench.chat.model.bo.MessageTokenUsageBO;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
 import com.lingxi.workbench.chat.repo.mapper.ConversationMessageMapper;
 import org.junit.jupiter.api.Test;
@@ -47,7 +47,7 @@ class ConversationMessageRepoTest {
                 "完整回答",
                 null,
                 null,
-                new MessageTokenUsageBO(120, 30, 150),
+                TokenUsage.of(120, 30, 150),
                 completedAt);
 
         ArgumentCaptor<ConversationMessageEntity> entityCaptor =

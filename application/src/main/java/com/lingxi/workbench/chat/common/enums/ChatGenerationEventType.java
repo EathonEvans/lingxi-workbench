@@ -9,6 +9,8 @@ import lombok.RequiredArgsConstructor;
 public enum ChatGenerationEventType {
     /** 模型生成的文本增量。 */
     CHUNK("CHUNK", "文本增量"),
+    /** Agent 工具执行状态。 */
+    TOOL("TOOL", "工具状态"),
     /** 从数据库恢复的完整或部分回答快照。 */
     SNAPSHOT("SNAPSHOT", "回答快照"),
     /** 模型回答生成完成。 */

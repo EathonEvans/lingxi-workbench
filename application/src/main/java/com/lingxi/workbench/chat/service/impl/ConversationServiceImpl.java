@@ -4,7 +4,7 @@ import com.lingxi.workbench.chat.common.enums.ConversationStatus;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
-import com.lingxi.workbench.chat.model.bo.MessageTokenUsageBO;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.chat.model.converter.ConversationConverter;
 import com.lingxi.workbench.chat.model.entity.ConversationEntity;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
@@ -117,16 +117,10 @@ public class ConversationServiceImpl implements ConversationService {
      */
     @Override
     @Transactional
-    public ChatTurnBO startTurn(
-            Long userId,
-            Long conversationId,
-            String clientMessageId,
-            String prompt,
-            Long modelInstanceId,
-            Long applicationId,
-            Long applicationVersionId) {
+    public ChatTurnBO startTurn(Long userId, Long conversationId, String clientMessageId, String prompt, Long modelInstanceId, Long applicationId, Long applicationVersionId) {
         // 悲观锁串行化同一会话的发送请求，避免两个请求同时计算出相同的消息序号。
-        ConversationEntity conversation = conversationRepo.lockOwnedById(conversationId, userId).orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "会话不存在"));
+        ConversationEntity conversation = conversationRepo.lockOwnedById(conversationId, userId)
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "会话不存在"));
         if (conversation.getStatus() != ConversationStatus.ACTIVE) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "已归档会话不能继续发送消息");
         }
@@ -145,26 +139,12 @@ public class ConversationServiceImpl implements ConversationService {
         int userSequence = messageRepo.nextSequence(conversationId);
 
         // 用户输入在请求到达时已经完整，因此直接以 COMPLETED 状态持久化。
-        ConversationMessageEntity userMessage = newMessage(
-                conversationId,
-                clientMessageId,
-                userSequence,
-                MessageRole.USER,
-                prompt.trim(),
-                MessageStatus.COMPLETED,
-                null);
+        ConversationMessageEntity userMessage = newMessage(conversationId, clientMessageId, userSequence, MessageRole.USER, prompt.trim(), MessageStatus.COMPLETED, null);
         userMessage.setCompletedAt(now);
         messageRepo.save(userMessage);
 
         // 在调用模型前先创建空的 Assistant 占位消息。后续完整回答、失败内容和 Token 用量都更新这条记录。
-        ConversationMessageEntity assistantMessage = newMessage(
-                conversationId,
-                null,
-                userSequence + 1,
-                MessageRole.ASSISTANT,
-                "",
-                MessageStatus.GENERATING,
-                modelInstanceId);
+        ConversationMessageEntity assistantMessage = newMessage(conversationId, null, userSequence + 1, MessageRole.ASSISTANT, "", MessageStatus.GENERATING, modelInstanceId);
         assistantMessage.setApplicationId(applicationId);
         assistantMessage.setApplicationVersionId(applicationVersionId);
         messageRepo.save(assistantMessage);
@@ -187,16 +167,8 @@ public class ConversationServiceImpl implements ConversationService {
      */
     @Override
     @Transactional
-    public void completeAssistant(
-            Long assistantMessageId, String content, MessageTokenUsageBO tokenUsage) {
-        messageRepo.finish(
-                assistantMessageId,
-                MessageStatus.COMPLETED,
-                content,
-                null,
-                null,
-                tokenUsage,
-                OffsetDateTime.now());
+    public void completeAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage) {
+        messageRepo.finish(assistantMessageId, MessageStatus.COMPLETED, content, null, null, tokenUsage, OffsetDateTime.now());
     }
 
     /**
@@ -204,20 +176,8 @@ public class ConversationServiceImpl implements ConversationService {
      */
     @Override
     @Transactional
-    public void failAssistant(
-            Long assistantMessageId,
-            String content,
-            String errorCode,
-            String errorMessage,
-            MessageTokenUsageBO tokenUsage) {
-        messageRepo.finish(
-                assistantMessageId,
-                MessageStatus.FAILED,
-                content,
-                errorCode,
-                truncate(errorMessage, 255),
-                tokenUsage,
-                OffsetDateTime.now());
+    public void failAssistant(Long assistantMessageId, String content, String errorCode, String errorMessage, TokenUsage tokenUsage) {
+        messageRepo.finish(assistantMessageId, MessageStatus.FAILED, content, errorCode, truncate(errorMessage, 255), tokenUsage, OffsetDateTime.now());
     }
 
     /**
@@ -225,16 +185,8 @@ public class ConversationServiceImpl implements ConversationService {
      */
     @Override
     @Transactional
-    public void cancelAssistant(
-            Long assistantMessageId, String content, MessageTokenUsageBO tokenUsage) {
-        messageRepo.finish(
-                assistantMessageId,
-                MessageStatus.CANCELLED,
-                content,
-                "CLIENT_CANCELLED",
-                "客户端中断了本次回答",
-                tokenUsage,
-                OffsetDateTime.now());
+    public void cancelAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage) {
+        messageRepo.finish(assistantMessageId, MessageStatus.CANCELLED, content, "CLIENT_CANCELLED", "客户端中断了本次回答", tokenUsage, OffsetDateTime.now());
     }
 
     /**
@@ -242,39 +194,30 @@ public class ConversationServiceImpl implements ConversationService {
      */
     @Override
     @Transactional
-    public void interruptAssistant(
-            Long assistantMessageId, String content, MessageTokenUsageBO tokenUsage) {
-        messageRepo.finish(
-                assistantMessageId,
-                MessageStatus.INTERRUPTED,
-                content,
-                "GENERATION_INTERRUPTED",
-                "模型生成任务已中断",
-                tokenUsage,
-                OffsetDateTime.now());
+    public void interruptAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage) {
+        messageRepo.finish(assistantMessageId, MessageStatus.INTERRUPTED, content, "GENERATION_INTERRUPTED", "模型生成任务已中断", tokenUsage, OffsetDateTime.now());
     }
 
-    /** 查询并校验会话归属，不存在或不属于当前用户时抛出 NOT_FOUND 异常。 */
+    /**
+     * 查询并校验会话归属，不存在或不属于当前用户时抛出 NOT_FOUND 异常。
+     */
     private ConversationEntity requireConversation(Long conversationId, Long userId) {
         return conversationRepo.findOwnedById(conversationId, userId).orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "会话不存在"));
     }
 
-    /** 校验当前会话没有正在生成中的回答，防止并发产生消息顺序交叉。 */
+    /**
+     * 校验当前会话没有正在生成中的回答，防止并发产生消息顺序交叉。
+     */
     private void requireNoGeneratingMessage(Long conversationId) {
         if (messageRepo.existsGenerating(conversationId)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "当前会话仍有回答正在生成");
         }
     }
 
-    /** 构建未持久化的消息实体，createdAt 由框架填充器维护。 */
-    private static ConversationMessageEntity newMessage(
-            Long conversationId,
-            String clientMessageId,
-            int sequenceNo,
-            MessageRole role,
-            String content,
-            MessageStatus status,
-            Long modelInstanceId) {
+    /**
+     * 构建未持久化的消息实体，createdAt 由框架填充器维护。
+     */
+    private static ConversationMessageEntity newMessage(Long conversationId, String clientMessageId, int sequenceNo, MessageRole role, String content, MessageStatus status, Long modelInstanceId) {
         ConversationMessageEntity entity = new ConversationMessageEntity();
         entity.setConversationId(conversationId);
         entity.setClientMessageId(clientMessageId);
@@ -286,7 +229,9 @@ public class ConversationServiceImpl implements ConversationService {
         return entity;
     }
 
-    /** 从用户首条消息截取不超过 30 个 Unicode 码点的文本作为会话标题。 */
+    /**
+     * 从用户首条消息截取不超过 30 个 Unicode 码点的文本作为会话标题。
+     */
     private static String createTitle(String prompt) {
         String normalized = prompt.trim().replaceAll("\\s+", " ");
         int codePointCount = normalized.codePointCount(0, normalized.length());
@@ -297,7 +242,9 @@ public class ConversationServiceImpl implements ConversationService {
         return normalized.substring(0, endIndex) + "…";
     }
 
-    /** 截断字符串到指定长度，防止过长错误信息超出数据库字段限制。 */
+    /**
+     * 截断字符串到指定长度，防止过长错误信息超出数据库字段限制。
+     */
     private static String truncate(String value, int maxLength) {
         if (value == null || value.length() <= maxLength) {
             return value;

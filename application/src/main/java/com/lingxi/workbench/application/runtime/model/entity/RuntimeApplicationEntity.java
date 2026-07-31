@@ -3,7 +3,9 @@ package com.lingxi.workbench.application.runtime.model.entity;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
-/** Application 运行端只读实体。 */
+/**
+ * Application 运行端只读实体。
+ */
 @Data
 @TableName("lingxi_core.ai_application")
 public class RuntimeApplicationEntity {

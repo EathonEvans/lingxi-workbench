@@ -6,17 +6,19 @@ import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.bo.PromptPair;
 import com.lingxi.workbench.chat.model.bo.QueryRewriteConfig;
 import com.lingxi.workbench.knowledge.model.vo.KnowledgeSearchResultVO;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 单轮对话前置处理链的共享上下文。
  *
- * <p>请求参数和本轮消息标识在创建后不应被节点修改；用户、会话、问题和历史消息
- * 通过 RuntimeVariables 共享，召回结果和最终 Prompt 由对应节点按顺序写入。</p>
+ * <p>用户、会话、问题和历史消息通过 RuntimeVariables 共享，召回结果和最终
+ * Prompt 由对应节点按顺序写入。</p>
  */
 @Getter
 @Builder
@@ -28,11 +30,6 @@ public class ModelChatContext {
      * <p>用户、会话、原始问题和历史消息只保存在这里，不在 Chat Context 中重复建模。</p>
      */
     private RuntimeVariables runtimeVariables;
-    /**
-     * 客户端幂等消息标识。
-     */
-    private String clientMessageId;
-
     /*
      * 以下字段来自已发布 AgentVersion，描述该版本对本轮执行施加的策略。
      * 字段为空只能表示当前 Agent 类型未启用对应能力，不能回退到请求参数或平台默认配置。
@@ -124,12 +121,7 @@ public class ModelChatContext {
     }
 
     /** 汇总一次处理链内部模型调用的 Token 用量。 */
-    public void recordModelUsage(
-            Integer inputTokens,
-            Integer outputTokens,
-            Integer totalTokens) {
-        if (modelUsageRecorder != null) {
-            modelUsageRecorder.record(inputTokens, outputTokens, totalTokens);
-        }
+    public void recordModelUsage(TokenUsage usage) {
+        Optional.ofNullable(modelUsageRecorder).ifPresent(recorder -> recorder.record(usage));
     }
 }

@@ -96,10 +96,7 @@ public class ApplicationDraftValidator {
             String nodeId,
             AgentNodeConfig config,
             List<ApplicationValidationIssueVO> issues) {
-        Long agentId = parseId(config.agentId(), nodeId, "agentId", issues);
-        if (agentId == null) {
-            return config;
-        }
+        Long agentId = config.agentId();
         ApplicationAgentReferenceGateway.AgentReference agent =
                 agentReferenceGateway.findAgent(agentId).orElse(null);
         if (agent == null) {
@@ -112,7 +109,7 @@ public class ApplicationDraftValidator {
         }
 
         Long versionId;
-        if (config.agentVersionId() == null || config.agentVersionId().isBlank()) {
+        if (config.agentVersionId() == null) {
             versionId = agent.publishedVersionId();
             if (versionId == null) {
                 issues.add(issue(
@@ -122,11 +119,7 @@ public class ApplicationDraftValidator {
                 return config;
             }
         } else {
-            versionId = parseId(
-                    config.agentVersionId(), nodeId, "agentVersionId", issues);
-            if (versionId == null) {
-                return config;
-            }
+            versionId = config.agentVersionId();
         }
 
         Long resolvedVersionId =
@@ -139,26 +132,10 @@ public class ApplicationDraftValidator {
             return config;
         }
         return new AgentNodeConfig(
-                String.valueOf(agentId),
-                String.valueOf(resolvedVersionId),
+                agentId,
+                resolvedVersionId,
                 config.inputMapping(),
                 config.outputMapping());
-    }
-
-    private static Long parseId(
-            String raw,
-            String nodeId,
-            String field,
-            List<ApplicationValidationIssueVO> issues) {
-        try {
-            return Long.valueOf(raw);
-        } catch (NumberFormatException exception) {
-            issues.add(issue(
-                    "INVALID_REFERENCE_ID",
-                    nodeId,
-                    field + "不是有效ID"));
-            return null;
-        }
     }
 
     private static ApplicationValidationIssueVO issue(

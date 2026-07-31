@@ -11,7 +11,9 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
 
-/** Application 发布快照的运行端只读仓储。 */
+/**
+ * Application 发布快照的运行端只读仓储。
+ */
 @Repository
 @RequiredArgsConstructor
 public class ApplicationRuntimeRepo {
@@ -19,7 +21,9 @@ public class ApplicationRuntimeRepo {
     private final RuntimeApplicationMapper applicationMapper;
     private final RuntimeApplicationVersionMapper versionMapper;
 
-    /** 按稳定编码查询状态为 ACTIVE 的 Application。 */
+    /**
+     * 按稳定编码查询状态为 ACTIVE 的 Application。
+     */
     public Optional<RuntimeApplicationEntity> findActiveByCode(String code) {
         return Optional.ofNullable(applicationMapper.selectOne(
                 Wrappers.<RuntimeApplicationEntity>lambdaQuery()
@@ -42,7 +46,9 @@ public class ApplicationRuntimeRepo {
                         .last("LIMIT 100"));
     }
 
-    /** 按主键和 Application 归属查询 ApplicationVersion 实体。 */
+    /**
+     * 按主键和 Application 归属查询 ApplicationVersion 实体。
+     */
     public Optional<RuntimeApplicationVersionEntity> findVersion(Long applicationId, Long versionId) {
         return Optional.ofNullable(versionMapper.selectOne(
                 Wrappers.<RuntimeApplicationVersionEntity>lambdaQuery()

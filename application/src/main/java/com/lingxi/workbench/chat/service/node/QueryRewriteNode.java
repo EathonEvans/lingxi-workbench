@@ -60,7 +60,7 @@ public class QueryRewriteNode extends AbstractChatProcessNode {
                     chatCompletionGateway.complete(command)
                             .block(Duration.ofMillis(config.getTimeoutMillis())),
                     "问题改写模型未返回结果");
-            context.recordModelUsage(result.inputTokens(), result.outputTokens(), result.totalTokens());
+            context.recordModelUsage(result.usage());
             writeRetrievalQuery(context, validateAndNormalize(result.content(), config));
             return ChatProcessResult.CONTINUE;
         } catch (RuntimeException exception) {

@@ -5,7 +5,7 @@ import com.lingxi.workbench.chat.common.enums.MessageRole;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import com.lingxi.workbench.chat.model.converter.ConversationConverter;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
-import com.lingxi.workbench.chat.model.bo.MessageTokenUsageBO;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.chat.model.entity.ConversationEntity;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
 import com.lingxi.workbench.chat.repo.ConversationMessageRepo;
@@ -72,7 +72,7 @@ class ConversationServiceImplTest {
 
     @Test
     void shouldPersistPartialAnswerWhenModelFails() {
-        MessageTokenUsageBO tokenUsage = new MessageTokenUsageBO(20, 8, 28);
+        TokenUsage tokenUsage = TokenUsage.of(20, 8, 28);
 
         service.failAssistant(
                 12L, "部分回答", "AI_MODEL_ERROR", "模型服务调用失败", tokenUsage);

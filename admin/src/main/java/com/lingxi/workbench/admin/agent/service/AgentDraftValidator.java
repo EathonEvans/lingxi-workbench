@@ -2,6 +2,7 @@ package com.lingxi.workbench.admin.agent.service;
 
 import com.lingxi.workbench.admin.agent.model.config.AgentMemoryPolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
+import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.QueryRewritePolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
@@ -24,6 +25,7 @@ import com.lingxi.workbench.admin.prompt.model.entity.PromptVariableDefinition;
 import com.lingxi.workbench.admin.prompt.model.entity.PromptVersionEntity;
 import com.lingxi.workbench.admin.prompt.repo.PromptRepo;
 import com.lingxi.workbench.admin.prompt.repo.PromptVersionRepo;
+import com.lingxi.workbench.admin.tool.service.ToolService;
 import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import com.lingxi.workbench.infra.ai.variable.RuntimeVariableCatalog;
 import com.lingxi.workbench.infra.ai.variable.common.enums.BuiltInRuntimeVariable;
@@ -37,6 +39,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /** Agent 草稿发布前的纯数据库与配置契约校验器。 */
 @Component
@@ -47,6 +50,7 @@ public class AgentDraftValidator {
     private final PromptVersionRepo promptVersionRepo;
     private final KnowledgeBaseRepo knowledgeBaseRepo;
     private final Validator beanValidator;
+    private final ToolService toolService;
 
     /** 对 Agent 及其草稿执行发布前完整校验：状态、模型、Prompt、知识库、策略跨字段限制。 */
     public AgentValidationResultVO validate(
@@ -67,6 +71,7 @@ public class AgentDraftValidator {
                 || !chatModel.getCapabilities().contains(ModelCapability.STREAMING))) {
             add(issues, "CHAT_MODEL_STREAMING_REQUIRED", "回答模型必须支持流式输出");
         }
+        validateTools(draft, chatModel, issues);
         validatePrompt(
                 draft.getSystemPromptVersionId(),
                 PromptRole.SYSTEM,
@@ -107,6 +112,32 @@ public class AgentDraftValidator {
         validatePolicy(draft.getRetrievalPolicy(), "RETRIEVAL_POLICY", issues);
         validatePolicy(draft.getGenerationPolicy(), "GENERATION_POLICY", issues);
         validatePolicy(draft.getRuntimePolicy(), "RUNTIME_POLICY", issues);
+        validatePolicy(draft.getToolPolicy(), "TOOL_POLICY", issues);
+    }
+
+    /** 校验 Tool 已在控制面启用，并要求回答模型声明 TOOL_CALLING 能力。 */
+    private void validateTools(AgentDraftEntity draft, ModelInstanceEntity chatModel, List<AgentValidationIssueVO> issues) {
+        List<String> toolCodes = draft.getToolCodes();
+        if (toolCodes == null) {
+            add(issues, "TOOL_CODES_MISSING", "工具编码列表不能为空");
+            return;
+        }
+        long distinctCount = toolCodes.stream().distinct().count();
+        if (distinctCount != toolCodes.size()) {
+            add(issues, "TOOL_CODE_DUPLICATED", "工具编码不能重复");
+        }
+        Set<String> activeCodes = toolService.findActiveCodes(toolCodes);
+        for (String toolCode : toolCodes) {
+            if (!activeCodes.contains(toolCode)) {
+                add(issues, "TOOL_UNAVAILABLE", "Tool 不存在或已停用：" + toolCode);
+            }
+        }
+        if (!toolCodes.isEmpty()
+                && Objects.nonNull(chatModel)
+                && (chatModel.getCapabilities() == null
+                || !chatModel.getCapabilities().contains(ModelCapability.TOOL_CALLING))) {
+            add(issues, "CHAT_MODEL_TOOL_CALLING_REQUIRED", "绑定工具后，回答模型必须支持工具调用");
+        }
     }
 
     private void validatePolicy(
@@ -310,6 +341,7 @@ public class AgentDraftValidator {
         RetrievalPolicy retrieval = draft.getRetrievalPolicy();
         GenerationPolicy generation = draft.getGenerationPolicy();
         AgentRuntimePolicy runtime = draft.getRuntimePolicy();
+        AgentToolPolicy toolPolicy = draft.getToolPolicy();
         if (Objects.isNull(memory)
                 || Objects.isNull(rewrite)
                 || Objects.isNull(retrieval)
@@ -327,7 +359,9 @@ public class AgentDraftValidator {
                 || Objects.isNull(runtime.getMaxOutputTokens())
                 || Objects.isNull(runtime.getTotalTimeoutSeconds())
                 || Objects.isNull(runtime.getMaxModelCalls())
-                || Objects.isNull(runtime.getMaxInputTokens())) {
+                || Objects.isNull(runtime.getMaxInputTokens())
+                || Objects.isNull(toolPolicy)
+                || Objects.isNull(toolPolicy.getMaxToolCalls())) {
             return;
         }
         if (generation.getMaxOutputTokens() > runtime.getMaxOutputTokens()) {
@@ -345,8 +379,18 @@ public class AgentDraftValidator {
             add(issues, "REWRITE_INPUT_BUDGET_CONFLICT", "改写历史必须为当前问题和Prompt预留输入空间");
         }
         int requiredCalls = Boolean.TRUE.equals(rewrite.getEnabled()) ? 2 : 1;
+        if (draft.getToolCodes() != null && !draft.getToolCodes().isEmpty()) {
+            /*
+             * 每次串行工具调用后都要再次调用模型，最后还需要一次模型调用生成自然语言回答。
+             * 改写调用也计入 Agent 全局模型次数预算。
+             */
+            requiredCalls += toolPolicy.getMaxToolCalls();
+        }
         if (runtime.getMaxModelCalls() < requiredCalls) {
-            add(issues, "MODEL_CALL_LIMIT_CONFLICT", "模型调用次数上限不足以执行当前策略");
+            add(
+                    issues,
+                    "MODEL_CALL_LIMIT_CONFLICT",
+                    "模型调用次数上限不足，当前配置至少需要" + requiredCalls + "次");
         }
         int memoryTokens = Boolean.TRUE.equals(memory.getEnabled()) ? memory.getMaxTokens() : 0;
         if (memoryTokens + retrieval.getMaxContextTokens() >= runtime.getMaxInputTokens()) {

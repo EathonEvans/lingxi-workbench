@@ -1,0 +1,23 @@
+package com.lingxi.workbench.infra.ai.tool;
+
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
+import org.springframework.ai.tool.ToolCallback;
+
+/**
+ * 可被 Agent 调用的完整工具。
+ *
+ * <p>该接口描述应用部署的执行器。控制面可在调用前使用数据库中的 Tool 定义
+ * 装饰回调，使模型契约与执行代码保持模块解耦。</p>
+ */
+public interface AgentTool {
+
+    /**
+     * 返回执行器自描述信息，供启动校验和未装饰的运行场景使用。
+     */
+    AgentToolDefinition definition();
+
+    /**
+     * 返回交给 Spring AI 执行的工具回调。
+     */
+    ToolCallback callback();
+}

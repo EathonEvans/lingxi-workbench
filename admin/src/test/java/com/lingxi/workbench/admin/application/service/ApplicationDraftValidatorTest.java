@@ -33,8 +33,8 @@ class ApplicationDraftValidatorTest {
         assertThat(result.valid()).isTrue();
         AgentNodeConfig resolvedConfig = (AgentNodeConfig)
                 result.definition().workflow().nodes().get(1).config();
-        assertThat(resolvedConfig.agentId()).isEqualTo("10");
-        assertThat(resolvedConfig.agentVersionId()).isEqualTo("101");
+        assertThat(resolvedConfig.agentId()).isEqualTo(10L);
+        assertThat(resolvedConfig.agentVersionId()).isEqualTo(101L);
     }
 
     @Test
@@ -43,12 +43,12 @@ class ApplicationDraftValidatorTest {
         gateway.addVersion(10L, 101L);
 
         ApplicationDefinitionResolution result =
-                validator.resolveForPublish(definition("101"));
+                validator.resolveForPublish(definition(101L));
 
         assertThat(result.valid()).isTrue();
         AgentNodeConfig resolvedConfig = (AgentNodeConfig)
                 result.definition().workflow().nodes().get(1).config();
-        assertThat(resolvedConfig.agentVersionId()).isEqualTo("101");
+        assertThat(resolvedConfig.agentVersionId()).isEqualTo(101L);
     }
 
     @Test
@@ -69,7 +69,7 @@ class ApplicationDraftValidatorTest {
         gateway.addAgent(10L, true, 101L);
 
         ApplicationDefinitionResolution result =
-                validator.resolveForPublish(definition("999"));
+                validator.resolveForPublish(definition(999L));
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues())
@@ -77,7 +77,7 @@ class ApplicationDraftValidatorTest {
                 .containsExactly("AGENT_VERSION_NOT_FOUND");
     }
 
-    private static ApplicationDefinition definition(String versionId) {
+    private static ApplicationDefinition definition(Long versionId) {
         WorkflowDefinition workflow = new WorkflowDefinition(
                 1,
                 "main",
@@ -89,7 +89,7 @@ class ApplicationDraftValidatorTest {
                                 "问答Agent",
                                 WorkflowNodeType.AGENT,
                                 new AgentNodeConfig(
-                                        "10",
+                                        10L,
                                         versionId,
                                         Map.of("query", "query"),
                                         Map.of("answer", "answer"))),

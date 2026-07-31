@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.model;
 
-import com.lingxi.workbench.chat.model.bo.MessageTokenUsageBO;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.workflow.model.WorkflowNodeTrace;
 
 import java.util.List;
@@ -14,7 +14,7 @@ import java.util.List;
  */
 public record WorkflowChatResult(
         String answer,
-        MessageTokenUsageBO tokenUsage,
+        TokenUsage tokenUsage,
         List<WorkflowNodeTrace> traces) {
 
     public WorkflowChatResult {

@@ -6,6 +6,7 @@ import com.lingxi.workbench.admin.agent.model.config.AgentDefinition;
 import com.lingxi.workbench.admin.agent.model.config.AgentKnowledgeBinding;
 import com.lingxi.workbench.admin.agent.model.config.AgentMemoryPolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
+import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.QueryRewritePolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
@@ -23,6 +24,7 @@ import com.lingxi.workbench.admin.agent.model.request.UpdateAgentRequest;
 import com.lingxi.workbench.admin.agent.model.vo.AgentDetailVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentValidationIssueVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentValidationResultVO;
+import com.lingxi.workbench.admin.agent.model.vo.AgentToolOptionVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVersionDetailVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVersionVO;
@@ -37,6 +39,7 @@ import com.lingxi.workbench.admin.agent.service.AgentSnapshotChecksum;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeBaseEntity;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeBaseRepo;
+import com.lingxi.workbench.admin.tool.service.ToolService;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageResult;
@@ -56,7 +59,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class AgentServiceImpl implements AgentService {
-    private static final int AGENT_SCHEMA_VERSION = 2;
+    private static final int AGENT_SCHEMA_VERSION = 3;
 
     private final AgentRepo agentRepo;
     private final AgentDraftRepo draftRepo;
@@ -68,6 +71,7 @@ public class AgentServiceImpl implements AgentService {
     private final AgentSnapshotChecksum snapshotChecksum;
     private final AgentConverter converter;
     private final AuditService auditService;
+    private final ToolService toolService;
 
     @Override
     @Transactional(readOnly = true)
@@ -112,6 +116,15 @@ public class AgentServiceImpl implements AgentService {
 
     @Override
     @Transactional(readOnly = true)
+    /** 返回控制面已启用的 Tool 目录，管理端不能提交目录外的工具编码。 */
+    public List<AgentToolOptionVO> toolOptions() {
+        return toolService.activeOptions().stream()
+                .map(option -> new AgentToolOptionVO(option.getCode(), option.getName(), option.getDescription()))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     /** 查看指定发布版本详情，含完整定义快照。 */
     public AgentVersionDetailVO versionDetail(Long id, Long versionId) {
         requireAgent(id);
@@ -144,6 +157,8 @@ public class AgentServiceImpl implements AgentService {
         draft.setRetrievalPolicy(RetrievalPolicy.defaults());
         draft.setGenerationPolicy(GenerationPolicy.defaults());
         draft.setRuntimePolicy(AgentRuntimePolicy.defaults());
+        draft.setToolCodes(List.of());
+        draft.setToolPolicy(AgentToolPolicy.defaults());
         draft.setRevision(0L);
         draft.setCreatedBy(operatorId);
         draft.setUpdatedBy(operatorId);
@@ -190,6 +205,8 @@ public class AgentServiceImpl implements AgentService {
         draft.setSystemPromptVersionId(request.getSystemPromptVersionId());
         draft.setUserPromptVersionId(request.getUserPromptVersionId());
         draft.setRewritePromptVersionId(request.getRewritePromptVersionId());
+        draft.setToolCodes(request.getToolCodes().stream().distinct().toList());
+        draft.setToolPolicy(request.getToolPolicy());
         draft.setMemoryPolicy(request.getMemoryPolicy());
         draft.setRewritePolicy(request.getRewritePolicy());
         draft.setRetrievalPolicy(request.getRetrievalPolicy());
@@ -345,6 +362,8 @@ public class AgentServiceImpl implements AgentService {
                 .systemPromptVersionId(draft.getSystemPromptVersionId())
                 .userPromptVersionId(draft.getUserPromptVersionId())
                 .rewritePromptVersionId(draft.getRewritePromptVersionId())
+                .toolCodes(List.copyOf(draft.getToolCodes()))
+                .toolPolicy(draft.getToolPolicy())
                 .knowledge(AgentKnowledgeBinding.builder()
                         .knowledgeBaseId(knowledge.getKnowledgeBaseId())
                         .embeddingModelInstanceId(knowledge.getEmbeddingModelInstanceId())

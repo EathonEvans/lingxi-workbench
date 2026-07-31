@@ -87,7 +87,7 @@ class LangGraphWorkflowExecutorTest {
                                 node.name(),
                                 node.type(),
                                 new AgentNodeConfig(
-                                        "1",
+                                        1L,
                                         null,
                                         Map.of("query", "query"),
                                         Map.of("intent", "intent")))
@@ -130,8 +130,8 @@ class LangGraphWorkflowExecutorTest {
                         "意图分类Agent",
                         WorkflowNodeType.AGENT,
                         new AgentNodeConfig(
-                                "1",
-                                String.valueOf(CLASSIFIER_VERSION_ID),
+                                1L,
+                                CLASSIFIER_VERSION_ID,
                                 Map.of("query", "query"),
                                 Map.of("intent", "intent"))),
                 new WorkflowNodeDefinition(
@@ -144,8 +144,8 @@ class LangGraphWorkflowExecutorTest {
                         "知识库Agent",
                         WorkflowNodeType.AGENT,
                         new AgentNodeConfig(
-                                "2",
-                                String.valueOf(KNOWLEDGE_VERSION_ID),
+                                2L,
+                                KNOWLEDGE_VERSION_ID,
                                 Map.of("query", "query"),
                                 Map.of("answer", "answer"))),
                 new WorkflowNodeDefinition(
@@ -153,8 +153,8 @@ class LangGraphWorkflowExecutorTest {
                         "通用Agent",
                         WorkflowNodeType.AGENT,
                         new AgentNodeConfig(
-                                "3",
-                                String.valueOf(FALLBACK_VERSION_ID),
+                                3L,
+                                FALLBACK_VERSION_ID,
                                 Map.of("query", "query"),
                                 Map.of("answer", "answer"))),
                 new WorkflowNodeDefinition(

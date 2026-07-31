@@ -46,15 +46,12 @@ public class ApplicationRuntimeServiceImpl implements ApplicationRuntimeService 
     public ApplicationRuntimeSnapshot resolvePublished(String applicationCode) {
         String normalizedCode = applicationCode.trim().toLowerCase();
         RuntimeApplicationEntity application = repo.findActiveByCode(normalizedCode)
-                .orElseThrow(() -> new BusinessException(
-                        HttpStatusEnum.NOT_FOUND, "AI应用不存在或已停用"));
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "AI应用不存在或已停用"));
         if (Objects.isNull(application.getPublishedVersionId())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "AI应用尚未发布");
         }
-        RuntimeApplicationVersionEntity version = repo.findVersion(
-                        application.getId(), application.getPublishedVersionId())
-                .orElseThrow(() -> new BusinessException(
-                        HttpStatusEnum.CONFLICT, "AI应用生效版本不存在"));
+        RuntimeApplicationVersionEntity version = repo.findVersion(application.getId(), application.getPublishedVersionId())
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "AI应用生效版本不存在"));
         if (Objects.isNull(version.getDefinitionSnapshot())
                 || Objects.isNull(version.getDefinitionSnapshot().workflow())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "AI应用生效版本缺少Workflow");

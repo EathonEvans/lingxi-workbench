@@ -1,5 +1,6 @@
 package com.lingxi.workbench.workflow.engine.langgraph;
 
+import cn.hutool.core.text.CharSequenceUtil;
 import com.lingxi.workbench.workflow.exception.WorkflowDefinitionException;
 import com.lingxi.workbench.workflow.exception.WorkflowExecutionException;
 import com.lingxi.workbench.workflow.model.AgentNodeInvocation;
@@ -24,12 +25,7 @@ import org.bsc.langgraph4j.StateGraph;
 import org.bsc.langgraph4j.state.Channels;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import static com.lingxi.workbench.workflow.common.constants.WorkflowStateConstants.APPLICATION_VERSION_ID_KEY;
@@ -291,7 +287,7 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
      * @param state 运行时的全局状态（已包含上游节点输出和系统变量）
      * @return 状态更新 Map，包含本节点的输出变量和追踪记录
      */
-    private Map<String, Object> executeNode(WorkflowNodeDefinition node, WorkflowGraphState state) throws Exception {
+    private Map<String, Object> executeNode(WorkflowNodeDefinition node, WorkflowGraphState state){
         // 记录节点开始时间，用于后续计算执行耗时
         Instant startedAt = Instant.now();
 
@@ -328,7 +324,6 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
      * <h3>执行流程</h3>
      * <ol>
      *   <li>从节点配置中提取 AgentNodeConfig，获取 agentId、agentVersionId 和 outputMapping。</li>
-     *   <li>将 agentId / agentVersionId 从字符串解析为 Long。</li>
      *   <li>构建 {@link AgentNodeInvocation}，封装执行 ID、节点 ID、Agent ID/版本和节点输入。</li>
      *   <li>调用 {@link AgentNodeInvoker#invoke(AgentNodeInvocation)} 执行 Agent 推理。</li>
      *   <li>将 Agent 输出按 outputMapping 映射为工作流变量：
@@ -351,49 +346,24 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
                 .executionId(state.executionId())
                 .applicationVersionId(state.applicationVersionId())
                 .nodeId(node.id())
-                .agentId(parseId(config.agentId(), "agentId", node.id()))
-                .agentVersionId(parseId(config.agentVersionId(), "agentVersionId", node.id()))
+                .agentId(config.agentId())
+                .agentVersionId(config.agentVersionId())
                 .inputs(inputs)
                 .build();
 
         // 调用 Agent 运行时执行推理，获取 Agent 原始输出
         Map<String, Object> agentOutputs = agentNodeInvoker.invoke(invocation);
-        if (agentOutputs == null) {
-            agentOutputs = Map.of();
-        }
 
         // 按 outputMapping 将 Agent 输出映射为工作流变量
         // outputMapping.key = Agent 输出变量名，outputMapping.value = 工作流变量名
         Map<String, Object> workflowOutputs = new LinkedHashMap<>();
         for (Map.Entry<String, String> mapping : config.outputMapping().entrySet()) {
             if (!agentOutputs.containsKey(mapping.getKey())) {
-                throw new WorkflowExecutionException("Agent节点缺少声明的输出 " + mapping.getKey() + ": " + node.id());
+                throw new WorkflowExecutionException(CharSequenceUtil.format("Agent节点缺少声明的输出 {}:{}", mapping.getKey(), mapping.getKey()));
             }
             workflowOutputs.put(mapping.getValue(), agentOutputs.get(mapping.getKey()));
         }
         return workflowOutputs;
-    }
-
-    /**
-     * 将节点 config 中的 ID 字符串解析为 Long。
-     *
-     * <p>节点配置中 agentId 和 agentVersionId 以字符串形式存储，
-     * 调用 Agent 运行时时需要转换为 Long 类型。</p>
-     *
-     * @param value     待解析的 ID 字符串
-     * @param fieldName 字段名，用于错误信息
-     * @param nodeId    节点 ID，用于定位错误
-     * @return 解析后的 Long 值
-     * @throws WorkflowExecutionException 字符串不是有效数字时抛出
-     */
-    private Long parseId(String value, String fieldName, String nodeId) {
-        try {
-            return Long.valueOf(value);
-        } catch (NumberFormatException exception) {
-            throw new WorkflowExecutionException(
-                    "Agent节点" + fieldName + "不是有效ID: " + nodeId,
-                    exception);
-        }
     }
 
     /**
@@ -422,9 +392,9 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
             // CONDITION 节点：只需要观测变量的当前值
             return Map.of(config.variable(), requireStateValue(state, config.variable(), node.id()));
         }
-        if (node.config() instanceof EndNodeConfig config) {
+        if (node.config() instanceof EndNodeConfig(Map<String, String> outputMapping)) {
             // END 节点：按 outputMapping 从状态中提取最终输出变量
-            return resolveInputMapping(config.outputMapping(), node.id(), state);
+            return resolveInputMapping(outputMapping, node.id(), state);
         }
         // 没有特殊配置的节点（如 START）：透传全部非系统保留变量
         return state.data().entrySet().stream().filter(entry -> !entry.getKey().startsWith("_")).collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));

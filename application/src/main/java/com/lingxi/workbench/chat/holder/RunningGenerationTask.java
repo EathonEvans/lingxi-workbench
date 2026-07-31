@@ -1,10 +1,12 @@
 package com.lingxi.workbench.chat.holder;
 
 import cn.hutool.core.text.CharSequenceUtil;
-import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
+import com.lingxi.workbench.application.runtime.service.ChatExecutionEventPublisher;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
-import com.lingxi.workbench.chat.model.bo.MessageTokenUsageBO;
+import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
@@ -12,17 +14,22 @@ import reactor.core.publisher.Sinks;
 import java.util.Objects;
 
 /**
- * 单个模型生成任务及其进程内可重放事件。
+ * 单个模型生成任务及其本机可重放事件。
  *
- * <p>该对象只存在于当前服务进程，不承担最终持久化职责。所有可能由不同线程调用的状态方法均进行同步，
+ * <p>该对象只存在于当前服务进程，文本与工具增量同时写入 Redis 短期缓存，
+ * 最终回答仍由对话服务持久化到 PostgreSQL。所有可能由不同线程调用的状态方法均进行同步，
  * 防止模型回调、用户取消和应用关闭同时修改回答内容或重复进入终态。</p>
  */
-public final class RunningGenerationTask {
+public final class RunningGenerationTask implements ChatExecutionEventPublisher {
 
     /**
      * 对应数据库中的 Assistant 消息主键。
      */
     private final Long id;
+    /**
+     * Redis 增量事件仓库，使浏览器刷新和本机任务释放后仍可恢复工具状态与文本。
+     */
+    private final ChatGenerationEventRepo eventRepo;
     /**
      * 按到达顺序累积模型文本增量，终态时一次性保存完整或部分回答。
      */
@@ -33,7 +40,7 @@ public final class RunningGenerationTask {
     private final Sinks.Many<ChatGenerationEventBO> eventSink = Sinks.many().replay().all();
 
     /**
-     * CHUNK 事件的单调递增序号，用于客户端断线后按序号续传。
+     * 文本与工具状态事件共享的单调递增序号，用于客户端断线后按序号续传。
      */
     private long sequence;
     /**
@@ -47,12 +54,11 @@ public final class RunningGenerationTask {
     /**
      * 最近一个携带真实 Usage 的模型分片返回的 Token 用量。
      */
-    private Integer inputTokens;
-    private Integer outputTokens;
-    private Integer totalTokens;
+    private TokenUsage tokenUsage = TokenUsage.empty();
 
-    public RunningGenerationTask(Long id) {
+    public RunningGenerationTask(Long id, ChatGenerationEventRepo eventRepo) {
         this.id = id;
+        this.eventRepo = eventRepo;
     }
 
     public Long id() {
@@ -69,24 +75,61 @@ public final class RunningGenerationTask {
         }
         if (chunk.hasUsage()) {
             // 部分供应商只在最后一个无文本分片中返回 Usage，因此用量处理不能依赖 content 非空。
-            inputTokens = chunk.inputTokens();
-            outputTokens = chunk.outputTokens();
-            totalTokens = chunk.totalTokens();
+            tokenUsage = chunk.usage();
         }
         if (CharSequenceUtil.isEmpty(chunk.content())) {
             // 仅携带 Usage 的空文本分片已经完成用量更新，无需推送无意义的文本事件。
             return;
         }
         answer.append(chunk.content());
-        eventSink.emitNext(ChatGenerationEventBO.chunk(++sequence, chunk.content()), Sinks.EmitFailureHandler.FAIL_FAST);
+        ChatGenerationEventBO event = ChatGenerationEventBO.chunk(++sequence, chunk.content());
+        eventRepo.append(id, event);
+        eventSink.emitNext(event, Sinks.EmitFailureHandler.FAIL_FAST);
     }
 
     /**
-     * 返回指定 CHUNK 序号之后的事件流。
+     * 接收 Agent 模型文本事件。
+     */
+    @Override
+    public void publishText(ChatStreamChunk chunk) {
+        acceptChunk(chunk);
+    }
+
+    /**
+     * 发布工具执行状态；工具事件不参与回答正文累计。
+     */
+    @Override
+    public synchronized void publishTool(AgentToolExecutionEvent event) {
+        if (terminal) {
+            return;
+        }
+        ChatGenerationEventBO generationEvent = ChatGenerationEventBO.tool(++sequence, event);
+        eventRepo.append(id, generationEvent);
+        eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
+    }
+
+    /**
+     * Workflow 完成时校准最终回答和 Token 用量。
+     *
+     * <p>正常情况下实时文本事件已经组成最终回答；如果 Workflow 对输出做了转换，
+     * 则发布 SNAPSHOT 让前端以最终结果覆盖增量文本。</p>
+     */
+    public synchronized void reconcileFinalResult(String finalAnswer, TokenUsage usage) {
+        tokenUsage = Objects.requireNonNullElseGet(usage, TokenUsage::empty);
+        if (Objects.equals(answer.toString(), finalAnswer)) {
+            return;
+        }
+        answer.setLength(0);
+        answer.append(finalAnswer);
+        eventSink.emitNext(ChatGenerationEventBO.snapshot(finalAnswer), Sinks.EmitFailureHandler.FAIL_FAST);
+    }
+
+    /**
+     * 返回指定增量序号之后的事件流。
      * 终态和 SNAPSHOT 事件不使用增量序号，因此始终保留。
      */
     public Flux<ChatGenerationEventBO> eventsAfter(long afterSequence) {
-        return eventSink.asFlux().filter(event -> event.type() != ChatGenerationEventType.CHUNK || event.sequence() > afterSequence);
+        return eventSink.asFlux().filter(event -> event.sequence() == 0 || event.sequence() > afterSequence);
     }
 
     /**
@@ -110,8 +153,8 @@ public final class RunningGenerationTask {
     /**
      * 获取当前已知的 Token 用量快照；供应商未返回时字段允许为空。
      */
-    public synchronized MessageTokenUsageBO tokenUsage() {
-        return new MessageTokenUsageBO(inputTokens, outputTokens, totalTokens);
+    public synchronized TokenUsage tokenUsage() {
+        return tokenUsage;
     }
 
     /**

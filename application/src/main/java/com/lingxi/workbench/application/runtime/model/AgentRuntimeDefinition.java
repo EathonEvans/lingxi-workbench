@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * AgentVersion JSONB 快照在运行端的只读业务契约。
@@ -58,6 +59,14 @@ public class AgentRuntimeDefinition {
      */
     private Long rewritePromptVersionId;
     /**
+     * Schema V3 允许暴露给回答模型的本地工具编码。
+     */
+    private List<String> toolCodes;
+    /**
+     * Schema V3 工具调用边界。
+     */
+    private ToolPolicy toolPolicy;
+    /**
      * 知识库及其 Embedding 模型绑定。
      */
     private KnowledgeBinding knowledge;
@@ -82,12 +91,21 @@ public class AgentRuntimeDefinition {
      */
     private RuntimePolicy runtimePolicy;
 
-    /** 兼容读取 Schema V1 已发布快照中的回答 System Prompt。 */
+    /**
+     * 兼容读取 Schema V1 已发布快照中的回答 System Prompt。
+     */
     public Long resolveSystemPromptVersionId() {
         if (systemPromptVersionId != null) {
             return systemPromptVersionId;
         }
         return answerPromptVersionId;
+    }
+
+    /**
+     * 兼容 V1/V2 快照：未声明工具时按空列表处理。
+     */
+    public List<String> resolveToolCodes() {
+        return toolCodes == null ? List.of() : List.copyOf(toolCodes);
     }
 
     /**
@@ -98,11 +116,8 @@ public class AgentRuntimeDefinition {
      * @param bindingMode              绑定模式，如 MANUAL / AUTO
      * @param priority                 优先级
      */
-    public record KnowledgeBinding(
-            Long knowledgeBaseId,
-            Long embeddingModelInstanceId,
-            String bindingMode,
-            Integer priority) {
+    public record KnowledgeBinding(Long knowledgeBaseId, Long embeddingModelInstanceId, String bindingMode,
+                                   Integer priority) {
     }
 
     /**
@@ -234,10 +249,16 @@ public class AgentRuntimeDefinition {
      * @param maxInputTokens      输入 Token 总数上限
      * @param maxOutputTokens     输出 Token 总数上限
      */
-    public record RuntimePolicy(
-            Integer totalTimeoutSeconds,
-            Integer maxModelCalls,
-            Integer maxInputTokens,
-            Integer maxOutputTokens) {
+    public record RuntimePolicy(Integer totalTimeoutSeconds, Integer maxModelCalls, Integer maxInputTokens,
+                                Integer maxOutputTokens) {
+    }
+
+    /**
+     * 本地工具调用边界。
+     *
+     * @param maxToolCalls        最多工具调用次数
+     * @param maxResultCharacters 单次工具结果最大字符数
+     */
+    public record ToolPolicy(Integer maxToolCalls, Integer maxResultCharacters) {
     }
 }

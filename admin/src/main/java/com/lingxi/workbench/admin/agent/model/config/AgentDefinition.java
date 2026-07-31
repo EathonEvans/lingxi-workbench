@@ -7,6 +7,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 /** 不可变 Agent Version 中保存的完整行为定义。 */
 @Data
 @Builder
@@ -28,6 +30,10 @@ public class AgentDefinition {
      */
     private Long answerPromptVersionId;
     private Long rewritePromptVersionId;
+    /** 当前版本允许暴露给模型的本地工具编码。 */
+    private List<String> toolCodes;
+    /** 工具调用运行边界。 */
+    private AgentToolPolicy toolPolicy;
     private AgentKnowledgeBinding knowledge;
     private AgentMemoryPolicy memoryPolicy;
     private QueryRewritePolicy rewritePolicy;

@@ -5,7 +5,8 @@ import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.WorkflowChatResult;
 import com.lingxi.workbench.application.runtime.service.AgentRuntimeService;
-import com.lingxi.workbench.application.runtime.service.ChatWorkflowExecutionRegistry;
+import com.lingxi.workbench.application.runtime.service.ChatExecutionContextRegistry;
+import com.lingxi.workbench.application.runtime.service.ChatExecutionEventPublisher;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;
 import com.lingxi.workbench.framework.context.LoginUser;
@@ -31,8 +32,8 @@ class ApplicationWorkflowChatServiceImplTest {
     @Test
     void shouldExecutePublishedSnapshotAndReturnResponse() {
         AtomicReference<String> executionId = new AtomicReference<>();
-        ChatWorkflowExecutionRegistry registry =
-                new ChatWorkflowExecutionRegistry();
+        ChatExecutionContextRegistry registry =
+                new ChatExecutionContextRegistry();
         WorkflowExecutor executor = (definition, request) -> {
             executionId.set(request.executionId());
             assertEquals("问题", request.inputs().get("query"));
@@ -40,7 +41,7 @@ class ApplicationWorkflowChatServiceImplTest {
             assertEquals(
                     "测试用户",
                     registry.require(request.executionId())
-                            .runtimeVariables()
+                            .getRuntimeVariables()
                             .require(RuntimeVariableAccessors.USER_NAME));
             return new WorkflowExecutionResult(
                     request.executionId(), Map.of("response", "工作流回答"), List.of());
@@ -56,7 +57,8 @@ class ApplicationWorkflowChatServiceImplTest {
                 snapshot(),
                 "问题",
                 new LoginUser(7L, "tester", "测试用户", null),
-                new ChatTurnBO(10L, 11L, 12L, 3));
+                new ChatTurnBO(10L, 11L, 12L, 3),
+                ChatExecutionEventPublisher.noop());
 
         assertEquals("工作流回答", result.answer());
         assertThrows(
@@ -70,7 +72,7 @@ class ApplicationWorkflowChatServiceImplTest {
                 new ApplicationWorkflowChatServiceImpl(
                         (definition, request) -> null,
                         agentRuntimeService(),
-                        new ChatWorkflowExecutionRegistry(),
+                        new ChatExecutionContextRegistry(),
                         new RuntimeVariablesInitializer("Lingxi Workbench"));
 
         assertEquals(99L, service.resolveEntryModelInstanceId(snapshot()));
@@ -93,8 +95,8 @@ class ApplicationWorkflowChatServiceImplTest {
                 "Agent",
                 WorkflowNodeType.AGENT,
                 new AgentNodeConfig(
-                        "10",
-                        "20",
+                        10L,
+                        20L,
                         Map.of("query", "query"),
                         Map.of("answer", "answer")));
         WorkflowDefinition workflow =

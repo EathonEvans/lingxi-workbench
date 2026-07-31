@@ -2,6 +2,7 @@ package com.lingxi.workbench.admin.agent.service;
 
 import com.lingxi.workbench.admin.agent.model.config.AgentMemoryPolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
+import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.QueryRewritePolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
@@ -25,6 +26,11 @@ import com.lingxi.workbench.admin.prompt.model.entity.PromptVariableDefinition;
 import com.lingxi.workbench.admin.prompt.model.entity.PromptVersionEntity;
 import com.lingxi.workbench.admin.prompt.repo.PromptRepo;
 import com.lingxi.workbench.admin.prompt.repo.PromptVersionRepo;
+import com.lingxi.workbench.admin.tool.model.converter.ToolConverter;
+import com.lingxi.workbench.admin.tool.repo.ToolRepo;
+import com.lingxi.workbench.admin.tool.service.ToolService;
+import com.lingxi.workbench.admin.tool.service.impl.ToolParameterSchemaFactory;
+import com.lingxi.workbench.admin.tool.service.impl.ToolServiceImpl;
 import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +40,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -58,12 +65,15 @@ class AgentDraftValidatorTest {
         promptRepo = new InMemoryPromptRepo();
         promptVersionRepo = new InMemoryPromptVersionRepo();
         knowledgeBaseRepo = new InMemoryKnowledgeBaseRepo();
+        ToolParameterSchemaFactory parameterSchemaFactory = new ToolParameterSchemaFactory();
+        ToolService toolService = new ToolServiceImpl(new InMemoryToolRepo(), new ToolConverter(parameterSchemaFactory), parameterSchemaFactory, null);
         validator = new AgentDraftValidator(
                 modelRepo,
                 promptRepo,
                 promptVersionRepo,
                 knowledgeBaseRepo,
-                Validation.buildDefaultValidatorFactory().getValidator());
+                Validation.buildDefaultValidatorFactory().getValidator(),
+                toolService);
         prepareModelsAndKnowledge();
         preparePrompt(
                 SYSTEM_VERSION_ID,
@@ -206,6 +216,29 @@ class AgentDraftValidatorTest {
         assertTrue(issueCodes.contains("USER_PROMPT_VARIABLE_MISSING"));
     }
 
+    @Test
+    void shouldRequireToolCallingCapabilityWhenToolIsBound() {
+        preparePrompt(
+                USER_VERSION_ID,
+                31L,
+                PromptRole.USER,
+                userVariables());
+        AgentDraftEntity draft = validDraft();
+        draft.setToolCodes(List.of("system_current_time"));
+
+        AgentValidationResultVO result = validator.validate(
+                activeAgent(),
+                draft,
+                knowledgeBinding());
+        List<String> issueCodes = result.issues().stream()
+                .map(AgentValidationIssueVO::code)
+                .toList();
+
+        assertFalse(result.valid());
+        assertTrue(issueCodes.contains(
+                "CHAT_MODEL_TOOL_CALLING_REQUIRED"));
+    }
+
     private void prepareModelsAndKnowledge() {
         ModelInstanceEntity chatModel = model(
                 CHAT_MODEL_ID,
@@ -275,6 +308,8 @@ class AgentDraftValidatorTest {
         draft.setRetrievalPolicy(RetrievalPolicy.defaults());
         draft.setGenerationPolicy(GenerationPolicy.defaults());
         draft.setRuntimePolicy(AgentRuntimePolicy.defaults());
+        draft.setToolCodes(List.of());
+        draft.setToolPolicy(AgentToolPolicy.defaults());
         return draft;
     }
 
@@ -371,6 +406,19 @@ class AgentDraftValidatorTest {
         @Override
         public Optional<KnowledgeBaseEntity> findById(Long id) {
             return Optional.ofNullable(knowledgeBases.get(id));
+        }
+    }
+
+    /** 仅暴露发布校验需要的启用 Tool 编码。 */
+    private static final class InMemoryToolRepo extends ToolRepo {
+
+        private InMemoryToolRepo() {
+            super(null);
+        }
+
+        @Override
+        public Set<String> findActiveCodes(List<String> codes) {
+            return codes.contains("system_current_time") ? Set.of("system_current_time") : Set.of();
         }
     }
 }

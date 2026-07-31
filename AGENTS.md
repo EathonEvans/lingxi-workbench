@@ -305,6 +305,15 @@ existsByCodeWithinProject
    - 单纯提供空值默认值时，优先使用 `Objects.requireNonNullElse`、`Objects.requireNonNullElseGet` 或项目已有语义一致的工具方法；
    - 条件包含业务规则或表达式较长时，优先使用提前返回、具名业务方法或结构清晰的条件分支；
    - 不得为了消除简单三元表达式而引入 `Optional`、策略模式或其他不必要抽象。
+9. 对“查询结果可能不存在”的单值返回，优先使用 `Optional<T>`，并使用 `map`、`filter`、`flatMap`、`orElseGet`、`orElseThrow` 表达短链式取值与转换：
+   - 禁止返回 `null` 表达“未找到”；
+   - 禁止将 `Optional` 用作 Entity、Request、VO、BO、Context 的字段；
+   - 禁止将 `Optional` 用作方法入参；
+   - 集合查询返回空集合，不返回 `Optional<List<T>>`；
+   - 涉及状态修改、异常分支、多步骤业务编排或链路过长时，使用具名方法和清晰分支，不得为了减少 `if` 机械堆叠 Optional；
+   - 禁止在 `ifPresent`、`map` 等操作中隐藏数据库写入、远程调用或其他重要副作用。
+10. 引用类型的空值判断统一优先使用 `Objects.isNull` 和 `Objects.nonNull`，避免同一模块混用多种写法；布尔值和基本类型按其本身语义判断。
+11. 方法声明和方法调用的入参列表保持在同一行，不得将参数逐项换行；Builder 链、Stream 链和方法体可以按业务阶段换行。
 
 ### 8.4 依赖管理
 
@@ -367,6 +376,16 @@ new KnowledgeSearchConfig(id, query, null, true, 10, 0.5, null);
 应改为字段语义清晰的 Builder、静态工厂或具名业务方法。
 7. 不得仅仅因为 `record` 声明更短就使用它。**禁止用声明端简洁换取调用端混乱。**
 8. `record` 的类 JavaDoc 必须通过 `@param` 说明每个成员变量。
+9. 业务运行上下文对象（类名以 `Context` 结尾的数据载体）禁止使用 `record`：
+   - 统一使用普通 `class` 和 Lombok `@Builder`；
+   - 调用方必须通过 Builder 按字段名构建，禁止公开位置参数构造器；
+   - 上下文字段默认使用 `private`，只暴露业务需要的读取和状态操作；
+   - `UserContext` 这类仅提供静态 ThreadLocal 访问能力、不承载单次构建数据的上下文持有器不适用 Builder。
+10. 模型 Token 用量统一使用 `TokenUsage` 和 `TokenUsageAccumulator`：
+   - Spring AI `Usage` 只允许存在于 `infra-ai` 供应商适配层，并在边界处转换为项目类型；
+   - 运行时对象禁止重复声明 `inputTokens`、`outputTokens`、`totalTokens` 三个状态字段；
+   - 多次模型调用的累计统一交给 `TokenUsageAccumulator`；
+   - 数据库 Entity 和保持兼容的 API VO 可以保留三个离散字段，但不得承担累计逻辑。
 
 ---
 
@@ -659,7 +678,11 @@ Codex 在完成任务前必须逐项检查：
 - [ ] 是否把一个连续用例拆成了过多松散类？
 - [ ] 是否让 Entity、Mapper 或 Repo 越层泄露？
 - [ ] 是否使用了超过 4 个成员字段的 record？
+- [ ] 是否存在使用 record 或公开位置参数构造器的业务 Context？
 - [ ] 是否存在包含大量 `null`、布尔值和数字字面量的位置参数构造？
+- [ ] 可缺失的单值查询是否使用 `Optional` 返回，是否误把 `Optional` 用作字段、入参或副作用容器？
+- [ ] 引用类型空值判断是否统一使用 `Objects.isNull` / `Objects.nonNull`？
+- [ ] 方法声明和调用的入参列表是否被拆成多行？
 - [ ] 是否存在原始 Map、魔法字符串或重复转换？
 - [ ] 事务边界和外部调用顺序是否安全？
 - [ ] MQ、重试和回调是否幂等？

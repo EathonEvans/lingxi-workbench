@@ -10,6 +10,7 @@ import com.lingxi.workbench.chat.service.impl.PromptTemplateRenderer;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.ChatCompletionGateway;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatCompletionResult;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
@@ -36,11 +37,7 @@ class QueryRewriteNodeTest {
                     "当前问题：它的续航怎么样"));
             assertTrue(command.systemPrompt().contains(
                     "介绍一下 iPhone 16 Pro"));
-            return Mono.just(new ChatCompletionResult(
-                    "  iPhone 16 Pro 的续航怎么样？\n",
-                    30,
-                    10,
-                    40));
+            return Mono.just(new ChatCompletionResult("  iPhone 16 Pro 的续航怎么样？\n", TokenUsage.of(30, 10, 40)));
         };
         ModelChatContext context = enabledContext(
                 true,
@@ -90,7 +87,7 @@ class QueryRewriteNodeTest {
     @Test
     void shouldStopChainWhenFallbackIsDisabled() {
         ChatCompletionGateway gateway = command ->
-                Mono.just(new ChatCompletionResult("", null, null, null));
+                Mono.just(new ChatCompletionResult("", TokenUsage.empty()));
         ModelChatContext context = enabledContext(
                 false,
                 new AtomicInteger());
@@ -103,9 +100,7 @@ class QueryRewriteNodeTest {
                         .process(context));
     }
 
-    private static ModelChatContext enabledContext(
-            boolean fallbackToOriginal,
-            AtomicInteger totalTokens) {
+    private static ModelChatContext enabledContext(boolean fallbackToOriginal, AtomicInteger totalTokens) {
         return ModelChatContext.builder()
                 .runtimeVariables(variables())
                 .queryRewriteConfig(QueryRewriteConfig.builder()
@@ -134,14 +129,11 @@ class QueryRewriteNodeTest {
                         .timeoutMillis(1000)
                         .fallbackToOriginal(fallbackToOriginal)
                         .build())
-                .modelUsageRecorder((input, output, total) ->
-                        totalTokens.addAndGet(total == null ? 0 : total))
+                .modelUsageRecorder(usage -> totalTokens.addAndGet(java.util.Objects.requireNonNullElse(usage.totalTokens(), 0)))
                 .build();
     }
 
-    private static PromptRuntimeVariableDefinition definition(
-            String name,
-            String type) {
+    private static PromptRuntimeVariableDefinition definition(String name, String type) {
         return new PromptRuntimeVariableDefinition(name, type, true);
     }
 

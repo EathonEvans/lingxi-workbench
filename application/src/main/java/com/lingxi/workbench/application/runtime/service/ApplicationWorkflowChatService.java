@@ -15,5 +15,5 @@ public interface ApplicationWorkflowChatService {
     /**
      * 执行 ApplicationVersion 中冻结的 Workflow。
      */
-    WorkflowChatResult execute(ApplicationRuntimeSnapshot snapshot, String query, LoginUser loginUser, ChatTurnBO turn);
+    WorkflowChatResult execute(ApplicationRuntimeSnapshot snapshot, String query, LoginUser loginUser, ChatTurnBO turn, ChatExecutionEventPublisher eventPublisher);
 }

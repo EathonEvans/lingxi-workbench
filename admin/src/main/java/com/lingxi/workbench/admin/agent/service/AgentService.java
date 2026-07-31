@@ -7,6 +7,7 @@ import com.lingxi.workbench.admin.agent.model.request.SaveAgentDraftRequest;
 import com.lingxi.workbench.admin.agent.model.request.UpdateAgentRequest;
 import com.lingxi.workbench.admin.agent.model.vo.AgentDetailVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentValidationResultVO;
+import com.lingxi.workbench.admin.agent.model.vo.AgentToolOptionVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVersionDetailVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVersionVO;
@@ -25,6 +26,9 @@ public interface AgentService {
 
     /** 查看 Agent 所有发布版本列表。 */
     List<AgentVersionVO> versions(Long id);
+
+    /** 查询 Tool 管理中可绑定的启用工具目录。 */
+    List<AgentToolOptionVO> toolOptions();
 
     /** 查看指定发布版本的完整定义快照。 */
     AgentVersionDetailVO versionDetail(Long id, Long versionId);

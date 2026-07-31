@@ -8,6 +8,7 @@ import com.lingxi.workbench.admin.agent.model.request.SaveAgentDraftRequest;
 import com.lingxi.workbench.admin.agent.model.request.UpdateAgentRequest;
 import com.lingxi.workbench.admin.agent.model.vo.AgentDetailVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentValidationResultVO;
+import com.lingxi.workbench.admin.agent.model.vo.AgentToolOptionVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVersionDetailVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVersionVO;
@@ -28,35 +29,52 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/** 管理端 Agent 配置与版本管理接口。 */
+/**
+ * 管理端 Agent 配置与版本管理接口。
+ */
 @RestController
 @RequestMapping("/api/v1/agents")
 @RequiredArgsConstructor
 public class AgentController {
     private final AgentService agentService;
 
-    /** 分页查询 Agent 列表，支持关键字、类型和状态过滤。 */
+    /**
+     * 分页查询 Agent 列表，支持关键字、类型和状态过滤。
+     */
     @GetMapping("/list")
     @SaCheckPermission("agent:list")
     public ApiResponse<PageResult<AgentVO>> list(@Valid AgentPageQuery query) {
         return ApiResponse.success(agentService.page(query));
     }
 
-    /** 查看 Agent 编辑详情，包含草稿、知识库绑定和发布版本摘要。 */
+    /**
+     * 查看 Agent 编辑详情，包含草稿、知识库绑定和发布版本摘要。
+     */
     @GetMapping("/detail/{id}")
     @SaCheckPermission("agent:list")
     public ApiResponse<AgentDetailVO> detail(@PathVariable Long id) {
         return ApiResponse.success(agentService.detail(id));
     }
 
-    /** 查看 Agent 所有历史发布版本列表。 */
+    /**
+     * 查看 Agent 所有历史发布版本列表。
+     */
     @GetMapping("/versions/{id}")
     @SaCheckPermission("agent:list")
     public ApiResponse<List<AgentVersionVO>> versions(@PathVariable Long id) {
         return ApiResponse.success(agentService.versions(id));
     }
 
-    /** 查看指定发布版本的完整定义快照详情。 */
+    /** 查询 Tool 管理中已启用、可供 Agent 绑定的工具目录。 */
+    @GetMapping("/tool-options")
+    @SaCheckPermission("agent:list")
+    public ApiResponse<List<AgentToolOptionVO>> toolOptions() {
+        return ApiResponse.success(agentService.toolOptions());
+    }
+
+    /**
+     * 查看指定发布版本的完整定义快照详情。
+     */
     @GetMapping("/version-detail/{id}/{versionId}")
     @SaCheckPermission("agent:list")
     public ApiResponse<AgentVersionDetailVO> versionDetail(
@@ -64,7 +82,9 @@ public class AgentController {
         return ApiResponse.success(agentService.versionDetail(id, versionId));
     }
 
-    /** 创建 Agent 稳定身份及默认策略草稿。 */
+    /**
+     * 创建 Agent 稳定身份及默认策略草稿。
+     */
     @PostMapping("/create")
     @SaCheckPermission("agent:manage")
     public ApiResponse<AgentDetailVO> create(
@@ -72,7 +92,9 @@ public class AgentController {
         return ApiResponse.success(agentService.create(request, UserContext.userId()));
     }
 
-    /** 修改 Agent 名称和描述元信息。 */
+    /**
+     * 修改 Agent 名称和描述元信息。
+     */
     @PostMapping("/update/{id}")
     @SaCheckPermission("agent:manage")
     public ApiResponse<AgentDetailVO> update(
@@ -80,7 +102,9 @@ public class AgentController {
         return ApiResponse.success(agentService.update(id, request, UserContext.userId()));
     }
 
-    /** 保存 Agent 草稿配置，使用 revision 实现并发编辑保护。 */
+    /**
+     * 保存 Agent 草稿配置，使用 revision 实现并发编辑保护。
+     */
     @PostMapping("/save-draft/{id}")
     @SaCheckPermission("agent:manage")
     public ApiResponse<AgentDetailVO> saveDraft(
@@ -89,14 +113,18 @@ public class AgentController {
                 agentService.saveDraft(id, request, UserContext.userId()));
     }
 
-    /** 对当前草稿执行发布前校验，返回逐项检查结果。 */
+    /**
+     * 对当前草稿执行发布前校验，返回逐项检查结果。
+     */
     @PostMapping("/validate/{id}")
     @SaCheckPermission("agent:manage")
     public ApiResponse<AgentValidationResultVO> validate(@PathVariable Long id) {
         return ApiResponse.success(agentService.validate(id));
     }
 
-    /** 校验并发布 Agent 当前草稿，生成不可变版本快照。 */
+    /**
+     * 校验并发布 Agent 当前草稿，生成不可变版本快照。
+     */
     @PostMapping("/publish/{id}")
     @SaCheckPermission("agent:publish")
     public ApiResponse<AgentVersionDetailVO> publish(
@@ -105,7 +133,9 @@ public class AgentController {
                 agentService.publish(id, request, UserContext.userId()));
     }
 
-    /** 切换 Actived Agent 当前生效的发布版本。 */
+    /**
+     * 切换 Actived Agent 当前生效的发布版本。
+     */
     @PostMapping("/activate-version/{id}/{versionId}")
     @SaCheckPermission("agent:publish")
     public ApiResponse<Void> activateVersion(
@@ -114,7 +144,9 @@ public class AgentController {
         return ApiResponse.success();
     }
 
-    /** 启用或停用 Agent。 */
+    /**
+     * 启用或停用 Agent。
+     */
     @PostMapping("/change-status/{id}")
     @SaCheckPermission("agent:manage")
     public ApiResponse<Void> changeStatus(

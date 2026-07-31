@@ -1,5 +1,7 @@
 package com.lingxi.workbench.workflow.model;
 
+import cn.hutool.core.collection.CollUtil;
+
 import java.util.Map;
 
 /**
@@ -15,6 +17,6 @@ public record WorkflowExecutionRequest(
         Map<String, Object> inputs) {
 
     public WorkflowExecutionRequest {
-        inputs = inputs == null ? Map.of() : Map.copyOf(inputs);
+        inputs = CollUtil.isEmpty(inputs) ? Map.of() : Map.copyOf(inputs);
     }
 }

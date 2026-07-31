@@ -5,22 +5,21 @@ import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot
 import com.lingxi.workbench.application.runtime.model.WorkflowChatResult;
 import com.lingxi.workbench.application.runtime.service.ApplicationRuntimeService;
 import com.lingxi.workbench.application.runtime.service.ApplicationWorkflowChatService;
-import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import com.lingxi.workbench.chat.holder.RunningGenerationTask;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
-import com.lingxi.workbench.chat.model.bo.MessageTokenUsageBO;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
 import com.lingxi.workbench.chat.model.request.ChatRequest;
 import com.lingxi.workbench.chat.model.vo.ChatStartVO;
 import com.lingxi.workbench.chat.repo.ConversationMessageRepo;
+import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.chat.service.ChatStreamService;
 import com.lingxi.workbench.chat.service.ConversationService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.framework.context.LoginUser;
-import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,7 +27,6 @@ import org.springframework.stereotype.Service;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.List;
@@ -60,6 +58,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
 
     private final ConversationService conversationService;
     private final ConversationMessageRepo messageRepo;
+    private final ChatGenerationEventRepo generationEventRepo;
     private final ApplicationRuntimeService applicationRuntimeService;
     private final ApplicationWorkflowChatService applicationWorkflowChatService;
 
@@ -70,7 +69,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      * 返回的 {@link Flux} 仅用于观察生成事件，客户端取消订阅不会反向取消模型任务。</p>
      *
      * @param request 用户输入、会话标识和客户端幂等消息标识
-     * @param userId  当前登录用户主键，用于校验会话归属
+     * @param loginUser  当前登录用户
      * @return 已落库的会话、用户消息和 Assistant 消息主键
      */
     @Override
@@ -94,14 +93,14 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         ChatTurnBO turn = conversationService.startTurn(userId, Long.valueOf(request.getConversationId()), request.getClientMessageId(), query, modelInstanceId, applicationSnapshot.applicationId(), applicationSnapshot.applicationVersionId());
 
         // Assistant 消息主键同时作为生成任务主键，便于 SSE 续接、取消和数据库终态恢复使用同一标识。
-        RunningGenerationTask task = new RunningGenerationTask(turn.assistantMessageId());
+        RunningGenerationTask task = new RunningGenerationTask(turn.assistantMessageId(), generationEventRepo);
         try {
             /*
              * Application 是所有对话的运行入口。即使业务上表现为“普通聊天”，也应由
              * Application 中配置的默认 Agent 节点承担，不能绕过发布快照读取平台默认模型。
              */
             runningTasks.put(turn.assistantMessageId(), task);
-            startWorkflowGeneration(task, applicationSnapshot, query, loginUser, turn);
+            this.startWorkflowGeneration(task, applicationSnapshot, query, loginUser, turn);
         } catch (RuntimeException exception) {
             /*
              * 这里只处理任务注册或 Reactor 订阅创建阶段同步抛出的异常。
@@ -110,7 +109,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
             runningTasks.remove(turn.assistantMessageId());
             try {
                 // Assistant 占位消息已经落库，启动失败时必须将其从 GENERATING 推进到 FAILED，避免形成僵尸任务。
-                conversationService.failAssistant(turn.assistantMessageId(), "", TASK_START_ERROR_CODE, TASK_START_ERROR_MESSAGE, MessageTokenUsageBO.empty());
+                conversationService.failAssistant(turn.assistantMessageId(), "", TASK_START_ERROR_CODE, TASK_START_ERROR_MESSAGE, TokenUsage.empty());
             } catch (RuntimeException persistenceException) {
                 exception.addSuppressed(persistenceException);
                 log.error("模型生成任务启动失败后更新消息状态失败，assistantMessageId={}", turn.assistantMessageId(), persistenceException);
@@ -134,7 +133,8 @@ public class ChatStreamServiceImpl implements ChatStreamService {
             return task.eventsAfter(afterSequence);
         }
         // 查询与任务结束可能并发发生，任务已移除时重新读取一次数据库终态。
-        return restoreTerminalEvents(requireOwnedAssistantMessage(assistantMessageId, userId));
+        List<ChatGenerationEventBO> cachedEvents = generationEventRepo.findAfter(assistantMessageId, afterSequence);
+        return Flux.fromIterable(cachedEvents).concatWith(restoreTerminalEvents(requireOwnedAssistantMessage(assistantMessageId, userId)));
     }
 
     @Override
@@ -146,7 +146,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
             return;
         }
         if (message.getStatus() == MessageStatus.GENERATING) {
-            conversationService.cancelAssistant(assistantMessageId, message.getContent(), MessageTokenUsageBO.empty());
+            conversationService.cancelAssistant(assistantMessageId, message.getContent(), TokenUsage.empty());
         }
     }
 
@@ -166,22 +166,19 @@ public class ChatStreamServiceImpl implements ChatStreamService {
 
     /**
      * Workflow 的同步图执行放到有界弹性线程池，避免阻塞 HTTP 请求线程。
-     * 当前 V1 在 Workflow 完成后把最终 response 作为一个 SSE 文本分片发布；
-     * 任务取消仍会释放该后台订阅。
+     * Agent 执行期间通过 task 实时发布文本和工具状态，Workflow 完成后再校准
+     * 最终 response 与 Token 用量；任务取消仍会释放该后台订阅。
      */
     private void startWorkflowGeneration(RunningGenerationTask task, ApplicationRuntimeSnapshot snapshot, String query, LoginUser loginUser, ChatTurnBO turn) {
-        Disposable subscription = Mono.fromCallable(() -> applicationWorkflowChatService
-                .execute(snapshot, query, loginUser, turn))
+        Disposable subscription = Mono.fromCallable(() -> applicationWorkflowChatService.execute(snapshot, query, loginUser, turn, task))
                 .subscribeOn(Schedulers.boundedElastic())
-                .subscribe(result ->
-                        completeWorkflowTask(task, result),
+                .subscribe(result -> completeWorkflowTask(task, result),
                         exception -> failTask(task, exception));
         task.setSubscription(subscription);
     }
 
     private void completeWorkflowTask(RunningGenerationTask task, WorkflowChatResult result) {
-        MessageTokenUsageBO usage = result.tokenUsage();
-        task.acceptChunk(new ChatStreamChunk(result.answer(), usage.inputTokens(), usage.outputTokens(), usage.totalTokens()));
+        task.reconcileFinalResult(result.answer(), result.tokenUsage());
         completeTask(task);
     }
 
@@ -271,7 +268,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
             case FAILED, INTERRUPTED -> ChatGenerationEventBO.failed();
             case GENERATING -> {
                 // 生成中但当前进程不存在对应任务，说明服务曾异常退出。
-                conversationService.interruptAssistant(message.getId(), message.getContent(), MessageTokenUsageBO.empty());
+                conversationService.interruptAssistant(message.getId(), message.getContent(), TokenUsage.empty());
                 yield ChatGenerationEventBO.failed();
             }
         };

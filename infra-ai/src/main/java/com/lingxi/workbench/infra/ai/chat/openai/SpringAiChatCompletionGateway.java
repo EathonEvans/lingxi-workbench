@@ -3,6 +3,7 @@ package com.lingxi.workbench.infra.ai.chat.openai;
 import com.lingxi.workbench.infra.ai.chat.ChatCompletionGateway;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatCompletionResult;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatCompletionCommand;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -21,6 +22,7 @@ import reactor.core.scheduler.Schedulers;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /** 基于 Spring AI 的 OpenAI 兼容协议非流式调用实现。 */
 @Component
@@ -59,18 +61,13 @@ public class SpringAiChatCompletionGateway implements ChatCompletionGateway {
 
     private static ChatCompletionResult toResult(ChatResponse response) {
         if (Objects.isNull(response)) {
-            return new ChatCompletionResult("", null, null, null);
+            return new ChatCompletionResult("", TokenUsage.empty());
         }
-        String content = "";
-        if (response.getResult() != null) {
-            Generation result = response.getResult();
-            content = Objects.requireNonNullElse(result.getOutput().getText(), "");
-        }
+        String content = Optional.ofNullable(response.getResult())
+                .map(Generation::getOutput)
+                .map(output -> output.getText())
+                .orElse("");
         Usage usage = response.getMetadata().getUsage();
-        return new ChatCompletionResult(
-                content,
-                usage.getPromptTokens(),
-                usage.getCompletionTokens(),
-                usage.getTotalTokens());
+        return new ChatCompletionResult(content, TokenUsageConverter.convert(usage));
     }
 }

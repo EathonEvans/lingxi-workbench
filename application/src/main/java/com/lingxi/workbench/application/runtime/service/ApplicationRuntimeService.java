@@ -7,9 +7,13 @@ import java.util.List;
 
 public interface ApplicationRuntimeService {
 
-    /** 查询应用端允许选择的已启用、已发布 Application。 */
+    /**
+     * 查询应用端允许选择的已启用、已发布 Application。
+     */
     List<AvailableApplicationVO> listAvailableApplications();
 
-    /** 按稳定编码解析当前已启用且已发布的 ApplicationVersion。 */
+    /**
+     * 按稳定编码解析当前已启用且已发布的 ApplicationVersion。
+     */
     ApplicationRuntimeSnapshot resolvePublished(String applicationCode);
 }
