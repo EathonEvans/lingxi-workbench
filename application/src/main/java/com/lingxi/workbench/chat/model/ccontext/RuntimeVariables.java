@@ -3,6 +3,7 @@ package com.lingxi.workbench.chat.model.ccontext;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.variable.common.enums.BuiltInRuntimeVariable;
+import com.lingxi.workbench.infra.ai.variable.common.enums.RuntimeVariableProducer;
 
 import java.util.EnumMap;
 import java.util.Objects;
@@ -75,5 +76,24 @@ public final class RuntimeVariables {
         }
         RuntimeVariableAccessor<?> accessor = RuntimeVariableAccessors.require(variable);
         return Optional.of(accessor.format(value));
+    }
+
+    /**
+     * 为受委派 Agent 创建独立的变量容器。
+     *
+     * <p>只复制请求入口已经冻结的用户、会话和时间变量，并将 user.query 替换为
+     * Supervisor 下发的明确任务。历史、改写结果和知识上下文必须由子 Agent 自己的
+     *处理链重新产生，不能复用父 Agent 的派生变量。</p>
+     */
+    public synchronized RuntimeVariables forkForAgentTask(String task) {
+        Objects.requireNonNull(task, "委派任务不能为空");
+        RuntimeVariables child = new RuntimeVariables();
+        values.forEach((variable, value) -> {
+            if (variable.getProducer() == RuntimeVariableProducer.REQUEST_INITIALIZATION && variable != BuiltInRuntimeVariable.USER_QUERY) {
+                child.values.put(variable, value);
+            }
+        });
+        child.put(RuntimeVariableAccessors.USER_QUERY, task);
+        return child;
     }
 }

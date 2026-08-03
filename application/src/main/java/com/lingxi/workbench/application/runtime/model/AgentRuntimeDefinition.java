@@ -31,7 +31,7 @@ public class AgentRuntimeDefinition {
      */
     private Integer schemaVersion;
     /**
-     * Agent 类型标识，如 RAG_CHAT。
+     * Agent 类型标识，如 RAG_CHAT、SUPERVISOR。
      */
     private String agentType;
     /**

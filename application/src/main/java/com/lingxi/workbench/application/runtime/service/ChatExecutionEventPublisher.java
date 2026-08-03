@@ -29,4 +29,24 @@ public interface ChatExecutionEventPublisher {
             }
         };
     }
+
+    /**
+     * 创建仅抑制文本增量的发布器。
+     *
+     * <p>成员 Agent 的回答要作为工具结果回传 Supervisor，不能提前成为最终 Assistant
+     * 文本；成员内部工具状态仍保留，便于用户观察真实执行进度。</p>
+     */
+    static ChatExecutionEventPublisher suppressText(ChatExecutionEventPublisher delegate) {
+        ChatExecutionEventPublisher target = java.util.Objects.requireNonNullElseGet(delegate, ChatExecutionEventPublisher::noop);
+        return new ChatExecutionEventPublisher() {
+            @Override
+            public void publishText(ChatStreamChunk chunk) {
+            }
+
+            @Override
+            public void publishTool(AgentToolExecutionEvent event) {
+                target.publishTool(event);
+            }
+        };
+    }
 }

@@ -396,7 +396,6 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_agent
     updated_at           TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uk_ai_agent_code UNIQUE (code),
     CONSTRAINT ck_ai_agent_code CHECK (code = LOWER(BTRIM(code))),
-    CONSTRAINT ck_ai_agent_type CHECK (agent_type IN ('RAG_CHAT')),
     CONSTRAINT ck_ai_agent_status CHECK (status IN ('ACTIVE', 'DISABLED'))
 );
 

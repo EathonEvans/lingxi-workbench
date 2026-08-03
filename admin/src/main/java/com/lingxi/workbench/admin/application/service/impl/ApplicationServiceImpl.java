@@ -48,12 +48,14 @@ import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/** Application 控制面业务实现。 */
+import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
+
+/**
+ * Application 控制面业务实现。
+ */
 @Service
 @RequiredArgsConstructor
 public class ApplicationServiceImpl implements ApplicationService {
-    private static final int APPLICATION_SCHEMA_VERSION = 1;
-
     private final AiApplicationRepo applicationRepo;
     private final AiApplicationDraftRepo draftRepo;
     private final AiApplicationVersionRepo versionRepo;
@@ -201,8 +203,7 @@ public class ApplicationServiceImpl implements ApplicationService {
                     "Application草稿已被其他操作修改，请刷新后重试");
         }
         draft.setSchemaVersion(APPLICATION_SCHEMA_VERSION);
-        draft.setDefinition(new ApplicationDefinition(
-                APPLICATION_SCHEMA_VERSION, request.getWorkflow()));
+        draft.setDefinition(new ApplicationDefinition(APPLICATION_SCHEMA_VERSION, request.getWorkflow(), request.getCollaboration()));
         draft.setChangeNote(trimToNull(request.getChangeNote()));
         draft.setUpdatedBy(operatorId);
         if (!draftRepo.updateWithRevision(draft, request.getExpectedRevision())) {
@@ -221,9 +222,11 @@ public class ApplicationServiceImpl implements ApplicationService {
         return detail(id);
     }
 
+    /**
+     * 对当前草稿的 Workflow 执行发布前校验：结构合法性和 Agent 节点引用解析。
+     */
     @Override
     @Transactional(readOnly = true)
-    /** 对当前草稿的 Workflow 执行发布前校验：结构合法性和 Agent 节点引用解析。 */
     public ApplicationValidationResultVO validate(Long id) {
         requireApplication(id);
         ApplicationDefinitionResolution resolution =
@@ -232,9 +235,11 @@ public class ApplicationServiceImpl implements ApplicationService {
                 resolution.valid(), resolution.issues());
     }
 
+    /**
+     * 校验草稿、锁定 Agent 版本引用、生成 SHA-256 快照，去重后创建不可变版本。
+     */
     @Override
     @Transactional
-    /** 校验草稿、锁定 Agent 版本引用、生成 SHA-256 快照，去重后创建不可变版本。 */
     public ApplicationVersionDetailVO publish(
             Long id, PublishApplicationRequest request, Long operatorId) {
         AiApplicationEntity application = applicationRepo.findByIdForUpdate(id)

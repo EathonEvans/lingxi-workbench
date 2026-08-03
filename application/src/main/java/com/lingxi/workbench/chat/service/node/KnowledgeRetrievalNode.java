@@ -11,6 +11,8 @@ import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.config.ConfigurableBeanFactory;
+import org.springframework.context.annotation.Scope;
 
 import java.util.List;
 
@@ -19,6 +21,7 @@ import java.util.List;
  */
 @Slf4j
 @Component
+@Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
 @RequiredArgsConstructor
 public class KnowledgeRetrievalNode extends AbstractChatProcessNode {
 

@@ -1,5 +1,6 @@
 package com.lingxi.workbench.admin.agent.service;
 
+import com.lingxi.workbench.admin.agent.common.enums.AgentType;
 import com.lingxi.workbench.admin.agent.model.config.AgentMemoryPolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
@@ -53,72 +54,56 @@ public class AgentDraftValidator {
     private final ToolService toolService;
 
     /** 对 Agent 及其草稿执行发布前完整校验：状态、模型、Prompt、知识库、策略跨字段限制。 */
-    public AgentValidationResultVO validate(
-            AgentEntity agent,
-            AgentDraftEntity draft,
-            AgentDraftKnowledgeEntity knowledgeBinding) {
+    public AgentValidationResultVO validate(AgentEntity agent, AgentDraftEntity draft, AgentDraftKnowledgeEntity knowledgeBinding) {
         List<AgentValidationIssueVO> issues = new ArrayList<>();
         if (agent.getStatus() != EnableStatus.ACTIVE) {
             add(issues, "AGENT_DISABLED", "停用的Agent不能发布");
         }
-        validatePolicies(draft, issues);
+        AgentType agentType = agent.getAgentType();
+        validatePolicies(agentType, draft, issues);
 
-        ModelInstanceEntity chatModel = validateModel(
-                draft.getChatModelInstanceId(), ModelType.CHAT, "CHAT_MODEL", issues)
+        ModelInstanceEntity chatModel = validateModel(draft.getChatModelInstanceId(), ModelType.CHAT, "CHAT_MODEL", issues)
                 .orElse(null);
         if (Objects.nonNull(chatModel)
-                && (chatModel.getCapabilities() == null
+                && (Objects.isNull(chatModel.getCapabilities())
                 || !chatModel.getCapabilities().contains(ModelCapability.STREAMING))) {
             add(issues, "CHAT_MODEL_STREAMING_REQUIRED", "回答模型必须支持流式输出");
         }
-        validateTools(draft, chatModel, issues);
-        validatePrompt(
-                draft.getSystemPromptVersionId(),
-                PromptRole.SYSTEM,
-                RuntimeVariableChannel.SYSTEM_PROMPT,
-                "SYSTEM_PROMPT",
-                issues);
-        validatePrompt(
-                draft.getUserPromptVersionId(),
-                PromptRole.USER,
-                RuntimeVariableChannel.USER_PROMPT,
-                "USER_PROMPT",
-                issues);
+        validateTools(agentType, draft, chatModel, issues);
+        validatePrompt(draft.getSystemPromptVersionId(), PromptRole.SYSTEM, RuntimeVariableChannel.SYSTEM_PROMPT, "SYSTEM_PROMPT", agentType, issues);
+        validatePrompt(draft.getUserPromptVersionId(), PromptRole.USER, RuntimeVariableChannel.USER_PROMPT, "USER_PROMPT", agentType, issues);
 
         QueryRewritePolicy rewritePolicy = draft.getRewritePolicy();
         ModelInstanceEntity rewriteModel = null;
-        if (Objects.nonNull(rewritePolicy) && Boolean.TRUE.equals(rewritePolicy.getEnabled())) {
-            rewriteModel = validateModel(
-                    draft.getRewriteModelInstanceId(),
-                    ModelType.CHAT,
-                    "REWRITE_MODEL",
-                    issues).orElse(null);
-            validatePrompt(
-                    draft.getRewritePromptVersionId(),
-                    PromptRole.SYSTEM,
-                    RuntimeVariableChannel.QUERY_REWRITE_PROMPT,
-                    "REWRITE_PROMPT",
-                    issues);
+        if (agentType == AgentType.RAG_CHAT && Objects.nonNull(rewritePolicy) && Boolean.TRUE.equals(rewritePolicy.getEnabled())) {
+            rewriteModel = validateModel(draft.getRewriteModelInstanceId(), ModelType.CHAT, "REWRITE_MODEL", issues).orElse(null);
+            validatePrompt(draft.getRewritePromptVersionId(), PromptRole.SYSTEM, RuntimeVariableChannel.QUERY_REWRITE_PROMPT, "REWRITE_PROMPT", agentType, issues);
         }
-        validateKnowledge(knowledgeBinding, issues);
-        validateCrossLimits(draft, chatModel, rewriteModel, issues);
+        if (agentType == AgentType.SUPERVISOR && Objects.nonNull(rewritePolicy) && Boolean.TRUE.equals(rewritePolicy.getEnabled())) {
+            add(issues, "SUPERVISOR_REWRITE_UNSUPPORTED", "Supervisor Agent不使用问题改写和知识检索");
+        }
+        if (agentType == AgentType.RAG_CHAT) {
+            validateKnowledge(knowledgeBinding, issues);
+        }
+        validateCrossLimits(agentType, draft, chatModel, rewriteModel, issues);
         return new AgentValidationResultVO(issues.isEmpty(), issues);
     }
 
-    private void validatePolicies(
-            AgentDraftEntity draft, List<AgentValidationIssueVO> issues) {
+    private void validatePolicies(AgentType agentType, AgentDraftEntity draft, List<AgentValidationIssueVO> issues) {
         validatePolicy(draft.getMemoryPolicy(), "MEMORY_POLICY", issues);
-        validatePolicy(draft.getRewritePolicy(), "REWRITE_POLICY", issues);
-        validatePolicy(draft.getRetrievalPolicy(), "RETRIEVAL_POLICY", issues);
         validatePolicy(draft.getGenerationPolicy(), "GENERATION_POLICY", issues);
         validatePolicy(draft.getRuntimePolicy(), "RUNTIME_POLICY", issues);
         validatePolicy(draft.getToolPolicy(), "TOOL_POLICY", issues);
+        if (agentType == AgentType.RAG_CHAT) {
+            validatePolicy(draft.getRewritePolicy(), "REWRITE_POLICY", issues);
+            validatePolicy(draft.getRetrievalPolicy(), "RETRIEVAL_POLICY", issues);
+        }
     }
 
     /** 校验 Tool 已在控制面启用，并要求回答模型声明 TOOL_CALLING 能力。 */
-    private void validateTools(AgentDraftEntity draft, ModelInstanceEntity chatModel, List<AgentValidationIssueVO> issues) {
+    private void validateTools(AgentType agentType, AgentDraftEntity draft, ModelInstanceEntity chatModel, List<AgentValidationIssueVO> issues) {
         List<String> toolCodes = draft.getToolCodes();
-        if (toolCodes == null) {
+        if (Objects.isNull(toolCodes)) {
             add(issues, "TOOL_CODES_MISSING", "工具编码列表不能为空");
             return;
         }
@@ -132,16 +117,19 @@ public class AgentDraftValidator {
                 add(issues, "TOOL_UNAVAILABLE", "Tool 不存在或已停用：" + toolCode);
             }
         }
-        if (!toolCodes.isEmpty()
+        boolean toolCallingRequired = agentType == AgentType.SUPERVISOR || !toolCodes.isEmpty();
+        if (toolCallingRequired
                 && Objects.nonNull(chatModel)
-                && (chatModel.getCapabilities() == null
+                && (Objects.isNull(chatModel.getCapabilities())
                 || !chatModel.getCapabilities().contains(ModelCapability.TOOL_CALLING))) {
-            add(issues, "CHAT_MODEL_TOOL_CALLING_REQUIRED", "绑定工具后，回答模型必须支持工具调用");
+            String message = agentType == AgentType.SUPERVISOR
+                    ? "Supervisor Agent的回答模型必须支持工具调用"
+                    : "绑定工具后，回答模型必须支持工具调用";
+            add(issues, "CHAT_MODEL_TOOL_CALLING_REQUIRED", message);
         }
     }
 
-    private void validatePolicy(
-            Object policy, String code, List<AgentValidationIssueVO> issues) {
+    private void validatePolicy(Object policy, String code, List<AgentValidationIssueVO> issues) {
         if (Objects.isNull(policy)) {
             add(issues, code + "_MISSING", "缺少" + code + "配置");
             return;
@@ -151,11 +139,7 @@ public class AgentDraftValidator {
         }
     }
 
-    private Optional<ModelInstanceEntity> validateModel(
-            Long modelId,
-            ModelType expectedType,
-            String codePrefix,
-            List<AgentValidationIssueVO> issues) {
+    private Optional<ModelInstanceEntity> validateModel(Long modelId, ModelType expectedType, String codePrefix, List<AgentValidationIssueVO> issues) {
         if (Objects.isNull(modelId)) {
             add(issues, codePrefix + "_MISSING", "缺少" + expectedType.getDescribe());
             return Optional.empty();
@@ -178,12 +162,7 @@ public class AgentDraftValidator {
         return Optional.of(model);
     }
 
-    private void validatePrompt(
-            Long versionId,
-            PromptRole expectedRole,
-            RuntimeVariableChannel variableChannel,
-            String codePrefix,
-            List<AgentValidationIssueVO> issues) {
+    private void validatePrompt(Long versionId, PromptRole expectedRole, RuntimeVariableChannel variableChannel, String codePrefix, AgentType agentType, List<AgentValidationIssueVO> issues) {
         if (Objects.isNull(versionId)) {
             add(issues, codePrefix + "_MISSING", "缺少已发布Prompt版本");
             return;
@@ -212,9 +191,9 @@ public class AgentDraftValidator {
                     codePrefix + "_ROLE_INVALID",
                     "Agent必须引用" + expectedRole.getCode() + "角色Prompt");
         }
-        validatePromptVariables(version, variableChannel, codePrefix, issues);
+        validatePromptVariables(version, variableChannel, agentType, codePrefix, issues);
         if (expectedRole == PromptRole.USER) {
-            validateRequiredUserVariables(version, codePrefix, issues);
+            validateRequiredUserVariables(version, agentType, codePrefix, issues);
         }
     }
 
@@ -224,11 +203,7 @@ public class AgentDraftValidator {
      * <p>PromptRole 只描述模型消息角色，不能表达同为 SYSTEM 角色的普通回答指令
      * 和问题改写任务之间的变量差异，因此此处必须按 variableChannel 校验。</p>
      */
-    private void validatePromptVariables(
-            PromptVersionEntity version,
-            RuntimeVariableChannel variableChannel,
-            String codePrefix,
-            List<AgentValidationIssueVO> issues) {
+    private void validatePromptVariables(PromptVersionEntity version, RuntimeVariableChannel variableChannel, AgentType agentType, String codePrefix, List<AgentValidationIssueVO> issues) {
         List<PromptVariableDefinition> variables = version.getVariables();
         if (variables == null) {
             return;
@@ -244,6 +219,10 @@ public class AgentDraftValidator {
                 continue;
             }
             BuiltInRuntimeVariable variable = variableOptional.get();
+            if (agentType == AgentType.SUPERVISOR && variable == BuiltInRuntimeVariable.KNOWLEDGE_CONTEXT) {
+                add(issues, codePrefix + "_VARIABLE_UNAVAILABLE", "Supervisor Agent不提供知识上下文变量：" + definition.getName());
+                continue;
+            }
             if (!variable.supportsChannel(variableChannel)) {
                 add(
                         issues,
@@ -267,27 +246,17 @@ public class AgentDraftValidator {
     }
 
     /**
-     * RAG_CHAT 的 User Prompt 必须消费用户问题和知识上下文，否则模型问答配置不完整。
+     * 所有 User Prompt 都必须消费用户问题；RAG_CHAT 还必须消费知识上下文。
      */
-    private static void validateRequiredUserVariables(
-            PromptVersionEntity version,
-            String codePrefix,
-            List<AgentValidationIssueVO> issues) {
-        List<PromptVariableDefinition> variables =
-                Objects.requireNonNullElse(version.getVariables(), List.of());
+    private static void validateRequiredUserVariables(PromptVersionEntity version, AgentType agentType, String codePrefix, List<AgentValidationIssueVO> issues) {
+        List<PromptVariableDefinition> variables = Objects.requireNonNullElse(version.getVariables(), List.of());
         List<String> variableNames = variables.stream()
                 .map(PromptVariableDefinition::getName)
                 .toList();
-        requireUserVariable(
-                variableNames,
-                BuiltInRuntimeVariable.USER_QUERY,
-                codePrefix,
-                issues);
-        requireUserVariable(
-                variableNames,
-                BuiltInRuntimeVariable.KNOWLEDGE_CONTEXT,
-                codePrefix,
-                issues);
+        requireUserVariable(variableNames, BuiltInRuntimeVariable.USER_QUERY, codePrefix, issues);
+        if (agentType == AgentType.RAG_CHAT) {
+            requireUserVariable(variableNames, BuiltInRuntimeVariable.KNOWLEDGE_CONTEXT, codePrefix, issues);
+        }
     }
 
     private static void requireUserVariable(
@@ -331,11 +300,7 @@ public class AgentDraftValidator {
                 issues);
     }
 
-    private void validateCrossLimits(
-            AgentDraftEntity draft,
-            ModelInstanceEntity chatModel,
-            ModelInstanceEntity rewriteModel,
-            List<AgentValidationIssueVO> issues) {
+    private void validateCrossLimits(AgentType agentType, AgentDraftEntity draft, ModelInstanceEntity chatModel, ModelInstanceEntity rewriteModel, List<AgentValidationIssueVO> issues) {
         AgentMemoryPolicy memory = draft.getMemoryPolicy();
         QueryRewritePolicy rewrite = draft.getRewritePolicy();
         RetrievalPolicy retrieval = draft.getRetrievalPolicy();
@@ -343,17 +308,10 @@ public class AgentDraftValidator {
         AgentRuntimePolicy runtime = draft.getRuntimePolicy();
         AgentToolPolicy toolPolicy = draft.getToolPolicy();
         if (Objects.isNull(memory)
-                || Objects.isNull(rewrite)
-                || Objects.isNull(retrieval)
                 || Objects.isNull(generation)
                 || Objects.isNull(runtime)
                 || Objects.isNull(memory.getEnabled())
                 || Objects.isNull(memory.getMaxTokens())
-                || Objects.isNull(rewrite.getEnabled())
-                || Objects.isNull(rewrite.getMaxHistoryTokens())
-                || Objects.isNull(rewrite.getMaxOutputTokens())
-                || Objects.isNull(rewrite.getTimeoutMillis())
-                || Objects.isNull(retrieval.getMaxContextTokens())
                 || Objects.isNull(generation.getMaxOutputTokens())
                 || Objects.isNull(generation.getTimeoutSeconds())
                 || Objects.isNull(runtime.getMaxOutputTokens())
@@ -370,16 +328,17 @@ public class AgentDraftValidator {
         if (generation.getTimeoutSeconds() > runtime.getTotalTimeoutSeconds()) {
             add(issues, "TIMEOUT_CONFLICT", "回答超时时间不能超过Agent总超时时间");
         }
-        if (Boolean.TRUE.equals(rewrite.getEnabled())
+        boolean rewriteEnabled = agentType == AgentType.RAG_CHAT && Objects.nonNull(rewrite) && Boolean.TRUE.equals(rewrite.getEnabled());
+        if (rewriteEnabled && Objects.nonNull(rewrite.getTimeoutMillis())
                 && rewrite.getTimeoutMillis() > runtime.getTotalTimeoutSeconds() * 1000) {
             add(issues, "REWRITE_TIMEOUT_CONFLICT", "改写超时时间不能超过Agent总超时时间");
         }
-        if (Boolean.TRUE.equals(rewrite.getEnabled())
+        if (rewriteEnabled && Objects.nonNull(rewrite.getMaxHistoryTokens())
                 && rewrite.getMaxHistoryTokens() >= runtime.getMaxInputTokens()) {
             add(issues, "REWRITE_INPUT_BUDGET_CONFLICT", "改写历史必须为当前问题和Prompt预留输入空间");
         }
-        int requiredCalls = Boolean.TRUE.equals(rewrite.getEnabled()) ? 2 : 1;
-        if (draft.getToolCodes() != null && !draft.getToolCodes().isEmpty()) {
+        int requiredCalls = rewriteEnabled ? 2 : 1;
+        if (Objects.nonNull(draft.getToolCodes()) && !draft.getToolCodes().isEmpty()) {
             /*
              * 每次串行工具调用后都要再次调用模型，最后还需要一次模型调用生成自然语言回答。
              * 改写调用也计入 Agent 全局模型次数预算。
@@ -393,8 +352,11 @@ public class AgentDraftValidator {
                     "模型调用次数上限不足，当前配置至少需要" + requiredCalls + "次");
         }
         int memoryTokens = Boolean.TRUE.equals(memory.getEnabled()) ? memory.getMaxTokens() : 0;
-        if (memoryTokens + retrieval.getMaxContextTokens() >= runtime.getMaxInputTokens()) {
+        if (agentType == AgentType.RAG_CHAT && Objects.nonNull(retrieval) && Objects.nonNull(retrieval.getMaxContextTokens()) && memoryTokens + retrieval.getMaxContextTokens() >= runtime.getMaxInputTokens()) {
             add(issues, "INPUT_BUDGET_CONFLICT", "记忆与检索上下文必须为用户问题和Prompt预留输入空间");
+        }
+        if (agentType == AgentType.SUPERVISOR && memoryTokens >= runtime.getMaxInputTokens()) {
+            add(issues, "INPUT_BUDGET_CONFLICT", "会话记忆必须为Supervisor指令和当前问题预留输入空间");
         }
         if (Objects.nonNull(chatModel)) {
             if (Objects.nonNull(chatModel.getMaxTokens())
@@ -407,8 +369,7 @@ public class AgentDraftValidator {
                 add(issues, "MODEL_CONTEXT_LIMIT_EXCEEDED", "Agent输入输出预算超过模型上下文窗口");
             }
         }
-        if (Boolean.TRUE.equals(rewrite.getEnabled())
-                && Objects.nonNull(rewriteModel)) {
+        if (rewriteEnabled && Objects.nonNull(rewriteModel)) {
             if (Objects.nonNull(rewriteModel.getMaxTokens())
                     && rewrite.getMaxOutputTokens() > rewriteModel.getMaxTokens()) {
                 add(issues, "REWRITE_MODEL_OUTPUT_LIMIT_EXCEEDED", "改写输出上限超过模型单次输出上限");

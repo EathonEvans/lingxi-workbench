@@ -15,6 +15,8 @@ import com.lingxi.workbench.infra.ai.chat.model.command.ChatCompletionCommand;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.config.ConfigurableBeanFactory;
+import org.springframework.context.annotation.Scope;
 
 import java.time.Duration;
 import java.util.List;
@@ -28,6 +30,7 @@ import java.util.Objects;
  */
 @Slf4j
 @Component
+@Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
 @RequiredArgsConstructor
 public class QueryRewriteNode extends AbstractChatProcessNode {
 

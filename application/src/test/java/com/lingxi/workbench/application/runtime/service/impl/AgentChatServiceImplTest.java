@@ -4,7 +4,12 @@ import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
+import com.lingxi.workbench.application.runtime.model.AgentCollaborationScope;
 import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.service.PromptRuntimeService;
+import com.lingxi.workbench.application.runtime.service.ToolRuntimeService;
+import com.lingxi.workbench.application.runtime.service.impl.strategy.RagChatPreparationStrategy;
+import com.lingxi.workbench.application.runtime.service.impl.strategy.SupervisorPreparationStrategy;
 import com.lingxi.workbench.chat.common.enums.RetrievalStatus;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.bo.PromptPair;
@@ -15,6 +20,7 @@ import com.lingxi.workbench.chat.service.ChatProcessChain;
 import com.lingxi.workbench.chat.service.ChatProcessNode;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.framework.context.LoginUser;
+import com.lingxi.workbench.infra.ai.chat.StreamingChatGateway;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
@@ -23,6 +29,9 @@ import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig
 import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
+import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
+import com.lingxi.workbench.workflow.model.AgentCollaborationLimits;
+import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
@@ -51,12 +60,9 @@ class AgentChatServiceImplTest {
                 .build();
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
 
-        AgentChatServiceImpl service = new AgentChatServiceImpl(
-                (agentId, versionId) ->
-                        new AgentRuntimeSnapshot(agentId, versionId, definition),
+        AgentChatServiceImpl service = service(
+                definition,
                 promptVersionId -> promptSnapshot(),
-                modelService(),
-                new ChatProcessChain(new PreparingNode()),
                 command -> {
                     captured.set(command);
                     return Flux.just(
@@ -85,12 +91,9 @@ class AgentChatServiceImplTest {
     void shouldRejectAgentVersionWithoutKnowledgeBinding() {
         AgentRuntimeDefinition definition = definition();
         definition.setKnowledge(null);
-        AgentChatServiceImpl service = new AgentChatServiceImpl(
-                (agentId, versionId) ->
-                        new AgentRuntimeSnapshot(agentId, versionId, definition),
+        AgentChatServiceImpl service = service(
+                definition,
                 promptVersionId -> promptSnapshot(),
-                modelService(),
-                new ChatProcessChain(new PreparingNode()),
                 command -> Flux.empty(),
                 toolCodes -> List.of());
 
@@ -116,15 +119,9 @@ class AgentChatServiceImplTest {
                 .runtimeVariables(runtimeVariables())
                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
                 .build();
-        AgentChatServiceImpl service = new AgentChatServiceImpl(
-                (agentId, versionId) ->
-                        new AgentRuntimeSnapshot(
-                                agentId,
-                                versionId,
-                                definition()),
+        AgentChatServiceImpl service = service(
+                definition(),
                 promptVersionId -> promptSnapshot(),
-                modelService(),
-                new ChatProcessChain(new PreparingNode()),
                 command -> Flux.empty(),
                 toolCodes -> List.of());
 
@@ -137,8 +134,56 @@ class AgentChatServiceImplTest {
                         execution));
 
         assertEquals(
-                "当前阶段仅支持入口Agent使用用户原始query",
+                "Agent查询与运行时变量作用域不一致",
                 exception.getMessage());
+    }
+
+    @Test
+    void shouldExposeApplicationMembersAsSupervisorTools() {
+        AgentRuntimeDefinition definition = supervisorDefinition();
+        AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
+        ApplicationAgentReference supervisor = new ApplicationAgentReference(10L, 20L, "协调Agent", "负责规划");
+        ApplicationAgentReference member = new ApplicationAgentReference(30L, 40L, "售后专家", "处理退款与售后政策");
+        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true, supervisor, List.of(member), new AgentCollaborationLimits(2, 1));
+        ChatExecutionContext execution = ChatExecutionContext.builder()
+                .executionId("run-collaboration")
+                .runtimeVariables(runtimeVariables())
+                .turn(new ChatTurnBO(10L, 11L, 12L, 3))
+                .collaborationScope(AgentCollaborationScope.root(collaboration))
+                .build();
+        AgentChatServiceImpl service = supervisorService(
+                definition,
+                promptVersionId -> promptSnapshot(),
+                command -> {
+                    captured.set(command);
+                    return Flux.just(new ChatStreamChunk("统一回答"));
+                },
+                toolCodes -> List.of());
+
+        String answer = service.chat(10L, 20L, "如何退款", execution);
+
+        assertEquals("统一回答", answer);
+        AgentTool delegationTool = captured.get().toolRuntimeConfig().orElseThrow().getTools().getFirst();
+        assertEquals("delegate_agent_30", delegationTool.definition().getCode());
+        assertTrue(delegationTool.definition().getDescription().contains("处理退款与售后政策"));
+        assertTrue(captured.get().systemPrompt().contains("多 Agent 协作规则"));
+        assertTrue(captured.get().systemPrompt().contains("成员返回的是中间工作结果"));
+    }
+
+    @Test
+    void shouldRejectSupervisorSnapshotContainingRetrievalConfiguration() {
+        AgentRuntimeDefinition definition = supervisorDefinition();
+        definition.setRetrievalPolicy(definition().getRetrievalPolicy());
+        AgentChatServiceImpl service = supervisorService(definition, promptVersionId -> promptSnapshot(), command -> Flux.empty(), toolCodes -> List.of());
+        ChatExecutionContext execution = ChatExecutionContext.builder()
+                .executionId("run-invalid-supervisor")
+                .runtimeVariables(runtimeVariables())
+                .turn(new ChatTurnBO(10L, 11L, 12L, 3))
+                .build();
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.chat(10L, 20L, "如何退款", execution));
+
+        assertEquals("Supervisor AgentVersion不能包含知识库或检索配置", exception.getMessage());
     }
 
     @Test
@@ -146,11 +191,9 @@ class AgentChatServiceImplTest {
         AgentRuntimeDefinition definition = definition();
         definition.setToolCodes(List.of("system_current_time"));
         definition.setToolPolicy(new AgentRuntimeDefinition.ToolPolicy(0, 1000));
-        AgentChatServiceImpl service = new AgentChatServiceImpl(
-                (agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition),
+        AgentChatServiceImpl service = service(
+                definition,
                 promptVersionId -> promptSnapshot(),
-                modelService(),
-                new ChatProcessChain(new PreparingNode()),
                 command -> {
                     throw new AssertionError("非法工具配置不应进入模型网关");
                 },
@@ -172,11 +215,9 @@ class AgentChatServiceImplTest {
         definition.setToolCodes(List.of("system_current_time"));
         definition.setToolPolicy(new AgentRuntimeDefinition.ToolPolicy(1, 1000));
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
-        AgentChatServiceImpl service = new AgentChatServiceImpl(
-                (agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition),
+        AgentChatServiceImpl service = service(
+                definition,
                 promptVersionId -> new PromptRuntimeSnapshot(promptVersionId, "只能依据知识片段回答，不得调用工具", List.of(), PromptRole.SYSTEM),
-                modelService(),
-                new ChatProcessChain(new PreparingNode()),
                 command -> {
                     captured.set(command);
                     return Flux.just(new ChatStreamChunk("现在是10点"));
@@ -199,6 +240,20 @@ class AgentChatServiceImplTest {
         assertTrue(captured.get().systemPrompt().contains("不得使用模型记忆、心算或猜测替代工具执行"));
         assertTrue(captured.get().systemPrompt().contains("工具执行结果是本轮回答可使用的可信事实来源"));
         assertTrue(captured.get().systemPrompt().contains("不得因为知识片段缺少相关内容而拒绝回答"));
+    }
+
+    private static AgentChatServiceImpl service(AgentRuntimeDefinition definition, PromptRuntimeService promptRuntimeService, StreamingChatGateway streamingChatGateway, ToolRuntimeService toolRuntimeService) {
+        ModelRuntimeConfigService modelRuntimeConfigService = modelService();
+        RagChatPreparationStrategy strategy = new RagChatPreparationStrategy(promptRuntimeService, modelRuntimeConfigService, new ChatProcessChain(new PreparingNode()));
+        AgentChatPreparationStrategyRegistry registry = new AgentChatPreparationStrategyRegistry(List.of(strategy));
+        return new AgentChatServiceImpl((agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition), registry, modelRuntimeConfigService, streamingChatGateway, toolRuntimeService);
+    }
+
+    private static AgentChatServiceImpl supervisorService(AgentRuntimeDefinition definition, PromptRuntimeService promptRuntimeService, StreamingChatGateway streamingChatGateway, ToolRuntimeService toolRuntimeService) {
+        ModelRuntimeConfigService modelRuntimeConfigService = modelService();
+        SupervisorPreparationStrategy strategy = new SupervisorPreparationStrategy(promptRuntimeService, new ChatProcessChain(new SupervisorPreparingNode()));
+        AgentChatPreparationStrategyRegistry registry = new AgentChatPreparationStrategyRegistry(List.of(strategy));
+        return new AgentChatServiceImpl((agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition), registry, modelRuntimeConfigService, streamingChatGateway, toolRuntimeService);
     }
 
     private static ModelRuntimeConfigService modelService() {
@@ -274,6 +329,20 @@ class AgentChatServiceImplTest {
                 .build();
     }
 
+    private static AgentRuntimeDefinition supervisorDefinition() {
+        return AgentRuntimeDefinition.builder()
+                .schemaVersion(3)
+                .agentType("SUPERVISOR")
+                .chatModelInstanceId(99L)
+                .systemPromptVersionId(88L)
+                .userPromptVersionId(89L)
+                .memoryPolicy(new AgentRuntimeDefinition.MemoryPolicy(true, 10, 4000))
+                .rewritePolicy(AgentRuntimeDefinition.RewritePolicy.builder().enabled(false).build())
+                .generationPolicy(AgentRuntimeDefinition.GenerationPolicy.builder().temperature(new BigDecimal("0.2")).topP(new BigDecimal("0.9")).maxOutputTokens(2048).timeoutSeconds(60).maxRetries(1).build())
+                .runtimePolicy(new AgentRuntimeDefinition.RuntimePolicy(90, 3, 12000, 2048))
+                .build();
+    }
+
     private static LoginUser loginUser() {
         return new LoginUser(7L, "tester", "测试用户", null);
     }
@@ -319,6 +388,23 @@ class AgentChatServiceImplTest {
                     context.getRuntimeVariables().require(
                             RuntimeVariableAccessors.USER_QUERY),
                     context.getSystemPrompt().content()));
+        }
+    }
+
+    /** 模拟 Supervisor 的历史与直接 Prompt 节点，断言运行时未注入 RAG 配置。 */
+    private static final class SupervisorPreparingNode implements ChatProcessNode {
+
+        @Override
+        public ChatProcessNode next(ChatProcessNode next) {
+            return next;
+        }
+
+        @Override
+        public void process(ModelChatContext context) {
+            assertEquals(null, context.getKnowledgeBaseId());
+            assertEquals(null, context.getRetrievalTopK());
+            context.getRuntimeVariables().put(RuntimeVariableAccessors.SESSION_HISTORY, List.of());
+            context.setPromptPair(new PromptPair(context.getRuntimeVariables().require(RuntimeVariableAccessors.USER_QUERY), context.getSystemPrompt().content()));
         }
     }
 

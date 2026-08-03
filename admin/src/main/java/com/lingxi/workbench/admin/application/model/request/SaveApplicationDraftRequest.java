@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.application.model.request;
 
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
+import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -13,6 +14,9 @@ public class SaveApplicationDraftRequest {
     @NotNull(message = "缺少Workflow定义")
     @Valid
     private WorkflowDefinition workflow;
+    /** 可选的 Application 级 Supervisor 协作配置。 */
+    @Valid
+    private AgentCollaborationDefinition collaboration;
     @NotNull(message = "缺少草稿revision")
     @Min(value = 0, message = "草稿revision不能小于0")
     private Long expectedRevision;

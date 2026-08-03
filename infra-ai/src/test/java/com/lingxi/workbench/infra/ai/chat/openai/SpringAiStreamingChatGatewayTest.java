@@ -31,10 +31,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -94,15 +92,11 @@ class SpringAiStreamingChatGatewayTest {
         ChatResponse secondRound = response(
                 "现在是北京时间", usage(8, 3, 11));
         AtomicInteger modelCalls = new AtomicInteger();
-        AtomicReference<String> modelCallThread = new AtomicReference<>();
-        when(chatModel.call(any(Prompt.class))).thenAnswer(invocation -> {
-            modelCallThread.compareAndSet(
-                    null,
-                    Thread.currentThread().getName());
+        when(chatModel.stream(any(Prompt.class))).thenAnswer(invocation -> {
             if (modelCalls.getAndIncrement() == 0) {
-                return firstRound;
+                return Flux.just(firstRound);
             }
-            return secondRound;
+            return Flux.just(secondRound);
         });
 
         OpenAiCompatibleChatModelFactory factory =
@@ -146,7 +140,7 @@ class SpringAiStreamingChatGatewayTest {
                         .toolRuntimeConfig(toolConfig)
                         .build());
 
-        verify(chatModel, never()).call(any(Prompt.class));
+        verify(chatModel, never()).stream(any(Prompt.class));
         assertEquals(0, executions.get());
 
         List<ChatStreamChunk> chunks = answer
@@ -158,18 +152,24 @@ class SpringAiStreamingChatGatewayTest {
                 List.of(AgentToolExecutionStatus.RUNNING, AgentToolExecutionStatus.SUCCEEDED),
                 toolEvents.stream().map(AgentToolExecutionEvent::getStatus).toList());
         assertEquals("查询当前时间", toolEvents.get(0).getDisplayName());
-        assertNotEquals(
-                Thread.currentThread().getName(),
-                modelCallThread.get());
         assertEquals(
-                List.of(new ChatStreamChunk("现在是北京时间", TokenUsage.of(13, 5, 18))),
+                List.of(
+                        new ChatStreamChunk("", TokenUsage.of(5, 2, 7)),
+                        new ChatStreamChunk("现在是北京时间", TokenUsage.of(8, 3, 11))),
                 chunks);
         ArgumentCaptor<Prompt> promptCaptor =
                 ArgumentCaptor.forClass(Prompt.class);
-        verify(chatModel, times(2)).call(promptCaptor.capture());
+        verify(chatModel, times(2)).stream(promptCaptor.capture());
         List<?> secondRoundMessages = promptCaptor.getAllValues()
                 .get(1)
                 .getInstructions();
+        assertEquals(
+                1,
+                secondRoundMessages.stream()
+                        .filter(AssistantMessage.class::isInstance)
+                        .map(AssistantMessage.class::cast)
+                        .filter(AssistantMessage::hasToolCalls)
+                        .count());
         assertEquals(
                 1,
                 secondRoundMessages.stream()

@@ -11,6 +11,8 @@ import com.lingxi.workbench.chat.service.ConversationMemoryService;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.config.ConfigurableBeanFactory;
+import org.springframework.context.annotation.Scope;
 
 import java.util.List;
 
@@ -18,6 +20,7 @@ import java.util.List;
  * 加载当前用户消息之前的窗口历史。
  */
 @Component
+@Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
 @RequiredArgsConstructor
 public class ConversationHistoryNode extends AbstractChatProcessNode {
 

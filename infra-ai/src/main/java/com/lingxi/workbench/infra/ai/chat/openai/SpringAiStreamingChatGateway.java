@@ -3,7 +3,6 @@ package com.lingxi.workbench.infra.ai.chat.openai;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
-import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatStreamCommand;
 import com.lingxi.workbench.infra.ai.chat.StreamingChatGateway;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
@@ -14,6 +13,7 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.MessageAggregator;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolExecutionResult;
@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 基于 Spring AI 的 OpenAI 兼容协议流式对话实现。
@@ -40,6 +41,7 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
 
     private final OpenAiCompatibleChatModelFactory chatModelFactory;
     private final ToolCallingManager toolCallingManager = ToolCallingManager.builder().build();
+    private final MessageAggregator messageAggregator = new MessageAggregator();
 
     /**
      * 将业务层对话命令转换为 Spring AI Prompt 并发起流式模型调用。
@@ -55,8 +57,8 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
 
         return command.toolRuntimeConfig()
                 .filter(AgentToolRuntimeConfig::enabled)
-                .map(runtimeConfig -> generateToolAssistedAnswer(chatModel, messages, runtimeConfig))
-                .orElseGet(() -> streamDirectAnswer(chatModel, messages));
+                .map(runtimeConfig -> streamAnswer(chatModel, new Prompt(messages, buildToolOptions(chatModel, runtimeConfig)), runtimeConfig, 0, 0))
+                .orElseGet(() -> streamAnswer(chatModel, new Prompt(messages)));
     }
 
     /**
@@ -78,45 +80,31 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
     /**
      * 普通对话直接透传模型的流式文本分片。
      */
-    private Flux<ChatStreamChunk> streamDirectAnswer(OpenAiChatModel chatModel, List<Message> messages) {
+    private Flux<ChatStreamChunk> streamAnswer(OpenAiChatModel chatModel, Prompt prompt) {
+        return streamAnswer(chatModel.stream(prompt));
+    }
+
+    /**
+     * 统一转换一轮模型流，文本与 Usage 均沿用普通对话的输出契约。
+     */
+    private Flux<ChatStreamChunk> streamAnswer(Flux<ChatResponse> responseStream) {
         // 保留有文本或真实 Usage 的分片；仅含空文本且无用量的信息不向上游传播。
-        return chatModel.stream(new Prompt(messages))
+        return responseStream
                 .map(SpringAiStreamingChatGateway::toChunk)
                 .filter(SpringAiStreamingChatGateway::hasContentOrUsage);
     }
 
     /**
-     * 在阻塞线程池中生成工具辅助回答，并适配为统一的 Flux 输出契约。
-     *
-     * <p>第一阶段的 Function Calling 需要在每轮拿到完整 tool_calls 后才能执行工具，
-     * 因此内部是同步循环，最终只产生一个完整回答。这里明确使用 Mono 表达单结果，
-     * 再转换为 Flux；{@code boundedElastic} 防止同步模型和工具调用阻塞 Reactor
-     * 订阅线程。</p>
+     * 构造本次工具对话使用的模型选项。
      */
-    private Flux<ChatStreamChunk> generateToolAssistedAnswer(OpenAiChatModel chatModel, List<Message> messages, AgentToolRuntimeConfig runtimeConfig) {
-        return Mono.fromCallable(() -> runToolCallingLoop(chatModel, messages, runtimeConfig))
-                .subscribeOn(Schedulers.boundedElastic())
-                .flux();
-    }
-
-    /**
-     * 执行受控 Function Calling 循环。
-     *
-     * <p>工具调用需要读取完整 Assistant tool_calls 后才能执行，因此工具模式下各轮使用
-     * 非流式模型调用；最终答案仍通过统一的 ChatStreamChunk 返回给上层。模型调用次数和
-     * 工具调用次数分别设置硬上限，避免模型在工具之间无限循环。</p>
-     */
-    private ChatStreamChunk runToolCallingLoop(OpenAiChatModel chatModel, List<Message> messages, AgentToolRuntimeConfig runtimeConfig) {
-        int maxToolCalls = runtimeConfig.getMaxToolCalls();
-        int maxModelCalls = runtimeConfig.getMaxModelCalls();
+    private OpenAiChatOptions buildToolOptions(OpenAiChatModel chatModel, AgentToolRuntimeConfig runtimeConfig) {
         int maxResultCharacters = runtimeConfig.getMaxResultCharacters();
-
         List<ToolCallback> callbacks = runtimeConfig.getTools()
                 .stream()
                 .map(tool -> boundedCallback(tool, runtimeConfig, maxResultCharacters))
                 .map(ToolCallback.class::cast)
                 .toList();
-        OpenAiChatOptions options = chatModel.getOptions()
+        return chatModel.getOptions()
                 .mutate()
                 .toolCallbacks(callbacks)
                 // 第一阶段由模型自行判断是否需要调用工具，对应 OpenAI tool_choice=auto。
@@ -125,32 +113,60 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
                 // 第一阶段串行执行工具，保证调用上限与日志顺序确定。
                 .parallelToolCalls(false)
                 .build();
+    }
 
-        Prompt currentPrompt = new Prompt(messages, options);
-        int modelCalls = 0;
-        int toolCalls = 0;
-        TokenUsageAccumulator usageAccumulator = new TokenUsageAccumulator();
-
-        while (modelCalls < maxModelCalls) {
-            ChatResponse response = chatModel.call(currentPrompt);
-            modelCalls++;
-            usageAccumulator.add(TokenUsageConverter.convert(response.getMetadata().getUsage()));
-
-            if (!response.hasToolCalls()) {
-                return new ChatStreamChunk(finalContent(response), usageAccumulator.snapshot());
+    /**
+     * 执行一轮工具感知的模型流，并在流结束后决定结束回答或继续执行工具。
+     *
+     * <p>本方法是工具对话和普通对话共用的回答入口。模型请求工具时先执行工具，
+     * 得到新的消息历史后通过 flatMapMany 再次进入本方法；没有 tool_calls 时，
+     * 当前模型流就是最终 Assistant 回答。</p>
+     */
+    private Flux<ChatStreamChunk> streamAnswer(OpenAiChatModel chatModel, Prompt prompt, AgentToolRuntimeConfig runtimeConfig, int completedModelCalls, int completedToolCalls) {
+        return Flux.defer(() -> {
+            if (completedModelCalls >= runtimeConfig.getMaxModelCalls()) {
+                return Flux.error(new AgentToolException("工具调用循环超过模型调用次数限制，limit=" + runtimeConfig.getMaxModelCalls()));
             }
 
-            int requestedToolCalls = Objects.requireNonNull(response.getResult())
-                    .getOutput()
-                    .getToolCalls().size();
-            if (toolCalls + requestedToolCalls > maxToolCalls) {
-                throw new AgentToolException("模型请求的工具调用次数超过Agent限制，limit=" + maxToolCalls);
-            }
-            toolCalls += requestedToolCalls;
-            ToolExecutionResult executionResult = toolCallingManager.executeToolCalls(currentPrompt, response);
-            currentPrompt = new Prompt(executionResult.conversationHistory(), options);
+            AtomicReference<ChatResponse> aggregatedResponse = new AtomicReference<>();
+            Flux<ChatResponse> responseStream = messageAggregator.aggregate(chatModel.stream(prompt), aggregatedResponse::set);
+
+            Flux<ChatStreamChunk> currentAnswer = streamAnswer(responseStream);
+            return currentAnswer.concatWith(Flux.defer(() -> continueAfterModelRound(chatModel, prompt, runtimeConfig, aggregatedResponse.get(), completedModelCalls + 1, completedToolCalls)));
+        });
+    }
+
+    /**
+     * 模型流结束后处理完整 tool_calls；没有工具调用时，本次流已经完成最终回答。
+     */
+    private Flux<ChatStreamChunk> continueAfterModelRound(OpenAiChatModel chatModel, Prompt prompt, AgentToolRuntimeConfig runtimeConfig, ChatResponse response, int completedModelCalls, int completedToolCalls) {
+        ChatResponse completedResponse = Objects.requireNonNull(response, "模型流结束后未生成完整响应");
+        if (!completedResponse.hasToolCalls()) {
+            return Flux.empty();
         }
-        throw new AgentToolException("工具调用循环超过模型调用次数限制，limit=" + maxModelCalls);
+
+        int requestedToolCalls = Objects.requireNonNull(completedResponse.getResult()).getOutput().getToolCalls().size();
+        int totalToolCalls = completedToolCalls + requestedToolCalls;
+        if (totalToolCalls > runtimeConfig.getMaxToolCalls()) {
+            return Flux.error(new AgentToolException("模型请求的工具调用次数超过Agent限制，limit=" + runtimeConfig.getMaxToolCalls()));
+        }
+
+        return executeToolCalling(prompt, completedResponse)
+                .flatMapMany(result -> {
+                    Prompt answerPrompt = new Prompt(result.conversationHistory(), prompt.getOptions());
+                    // 重新递归
+                    return streamAnswer(chatModel, answerPrompt, runtimeConfig, completedModelCalls, totalToolCalls);
+                });
+    }
+
+    /**
+     * 执行模型请求的工具，返回包含 Assistant tool_calls 和 ToolResponseMessage 的消息历史。
+     *
+     * <p>MCP 和本地工具当前均为同步调用，统一放入 boundedElastic，避免阻塞模型流订阅线程。</p>
+     */
+    private Mono<ToolExecutionResult> executeToolCalling(Prompt prompt, ChatResponse response) {
+        return Mono.fromCallable(() -> toolCallingManager.executeToolCalls(prompt, response))
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     private static String finalContent(ChatResponse response) {

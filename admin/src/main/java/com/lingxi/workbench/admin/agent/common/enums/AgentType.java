@@ -4,11 +4,12 @@ import com.baomidou.mybatisplus.annotation.EnumValue;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
-/** Agent 类型。V1 只支持知识库问答 Agent。 */
+/** Agent 类型决定发布校验规则和运行时前置处理链。 */
 @Getter
 @RequiredArgsConstructor
 public enum AgentType {
-    RAG_CHAT("RAG_CHAT", "知识库问答");
+    RAG_CHAT("RAG_CHAT", "知识库问答"),
+    SUPERVISOR("SUPERVISOR", "多Agent监督者");
 
     @EnumValue
     private final String code;

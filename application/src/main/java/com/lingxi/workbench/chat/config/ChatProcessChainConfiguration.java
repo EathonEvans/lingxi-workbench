@@ -2,9 +2,11 @@ package com.lingxi.workbench.chat.config;
 
 import com.lingxi.workbench.chat.service.ChatProcessChain;
 import com.lingxi.workbench.chat.service.node.ConversationHistoryNode;
+import com.lingxi.workbench.chat.service.node.DirectPromptBuildNode;
 import com.lingxi.workbench.chat.service.node.KnowledgeRetrievalNode;
 import com.lingxi.workbench.chat.service.node.PromptBuildNode;
 import com.lingxi.workbench.chat.service.node.QueryRewriteNode;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -27,15 +29,23 @@ public class ChatProcessChainConfiguration {
      * @param promptBuildNode 模型 Prompt 构建节点
      * @return 从历史加载节点开始执行的对话处理链
      */
-    @Bean
-    public ChatProcessChain chatProcessChain(
-            ConversationHistoryNode historyNode,
-            QueryRewriteNode queryRewriteNode,
-            KnowledgeRetrievalNode retrievalNode,
-            PromptBuildNode promptBuildNode) {
+    @Bean("ragChatProcessChain")
+    public ChatProcessChain ragChatProcessChain(ObjectProvider<ConversationHistoryNode> historyNodes, ObjectProvider<QueryRewriteNode> queryRewriteNodes, ObjectProvider<KnowledgeRetrievalNode> retrievalNodes, ObjectProvider<PromptBuildNode> promptBuildNodes) {
+        ConversationHistoryNode historyNode = historyNodes.getObject();
+        QueryRewriteNode queryRewriteNode = queryRewriteNodes.getObject();
+        KnowledgeRetrievalNode retrievalNode = retrievalNodes.getObject();
+        PromptBuildNode promptBuildNode = promptBuildNodes.getObject();
         historyNode.next(queryRewriteNode)
                 .next(retrievalNode)
                 .next(promptBuildNode);
+        return new ChatProcessChain(historyNode);
+    }
+
+    /** Supervisor 只加载历史并直接组装 Prompt，不进入问题改写和知识检索。 */
+    @Bean("supervisorChatProcessChain")
+    public ChatProcessChain supervisorChatProcessChain(ObjectProvider<ConversationHistoryNode> historyNodes, ObjectProvider<DirectPromptBuildNode> promptBuildNodes) {
+        ConversationHistoryNode historyNode = historyNodes.getObject();
+        historyNode.next(promptBuildNodes.getObject());
         return new ChatProcessChain(historyNode);
     }
 }

@@ -1,6 +1,10 @@
 package com.lingxi.workbench.admin.application.service;
 
+import com.lingxi.workbench.admin.agent.common.enums.AgentType;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
+import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
+import com.lingxi.workbench.workflow.model.AgentCollaborationLimits;
+import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowEdgeDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowNodeDefinition;
@@ -77,6 +81,48 @@ class ApplicationDraftValidatorTest {
                 .containsExactly("AGENT_VERSION_NOT_FOUND");
     }
 
+    @Test
+    void shouldResolveSupervisorAndMemberPublishedVersions() {
+        gateway.addAgent(10L, true, 101L, AgentType.SUPERVISOR);
+        gateway.addVersion(10L, 101L);
+        gateway.addAgent(20L, true, 201L);
+        gateway.addVersion(20L, 201L);
+        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true, new ApplicationAgentReference(10L, null, null, null), List.of(new ApplicationAgentReference(20L, null, null, null)), new AgentCollaborationLimits(3, 1));
+
+        ApplicationDefinitionResolution result = validator.resolveForPublish(new ApplicationDefinition(2, definition(null).workflow(), collaboration));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.definition().collaboration().supervisor().agentVersionId()).isEqualTo(101L);
+        assertThat(result.definition().collaboration().members().getFirst().agentVersionId()).isEqualTo(201L);
+        assertThat(result.definition().collaboration().members().getFirst().name()).isEqualTo("Agent-20");
+    }
+
+    @Test
+    void shouldRejectSupervisorDuplicatedAsMember() {
+        gateway.addAgent(10L, true, 101L, AgentType.SUPERVISOR);
+        gateway.addVersion(10L, 101L);
+        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true, new ApplicationAgentReference(10L, null, null, null), List.of(new ApplicationAgentReference(10L, null, null, null)), new AgentCollaborationLimits(3, 1));
+
+        ApplicationDefinitionResolution result = validator.resolveForPublish(new ApplicationDefinition(2, definition(null).workflow(), collaboration));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(issue -> issue.code()).contains("SUPERVISOR_AS_MEMBER");
+    }
+
+    @Test
+    void shouldRejectRagAgentUsedAsSupervisor() {
+        gateway.addAgent(10L, true, 101L, AgentType.RAG_CHAT);
+        gateway.addVersion(10L, 101L);
+        gateway.addAgent(20L, true, 201L, AgentType.RAG_CHAT);
+        gateway.addVersion(20L, 201L);
+        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true, new ApplicationAgentReference(10L, null, null, null), List.of(new ApplicationAgentReference(20L, null, null, null)), new AgentCollaborationLimits(3, 1));
+
+        ApplicationDefinitionResolution result = validator.resolveForPublish(new ApplicationDefinition(2, definition(null).workflow(), collaboration));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(issue -> issue.code()).contains("COLLABORATION_AGENT_TYPE_INVALID");
+    }
+
     private static ApplicationDefinition definition(Long versionId) {
         WorkflowDefinition workflow = new WorkflowDefinition(
                 1,
@@ -110,7 +156,11 @@ class ApplicationDraftValidatorTest {
         private final Map<String, Long> versions = new HashMap<>();
 
         void addAgent(Long id, boolean active, Long publishedVersionId) {
-            agents.put(id, new AgentReference(id, active, publishedVersionId));
+            addAgent(id, active, publishedVersionId, AgentType.RAG_CHAT);
+        }
+
+        void addAgent(Long id, boolean active, Long publishedVersionId, AgentType agentType) {
+            agents.put(id, new AgentReference(new AgentIdentity(id, "Agent-" + id, "Agent职责-" + id, agentType), active, publishedVersionId));
         }
 
         void addVersion(Long agentId, Long versionId) {

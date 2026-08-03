@@ -3,13 +3,17 @@ package com.lingxi.workbench.application.runtime.model;
 import com.lingxi.workbench.application.runtime.service.ChatExecutionEventPublisher;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
+import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
+import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
+import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import lombok.Builder;
 import lombok.Getter;
 
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * 一次 Agent 对话执行期间共享的服务端运行上下文。
@@ -61,13 +65,18 @@ public final class ChatExecutionContext {
     @Getter
     private final ChatExecutionEventPublisher eventPublisher;
 
+    /**
+     * 可选的 Application 级多 Agent 协作作用域。
+     */
+    private final AgentCollaborationScope collaborationScope;
+
     /*
      * 一次 Agent 对话可能包含改写、工具判断和回答生成等多次模型调用，
      * Token 用量需要累计。
      * TokenUsageAccumulator 内部使用原子快照更新，因为模型结果可能由 Reactor
      * 回调线程记录，不能假定所有 recordUsage 调用始终发生在创建上下文的线程。
      */
-    private final TokenUsageAccumulator tokenUsageAccumulator = new TokenUsageAccumulator();
+    private final TokenUsageAccumulator tokenUsageAccumulator;
 
     /**
      * 创建一次 Agent 对话专属的执行上下文。
@@ -78,11 +87,33 @@ public final class ChatExecutionContext {
      * @param eventPublisher   本次执行的文本和工具状态发布器
      */
     @Builder
-    private ChatExecutionContext(String executionId, RuntimeVariables runtimeVariables, ChatTurnBO turn, ChatExecutionEventPublisher eventPublisher) {
+    private ChatExecutionContext(String executionId, RuntimeVariables runtimeVariables, ChatTurnBO turn, ChatExecutionEventPublisher eventPublisher, AgentCollaborationScope collaborationScope, TokenUsageAccumulator tokenUsageAccumulator) {
         this.executionId = executionId;
-        this.runtimeVariables = runtimeVariables;
-        this.turn = turn;
+        this.runtimeVariables = Objects.requireNonNull(runtimeVariables, "运行时变量不能为空");
+        this.turn = Objects.requireNonNull(turn, "对话轮次不能为空");
         this.eventPublisher = Objects.requireNonNullElseGet(eventPublisher, ChatExecutionEventPublisher::noop);
+        this.collaborationScope = collaborationScope;
+        this.tokenUsageAccumulator = Objects.requireNonNullElseGet(tokenUsageAccumulator, TokenUsageAccumulator::new);
+    }
+
+    /**
+     * 返回当前 Application 的协作作用域；普通单 Agent 请求为空。
+     */
+    public Optional<AgentCollaborationScope> collaborationScope() {
+        return Optional.ofNullable(collaborationScope);
+    }
+
+    /**
+     * 为成员 Agent 构建隔离的子执行上下文。
+     *
+     * <p>父子上下文共享 executionId、持久化轮次和 Token 累加器；变量容器、调用路径
+     * 与文本发布策略相互隔离。</p>
+     */
+    public ChatExecutionContext forkForDelegation(ApplicationAgentReference target, String task) {
+        AgentCollaborationScope childScope = collaborationScope()
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "当前执行未启用Agent协作"))
+                .delegateTo(target);
+        return new ChatExecutionContext(executionId, runtimeVariables.forkForAgentTask(task), turn, ChatExecutionEventPublisher.suppressText(eventPublisher), childScope, tokenUsageAccumulator);
     }
 
     /**

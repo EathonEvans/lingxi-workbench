@@ -21,7 +21,7 @@ public class RepositoryApplicationAgentReferenceGateway
     /** 通过 Agent 仓储查询 Agent 引用状态。 */
     public Optional<AgentReference> findAgent(Long agentId) {
         return agentRepo.findById(agentId).map(agent -> new AgentReference(
-                agent.getId(),
+                new AgentIdentity(agent.getId(), agent.getName(), agent.getDescription(), agent.getAgentType()),
                 agent.getStatus() == EnableStatus.ACTIVE,
                 agent.getPublishedVersionId()));
     }

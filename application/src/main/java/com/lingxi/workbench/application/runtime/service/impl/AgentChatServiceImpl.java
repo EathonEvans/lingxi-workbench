@@ -1,43 +1,47 @@
 package com.lingxi.workbench.application.runtime.service.impl;
 
+import com.lingxi.workbench.application.runtime.model.AgentCollaborationScope;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
-import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.service.AgentChatService;
 import com.lingxi.workbench.application.runtime.service.AgentRuntimeService;
-import com.lingxi.workbench.application.runtime.service.PromptRuntimeService;
 import com.lingxi.workbench.application.runtime.service.ToolRuntimeService;
+import com.lingxi.workbench.application.runtime.tool.AgentDelegationTool;
 import com.lingxi.workbench.chat.common.enums.RetrievalStatus;
 import com.lingxi.workbench.chat.model.bo.PromptPair;
-import com.lingxi.workbench.chat.model.bo.QueryRewriteConfig;
 import com.lingxi.workbench.chat.model.ccontext.ModelChatContext;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;
-import com.lingxi.workbench.chat.service.ChatProcessChain;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.StreamingChatGateway;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatStreamCommand;
+import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionContext;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolRuntimeConfig;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
+import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.DEFAULT_DELEGATION_RESULT_CHARACTERS;
+import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.DELEGATE_AGENT_TOOL_PREFIX;
+import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.EMPTY_KNOWLEDGE_HINT;
+import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.RETURN_EMPTY_HINT_STRATEGY;
+import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.SUPERVISOR_COLLABORATION_PROMPT;
+import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.TOOL_AUGMENTED_SYSTEM_PROMPT;
 import static com.lingxi.workbench.infra.ai.tool.common.constants.AgentToolLimitConstants.MAX_RESULT_CHARACTERS;
 import static com.lingxi.workbench.infra.ai.tool.common.constants.AgentToolLimitConstants.MAX_TOOL_CALLS;
 import static com.lingxi.workbench.infra.ai.tool.common.constants.AgentToolLimitConstants.MIN_RESULT_CHARACTERS;
 import static com.lingxi.workbench.infra.ai.tool.common.constants.AgentToolLimitConstants.MIN_TOOL_CALLS;
-
-import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.EMPTY_KNOWLEDGE_HINT;
-import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.RETURN_EMPTY_HINT_STRATEGY;
-import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.TOOL_AUGMENTED_SYSTEM_PROMPT;
 
 /**
  * Agent 对话主流程。
@@ -47,7 +51,7 @@ import static com.lingxi.workbench.application.runtime.common.constants.AgentCha
  * <ol>
  *     <li>加载并校验发布后的 AgentVersion；</li>
  *     <li>根据版本配置构建前置处理上下文；</li>
- *     <li>执行记忆、问题改写、知识检索和 Prompt 构建链；</li>
+ *     <li>按 Agent 类型执行前置链：RAG 执行改写与检索，Supervisor 直接构建调度 Prompt；</li>
  *     <li>装配回答模型与工具配置；</li>
  *     <li>调用模型并汇总最终回答和 Token 用量。</li>
  * </ol>
@@ -57,9 +61,8 @@ import static com.lingxi.workbench.application.runtime.common.constants.AgentCha
 public class AgentChatServiceImpl implements AgentChatService {
 
     private final AgentRuntimeService agentRuntimeService;
-    private final PromptRuntimeService promptRuntimeService;
+    private final AgentChatPreparationStrategyRegistry preparationStrategyRegistry;
     private final ModelRuntimeConfigService modelRuntimeConfigService;
-    private final ChatProcessChain chatProcessChain;
     private final StreamingChatGateway streamingChatGateway;
     private final ToolRuntimeService toolRuntimeService;
 
@@ -67,86 +70,35 @@ public class AgentChatServiceImpl implements AgentChatService {
     public String chat(Long agentId, Long agentVersionId, String query, ChatExecutionContext execution) {
         AgentRuntimeSnapshot snapshot = agentRuntimeService.resolveVersion(agentId, agentVersionId);
         AgentRuntimeDefinition definition = snapshot.definition();
-        validateSupported(definition);
+        validateCommon(definition);
         validateEntryQuery(query, execution);
 
-        ModelChatContext chatContext = createChatContext(definition, execution);
-        chatProcessChain.process(chatContext);
+        List<AgentTool> runtimeTools = resolveRuntimeTools(execution, snapshot);
 
-        if (shouldReturnEmptyKnowledgeHint(chatContext, definition)) {
+        ModelChatContext chatContext = preparationStrategyRegistry.require(definition.getAgentType()).prepare(definition, execution);
+
+        if (shouldReturnEmptyKnowledgeHint(chatContext, definition) && runtimeTools.isEmpty()) {
             execution.getEventPublisher().publishText(new ChatStreamChunk(EMPTY_KNOWLEDGE_HINT));
             return EMPTY_KNOWLEDGE_HINT;
         }
 
         PromptPair prompt = chatContext.getPromptPair();
         ChatModelRuntimeConfig modelConfig = applyGenerationPolicy(modelRuntimeConfigService.getChatModelConfig(definition.getChatModelInstanceId()), definition.getGenerationPolicy());
-        return this.generate(execution, definition, prompt, chatContext, modelConfig, timeout(definition));
+        return this.generate(execution, definition, prompt, chatContext, modelConfig, runtimeTools, timeout(definition));
     }
 
     /**
-     * 当前阶段只允许入口 Agent 处理用户原始问题。
+     * 校验方法参数和当前 Agent 变量作用域中的查询一致。
      *
-     * <p>后续支持多 Agent 路由时，应由上层显式构造新的节点输入语义，而不是静默覆盖
-     * RuntimeVariables 中的用户原始问题。</p>
+     * <p>入口作用域保存用户原始问题；成员 Agent 的隔离作用域保存 Supervisor 下发的
+     * 子任务。两者都不能由调用方在执行中途静默覆盖。</p>
      */
     private static void validateEntryQuery(String query, ChatExecutionContext execution) {
         String originalQuery = execution.getRuntimeVariables()
                 .require(RuntimeVariableAccessors.USER_QUERY);
         if (!originalQuery.equals(query)) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "当前阶段仅支持入口Agent使用用户原始query");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "Agent查询与运行时变量作用域不一致");
         }
-    }
-
-    private ModelChatContext createChatContext(AgentRuntimeDefinition definition, ChatExecutionContext execution) {
-        /*
-         * 知识库、Embedding 模型和召回参数必须来自已发布的 AgentVersion 快照。
-         * 对话请求不能覆盖这些字段，确保同一版本能够被稳定复现。
-         */
-        AgentRuntimeDefinition.KnowledgeBinding knowledgeBinding = definition.getKnowledge();
-        AgentRuntimeDefinition.MemoryPolicy memory = definition.getMemoryPolicy();
-        AgentRuntimeDefinition.RetrievalPolicy retrieval = definition.getRetrievalPolicy();
-
-        Boolean memoryEnabled = null;
-        Integer memoryMaxRounds = null;
-        Integer memoryMaxTokens = null;
-        if (Objects.nonNull(memory)) {
-            memoryEnabled = memory.enabled();
-            memoryMaxRounds = memory.maxRounds();
-            memoryMaxTokens = memory.maxTokens();
-        }
-
-        return ModelChatContext.builder()
-                .runtimeVariables(execution.getRuntimeVariables())
-                .knowledgeBaseId(knowledgeBinding.knowledgeBaseId())
-                .embeddingModelInstanceId(knowledgeBinding.embeddingModelInstanceId())
-                .memoryEnabled(memoryEnabled)
-                .memoryMaxRounds(memoryMaxRounds)
-                .memoryMaxTokens(memoryMaxTokens)
-                .queryRewriteConfig(resolveQueryRewriteConfig(definition))
-                .retrievalTopK(retrieval.getTopK())
-                .retrievalSimilarityThreshold(retrieval.getSimilarityThreshold().doubleValue())
-                .retrievalFailureStrategy(retrieval.getFailureStrategy())
-                .systemPrompt(promptRuntimeService.resolvePublished(definition.resolveSystemPromptVersionId()))
-                .userPrompt(resolveUserPrompt(definition).orElse(null))
-                .turn(execution.getTurn())
-                .modelUsageRecorder(execution::recordUsage)
-                .build();
-    }
-
-    private QueryRewriteConfig resolveQueryRewriteConfig(AgentRuntimeDefinition definition) {
-        AgentRuntimeDefinition.RewritePolicy policy = definition.getRewritePolicy();
-        if (Objects.isNull(policy) || !Boolean.TRUE.equals(policy.getEnabled())) {
-            return QueryRewriteConfig.disabled();
-        }
-        ChatModelRuntimeConfig modelConfig = applyRewritePolicy(modelRuntimeConfigService.getChatModelConfig(definition.getRewriteModelInstanceId()), policy);
-        return QueryRewriteConfig.builder().enabled(true).modelConfig(modelConfig).prompt(promptRuntimeService.resolvePublished(definition.getRewritePromptVersionId())).maxHistoryRounds(policy.getMaxHistoryRounds()).maxHistoryTokens(policy.getMaxHistoryTokens()).maxOutputCharacters(policy.getMaxOutputCharacters()).timeoutMillis(policy.getTimeoutMillis()).fallbackToOriginal(Boolean.TRUE.equals(policy.getFallbackToOriginal())).build();
-    }
-
-    private Optional<PromptRuntimeSnapshot> resolveUserPrompt(AgentRuntimeDefinition definition) {
-        if (Objects.isNull(definition.getUserPromptVersionId())) {
-            return Optional.empty();
-        }
-        return Optional.of(promptRuntimeService.resolvePublished(definition.getUserPromptVersionId()));
     }
 
     private static boolean shouldReturnEmptyKnowledgeHint(ModelChatContext context, AgentRuntimeDefinition definition) {
@@ -158,14 +110,14 @@ public class AgentChatServiceImpl implements AgentChatService {
     /**
      * 生成
      */
-    private String generate(ChatExecutionContext execution, AgentRuntimeDefinition definition, PromptPair prompt, ModelChatContext context, ChatModelRuntimeConfig modelConfig, Duration timeout) {
+    private String generate(ChatExecutionContext execution, AgentRuntimeDefinition definition, PromptPair prompt, ModelChatContext context, ChatModelRuntimeConfig modelConfig, List<AgentTool> runtimeTools, Duration timeout) {
         // 构建chat命令
         ChatStreamCommand command = ChatStreamCommand.builder()
                 .prompt(prompt.userPrompt())
-                .systemPrompt(applyToolSystemPolicy(prompt.systemPrompt(), definition))
+                .systemPrompt(applyToolSystemPolicy(prompt.systemPrompt(), runtimeTools))
                 .history(context.getRuntimeVariables().require(RuntimeVariableAccessors.SESSION_HISTORY))
                 .modelConfig(modelConfig)
-                .toolRuntimeConfig(resolveToolRuntimeConfig(execution, definition).orElse(null))
+                .toolRuntimeConfig(resolveToolRuntimeConfig(execution, definition, runtimeTools).orElse(null))
                 .build();
 
         StringBuilder answer = new StringBuilder();
@@ -187,28 +139,64 @@ public class AgentChatServiceImpl implements AgentChatService {
      * <p>该规则必须位于 Agent Prompt 之后，明确工具结果是合法事实来源。
      * 普通 RAG Agent 不追加任何内容，保持已发布 Prompt 的原始行为。</p>
      */
-    private static String applyToolSystemPolicy(String systemPrompt, AgentRuntimeDefinition definition) {
-        if (definition.resolveToolCodes().isEmpty()) {
+    private static String applyToolSystemPolicy(String systemPrompt, List<AgentTool> runtimeTools) {
+        if (runtimeTools.isEmpty()) {
             return systemPrompt;
         }
-        return Optional.ofNullable(systemPrompt)
+        String base = Optional.ofNullable(systemPrompt)
                 .filter(value -> !value.isBlank())
                 .map(value -> value.trim() + "\n\n" + TOOL_AUGMENTED_SYSTEM_PROMPT)
                 .orElse(TOOL_AUGMENTED_SYSTEM_PROMPT);
+        boolean collaborationEnabled = runtimeTools.stream().anyMatch(tool -> tool.definition().getCode().startsWith(DELEGATE_AGENT_TOOL_PREFIX));
+        return collaborationEnabled ? base + "\n\n" + SUPERVISOR_COLLABORATION_PROMPT : base;
     }
 
     /**
-     * 将 AgentVersion 中冻结的工具编码解析为本次请求的 Spring AI ToolCallback。
+     * 合并 Agent 自身工具与 Application 动态成员 Agent 工具。
      */
-    private Optional<AgentToolRuntimeConfig> resolveToolRuntimeConfig(ChatExecutionContext execution, AgentRuntimeDefinition definition) {
-        if (definition.resolveToolCodes().isEmpty()) {
+    private List<AgentTool> resolveRuntimeTools(ChatExecutionContext execution, AgentRuntimeSnapshot snapshot) {
+        List<AgentTool> tools = new ArrayList<>();
+        if (!snapshot.definition().resolveToolCodes().isEmpty()) {
+            tools.addAll(toolRuntimeService.resolveActiveTools(snapshot.definition().resolveToolCodes()));
+        }
+        execution.collaborationScope()
+                .filter(scope -> scope.canDelegate(snapshot.agentId()))
+                .stream()
+                .flatMap(scope -> scope.members().stream())
+                .map(member -> delegationTool(execution, member))
+                .forEach(tools::add);
+        return List.copyOf(tools);
+    }
+
+    private AgentTool delegationTool(ChatExecutionContext execution, ApplicationAgentReference member) {
+        return new AgentDelegationTool(member, input -> {
+            ChatExecutionContext child = execution.forkForDelegation(member, input.getTask());
+            return chat(member.agentId(), member.agentVersionId(), input.getTask(), child);
+        });
+    }
+
+    /** 将本次已解析的全部工具装配为 Spring AI 工具运行配置。 */
+    private Optional<AgentToolRuntimeConfig> resolveToolRuntimeConfig(ChatExecutionContext execution, AgentRuntimeDefinition definition, List<AgentTool> runtimeTools) {
+        if (runtimeTools.isEmpty()) {
             return Optional.empty();
         }
         AgentRuntimeDefinition.ToolPolicy toolPolicy = definition.getToolPolicy();
 
         AgentRuntimeDefinition.RuntimePolicy runtimePolicy = definition.getRuntimePolicy();
+        if (Objects.isNull(runtimePolicy) || Objects.isNull(runtimePolicy.maxModelCalls())) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "启用工具或Agent协作时必须配置模型调用次数限制");
+        }
         int rewriteCalls = rewriteEnabled(definition) ? 1 : 0;
         int generationModelCalls = runtimePolicy.maxModelCalls() - rewriteCalls;
+        int localToolCalls = Optional.ofNullable(toolPolicy).map(AgentRuntimeDefinition.ToolPolicy::maxToolCalls).orElse(0);
+        boolean hasDelegationTools = runtimeTools.stream().anyMatch(tool -> tool.definition().getCode().startsWith(DELEGATE_AGENT_TOOL_PREFIX));
+        int configuredDelegations = hasDelegationTools ? execution.collaborationScope().map(AgentCollaborationScope::maxDelegations).orElse(0) : 0;
+        int configuredToolCalls = Math.max(localToolCalls, configuredDelegations);
+        int maxToolCalls = Math.min(configuredToolCalls, generationModelCalls - 1);
+        if (maxToolCalls < MIN_TOOL_CALLS) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "Supervisor Agent模型调用次数不足以完成协作闭环，请提高运行限制");
+        }
+        int maxResultCharacters = Optional.ofNullable(toolPolicy).map(AgentRuntimeDefinition.ToolPolicy::maxResultCharacters).orElse(DEFAULT_DELEGATION_RESULT_CHARACTERS);
         AgentToolExecutionContext toolExecutionContext = AgentToolExecutionContext.builder()
                 .executionId(execution.getExecutionId())
                 .userId(execution.getRuntimeVariables().require(RuntimeVariableAccessors.USER_ID))
@@ -217,11 +205,11 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .build();
 
         AgentToolRuntimeConfig runtimeConfig = AgentToolRuntimeConfig.builder()
-                .tools(toolRuntimeService.resolveActiveTools(definition.resolveToolCodes()))
+                .tools(runtimeTools)
                 .executionContext(toolExecutionContext)
-                .maxToolCalls(toolPolicy.maxToolCalls())
+                .maxToolCalls(maxToolCalls)
                 .maxModelCalls(generationModelCalls)
-                .maxResultCharacters(toolPolicy.maxResultCharacters())
+                .maxResultCharacters(maxResultCharacters)
                 .eventPublisher(execution.getEventPublisher()::publishTool)
                 .build();
         return Optional.of(runtimeConfig);
@@ -246,15 +234,6 @@ public class AgentChatServiceImpl implements AgentChatService {
         return ChatModelRuntimeConfig.builder().instanceId(source.getInstanceId()).baseUrl(source.getBaseUrl()).apiKey(source.getApiKey()).modelCode(source.getModelCode()).temperature(temperature).topP(topP).maxTokens(maxTokens).stopSequences(source.getStopSequences()).extensionParameters(source.getExtensionParameters()).timeoutSeconds(timeoutSeconds).maxRetries(maxRetries).build();
     }
 
-    private static ChatModelRuntimeConfig applyRewritePolicy(ChatModelRuntimeConfig source, AgentRuntimeDefinition.RewritePolicy policy) {
-        Double temperature = source.getTemperature();
-        if (Objects.nonNull(policy.getTemperature())) {
-            temperature = policy.getTemperature().doubleValue();
-        }
-        int timeoutSeconds = Math.max((policy.getTimeoutMillis() + 999) / 1000, 1);
-        return ChatModelRuntimeConfig.builder().instanceId(source.getInstanceId()).baseUrl(source.getBaseUrl()).apiKey(source.getApiKey()).modelCode(source.getModelCode()).temperature(temperature).topP(source.getTopP()).maxTokens(policy.getMaxOutputTokens()).stopSequences(source.getStopSequences()).extensionParameters(source.getExtensionParameters()).timeoutSeconds(timeoutSeconds).maxRetries(source.getMaxRetries()).build();
-    }
-
     private static Duration timeout(AgentRuntimeDefinition definition) {
         int totalTimeout = Optional.ofNullable(definition.getRuntimePolicy()).map(AgentRuntimeDefinition.RuntimePolicy::totalTimeoutSeconds).orElse(90);
         int generationTimeout = Optional.ofNullable(definition.getGenerationPolicy()).map(AgentRuntimeDefinition.GenerationPolicy::getTimeoutSeconds).orElse(60);
@@ -266,36 +245,14 @@ public class AgentChatServiceImpl implements AgentChatService {
         return Objects.nonNull(definition.getRewritePolicy()) && Boolean.TRUE.equals(definition.getRewritePolicy().getEnabled());
     }
 
-    private static void validateSupported(AgentRuntimeDefinition definition) {
-        if (!"RAG_CHAT".equals(definition.getAgentType())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "当前运行时仅支持RAG_CHAT Agent");
-        }
+    private static void validateCommon(AgentRuntimeDefinition definition) {
         if (Objects.isNull(definition.getChatModelInstanceId()) || Objects.isNull(definition.resolveSystemPromptVersionId())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "AgentVersion缺少模型或SYSTEM Prompt");
         }
         if (Objects.nonNull(definition.getSchemaVersion()) && definition.getSchemaVersion() >= 2 && Objects.isNull(definition.getUserPromptVersionId())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "AgentVersion缺少USER Prompt");
         }
-        AgentRuntimeDefinition.KnowledgeBinding knowledgeBinding = definition.getKnowledge();
-        if (Objects.isNull(knowledgeBinding) || Objects.isNull(knowledgeBinding.knowledgeBaseId()) || Objects.isNull(knowledgeBinding.embeddingModelInstanceId())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "AgentVersion知识库配置不完整");
-        }
-        AgentRuntimeDefinition.RetrievalPolicy retrievalPolicy = definition.getRetrievalPolicy();
-        if (Objects.isNull(retrievalPolicy) || Objects.isNull(retrievalPolicy.getTopK()) || Objects.isNull(retrievalPolicy.getSimilarityThreshold()) || Objects.isNull(retrievalPolicy.getFailureStrategy())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "AgentVersion检索策略不完整");
-        }
-        validateRewritePolicy(definition);
         validateToolPolicy(definition);
-    }
-
-    private static void validateRewritePolicy(AgentRuntimeDefinition definition) {
-        AgentRuntimeDefinition.RewritePolicy rewritePolicy = definition.getRewritePolicy();
-        if (Objects.isNull(rewritePolicy) || !Boolean.TRUE.equals(rewritePolicy.getEnabled())) {
-            return;
-        }
-        if (Objects.isNull(definition.getRewriteModelInstanceId()) || Objects.isNull(definition.getRewritePromptVersionId()) || Objects.isNull(rewritePolicy.getMaxHistoryRounds()) || Objects.isNull(rewritePolicy.getMaxHistoryTokens()) || Objects.isNull(rewritePolicy.getTemperature()) || Objects.isNull(rewritePolicy.getMaxOutputTokens()) || Objects.isNull(rewritePolicy.getMaxOutputCharacters()) || Objects.isNull(rewritePolicy.getTimeoutMillis()) || Objects.isNull(rewritePolicy.getFallbackToOriginal())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "AgentVersion问题改写配置不完整");
-        }
     }
 
     private static void validateToolPolicy(AgentRuntimeDefinition definition) {

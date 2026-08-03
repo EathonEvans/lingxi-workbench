@@ -1,5 +1,6 @@
 package com.lingxi.workbench.admin.agent.service;
 
+import com.lingxi.workbench.admin.agent.common.enums.AgentType;
 import com.lingxi.workbench.admin.agent.model.config.AgentMemoryPolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
@@ -239,6 +240,45 @@ class AgentDraftValidatorTest {
                 "CHAT_MODEL_TOOL_CALLING_REQUIRED"));
     }
 
+    @Test
+    void shouldAcceptSupervisorWithoutKnowledgeAndRetrievalVariables() {
+        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, List.of(variable("user.query", PromptVariableType.STRING, true)));
+        ModelInstanceEntity chatModel = model(CHAT_MODEL_ID, ModelType.CHAT, List.of(ModelCapability.STREAMING, ModelCapability.TOOL_CALLING));
+        chatModel.setMaxTokens(4096);
+        chatModel.setContextWindow(16000);
+        modelRepo.put(chatModel);
+
+        AgentValidationResultVO result = validator.validate(activeAgent(AgentType.SUPERVISOR), validDraft(), null);
+
+        assertTrue(result.valid());
+    }
+
+    @Test
+    void shouldRequireToolCallingCapabilityForSupervisor() {
+        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, List.of(variable("user.query", PromptVariableType.STRING, true)));
+
+        AgentValidationResultVO result = validator.validate(activeAgent(AgentType.SUPERVISOR), validDraft(), null);
+        List<String> issueCodes = result.issues().stream().map(AgentValidationIssueVO::code).toList();
+
+        assertFalse(result.valid());
+        assertTrue(issueCodes.contains("CHAT_MODEL_TOOL_CALLING_REQUIRED"));
+    }
+
+    @Test
+    void shouldRejectKnowledgeVariableInSupervisorUserPrompt() {
+        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, userVariables());
+        ModelInstanceEntity chatModel = model(CHAT_MODEL_ID, ModelType.CHAT, List.of(ModelCapability.STREAMING, ModelCapability.TOOL_CALLING));
+        chatModel.setMaxTokens(4096);
+        chatModel.setContextWindow(16000);
+        modelRepo.put(chatModel);
+
+        AgentValidationResultVO result = validator.validate(activeAgent(AgentType.SUPERVISOR), validDraft(), null);
+        List<String> issueCodes = result.issues().stream().map(AgentValidationIssueVO::code).toList();
+
+        assertFalse(result.valid());
+        assertTrue(issueCodes.contains("USER_PROMPT_VARIABLE_UNAVAILABLE"));
+    }
+
     private void prepareModelsAndKnowledge() {
         ModelInstanceEntity chatModel = model(
                 CHAT_MODEL_ID,
@@ -292,8 +332,13 @@ class AgentDraftValidatorTest {
     }
 
     private static AgentEntity activeAgent() {
+        return activeAgent(AgentType.RAG_CHAT);
+    }
+
+    private static AgentEntity activeAgent(AgentType agentType) {
         AgentEntity agent = new AgentEntity();
         agent.setStatus(EnableStatus.ACTIVE);
+        agent.setAgentType(agentType);
         return agent;
     }
 

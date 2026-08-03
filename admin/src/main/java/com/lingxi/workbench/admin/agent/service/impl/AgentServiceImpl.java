@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.agent.service.impl;
 
 import cn.hutool.core.text.CharSequenceUtil;
+import com.lingxi.workbench.admin.agent.common.enums.AgentType;
 import com.lingxi.workbench.admin.agent.common.enums.KnowledgeBindingMode;
 import com.lingxi.workbench.admin.agent.model.config.AgentDefinition;
 import com.lingxi.workbench.admin.agent.model.config.AgentKnowledgeBinding;
@@ -189,9 +190,8 @@ public class AgentServiceImpl implements AgentService {
     @Override
     @Transactional
     /** 保存 Agent 草稿配置，以 revision 做乐观锁防止并发覆盖，同步更新知识库绑定。 */
-    public AgentDetailVO saveDraft(
-            Long id, SaveAgentDraftRequest request, Long operatorId) {
-        requireAgent(id);
+    public AgentDetailVO saveDraft(Long id, SaveAgentDraftRequest request, Long operatorId) {
+        AgentEntity agent = requireAgent(id);
         AgentDraftEntity draft = draftRepo.findByAgentIdForUpdate(id)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.CONFLICT, "Agent草稿不存在"));
@@ -201,15 +201,12 @@ public class AgentServiceImpl implements AgentService {
         }
 
         draft.setChatModelInstanceId(request.getChatModelInstanceId());
-        draft.setRewriteModelInstanceId(request.getRewriteModelInstanceId());
         draft.setSystemPromptVersionId(request.getSystemPromptVersionId());
         draft.setUserPromptVersionId(request.getUserPromptVersionId());
-        draft.setRewritePromptVersionId(request.getRewritePromptVersionId());
         draft.setToolCodes(request.getToolCodes().stream().distinct().toList());
         draft.setToolPolicy(request.getToolPolicy());
         draft.setMemoryPolicy(request.getMemoryPolicy());
-        draft.setRewritePolicy(request.getRewritePolicy());
-        draft.setRetrievalPolicy(request.getRetrievalPolicy());
+        applyTypeSpecificDraft(agent.getAgentType(), draft, request);
         draft.setGenerationPolicy(request.getGenerationPolicy());
         draft.setRuntimePolicy(request.getRuntimePolicy());
         draft.setChangeNote(trimToNull(request.getChangeNote()));
@@ -218,7 +215,7 @@ public class AgentServiceImpl implements AgentService {
             throw new BusinessException(
                     HttpStatusEnum.CONFLICT, "Agent草稿已被其他操作修改，请刷新后重试");
         }
-        saveKnowledgeBinding(draft, request.getKnowledgeBaseId());
+        saveKnowledgeBinding(agent.getAgentType(), draft, request.getKnowledgeBaseId());
         auditService.record(
                 "AGENT", "AGENT_DRAFT", draft.getId(), operatorId, "AGENT_DRAFT_SAVE",
                 "Agent主键=" + id + "，revision=" + (request.getExpectedRevision() + 1));
@@ -328,7 +325,25 @@ public class AgentServiceImpl implements AgentService {
                 "Agent编码=" + agent.getCode() + "，状态=" + status.getCode());
     }
 
-    private void saveKnowledgeBinding(AgentDraftEntity draft, Long knowledgeBaseId) {
+    private static void applyTypeSpecificDraft(AgentType agentType, AgentDraftEntity draft, SaveAgentDraftRequest request) {
+        if (agentType == AgentType.SUPERVISOR) {
+            draft.setRewriteModelInstanceId(null);
+            draft.setRewritePromptVersionId(null);
+            draft.setRewritePolicy(QueryRewritePolicy.defaults());
+            draft.setRetrievalPolicy(RetrievalPolicy.defaults());
+            return;
+        }
+        draft.setRewriteModelInstanceId(request.getRewriteModelInstanceId());
+        draft.setRewritePromptVersionId(request.getRewritePromptVersionId());
+        draft.setRewritePolicy(request.getRewritePolicy());
+        draft.setRetrievalPolicy(request.getRetrievalPolicy());
+    }
+
+    private void saveKnowledgeBinding(AgentType agentType, AgentDraftEntity draft, Long knowledgeBaseId) {
+        if (agentType == AgentType.SUPERVISOR) {
+            draftKnowledgeRepo.deleteByDraftId(draft.getId());
+            return;
+        }
         if (Objects.isNull(knowledgeBaseId)) {
             draftKnowledgeRepo.deleteByDraftId(draft.getId());
             return;
@@ -350,36 +365,48 @@ public class AgentServiceImpl implements AgentService {
         draftKnowledgeRepo.save(binding);
     }
 
-    private static AgentDefinition buildDefinition(
-            AgentEntity agent,
-            AgentDraftEntity draft,
-            AgentDraftKnowledgeEntity knowledge) {
-        return AgentDefinition.builder()
+    private static AgentDefinition buildDefinition(AgentEntity agent, AgentDraftEntity draft, AgentDraftKnowledgeEntity knowledge) {
+        AgentDefinition.AgentDefinitionBuilder builder = AgentDefinition.builder()
                 .schemaVersion(draft.getSchemaVersion())
                 .agentType(agent.getAgentType())
                 .chatModelInstanceId(draft.getChatModelInstanceId())
-                .rewriteModelInstanceId(draft.getRewriteModelInstanceId())
                 .systemPromptVersionId(draft.getSystemPromptVersionId())
                 .userPromptVersionId(draft.getUserPromptVersionId())
-                .rewritePromptVersionId(draft.getRewritePromptVersionId())
                 .toolCodes(List.copyOf(draft.getToolCodes()))
                 .toolPolicy(draft.getToolPolicy())
-                .knowledge(AgentKnowledgeBinding.builder()
-                        .knowledgeBaseId(knowledge.getKnowledgeBaseId())
-                        .embeddingModelInstanceId(knowledge.getEmbeddingModelInstanceId())
-                        .bindingMode(knowledge.getBindingMode())
-                        .priority(knowledge.getPriority())
-                        .build())
                 .memoryPolicy(draft.getMemoryPolicy())
+                .generationPolicy(draft.getGenerationPolicy())
+                .runtimePolicy(draft.getRuntimePolicy());
+        if (agent.getAgentType() == AgentType.SUPERVISOR) {
+            return builder
+                    .rewritePolicy(QueryRewritePolicy.defaults())
+                    .build();
+        }
+        return builder
+                .rewriteModelInstanceId(draft.getRewriteModelInstanceId())
+                .rewritePromptVersionId(draft.getRewritePromptVersionId())
+                .knowledge(toKnowledgeBinding(knowledge))
                 .rewritePolicy(draft.getRewritePolicy())
                 .retrievalPolicy(draft.getRetrievalPolicy())
-                .generationPolicy(draft.getGenerationPolicy())
-                .runtimePolicy(draft.getRuntimePolicy())
                 .build();
     }
 
-    private void insertVersionKnowledge(
-            Long versionId, AgentDraftKnowledgeEntity knowledge) {
+    private static AgentKnowledgeBinding toKnowledgeBinding(AgentDraftKnowledgeEntity knowledge) {
+        if (Objects.isNull(knowledge)) {
+            return null;
+        }
+        return AgentKnowledgeBinding.builder()
+                .knowledgeBaseId(knowledge.getKnowledgeBaseId())
+                .embeddingModelInstanceId(knowledge.getEmbeddingModelInstanceId())
+                .bindingMode(knowledge.getBindingMode())
+                .priority(knowledge.getPriority())
+                .build();
+    }
+
+    private void insertVersionKnowledge(Long versionId, AgentDraftKnowledgeEntity knowledge) {
+        if (Objects.isNull(knowledge)) {
+            return;
+        }
         AgentVersionKnowledgeEntity versionKnowledge = new AgentVersionKnowledgeEntity();
         versionKnowledge.setAgentVersionId(versionId);
         versionKnowledge.setKnowledgeBaseId(knowledge.getKnowledgeBaseId());

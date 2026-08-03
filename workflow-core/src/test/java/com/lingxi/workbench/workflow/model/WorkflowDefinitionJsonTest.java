@@ -74,7 +74,10 @@ class WorkflowDefinitionJsonTest {
                 List.of(
                         WorkflowEdgeDefinition.direct("start", "agent"),
                         WorkflowEdgeDefinition.direct("agent", "end")));
-        ApplicationDefinition source = new ApplicationDefinition(1, workflow);
+        ApplicationAgentReference supervisor = new ApplicationAgentReference(9007199254740993L, 9007199254740995L, "协调Agent", "负责规划与汇总");
+        ApplicationAgentReference member = new ApplicationAgentReference(9007199254740997L, 9007199254740999L, "售后专家", "处理售后问题");
+        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true, supervisor, List.of(member), new AgentCollaborationLimits(3, 1));
+        ApplicationDefinition source = new ApplicationDefinition(2, workflow, collaboration);
 
         String json = JSON.toJSONString(source);
         ApplicationDefinition restored =
@@ -86,6 +89,8 @@ class WorkflowDefinitionJsonTest {
                 restored.workflow().nodes().get(1).config();
         assertThat(restoredConfig.agentId()).isEqualTo(9007199254740993L);
         assertThat(restoredConfig.agentVersionId()).isEqualTo(9007199254740995L);
+        assertThat(restored.collaboration().members().getFirst().agentId()).isEqualTo(9007199254740997L);
+        assertThat(json).contains("\"agentVersionId\":\"9007199254740999\"");
     }
 
     @Test

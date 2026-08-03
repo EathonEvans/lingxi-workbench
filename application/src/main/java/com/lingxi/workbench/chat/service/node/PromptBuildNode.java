@@ -7,11 +7,14 @@ import com.lingxi.workbench.chat.service.AbstractChatProcessNode;
 import com.lingxi.workbench.chat.service.PromptBuilderService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.config.ConfigurableBeanFactory;
+import org.springframework.context.annotation.Scope;
 
 /**
  * 将用户问题和召回片段构建为最终模型 Prompt。
  */
 @Component
+@Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
 @RequiredArgsConstructor
 public class PromptBuildNode extends AbstractChatProcessNode {
 
