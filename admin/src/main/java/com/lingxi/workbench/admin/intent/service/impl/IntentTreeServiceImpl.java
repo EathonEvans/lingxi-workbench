@@ -53,7 +53,34 @@ import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/** 意图树控制面业务实现。 */
+/**
+ * 意图树控制面核心业务实现。
+ *
+ * <p>提供意图树的完整生命周期管理：</p>
+ * <ul>
+ *   <li><b>创建与更新</b>：创建主记录（名称/编码/描述），
+ *       更新元信息</li>
+ *   <li><b>草稿管理</b>：保存和读取 IntentTreeDraft（定义 + Embedding 模型绑定），
+ *       使用 optimistic revision 防止并发覆盖</li>
+ *   <li><b>校验</b>：委托 {@link IntentTreeDefinitionValidator} 校验
+ *       树结构、编码唯一性、深度限制、槽位合法性等</li>
+ *   <li><b>发布</b>：在事务中执行：二次校验 revision 和 sourceHash
+ *       → 生成不可变版本快照 → 写入版本表和向量表 → 更新 publishedVersionId。
+ *       Embedding 调用在事务外批量执行，失败时不破坏已有版本。</li>
+ *   <li><b>版本管理</b>：查询版本列表、切换生效版本、查看版本详情</li>
+ *   <li><b>停用/启用</b>：停用后不能被新的 Application 绑定，但不影响已有绑定</li>
+ * </ul>
+ *
+ * <p>关键并发控制：保存草稿使用 expectedRevision 乐观锁；
+ * 发布时在事务内二次读取并校验 revision 和 sourceHash，
+ * 避免 Embedding 调用期间草稿被并发修改。</p>
+ *
+ * <p>向量化流程：发布时读取草稿中的意图节点
+ * → {@link IntentVectorSourceBuilder} 为每个启用叶子生成
+ * PROTOTYPE 和 EXAMPLE 语义文本 → 批量调用 {@code EmbeddingGateway}
+ * → 事务内原子写入版本 + 向量 + 版本指针。</p>
+ */
+
 @Service
 @RequiredArgsConstructor
 public class IntentTreeServiceImpl implements IntentTreeService {
