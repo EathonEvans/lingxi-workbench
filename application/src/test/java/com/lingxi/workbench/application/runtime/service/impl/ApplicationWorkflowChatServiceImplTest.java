@@ -51,13 +51,16 @@ class ApplicationWorkflowChatServiceImplTest {
                         executor,
                         agentRuntimeService(),
                         registry,
-                        new RuntimeVariablesInitializer("Lingxi Workbench"));
+                        new RuntimeVariablesInitializer("Lingxi Workbench"),
+                        (application, query, loginUser, turn, response) ->
+                                com.lingxi.workbench.application.runtime.model.IntentRoutingResult.workflow(null, query));
 
         WorkflowChatResult result = service.execute(
                 snapshot(),
                 "问题",
                 new LoginUser(7L, "tester", "测试用户", null),
                 new ChatTurnBO(10L, 11L, 12L, 3),
+                null,
                 ChatExecutionEventPublisher.noop());
 
         assertEquals("工作流回答", result.answer());
@@ -73,7 +76,9 @@ class ApplicationWorkflowChatServiceImplTest {
                         (definition, request) -> null,
                         agentRuntimeService(),
                         new ChatExecutionContextRegistry(),
-                        new RuntimeVariablesInitializer("Lingxi Workbench"));
+                        new RuntimeVariablesInitializer("Lingxi Workbench"),
+                        (application, query, loginUser, turn, response) ->
+                                com.lingxi.workbench.application.runtime.model.IntentRoutingResult.workflow(null, query));
 
         assertEquals(99L, service.resolveEntryModelInstanceId(snapshot()));
     }

@@ -12,19 +12,28 @@ import com.lingxi.workbench.workflow.model.WorkflowNodeType;
 import com.lingxi.workbench.workflow.model.config.AgentNodeConfig;
 import com.lingxi.workbench.workflow.model.config.EndNodeConfig;
 import com.lingxi.workbench.workflow.model.config.StartNodeConfig;
+import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
+import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
+import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
+import com.lingxi.workbench.workflow.model.intent.IntentFallbackPolicy;
+import com.lingxi.workbench.workflow.model.intent.IntentNodeDefinition;
+import com.lingxi.workbench.workflow.model.intent.IntentNodeType;
+import com.lingxi.workbench.workflow.model.intent.IntentRoutingPolicy;
+import com.lingxi.workbench.workflow.model.intent.IntentTreeDefinition;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ApplicationDraftValidatorTest {
     private final StubAgentReferenceGateway gateway = new StubAgentReferenceGateway();
     private final ApplicationDraftValidator validator =
-            new ApplicationDraftValidator(gateway);
+            new ApplicationDraftValidator(gateway, intentTreeId -> Optional.empty());
 
     @Test
     void shouldLockCurrentPublishedAgentVersion() {
@@ -121,6 +130,44 @@ class ApplicationDraftValidatorTest {
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(issue -> issue.code()).contains("COLLABORATION_AGENT_TYPE_INVALID");
+    }
+
+    @Test
+    void shouldLockPublishedIntentTreeVersionAndValidateLeafMappings() {
+        gateway.addAgent(10L, true, 101L);
+        gateway.addVersion(10L, 101L);
+        IntentNodeDefinition leaf = IntentNodeDefinition.builder()
+                .id("refund-node")
+                .code("refund")
+                .name("申请退款")
+                .description("退款")
+                .nodeType(IntentNodeType.LEAF)
+                .enabled(true)
+                .build();
+        IntentTreeDefinition treeDefinition = new IntentTreeDefinition(
+                1,
+                88L,
+                new IntentRoutingPolicy(5, new BigDecimal("0.65"), new BigDecimal("0.08")),
+                List.of(leaf));
+        ApplicationDraftValidator intentValidator = new ApplicationDraftValidator(
+                gateway,
+                intentTreeId -> Optional.of(new ApplicationIntentTreeReferenceGateway.IntentTreeReference(
+                        intentTreeId, true, 200L, treeDefinition)));
+        ApplicationIntentBinding binding = ApplicationIntentBinding.builder()
+                .enabled(true)
+                .intentTreeId(2L)
+                .fallbackPolicy(new IntentFallbackPolicy("未识别", "澄清失败"))
+                .mappings(List.of(ApplicationIntentMapping.builder()
+                        .intentCode("refund")
+                        .targetType(IntentExecutionTargetType.WORKFLOW)
+                        .build()))
+                .build();
+
+        ApplicationDefinitionResolution result = intentValidator.resolveForPublish(
+                new ApplicationDefinition(2, definition(null).workflow(), null, binding));
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.definition().intentBinding().getIntentTreeVersionId()).isEqualTo(200L);
     }
 
     private static ApplicationDefinition definition(Long versionId) {

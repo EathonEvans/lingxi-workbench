@@ -1,5 +1,7 @@
 package com.lingxi.workbench.workflow.model;
 
+import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
+
 /**
  * Application 发布版本中的完整行为定义。
  *
@@ -9,10 +11,19 @@ package com.lingxi.workbench.workflow.model;
 public record ApplicationDefinition(
         int schemaVersion,
         WorkflowDefinition workflow,
-        AgentCollaborationDefinition collaboration) {
+        AgentCollaborationDefinition collaboration,
+        ApplicationIntentBinding intentBinding) {
 
     /** 兼容既有 V1 快照和调用方。 */
     public ApplicationDefinition(int schemaVersion, WorkflowDefinition workflow) {
-        this(schemaVersion, workflow, null);
+        this(schemaVersion, workflow, null, null);
+    }
+
+    /** 兼容既有协作快照和调用方。 */
+    public ApplicationDefinition(
+            int schemaVersion,
+            WorkflowDefinition workflow,
+            AgentCollaborationDefinition collaboration) {
+        this(schemaVersion, workflow, collaboration, null);
     }
 }

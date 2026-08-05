@@ -11,6 +11,7 @@ public enum RuntimeVariableGroup {
     SYSTEM("system", "系统变量", 10),
     APP("app", "应用变量", 20),
     AGENT("agent", "Agent变量", 30),
+    COLLABORATION("collaboration", "Agent协作", 35),
     USER("user", "用户变量", 40),
     INPUT("input", "输入变量", 50),
     SESSION("session", "会话变量", 60),

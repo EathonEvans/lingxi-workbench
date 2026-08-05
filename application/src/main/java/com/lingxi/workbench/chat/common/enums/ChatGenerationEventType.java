@@ -11,6 +11,8 @@ public enum ChatGenerationEventType {
     CHUNK("CHUNK", "文本增量"),
     /** Agent 工具执行状态。 */
     TOOL("TOOL", "工具状态"),
+    /** 需要用户补充意图或槽位。 */
+    CLARIFICATION("CLARIFICATION", "澄清问题"),
     /** 从数据库恢复的完整或部分回答快照。 */
     SNAPSHOT("SNAPSHOT", "回答快照"),
     /** 模型回答生成完成。 */

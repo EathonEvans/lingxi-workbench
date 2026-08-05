@@ -72,6 +72,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         AgentRuntimeDefinition definition = snapshot.definition();
         validateCommon(definition);
         validateEntryQuery(query, execution);
+        prepareCollaborationVariables(agentId, execution);
 
         List<AgentTool> runtimeTools = resolveRuntimeTools(execution, snapshot);
 
@@ -99,6 +100,20 @@ public class AgentChatServiceImpl implements AgentChatService {
         if (!originalQuery.equals(query)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "Agent查询与运行时变量作用域不一致");
         }
+    }
+
+    /**
+     * 从Application发布快照注入仅属于Supervisor根调用的协作变量。
+     *
+     * <p>成员Agent的隔离变量容器不会继承该变量，防止普通Agent Prompt误用
+     * Supervisor的委派额度。</p>
+     */
+    private static void prepareCollaborationVariables(Long agentId, ChatExecutionContext execution) {
+        execution.collaborationScope()
+                .filter(scope -> scope.canDelegate(agentId))
+                .ifPresent(scope -> execution.getRuntimeVariables().put(
+                        RuntimeVariableAccessors.COLLABORATION_MAX_DELEGATIONS,
+                        scope.maxDelegations()));
     }
 
     private static boolean shouldReturnEmptyKnowledgeHint(ModelChatContext context, AgentRuntimeDefinition definition) {

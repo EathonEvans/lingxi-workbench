@@ -69,6 +69,16 @@ public enum BuiltInRuntimeVariable {
             RuntimeVariableChannel.USER_PROMPT,
             RuntimeVariableChannel.QUERY_REWRITE_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
+    COLLABORATION_MAX_DELEGATIONS(
+            RuntimeVariableGroup.COLLABORATION,
+            "max_delegations",
+            "最大委派次数",
+            PromptVariableDataType.INTEGER,
+            "当前Application发布快照允许的最大成员Agent委派次数",
+            RuntimeVariableProducer.APPLICATION_SNAPSHOT,
+            RuntimeVariableChannel.SYSTEM_PROMPT,
+            RuntimeVariableChannel.USER_PROMPT,
+            RuntimeVariableChannel.NODE_CONTEXT),
     USER_ID(
             RuntimeVariableGroup.USER,
             "id",

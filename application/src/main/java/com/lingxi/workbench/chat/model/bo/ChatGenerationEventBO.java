@@ -2,64 +2,76 @@ package com.lingxi.workbench.chat.model.bo;
 
 import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
+import lombok.EqualsAndHashCode;
 
-/**
- * 模型生成任务向观察者发布的事件。
- *
- * @param type     事件类型：CHUNK / SNAPSHOT / COMPLETED / FAILED / CANCELLED
- * @param sequence 当前任务内单调递增的增量序号
- * @param content  文本增量或快照内容
- * @param tool     工具状态事件，仅 TOOL 类型非空
- */
-public record ChatGenerationEventBO(
-        /** 事件类型：CHUNK / SNAPSHOT / COMPLETED / FAILED / CANCELLED。 */
-        ChatGenerationEventType type,
-        /** 当前任务内单调递增的增量序号。 */
-        long sequence,
-        /** 文本增量或快照内容。 */
-        String content,
-        /** 工具状态事件，仅 TOOL 类型非空。 */
-        AgentToolExecutionEvent tool) {
+/** 模型生成任务向观察者发布的安全事件。 */
+@EqualsAndHashCode
+public final class ChatGenerationEventBO {
 
-    /**
-     * 创建文本增量事件。
-     */
+    private final ChatGenerationEventType type;
+    private final long sequence;
+    private final String content;
+    private final AgentToolExecutionEvent tool;
+    private final ChatClarificationEventBO clarification;
+
+    private ChatGenerationEventBO(
+            ChatGenerationEventType type,
+            long sequence,
+            String content,
+            AgentToolExecutionEvent tool,
+            ChatClarificationEventBO clarification) {
+        this.type = type;
+        this.sequence = sequence;
+        this.content = content;
+        this.tool = tool;
+        this.clarification = clarification;
+    }
+
     public static ChatGenerationEventBO chunk(long sequence, String content) {
-        return new ChatGenerationEventBO(ChatGenerationEventType.CHUNK, sequence, content, null);
+        return new ChatGenerationEventBO(ChatGenerationEventType.CHUNK, sequence, content, null, null);
     }
 
-    /**
-     * 创建工具执行状态事件。
-     */
     public static ChatGenerationEventBO tool(long sequence, AgentToolExecutionEvent tool) {
-        return new ChatGenerationEventBO(ChatGenerationEventType.TOOL, sequence, null, tool);
+        return new ChatGenerationEventBO(ChatGenerationEventType.TOOL, sequence, null, tool, null);
     }
 
-    /**
-     * 创建回答快照事件，用于断线重连时恢复已生成内容。
-     */
+    public static ChatGenerationEventBO clarification(long sequence, ChatClarificationEventBO clarification) {
+        return new ChatGenerationEventBO(ChatGenerationEventType.CLARIFICATION, sequence, null, null, clarification);
+    }
+
     public static ChatGenerationEventBO snapshot(String content) {
-        return new ChatGenerationEventBO(ChatGenerationEventType.SNAPSHOT, 0, content, null);
+        return new ChatGenerationEventBO(ChatGenerationEventType.SNAPSHOT, 0, content, null, null);
     }
 
-    /**
-     * 创建生成完成事件。
-     */
     public static ChatGenerationEventBO completed() {
-        return new ChatGenerationEventBO(ChatGenerationEventType.COMPLETED, 0, null, null);
+        return new ChatGenerationEventBO(ChatGenerationEventType.COMPLETED, 0, null, null, null);
     }
 
-    /**
-     * 创建生成失败事件。
-     */
     public static ChatGenerationEventBO failed() {
-        return new ChatGenerationEventBO(ChatGenerationEventType.FAILED, 0, null, null);
+        return new ChatGenerationEventBO(ChatGenerationEventType.FAILED, 0, null, null, null);
     }
 
-    /**
-     * 创建用户主动取消生成事件。
-     */
     public static ChatGenerationEventBO cancelled() {
-        return new ChatGenerationEventBO(ChatGenerationEventType.CANCELLED, 0, null, null);
+        return new ChatGenerationEventBO(ChatGenerationEventType.CANCELLED, 0, null, null, null);
+    }
+
+    public ChatGenerationEventType type() {
+        return type;
+    }
+
+    public long sequence() {
+        return sequence;
+    }
+
+    public String content() {
+        return content;
+    }
+
+    public AgentToolExecutionEvent tool() {
+        return tool;
+    }
+
+    public ChatClarificationEventBO clarification() {
+        return clarification;
     }
 }

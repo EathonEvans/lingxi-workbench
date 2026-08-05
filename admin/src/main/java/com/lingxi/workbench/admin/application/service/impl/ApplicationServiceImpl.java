@@ -203,7 +203,11 @@ public class ApplicationServiceImpl implements ApplicationService {
                     "Application草稿已被其他操作修改，请刷新后重试");
         }
         draft.setSchemaVersion(APPLICATION_SCHEMA_VERSION);
-        draft.setDefinition(new ApplicationDefinition(APPLICATION_SCHEMA_VERSION, request.getWorkflow(), request.getCollaboration()));
+        draft.setDefinition(new ApplicationDefinition(
+                APPLICATION_SCHEMA_VERSION,
+                request.getWorkflow(),
+                request.getCollaboration(),
+                request.getIntentBinding()));
         draft.setChangeNote(trimToNull(request.getChangeNote()));
         draft.setUpdatedBy(operatorId);
         if (!draftRepo.updateWithRevision(draft, request.getExpectedRevision())) {

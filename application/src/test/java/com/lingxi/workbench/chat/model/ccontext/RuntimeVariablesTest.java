@@ -27,6 +27,7 @@ class RuntimeVariablesTest {
         RuntimeVariables variables = new RuntimeVariables();
         variables.put(RuntimeVariableAccessors.USER_ID, 7L);
         variables.put(RuntimeVariableAccessors.USER_QUERY, "如何退款");
+        variables.put(RuntimeVariableAccessors.COLLABORATION_MAX_DELEGATIONS, 3);
         variables.put(
                 RuntimeVariableAccessors.SESSION_HISTORY,
                 List.of(new ChatHistoryMessage(
@@ -37,6 +38,11 @@ class RuntimeVariablesTest {
         assertEquals(
                 "如何退款",
                 variables.require(RuntimeVariableAccessors.USER_QUERY));
+        assertEquals(3, variables.require(RuntimeVariableAccessors.COLLABORATION_MAX_DELEGATIONS));
+        assertEquals(
+                "3",
+                variables.render(BuiltInRuntimeVariable.COLLABORATION_MAX_DELEGATIONS)
+                        .orElseThrow());
         assertEquals(
                 "历史问题",
                 variables.require(RuntimeVariableAccessors.SESSION_HISTORY)
@@ -83,6 +89,7 @@ class RuntimeVariablesTest {
         variables.put(RuntimeVariableAccessors.USER_NAME, "测试用户");
         variables.put(RuntimeVariableAccessors.USER_QUERY, "原始问题");
         variables.put(RuntimeVariableAccessors.SESSION_ID, 10L);
+        variables.put(RuntimeVariableAccessors.COLLABORATION_MAX_DELEGATIONS, 3);
         variables.put(RuntimeVariableAccessors.SESSION_HISTORY, List.of(new ChatHistoryMessage(ChatHistoryMessage.Role.USER, "父Agent历史")));
         variables.put(RuntimeVariableAccessors.KNOWLEDGE_RETRIEVAL_QUERY, "父Agent检索问题");
 
@@ -92,5 +99,6 @@ class RuntimeVariablesTest {
         assertEquals("独立子任务", child.require(RuntimeVariableAccessors.USER_QUERY));
         assertTrue(child.find(RuntimeVariableAccessors.SESSION_HISTORY).isEmpty());
         assertTrue(child.find(RuntimeVariableAccessors.KNOWLEDGE_RETRIEVAL_QUERY).isEmpty());
+        assertTrue(child.find(RuntimeVariableAccessors.COLLABORATION_MAX_DELEGATIONS).isEmpty());
     }
 }

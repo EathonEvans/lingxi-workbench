@@ -11,6 +11,12 @@ import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowNodeDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowNodeType;
 import com.lingxi.workbench.workflow.model.config.AgentNodeConfig;
+import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
+import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
+import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
+import com.lingxi.workbench.workflow.model.intent.IntentFallbackPolicy;
+import com.lingxi.workbench.workflow.model.intent.IntentNodeDefinition;
+import com.lingxi.workbench.workflow.model.intent.IntentNodeType;
 import com.lingxi.workbench.workflow.service.WorkflowDefinitionValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -37,6 +43,7 @@ import static com.lingxi.workbench.workflow.common.constants.ApplicationCollabor
 @RequiredArgsConstructor
 public class ApplicationDraftValidator {
     private final ApplicationAgentReferenceGateway agentReferenceGateway;
+    private final ApplicationIntentTreeReferenceGateway intentTreeReferenceGateway;
     private final WorkflowDefinitionValidator workflowValidator =
             new WorkflowDefinitionValidator();
 
@@ -100,10 +107,149 @@ public class ApplicationDraftValidator {
             return new ApplicationDefinitionResolution(null, issues);
         }
         AgentCollaborationDefinition collaboration = resolveCollaboration(draftDefinition.collaboration(), resolvedWorkflow, issues);
+        ApplicationIntentBinding intentBinding = resolveIntentBinding(
+                draftDefinition.intentBinding(), issues);
         if (!issues.isEmpty()) {
             return new ApplicationDefinitionResolution(null, issues);
         }
-        return new ApplicationDefinitionResolution(new ApplicationDefinition(APPLICATION_SCHEMA_VERSION, resolvedWorkflow, collaboration), issues);
+        return new ApplicationDefinitionResolution(new ApplicationDefinition(
+                APPLICATION_SCHEMA_VERSION,
+                resolvedWorkflow,
+                collaboration,
+                intentBinding), issues);
+    }
+
+    /** 校验并锁定意图树版本、叶子映射和 Agent 目标版本。 */
+    private ApplicationIntentBinding resolveIntentBinding(
+            ApplicationIntentBinding draft,
+            List<ApplicationValidationIssueVO> issues) {
+        if (Objects.isNull(draft) || !draft.isEnabled()) {
+            return null;
+        }
+        if (Objects.isNull(draft.getIntentTreeId())) {
+            issues.add(issue("INTENT_TREE_REQUIRED", "definition.intentBinding.intentTreeId", "请选择意图树"));
+            return null;
+        }
+        ApplicationIntentTreeReferenceGateway.IntentTreeReference tree = intentTreeReferenceGateway
+                .findPublishedTree(draft.getIntentTreeId())
+                .orElse(null);
+        if (Objects.isNull(tree)) {
+            issues.add(issue("INTENT_TREE_NOT_FOUND", "definition.intentBinding.intentTreeId", "意图树不存在"));
+            return null;
+        }
+        if (!tree.active()) {
+            issues.add(issue("INTENT_TREE_DISABLED", "definition.intentBinding.intentTreeId", "意图树已停用"));
+        }
+        if (Objects.isNull(tree.versionId()) || Objects.isNull(tree.definition())) {
+            issues.add(issue("INTENT_TREE_UNPUBLISHED", "definition.intentBinding.intentTreeId", "意图树尚无可用正式版本"));
+            return null;
+        }
+        validateFallback(draft.getFallbackPolicy(), issues);
+
+        Set<String> leafCodes = tree.definition().nodes().stream()
+                .filter(IntentNodeDefinition::isEnabled)
+                .filter(node -> node.getNodeType() == IntentNodeType.LEAF)
+                .map(IntentNodeDefinition::getCode)
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        List<ApplicationIntentMapping> resolvedMappings = new ArrayList<>();
+        Set<String> mappedCodes = new HashSet<>();
+        List<ApplicationIntentMapping> mappings = draft.mappings();
+        for (int index = 0; index < mappings.size(); index++) {
+            ApplicationIntentMapping mapping = mappings.get(index);
+            String field = "definition.intentBinding.mappings[" + index + "]";
+            if (Objects.isNull(mapping) || !leafCodes.contains(mapping.getIntentCode())) {
+                issues.add(issue("INTENT_MAPPING_UNKNOWN", field + ".intentCode", "映射必须引用当前正式版本中的启用叶子意图"));
+                continue;
+            }
+            if (!mappedCodes.add(mapping.getIntentCode())) {
+                issues.add(issue("INTENT_MAPPING_DUPLICATED", field + ".intentCode", "同一叶子意图不能重复映射"));
+                continue;
+            }
+            ApplicationIntentMapping resolved = resolveIntentTarget(mapping, field, issues);
+            if (Objects.nonNull(resolved)) {
+                resolvedMappings.add(resolved);
+            }
+        }
+        for (String leafCode : leafCodes) {
+            if (!mappedCodes.contains(leafCode)) {
+                issues.add(issue("INTENT_MAPPING_REQUIRED", "definition.intentBinding.mappings", "启用叶子意图缺少执行映射：" + leafCode));
+            }
+        }
+        if (!issues.isEmpty()) {
+            return null;
+        }
+        return ApplicationIntentBinding.builder()
+                .enabled(true)
+                .intentTreeId(tree.intentTreeId())
+                .intentTreeVersionId(tree.versionId())
+                .fallbackPolicy(draft.getFallbackPolicy())
+                .mappings(resolvedMappings)
+                .build();
+    }
+
+    private ApplicationIntentMapping resolveIntentTarget(
+            ApplicationIntentMapping mapping,
+            String field,
+            List<ApplicationValidationIssueVO> issues) {
+        if (Objects.isNull(mapping.getTargetType())) {
+            issues.add(issue("INTENT_TARGET_REQUIRED", field + ".targetType", "请选择意图执行目标"));
+            return null;
+        }
+        if (mapping.getTargetType() == IntentExecutionTargetType.WORKFLOW) {
+            return ApplicationIntentMapping.builder()
+                    .intentCode(mapping.getIntentCode())
+                    .targetType(IntentExecutionTargetType.WORKFLOW)
+                    .build();
+        }
+        if (mapping.getTargetType() == IntentExecutionTargetType.FIXED_RESPONSE) {
+            if (isBlank(mapping.getFixedResponse())) {
+                issues.add(issue("FIXED_RESPONSE_REQUIRED", field + ".fixedResponse", "固定答复不能为空"));
+                return null;
+            }
+            return ApplicationIntentMapping.builder()
+                    .intentCode(mapping.getIntentCode())
+                    .targetType(IntentExecutionTargetType.FIXED_RESPONSE)
+                    .fixedResponse(mapping.getFixedResponse().trim())
+                    .build();
+        }
+        if (Objects.isNull(mapping.getTargetId())) {
+            issues.add(issue("INTENT_AGENT_REQUIRED", field + ".targetId", "请选择目标Agent"));
+            return null;
+        }
+        ApplicationAgentReferenceGateway.AgentReference agent = agentReferenceGateway
+                .findAgent(mapping.getTargetId())
+                .orElse(null);
+        if (Objects.isNull(agent) || !agent.active()) {
+            issues.add(issue("INTENT_AGENT_UNAVAILABLE", field + ".targetId", "目标Agent不存在或已停用"));
+            return null;
+        }
+        Long versionId = Objects.requireNonNullElse(mapping.getTargetVersionId(), agent.publishedVersionId());
+        if (Objects.isNull(versionId)
+                || agentReferenceGateway.findVersion(mapping.getTargetId(), versionId).isEmpty()) {
+            issues.add(issue("INTENT_AGENT_VERSION_UNAVAILABLE", field + ".targetVersionId", "目标Agent没有可用正式版本"));
+            return null;
+        }
+        return ApplicationIntentMapping.builder()
+                .intentCode(mapping.getIntentCode())
+                .targetType(IntentExecutionTargetType.AGENT)
+                .targetId(mapping.getTargetId())
+                .targetVersionId(versionId)
+                .build();
+    }
+
+    private static void validateFallback(
+            IntentFallbackPolicy fallback,
+            List<ApplicationValidationIssueVO> issues) {
+        if (Objects.isNull(fallback) || isBlank(fallback.unmatchedResponse())) {
+            issues.add(issue("INTENT_FALLBACK_REQUIRED", "definition.intentBinding.fallbackPolicy.unmatchedResponse", "请配置未识别意图的兜底答复"));
+        }
+        if (Objects.isNull(fallback) || isBlank(fallback.clarificationFailureResponse())) {
+            issues.add(issue("CLARIFICATION_FALLBACK_REQUIRED", "definition.intentBinding.fallbackPolicy.clarificationFailureResponse", "请配置澄清失败的兜底答复"));
+        }
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     /**

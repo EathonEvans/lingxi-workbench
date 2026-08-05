@@ -3,6 +3,7 @@ package com.lingxi.workbench.chat.holder;
 import cn.hutool.core.text.CharSequenceUtil;
 import com.lingxi.workbench.application.runtime.service.ChatExecutionEventPublisher;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
+import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
 import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
@@ -104,6 +105,17 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
             return;
         }
         ChatGenerationEventBO generationEvent = ChatGenerationEventBO.tool(++sequence, event);
+        eventRepo.append(id, generationEvent);
+        eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
+    }
+
+    @Override
+    public synchronized void publishClarification(ChatClarificationEventBO event) {
+        if (terminal) {
+            return;
+        }
+        event.setSequence(++sequence);
+        ChatGenerationEventBO generationEvent = ChatGenerationEventBO.clarification(sequence, event);
         eventRepo.append(id, generationEvent);
         eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
     }

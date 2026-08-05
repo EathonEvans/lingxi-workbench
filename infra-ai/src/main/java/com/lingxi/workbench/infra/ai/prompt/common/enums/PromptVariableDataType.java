@@ -11,6 +11,8 @@ import lombok.RequiredArgsConstructor;
 public enum PromptVariableDataType {
     /** 字符串类型。 */
     STRING("STRING", "字符串"),
+    /** 整数类型。 */
+    INTEGER("INTEGER", "整数"),
     /** 长整数类型。 */
     LONG("LONG", "长整数"),
     /** 日期类型。 */

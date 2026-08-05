@@ -515,6 +515,40 @@ SET parent_id = EXCLUDED.parent_id,
     visible = FALSE,
     status = 'ACTIVE';
 
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, route_path, component, icon, permission_code, sort_order, visible, status)
+SELECT parent.id, '意图树管理', 'INTENT_TREE_LIST', 'MENU', '/application/intent-tree',
+       'intent-tree/index', 'ri:node-tree', 'intent-tree:list', 20, TRUE, 'ACTIVE'
+FROM lingxi_core.sys_menu parent
+WHERE parent.code = 'APPLICATION'
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    route_path = EXCLUDED.route_path,
+    component = EXCLUDED.component,
+    icon = EXCLUDED.icon,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = TRUE,
+    status = 'ACTIVE';
+
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, permission_code, sort_order, visible, status)
+SELECT parent.id, action.name, action.code, 'BUTTON', action.permission_code,
+       action.sort_order, FALSE, 'ACTIVE'
+FROM (VALUES
+    ('意图树维护', 'INTENT_TREE_MANAGE', 'intent-tree:manage', 10),
+    ('意图树发布', 'INTENT_TREE_PUBLISH', 'intent-tree:publish', 20)
+) AS action(name, code, permission_code, sort_order)
+JOIN lingxi_core.sys_menu parent ON parent.code = 'INTENT_TREE_LIST'
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = FALSE,
+    status = 'ACTIVE';
+
 -- root账号绑定ROOT角色。
 INSERT INTO lingxi_core.sys_user_role (user_id, role_id)
 SELECT sys_user.id, role.id

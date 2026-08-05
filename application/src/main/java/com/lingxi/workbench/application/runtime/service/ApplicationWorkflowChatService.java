@@ -4,6 +4,7 @@ import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot
 import com.lingxi.workbench.application.runtime.model.WorkflowChatResult;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.framework.context.LoginUser;
+import com.lingxi.workbench.chat.model.request.ClarificationResponseRequest;
 
 public interface ApplicationWorkflowChatService {
 
@@ -15,5 +16,11 @@ public interface ApplicationWorkflowChatService {
     /**
      * 执行 ApplicationVersion 中冻结的 Workflow。
      */
-    WorkflowChatResult execute(ApplicationRuntimeSnapshot snapshot, String query, LoginUser loginUser, ChatTurnBO turn, ChatExecutionEventPublisher eventPublisher);
+    WorkflowChatResult execute(
+            ApplicationRuntimeSnapshot snapshot,
+            String query,
+            LoginUser loginUser,
+            ChatTurnBO turn,
+            ClarificationResponseRequest clarificationResponse,
+            ChatExecutionEventPublisher eventPublisher);
 }

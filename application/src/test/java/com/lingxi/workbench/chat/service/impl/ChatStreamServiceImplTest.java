@@ -220,10 +220,16 @@ class ChatStreamServiceImplTest {
         doAnswer(invocation -> {
             gate.markStarted();
             gate.awaitRelease();
-            ChatExecutionEventPublisher eventPublisher = invocation.getArgument(4);
+            ChatExecutionEventPublisher eventPublisher = invocation.getArgument(5);
             eventPublisher.publishText(new ChatStreamChunk(answer, TokenUsage.of(12, 4, 16)));
             return new WorkflowChatResult(answer, TokenUsage.of(12, 4, 16), List.of());
-        }).when(applicationWorkflowChatService).execute(eq(APPLICATION_SNAPSHOT), eq("你好"), eq(LOGIN_USER), eq(new ChatTurnBO(10L, 11L, 12L, 3)), any(ChatExecutionEventPublisher.class));
+        }).when(applicationWorkflowChatService).execute(
+                eq(APPLICATION_SNAPSHOT),
+                eq("你好"),
+                eq(LOGIN_USER),
+                eq(new ChatTurnBO(10L, 11L, 12L, 3)),
+                any(),
+                any(ChatExecutionEventPublisher.class));
         return gate;
     }
 

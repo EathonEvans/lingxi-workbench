@@ -33,6 +33,7 @@ public class ChatGenerationEventCacheBO {
     private AgentToolExecutionStatus toolStatus;
     private Long durationMillis;
     private String errorCode;
+    private ChatClarificationEventBO clarification;
 
     /**
      * 将运行时事件转换为可安全缓存的结构。
@@ -43,6 +44,9 @@ public class ChatGenerationEventCacheBO {
                 .type(event.type())
                 .sequence(event.sequence())
                 .content(event.content());
+        if (Objects.nonNull(event.clarification())) {
+            builder.clarification(event.clarification());
+        }
         if (Objects.nonNull(tool)) {
             builder.invocationId(tool.getInvocationId())
                     .toolCode(tool.getToolCode())
@@ -68,6 +72,9 @@ public class ChatGenerationEventCacheBO {
                     .durationMillis(durationMillis)
                     .errorCode(errorCode)
                     .build());
+            case CLARIFICATION -> ChatGenerationEventBO.clarification(
+                    sequence,
+                    Objects.requireNonNull(clarification, "澄清事件缓存内容不能为空"));
             default -> throw new IllegalStateException("Redis中存在不支持的生成事件类型：" + type);
         };
     }

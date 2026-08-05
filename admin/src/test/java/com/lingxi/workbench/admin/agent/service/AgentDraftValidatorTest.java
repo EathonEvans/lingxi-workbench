@@ -242,7 +242,13 @@ class AgentDraftValidatorTest {
 
     @Test
     void shouldAcceptSupervisorWithoutKnowledgeAndRetrievalVariables() {
-        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, List.of(variable("user.query", PromptVariableType.STRING, true)));
+        preparePrompt(
+                USER_VERSION_ID,
+                31L,
+                PromptRole.USER,
+                List.of(
+                        variable("user.query", PromptVariableType.STRING, true),
+                        variable("collaboration.max_delegations", PromptVariableType.INTEGER, true)));
         ModelInstanceEntity chatModel = model(CHAT_MODEL_ID, ModelType.CHAT, List.of(ModelCapability.STREAMING, ModelCapability.TOOL_CALLING));
         chatModel.setMaxTokens(4096);
         chatModel.setContextWindow(16000);
@@ -251,6 +257,29 @@ class AgentDraftValidatorTest {
         AgentValidationResultVO result = validator.validate(activeAgent(AgentType.SUPERVISOR), validDraft(), null);
 
         assertTrue(result.valid());
+    }
+
+    @Test
+    void shouldRejectCollaborationVariableForRagAgent() {
+        preparePrompt(
+                USER_VERSION_ID,
+                31L,
+                PromptRole.USER,
+                List.of(
+                        variable("user.query", PromptVariableType.STRING, true),
+                        variable("knowledge.context", PromptVariableType.STRING, true),
+                        variable("collaboration.max_delegations", PromptVariableType.INTEGER, true)));
+
+        AgentValidationResultVO result = validator.validate(
+                activeAgent(AgentType.RAG_CHAT),
+                validDraft(),
+                knowledgeBinding());
+        List<String> issueCodes = result.issues().stream()
+                .map(AgentValidationIssueVO::code)
+                .toList();
+
+        assertFalse(result.valid());
+        assertTrue(issueCodes.contains("USER_PROMPT_VARIABLE_UNAVAILABLE"));
     }
 
     @Test

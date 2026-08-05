@@ -83,7 +83,7 @@ class PromptTemplateProcessorTest {
     @Test
     void shouldApplySupportedNamespaceRuleConsistently() {
         List<String> namespaces = List.of(
-                "system", "app", "agent", "user", "input",
+                "system", "app", "agent", "collaboration", "user", "input",
                 "session", "query", "workflow", "node", "tools", "knowledge");
 
         for (String namespace : namespaces) {
@@ -110,6 +110,14 @@ class PromptTemplateProcessorTest {
         assertTrue(variableCodes.contains("session.history"));
         assertTrue(variableCodes.contains("query.rewrite_history"));
         assertTrue(variableCodes.contains("knowledge.retrieval_query"));
+        assertTrue(variableCodes.contains("collaboration.max_delegations"));
+        assertEquals(
+                "Agent协作",
+                catalog.groups().stream()
+                        .filter(group -> group.code().equals("collaboration"))
+                        .findFirst()
+                        .orElseThrow()
+                        .displayName());
         assertEquals(
                 "问题处理",
                 catalog.groups().stream()

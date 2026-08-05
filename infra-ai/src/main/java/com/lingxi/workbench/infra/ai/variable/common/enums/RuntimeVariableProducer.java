@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 public enum RuntimeVariableProducer {
 
     REQUEST_INITIALIZATION("REQUEST_INITIALIZATION", "请求初始化"),
+    APPLICATION_SNAPSHOT("APPLICATION_SNAPSHOT", "Application发布快照"),
     CONVERSATION_HISTORY("CONVERSATION_HISTORY", "会话历史加载"),
     QUERY_REWRITE("QUERY_REWRITE", "问题改写"),
     KNOWLEDGE_RETRIEVAL("KNOWLEDGE_RETRIEVAL", "知识检索");

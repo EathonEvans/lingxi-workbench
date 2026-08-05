@@ -4,12 +4,15 @@ import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.vo.ChatChunkVO;
 import com.lingxi.workbench.chat.model.vo.ChatErrorVO;
 import com.lingxi.workbench.chat.model.vo.ChatSnapshotVO;
+import com.lingxi.workbench.chat.model.vo.ChatSubAgentEventVO;
 import com.lingxi.workbench.chat.model.vo.ChatToolEventVO;
+import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 import org.springframework.http.codec.ServerSentEvent;
 
 import java.util.Objects;
 
+import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.DELEGATE_AGENT_TOOL_PREFIX;
 import static com.lingxi.workbench.chat.common.constants.ChatErrorConstants.GENERATION_CANCELLED_CODE;
 import static com.lingxi.workbench.chat.common.constants.ChatErrorConstants.GENERATION_CANCELLED_MESSAGE;
 import static com.lingxi.workbench.chat.common.constants.ChatErrorConstants.MODEL_ERROR_CLIENT_MESSAGE;
@@ -31,12 +34,29 @@ public final class ChatGenerationSseEventRouter {
     public static ServerSentEvent<?> rout(ChatGenerationEventBO event) {
         return switch (event.type()) {
             case CHUNK -> messageEvent(event);
-            case TOOL -> toolEvent(event);
+            case TOOL -> executionEvent(event);
+            case CLARIFICATION -> clarificationEvent(event);
             case SNAPSHOT -> snapshotEvent(event.content());
             case COMPLETED -> doneEvent();
             case FAILED -> errorEvent();
             case CANCELLED -> cancelledEvent();
         };
+    }
+
+    private static ServerSentEvent<ChatClarificationEventBO> clarificationEvent(ChatGenerationEventBO event) {
+        return ServerSentEvent.<ChatClarificationEventBO>builder()
+                .id(String.valueOf(event.sequence()))
+                .event("clarification")
+                .data(Objects.requireNonNull(event.clarification(), "澄清事件内容不能为空"))
+                .build();
+    }
+
+    /**
+     * 将成员 Agent 委派从普通工具状态中分离，避免前端重复展示同一次执行。
+     */
+    private static ServerSentEvent<?> executionEvent(ChatGenerationEventBO event) {
+        AgentToolExecutionEvent tool = Objects.requireNonNull(event.tool(), "工具事件内容不能为空");
+        return isDelegation(tool) ? subAgentEvent(event, tool) : toolEvent(event, tool);
     }
 
     /**
@@ -53,8 +73,7 @@ public final class ChatGenerationSseEventRouter {
     /**
      * 构建工具执行状态事件，不暴露工具参数和原始结果。
      */
-    private static ServerSentEvent<ChatToolEventVO> toolEvent(ChatGenerationEventBO event) {
-        AgentToolExecutionEvent tool = Objects.requireNonNull(event.tool(), "工具事件内容不能为空");
+    private static ServerSentEvent<ChatToolEventVO> toolEvent(ChatGenerationEventBO event, AgentToolExecutionEvent tool) {
         ChatToolEventVO payload = ChatToolEventVO.builder()
                 .sequence(event.sequence())
                 .invocationId(tool.getInvocationId())
@@ -69,6 +88,37 @@ public final class ChatGenerationSseEventRouter {
                 .event("tool")
                 .data(payload)
                 .build();
+    }
+
+    /**
+     * 构建子 Agent 委派事件，不暴露委派任务和成员 Agent 原始回答。
+     */
+    private static ServerSentEvent<ChatSubAgentEventVO> subAgentEvent(ChatGenerationEventBO event, AgentToolExecutionEvent tool) {
+        String agentId = tool.getToolCode().substring(DELEGATE_AGENT_TOOL_PREFIX.length());
+        String displayName = Objects.requireNonNullElse(tool.getDisplayName(), "成员Agent");
+        String agentName = displayName.startsWith("委派给")
+                ? displayName.substring("委派给".length())
+                : displayName;
+        ChatSubAgentEventVO payload = ChatSubAgentEventVO.builder()
+                .sequence(event.sequence())
+                .delegationId(tool.getInvocationId())
+                .agentId(agentId)
+                .agentName(agentName)
+                .status(tool.getStatus().getCode())
+                .durationMillis(tool.getDurationMillis())
+                .errorCode(tool.getErrorCode())
+                .build();
+        return ServerSentEvent.<ChatSubAgentEventVO>builder()
+                .id(String.valueOf(event.sequence()))
+                .event("subagent")
+                .data(payload)
+                .build();
+    }
+
+    private static boolean isDelegation(AgentToolExecutionEvent tool) {
+        return Objects.nonNull(tool.getToolCode())
+                && tool.getToolCode().startsWith(DELEGATE_AGENT_TOOL_PREFIX)
+                && tool.getToolCode().length() > DELEGATE_AGENT_TOOL_PREFIX.length();
     }
 
     /**

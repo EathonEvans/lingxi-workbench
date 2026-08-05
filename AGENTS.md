@@ -541,13 +541,14 @@ JDK 标准能力
    - 删除策略；
    - 数据迁移或回填方式。
 3. 唯一性规则必须优先使用数据库唯一约束兜底，不能只依赖代码查询。
-4. SQL 必须携带必要的 Project Scope、状态和逻辑删除条件。
-5. 批量操作必须避免 N+1 查询和逐条写入。
-6. JSONB 只用于结构天然动态或版本演进频繁的字段，禁止把稳定关系模型全部塞入 JSONB。
-7. `createdAt`、`updatedAt` 统一继承 `AuditTimeEntity`，由 MyBatis-Plus 填充器维护。
-8. 业务代码不得手动赋值 `createdAt`、`updatedAt`。
-9. `deletedAt`、`completedAt`、`lastMessageAt` 等业务时间由业务流程显式维护。
-10. 删除业务资源时必须检查数据库关联、对象存储、向量数据、缓存和异步任务的清理策略。
+4. 禁止创建物理外键；关联字段统一使用逻辑外键并建立必要索引，由 Service 校验目标存在性、业务归属、状态和删除策略。
+5. SQL 必须携带必要的 Project Scope、状态和逻辑删除条件。
+6. 批量操作必须避免 N+1 查询和逐条写入。
+7. JSONB 只用于结构天然动态或版本演进频繁的字段，禁止把稳定关系模型全部塞入 JSONB。
+8. `createdAt`、`updatedAt` 统一继承 `AuditTimeEntity`，由 MyBatis-Plus 填充器维护。
+9. 业务代码不得手动赋值 `createdAt`、`updatedAt`。
+10. `deletedAt`、`completedAt`、`lastMessageAt` 等业务时间由业务流程显式维护。
+11. 删除业务资源时必须检查数据库关联、对象存储、向量数据、缓存和异步任务的清理策略。
 
 ---
 

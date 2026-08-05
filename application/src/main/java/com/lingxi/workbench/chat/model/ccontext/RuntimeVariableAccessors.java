@@ -44,6 +44,11 @@ public final class RuntimeVariableAccessors {
     public static final RuntimeVariableAccessor<String> SYSTEM_PLATFORM_NAME =
             stringAccessor(BuiltInRuntimeVariable.SYSTEM_PLATFORM_NAME);
     /**
+     * 当前Application发布快照允许的最大成员Agent委派次数。
+     */
+    public static final RuntimeVariableAccessor<Integer> COLLABORATION_MAX_DELEGATIONS =
+            integerAccessor(BuiltInRuntimeVariable.COLLABORATION_MAX_DELEGATIONS);
+    /**
      * 当前登录用户主键。
      */
     public static final RuntimeVariableAccessor<Long> USER_ID =
@@ -115,6 +120,7 @@ public final class RuntimeVariableAccessors {
         register(accessors, SYSTEM_TIMEZONE);
         register(accessors, SYSTEM_LANGUAGE);
         register(accessors, SYSTEM_PLATFORM_NAME);
+        register(accessors, COLLABORATION_MAX_DELEGATIONS);
         register(accessors, USER_ID);
         register(accessors, USER_NAME);
         register(accessors, USER_QUERY);
@@ -150,6 +156,14 @@ public final class RuntimeVariableAccessors {
         return new RuntimeVariableAccessor<>(
                 variable,
                 value -> readValue(variable, value, Long.class),
+                String::valueOf);
+    }
+
+    private static RuntimeVariableAccessor<Integer> integerAccessor(
+            BuiltInRuntimeVariable variable) {
+        return new RuntimeVariableAccessor<>(
+                variable,
+                value -> readValue(variable, value, Integer.class),
                 String::valueOf);
     }
 

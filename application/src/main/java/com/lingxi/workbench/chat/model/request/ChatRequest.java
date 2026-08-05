@@ -3,6 +3,7 @@ package com.lingxi.workbench.chat.model.request;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.Valid;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -44,6 +45,10 @@ public class ChatRequest {
     @NotBlank(message = "AI应用编码不能为空")
     @Pattern(regexp = "^[a-z][a-z0-9_-]{1,63}$", message = "AI应用编码格式不正确")
     String applicationCode;
+
+    /** 上一轮 clarification 事件的可选结构化响应。 */
+    @Valid
+    ClarificationResponseRequest clarificationResponse;
 
     /**
      * agent标识

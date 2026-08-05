@@ -223,6 +223,10 @@ public class AgentDraftValidator {
                 add(issues, codePrefix + "_VARIABLE_UNAVAILABLE", "Supervisor Agent不提供知识上下文变量：" + definition.getName());
                 continue;
             }
+            if (agentType != AgentType.SUPERVISOR && variable == BuiltInRuntimeVariable.COLLABORATION_MAX_DELEGATIONS) {
+                add(issues, codePrefix + "_VARIABLE_UNAVAILABLE", "仅Supervisor Agent提供协作变量：" + definition.getName());
+                continue;
+            }
             if (!variable.supportsChannel(variableChannel)) {
                 add(
                         issues,

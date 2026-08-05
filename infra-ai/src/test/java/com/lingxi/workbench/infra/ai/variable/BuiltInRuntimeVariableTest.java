@@ -53,4 +53,17 @@ class BuiltInRuntimeVariableTest {
                 RuntimeVariableChannel.SYSTEM_PROMPT))
                 .isFalse();
     }
+
+    @Test
+    void shouldExposeCollaborationDelegationLimitToPromptChannels() {
+        BuiltInRuntimeVariable variable = RuntimeVariableCatalog.find(
+                        "collaboration.max_delegations")
+                .orElseThrow();
+
+        assertThat(variable.getGroup()).isEqualTo(RuntimeVariableGroup.COLLABORATION);
+        assertThat(variable.getType().getCode()).isEqualTo("INTEGER");
+        assertThat(variable.supportsChannel(RuntimeVariableChannel.SYSTEM_PROMPT)).isTrue();
+        assertThat(variable.supportsChannel(RuntimeVariableChannel.USER_PROMPT)).isTrue();
+        assertThat(variable.supportsChannel(RuntimeVariableChannel.QUERY_REWRITE_PROMPT)).isFalse();
+    }
 }

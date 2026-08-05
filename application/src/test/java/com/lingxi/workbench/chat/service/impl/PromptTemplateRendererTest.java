@@ -110,6 +110,21 @@ class PromptTemplateRendererTest {
     }
 
     @Test
+    void shouldRenderCollaborationDelegationLimitInSystemPrompt() {
+        RuntimeVariables variables = runtimeVariables();
+        variables.put(RuntimeVariableAccessors.COLLABORATION_MAX_DELEGATIONS, 3);
+        PromptRuntimeSnapshot snapshot = new PromptRuntimeSnapshot(
+                91L,
+                "本轮最多委派{{collaboration.max_delegations}}次。",
+                List.of(definition("collaboration.max_delegations", "INTEGER")),
+                PromptRole.SYSTEM);
+
+        String rendered = renderer.renderSystemPrompt(snapshot, variables);
+
+        assertEquals("本轮最多委派3次。", rendered);
+    }
+
+    @Test
     void shouldRenderQueryRewriteVariablesWithoutRelaxingSystemPrompt() {
         RuntimeVariables variables = runtimeVariables();
         variables.put(

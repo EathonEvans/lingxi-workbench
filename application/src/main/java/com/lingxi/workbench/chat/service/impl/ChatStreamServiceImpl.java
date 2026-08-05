@@ -100,7 +100,13 @@ public class ChatStreamServiceImpl implements ChatStreamService {
              * Application 中配置的默认 Agent 节点承担，不能绕过发布快照读取平台默认模型。
              */
             runningTasks.put(turn.assistantMessageId(), task);
-            this.startWorkflowGeneration(task, applicationSnapshot, query, loginUser, turn);
+            this.startWorkflowGeneration(
+                    task,
+                    applicationSnapshot,
+                    query,
+                    loginUser,
+                    turn,
+                    request.getClarificationResponse());
         } catch (RuntimeException exception) {
             /*
              * 这里只处理任务注册或 Reactor 订阅创建阶段同步抛出的异常。
@@ -169,8 +175,15 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      * Agent 执行期间通过 task 实时发布文本和工具状态，Workflow 完成后再校准
      * 最终 response 与 Token 用量；任务取消仍会释放该后台订阅。
      */
-    private void startWorkflowGeneration(RunningGenerationTask task, ApplicationRuntimeSnapshot snapshot, String query, LoginUser loginUser, ChatTurnBO turn) {
-        Disposable subscription = Mono.fromCallable(() -> applicationWorkflowChatService.execute(snapshot, query, loginUser, turn, task))
+    private void startWorkflowGeneration(
+            RunningGenerationTask task,
+            ApplicationRuntimeSnapshot snapshot,
+            String query,
+            LoginUser loginUser,
+            ChatTurnBO turn,
+            com.lingxi.workbench.chat.model.request.ClarificationResponseRequest clarificationResponse) {
+        Disposable subscription = Mono.fromCallable(() -> applicationWorkflowChatService.execute(
+                        snapshot, query, loginUser, turn, clarificationResponse, task))
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(result -> completeWorkflowTask(task, result),
                         exception -> failTask(task, exception));

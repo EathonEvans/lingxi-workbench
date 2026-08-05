@@ -7,6 +7,7 @@ import com.lingxi.workbench.admin.model.common.enums.ModelCredentialStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelConnectionTestStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import com.lingxi.workbench.admin.model.model.bo.ModelConnectionTestResult;
+import com.lingxi.workbench.admin.model.model.bo.ModelInstanceReferenceBO;
 import com.lingxi.workbench.admin.model.model.converter.ModelConverter;
 import com.lingxi.workbench.admin.model.model.entity.ModelCredentialEntity;
 import com.lingxi.workbench.admin.model.model.entity.ModelInstanceEntity;
@@ -31,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /** 模型实例业务实现。 */
 @Service
@@ -52,6 +54,13 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
     @Transactional(readOnly = true)
     public PageResult<ModelInstanceVO> page(ModelInstancePageQuery query) {
         return instanceRepo.findPage(query).map(modelConverter::toInstanceVO);
+    }
+
+    /** 查询模型实例的稳定引用信息，不向调用方暴露持久化实体。 */
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ModelInstanceReferenceBO> findReference(Long id) {
+        return instanceRepo.findById(id).map(entity -> new ModelInstanceReferenceBO(entity.getId(), entity.getModelType(), entity.getStatus()));
     }
 
     /**

@@ -163,6 +163,10 @@ class AgentChatServiceImplTest {
         String answer = service.chat(10L, 20L, "如何退款", execution);
 
         assertEquals("统一回答", answer);
+        assertEquals(
+                2,
+                execution.getRuntimeVariables().require(
+                        RuntimeVariableAccessors.COLLABORATION_MAX_DELEGATIONS));
         AgentTool delegationTool = captured.get().toolRuntimeConfig().orElseThrow().getTools().getFirst();
         assertEquals("delegate_agent_30", delegationTool.definition().getCode());
         assertTrue(delegationTool.definition().getDescription().contains("处理退款与售后政策"));
