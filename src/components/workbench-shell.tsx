@@ -38,7 +38,10 @@ import { useEffect, useRef, useState } from "react";
 import {
   archiveConversation,
   type AvailableApplication,
+  type ChatClarificationEvent,
+  type ChatSubAgentEvent,
   type ChatToolEvent,
+  type ClarificationResponse,
   cancelChat,
   ChatStreamError,
   createConversation,
@@ -86,6 +89,7 @@ type ChatMessage = {
   id: string;
   role: "assistant" | "user";
   status?: "done" | "error" | "stopped" | "streaming";
+  subAgents?: ChatSubAgentEvent[];
   tools?: ChatToolEvent[];
 };
 
@@ -95,6 +99,8 @@ type PendingGeneration = {
   conversationId: string;
   lastSequence: number;
   prompt: string;
+  clarification?: ChatClarificationEvent;
+  subAgents: ChatSubAgentEvent[];
   tools: ChatToolEvent[];
   userMessageId: string;
 };
@@ -106,7 +112,7 @@ function readPendingGeneration(): PendingGeneration | undefined {
     const value = sessionStorage.getItem(PENDING_GENERATION_KEY);
     if (!value) return undefined;
     const pending = JSON.parse(value) as PendingGeneration;
-    return { ...pending, tools: pending.tools ?? [] };
+    return { ...pending, subAgents: pending.subAgents ?? [], tools: pending.tools ?? [] };
   } catch {
     sessionStorage.removeItem(PENDING_GENERATION_KEY);
     return undefined;
@@ -118,6 +124,51 @@ function mergeToolEvents(events: ChatToolEvent[] | undefined, nextEvent: ChatToo
   const existing = currentEvents.some((event) => event.invocationId === nextEvent.invocationId);
   if (!existing) return [...currentEvents, nextEvent];
   return currentEvents.map((event) => event.invocationId === nextEvent.invocationId ? nextEvent : event);
+}
+
+function mergeSubAgentEvents(
+  events: ChatSubAgentEvent[] | undefined,
+  nextEvent: ChatSubAgentEvent,
+) {
+  const currentEvents = events ?? [];
+  const existing = currentEvents.some(
+    (event) => event.delegationId === nextEvent.delegationId,
+  );
+  if (!existing) return [...currentEvents, nextEvent];
+  return currentEvents.map((event) =>
+    event.delegationId === nextEvent.delegationId ? nextEvent : event,
+  );
+}
+
+function SubAgentExecutionList({ subAgents }: { subAgents: ChatSubAgentEvent[] }) {
+  return (
+    <div
+      className={styles.subAgentList}
+      aria-label="子智能体执行状态"
+      data-testid="subagent-execution-list"
+    >
+      {subAgents.map((subAgent) => (
+        <div
+          className={`${styles.subAgentItem} ${styles[`subAgent${subAgent.status}`]}`}
+          key={subAgent.delegationId}
+        >
+          <span className={styles.subAgentStatusIcon} aria-hidden="true">
+            {subAgent.status === "RUNNING" && <LoaderCircle size={14} />}
+            {subAgent.status === "SUCCEEDED" && <CircleCheck size={14} />}
+            {subAgent.status === "FAILED" && <CircleX size={14} />}
+          </span>
+          <Bot size={14} aria-hidden="true" />
+          <span>{subAgent.agentName}</span>
+          <small>
+            {subAgent.status === "RUNNING" && "处理中"}
+            {subAgent.status === "SUCCEEDED" &&
+              `已完成${subAgent.durationMillis === undefined ? "" : ` · ${subAgent.durationMillis}ms`}`}
+            {subAgent.status === "FAILED" && "处理失败"}
+          </small>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function ToolExecutionList({ tools }: { tools: ChatToolEvent[] }) {
@@ -217,6 +268,8 @@ export function WorkbenchShell() {
   const [renamingId, setRenamingId] = useState<string>();
   const [renamingTitle, setRenamingTitle] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [pendingClarification, setPendingClarification] =
+    useState<ChatClarificationEvent>();
   const [resumeAvailable, setResumeAvailable] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [streamError, setStreamError] = useState<string>();
@@ -301,6 +354,7 @@ export function WorkbenchShell() {
       if (disposed) return;
       setConversationId(pending.conversationId);
       setConversationStatus("ACTIVE");
+      setPendingClarification(pending.clarification);
       setMessages([
         {
           content: pending.prompt,
@@ -313,6 +367,7 @@ export function WorkbenchShell() {
           id: pending.assistantMessageId,
           role: "assistant",
           status: "streaming",
+          subAgents: pending.subAgents,
           tools: pending.tools,
         },
       ]);
@@ -350,6 +405,15 @@ export function WorkbenchShell() {
           ),
         );
       },
+      onClarification: (clarification) => {
+        const current = pendingGenerationRef.current;
+        if (current) {
+          current.clarification = clarification;
+          current.lastSequence = clarification.sequence;
+          savePendingGeneration(current);
+        }
+        setPendingClarification(clarification);
+      },
       onSnapshot: (content) => {
         const current = pendingGenerationRef.current;
         if (current) {
@@ -360,6 +424,24 @@ export function WorkbenchShell() {
           messages.map((message) =>
             message.id === pending.assistantMessageId
               ? { ...message, content }
+              : message,
+          ),
+        );
+      },
+      onSubAgent: (subAgent) => {
+        const current = pendingGenerationRef.current;
+        if (current) {
+          current.subAgents = mergeSubAgentEvents(current.subAgents, subAgent);
+          current.lastSequence = subAgent.sequence;
+          savePendingGeneration(current);
+        }
+        setMessages((messages) =>
+          messages.map((message) =>
+            message.id === pending.assistantMessageId
+              ? {
+                  ...message,
+                  subAgents: mergeSubAgentEvents(message.subAgents, subAgent),
+                }
               : message,
           ),
         );
@@ -504,6 +586,7 @@ export function WorkbenchShell() {
     setHistoryOpen(false);
     setSidebarOpen(false);
     setStreamError(undefined);
+    setPendingClarification(undefined);
     setConversationId(conversation.id);
     setConversationStatus(conversation.status);
     setMessageLoading(true);
@@ -613,6 +696,7 @@ export function WorkbenchShell() {
     setConversationId(undefined);
     setConversationStatus(undefined);
     setMessages([]);
+    setPendingClarification(undefined);
     setMessageCurrent(1);
     setMessageTotal(0);
     setResumeAvailable(false);
@@ -647,7 +731,10 @@ export function WorkbenchShell() {
     setStreaming(false);
   };
 
-  const sendPrompt = async (prompt: string) => {
+  const sendPrompt = async (
+    prompt: string,
+    explicitClarificationResponse?: ClarificationResponse,
+  ) => {
     const normalizedPrompt = prompt.trim();
     if (!normalizedPrompt || streaming || !session) return;
     if (!selectedApplicationCode) {
@@ -658,6 +745,15 @@ export function WorkbenchShell() {
       setStreamError("当前会话已归档，请新建对话后继续提问");
       return;
     }
+    const clarificationResponse =
+      explicitClarificationResponse ??
+      (pendingClarification
+        ? {
+            clarificationId: pendingClarification.clarificationId,
+            value: normalizedPrompt,
+          }
+        : undefined);
+    setPendingClarification(undefined);
 
     const assistantId = createMessageId("assistant");
     let activeAssistantId = assistantId;
@@ -670,7 +766,14 @@ export function WorkbenchShell() {
         role: "user",
         status: "done",
       },
-      { content: "", id: assistantId, role: "assistant", status: "streaming", tools: [] },
+      {
+        content: "",
+        id: assistantId,
+        role: "assistant",
+        status: "streaming",
+        subAgents: [],
+        tools: [],
+      },
     ];
 
     setMessages((current) => [...current, ...nextMessages]);
@@ -692,6 +795,7 @@ export function WorkbenchShell() {
       }
       await streamChat({
         applicationCode: selectedApplicationCode,
+        clarificationResponse,
         clientMessageId: crypto.randomUUID(),
         conversationId: activeConversationId,
         onChunk: (content, sequence) => {
@@ -709,6 +813,15 @@ export function WorkbenchShell() {
             ),
           );
         },
+        onClarification: (clarification) => {
+          const pending = pendingGenerationRef.current;
+          if (pending) {
+            pending.clarification = clarification;
+            pending.lastSequence = clarification.sequence;
+            savePendingGeneration(pending);
+          }
+          setPendingClarification(clarification);
+        },
         onStart: (start) => {
           activeAssistantId = start.assistantMessageId;
           activeAssistantIdRef.current = start.assistantMessageId;
@@ -718,6 +831,7 @@ export function WorkbenchShell() {
             conversationId: start.conversationId,
             lastSequence: 0,
             prompt: normalizedPrompt,
+            subAgents: [],
             tools: [],
             userMessageId: start.userMessageId,
           };
@@ -737,6 +851,24 @@ export function WorkbenchShell() {
         },
         onCancelled: () => {
           cancelled = true;
+        },
+        onSubAgent: (subAgent) => {
+          const pending = pendingGenerationRef.current;
+          if (pending) {
+            pending.subAgents = mergeSubAgentEvents(pending.subAgents, subAgent);
+            pending.lastSequence = subAgent.sequence;
+            savePendingGeneration(pending);
+          }
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === activeAssistantId
+                ? {
+                    ...message,
+                    subAgents: mergeSubAgentEvents(message.subAgents, subAgent),
+                  }
+                : message,
+            ),
+          );
         },
         onTool: (tool) => {
           const pending = pendingGenerationRef.current;
@@ -799,6 +931,16 @@ export function WorkbenchShell() {
       if (abortControllerRef.current === controller) abortControllerRef.current = null;
       setStreaming(false);
     }
+  };
+
+  const answerClarification = (
+    clarification: ChatClarificationEvent,
+    option: ChatClarificationEvent["options"][number],
+  ) => {
+    void sendPrompt(option.label, {
+      clarificationId: clarification.clarificationId,
+      optionCode: option.code,
+    });
   };
 
   const retryLastPrompt = () => {
@@ -1156,6 +1298,9 @@ export function WorkbenchShell() {
                       <span className={styles.messageAuthor}>
                         {message.role === "user" ? "你" : "灵析通用助手"}
                       </span>
+                      {message.role === "assistant" && message.subAgents?.length ? (
+                        <SubAgentExecutionList subAgents={message.subAgents} />
+                      ) : null}
                       {message.role === "assistant" && message.tools?.length ? (
                         <ToolExecutionList tools={message.tools} />
                       ) : null}
@@ -1215,6 +1360,34 @@ export function WorkbenchShell() {
           )}
 
           <div className={styles.composerWrap}>
+            {pendingClarification && (
+              <div
+                className={styles.clarificationCard}
+                data-testid="intent-clarification"
+                role="group"
+                aria-label="意图澄清"
+              >
+                <div>
+                  <strong>需要你确认一下</strong>
+                  <span>第 {pendingClarification.round} 轮</span>
+                </div>
+                <p>{pendingClarification.question}</p>
+                {pendingClarification.options.length > 0 && (
+                  <div className={styles.clarificationOptions}>
+                    {pendingClarification.options.map((option) => (
+                      <button
+                        key={option.code}
+                        disabled={streaming}
+                        onClick={() => answerClarification(pendingClarification, option)}
+                        type="button"
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {conversationStatus === "ARCHIVED" && (
               <div className={styles.archivedNotice}>该会话已归档，仅支持查看历史消息</div>
             )}

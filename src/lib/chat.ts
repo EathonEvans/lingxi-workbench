@@ -15,6 +15,31 @@ export type ChatToolEvent = {
   toolCode: string;
 };
 
+export type ChatSubAgentEvent = {
+  agentId: string;
+  agentName: string;
+  delegationId: string;
+  durationMillis?: number;
+  errorCode?: string;
+  sequence: number;
+  status: "FAILED" | "RUNNING" | "SUCCEEDED";
+};
+
+export type ChatClarificationEvent = {
+  clarificationId: string;
+  expiresAt: string;
+  options: Array<{ code: string; label: string }>;
+  question: string;
+  round: number;
+  sequence: number;
+};
+
+export type ClarificationResponse = {
+  clarificationId: string;
+  optionCode?: string;
+  value?: string;
+};
+
 export type ChatStart = {
   assistantMessageId: string;
   conversationId: string;
@@ -73,11 +98,14 @@ type ChatErrorPayload = {
 type StreamChatOptions = {
   applicationCode: string;
   clientMessageId: string;
+  clarificationResponse?: ClarificationResponse;
   conversationId: string;
   onCancelled?: () => void;
   onChunk: (content: string, sequence: number) => void;
+  onClarification?: (event: ChatClarificationEvent) => void;
   onSnapshot?: (content: string) => void;
   onStart?: (start: ChatStart) => void;
+  onSubAgent?: (event: ChatSubAgentEvent) => void;
   onTool?: (event: ChatToolEvent) => void;
   query: string;
   session: AuthSession;
@@ -86,7 +114,12 @@ type StreamChatOptions = {
 
 type ResumeChatOptions = Omit<
   StreamChatOptions,
-  "applicationCode" | "clientMessageId" | "conversationId" | "onStart" | "query"
+  | "applicationCode"
+  | "clarificationResponse"
+  | "clientMessageId"
+  | "conversationId"
+  | "onStart"
+  | "query"
 > & {
   afterSequence: number;
   assistantMessageId: string;
@@ -120,7 +153,13 @@ function handleEvent(
   block: string,
   options: Pick<
     StreamChatOptions,
-    "onCancelled" | "onChunk" | "onSnapshot" | "onStart" | "onTool"
+    | "onCancelled"
+    | "onChunk"
+    | "onClarification"
+    | "onSnapshot"
+    | "onStart"
+    | "onSubAgent"
+    | "onTool"
   >,
 ) {
   const { data, event } = parseEventBlock(block);
@@ -128,9 +167,19 @@ function handleEvent(
   if (event === "done") return true;
   if (!data) return false;
 
-  let payload: ChatChunk | ChatErrorPayload | ChatToolEvent;
+  let payload:
+    | ChatChunk
+    | ChatClarificationEvent
+    | ChatErrorPayload
+    | ChatSubAgentEvent
+    | ChatToolEvent;
   try {
-    payload = JSON.parse(data) as ChatChunk | ChatErrorPayload | ChatToolEvent;
+    payload = JSON.parse(data) as
+      | ChatChunk
+      | ChatClarificationEvent
+      | ChatErrorPayload
+      | ChatSubAgentEvent
+      | ChatToolEvent;
   } catch {
     throw new ChatStreamError("模型返回的数据格式不正确，请稍后重试");
   }
@@ -162,6 +211,16 @@ function handleEvent(
     return false;
   }
 
+  if (event === "subagent") {
+    options.onSubAgent?.(payload as ChatSubAgentEvent);
+    return false;
+  }
+
+  if (event === "clarification") {
+    options.onClarification?.(payload as ChatClarificationEvent);
+    return false;
+  }
+
   const chunk = payload as ChatChunk;
   if (typeof chunk.content === "string" && chunk.content) {
     options.onChunk(chunk.content, chunk.sequence || 0);
@@ -173,7 +232,13 @@ async function consumeEventStream(
   response: Response,
   options: Pick<
     StreamChatOptions,
-    "onCancelled" | "onChunk" | "onSnapshot" | "onStart" | "onTool"
+    | "onCancelled"
+    | "onChunk"
+    | "onClarification"
+    | "onSnapshot"
+    | "onStart"
+    | "onSubAgent"
+    | "onTool"
   >,
 ) {
   if (!response.body) throw new ChatStreamError("当前浏览器无法读取流式响应");
@@ -264,11 +329,14 @@ function conversationQueryString(query: ConversationQuery) {
 export async function streamChat({
   applicationCode,
   clientMessageId,
+  clarificationResponse,
   conversationId,
   onChunk,
   onCancelled,
+  onClarification,
   onSnapshot,
   onStart,
+  onSubAgent,
   onTool,
   query,
   session,
@@ -278,7 +346,13 @@ export async function streamChat({
 
   try {
     response = await fetch(`${API_BASE_URL}/v1/ai/chat/start`, {
-      body: JSON.stringify({ applicationCode, clientMessageId, conversationId, query }),
+      body: JSON.stringify({
+        applicationCode,
+        clarificationResponse,
+        clientMessageId,
+        conversationId,
+        query,
+      }),
       headers: {
         "Content-Type": "application/json",
         [session.tokenName]: session.tokenValue,
@@ -304,7 +378,9 @@ export async function streamChat({
     assistantMessageId: payload.data.assistantMessageId,
     onCancelled,
     onChunk,
+    onClarification,
     onSnapshot,
+    onSubAgent,
     onTool,
     session,
     signal,
@@ -327,7 +403,9 @@ export async function resumeChat({
   assistantMessageId,
   onCancelled,
   onChunk,
+  onClarification,
   onSnapshot,
+  onSubAgent,
   onTool,
   session,
   signal,
@@ -349,7 +427,14 @@ export async function resumeChat({
     throw new ChatStreamError("无法重新连接模型生成任务，请稍后重试");
   }
   await requireSuccessfulResponse(response);
-  await consumeEventStream(response, { onCancelled, onChunk, onSnapshot, onTool });
+  await consumeEventStream(response, {
+    onCancelled,
+    onChunk,
+    onClarification,
+    onSnapshot,
+    onSubAgent,
+    onTool,
+  });
 }
 
 /** 显式取消模型生成；单纯中断 SSE 连接不会调用该接口。 */

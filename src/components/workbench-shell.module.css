@@ -648,6 +648,49 @@
   gap: 6px;
 }
 
+.subAgentList {
+  display: grid;
+  margin: 0 0 10px;
+  gap: 6px;
+}
+
+.subAgentItem {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 1px solid #dfe7f5;
+  border-radius: 10px;
+  color: #4d5d78;
+  background: #f5f8ff;
+  gap: 7px;
+  font-size: 12px;
+}
+
+.subAgentItem small {
+  margin-left: 5px;
+  color: #8792a4;
+  font-size: 10px;
+}
+
+.subAgentStatusIcon {
+  display: inline-flex;
+}
+
+.subAgentRUNNING .subAgentStatusIcon {
+  color: #4775d0;
+  animation: tool-spin 1s linear infinite;
+}
+
+.subAgentSUCCEEDED .subAgentStatusIcon {
+  color: #20a779;
+}
+
+.subAgentFAILED .subAgentStatusIcon {
+  color: #c14f4f;
+}
+
 .toolItem {
   display: flex;
   align-items: center;
@@ -798,6 +841,65 @@
   width: min(820px, calc(100% - 48px));
   flex: 0 0 auto;
   padding: 0 0 18px;
+}
+
+.clarificationCard {
+  padding: 13px 14px;
+  margin-bottom: 10px;
+  border: 1px solid #cbdaf7;
+  border-radius: 12px;
+  color: #273b64;
+  background: #f5f8ff;
+  box-shadow: 0 8px 24px rgba(49, 83, 145, 0.08);
+}
+
+.clarificationCard > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.clarificationCard span,
+.clarificationCard p {
+  font-size: 12px;
+}
+
+.clarificationCard span {
+  color: #7181a0;
+}
+
+.clarificationCard p {
+  margin: 7px 0 0;
+  color: #4c5d7c;
+}
+
+.clarificationOptions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  margin-top: 11px;
+}
+
+.clarificationOptions button {
+  padding: 7px 12px;
+  border: 1px solid #b8cdf6;
+  border-radius: 999px;
+  color: #2f63bf;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+}
+
+.clarificationOptions button:hover:not(:disabled) {
+  border-color: #7fa4ec;
+  background: #edf3ff;
+}
+
+.clarificationOptions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .archivedNotice,
@@ -1050,6 +1152,12 @@
   background: rgba(255, 255, 255, 0.04);
 }
 
+.shell[data-theme="dark"] .subAgentItem {
+  border-color: rgba(125, 157, 255, 0.2);
+  color: #cbd7ee;
+  background: rgba(80, 115, 205, 0.1);
+}
+
 .shell[data-theme="dark"] .userMessage .messageContent {
   color: #fff;
   background: var(--conversation-blue);
@@ -1109,6 +1217,23 @@
   border-color: rgba(224, 105, 105, 0.25);
   color: #efa0a0;
   background: rgba(128, 40, 40, 0.14);
+}
+
+.shell[data-theme="dark"] .clarificationCard {
+  color: #d7e3fa;
+  background: #18243a;
+  border-color: #31496f;
+}
+
+.shell[data-theme="dark"] .clarificationCard p,
+.shell[data-theme="dark"] .clarificationCard span {
+  color: #9fb0cf;
+}
+
+.shell[data-theme="dark"] .clarificationOptions button {
+  color: #bdd2fa;
+  background: #202f49;
+  border-color: #47648f;
 }
 
 :global(html[data-theme="dark"]) .historyDrawer :global(.ant-drawer-content),
