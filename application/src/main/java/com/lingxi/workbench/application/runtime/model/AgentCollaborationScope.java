@@ -47,9 +47,7 @@ public final class AgentCollaborationScope {
     /** 共享的原子委派计数器 */
     private final AtomicInteger delegationCount;
 
-    private AgentCollaborationScope(
-            AgentCollaborationDefinition definition, List<Long> callPath,
-            AtomicInteger delegationCount) {
+    private AgentCollaborationScope(AgentCollaborationDefinition definition, List<Long> callPath, AtomicInteger delegationCount) {
         this.definition = Objects.requireNonNull(definition, "协作定义不能为空");
         this.callPath = List.copyOf(callPath);
         this.delegationCount = Objects.requireNonNull(delegationCount, "委派计数器不能为空");
@@ -72,11 +70,9 @@ public final class AgentCollaborationScope {
                 || Objects.isNull(definition.supervisor().agentVersionId())
                 || Objects.isNull(definition.limits())
                 || definition.members().isEmpty()) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT,
-                    "Application协作快照不完整");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "Application协作快照不完整");
         }
-        return new AgentCollaborationScope(definition,
-                List.of(definition.supervisor().agentId()), new AtomicInteger());
+        return new AgentCollaborationScope(definition, List.of(definition.supervisor().agentId()), new AtomicInteger());
     }
 
     /**
@@ -122,33 +118,28 @@ public final class AgentCollaborationScope {
         Objects.requireNonNull(target, "目标成员Agent不能为空");
         // 门控 1：只有 Supervisor 可以委派
         if (!canDelegate(callPath.getLast())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT,
-                    "当前Agent无权继续委派成员Agent");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "当前Agent无权继续委派成员Agent");
         }
         // 门控 2：目标必须匹配发布快照中的成员白名单（agentId + agentVersionId 双匹配）
         boolean allowedMember = definition.members().stream()
                 .anyMatch(member -> Objects.equals(member.agentId(), target.agentId())
                         && Objects.equals(member.agentVersionId(), target.agentVersionId()));
         if (!allowedMember) {
-            throw new BusinessException(HttpStatusEnum.FORBIDDEN,
-                    "目标Agent不在Application成员白名单中");
+            throw new BusinessException(HttpStatusEnum.FORBIDDEN, "目标Agent不在Application成员白名单中");
         }
         // 门控 3：调用链不允许形成环
         if (callPath.contains(target.agentId())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT,
-                    "Agent协作调用链不允许形成环");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "Agent协作调用链不允许形成环");
         }
         // 门控 4：深度限制
         int nextDepth = callPath.size();
         if (nextDepth > definition.limits().maxDepth()) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT,
-                    "Agent协作超过最大委派深度");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "Agent协作超过最大委派深度");
         }
         // 门控 5：次数限制（原子操作）
         int used = delegationCount.incrementAndGet();
         if (used > definition.limits().maxDelegations()) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT,
-                    "Agent协作超过最大委派次数");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "Agent协作超过最大委派次数");
         }
         // 全部通过 → 创建子作用域（新 callPath = 父 callPath + target.agentId）
         List<Long> childPath = new ArrayList<>(callPath);

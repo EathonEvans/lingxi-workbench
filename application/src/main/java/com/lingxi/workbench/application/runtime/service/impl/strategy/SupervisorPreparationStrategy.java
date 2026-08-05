@@ -42,9 +42,7 @@ import static com.lingxi.workbench.application.runtime.common.constants.AgentCha
 @Component
 public class SupervisorPreparationStrategy extends AbstractAgentChatPreparationStrategy {
 
-    public SupervisorPreparationStrategy(
-            PromptRuntimeService promptRuntimeService,
-            @Qualifier("supervisorChatProcessChain") ChatProcessChain processChain) {
+    public SupervisorPreparationStrategy(PromptRuntimeService promptRuntimeService,@Qualifier("supervisorChatProcessChain") ChatProcessChain processChain) {
         super(promptRuntimeService, processChain);
     }
 
@@ -57,12 +55,10 @@ public class SupervisorPreparationStrategy extends AbstractAgentChatPreparationS
     public ModelChatContext prepare(AgentRuntimeDefinition definition, ChatExecutionContext execution) {
         AgentRuntimeDefinition.RewritePolicy rewrite = definition.getRewritePolicy();
         if (Objects.nonNull(rewrite) && Boolean.TRUE.equals(rewrite.getEnabled())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT,
-                    "Supervisor Agent不支持问题改写与知识检索");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "Supervisor Agent不支持问题改写与知识检索");
         }
         if (Objects.nonNull(definition.getKnowledge()) || Objects.nonNull(definition.getRetrievalPolicy())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT,
-                    "Supervisor AgentVersion不能包含知识库或检索配置");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "Supervisor AgentVersion不能包含知识库或检索配置");
         }
         ModelChatContext context = commonContext(definition, execution)
                 .queryRewriteConfig(QueryRewriteConfig.disabled())

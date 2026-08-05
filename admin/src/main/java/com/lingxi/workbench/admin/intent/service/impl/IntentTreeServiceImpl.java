@@ -236,31 +236,17 @@ public class IntentTreeServiceImpl implements IntentTreeService {
         }
         List<IntentVectorSourceBuilder.IntentVectorSource> sources = vectorSourceBuilder.build(currentDraft.getDefinition());
         EmbeddingModelRuntimeConfig embeddingConfig = embeddingModelResolver.resolve(currentDraft.getDefinition().embeddingModelInstanceId());
-        List<float[]> vectors = embeddingGateway.embed(
-                sources.stream().map(IntentVectorSourceBuilder.IntentVectorSource::text).toList(),
-                embeddingConfig);
+        List<float[]> vectors = embeddingGateway.embed(sources.stream().map(IntentVectorSourceBuilder.IntentVectorSource::text).toList(), embeddingConfig);
         validateVectors(sources, vectors);
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
-        IntentTreeVersionEntity version = transaction.execute(status -> publishPrepared(
-                id,
-                request,
-                operatorId,
-                preparedChecksum,
-                sources,
-                vectors));
+        IntentTreeVersionEntity version = transaction.execute(status -> publishPrepared(id, request, operatorId, preparedChecksum, sources, vectors));
         if (Objects.isNull(version)) {
             throw new BusinessException(HttpStatusEnum.INTERNAL_SERVER_ERROR, "意图树发布事务未返回版本");
         }
         return converter.toVersionDetailVO(version);
     }
 
-    private IntentTreeVersionEntity publishPrepared(
-            Long id,
-            PublishIntentTreeRequest request,
-            Long operatorId,
-            String preparedChecksum,
-            List<IntentVectorSourceBuilder.IntentVectorSource> sources,
-            List<float[]> vectors) {
+    private IntentTreeVersionEntity publishPrepared(Long id, PublishIntentTreeRequest request, Long operatorId, String preparedChecksum, List<IntentVectorSourceBuilder.IntentVectorSource> sources, List<float[]> vectors) {
         IntentTreeEntity tree = intentTreeRepo.findByIdForUpdate(id).orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "意图树不存在"));
         if (tree.getStatus() != EnableStatus.ACTIVE) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "停用的意图树不能发布");
@@ -321,9 +307,7 @@ public class IntentTreeServiceImpl implements IntentTreeService {
         return version;
     }
 
-    private static void validateVectors(
-            List<IntentVectorSourceBuilder.IntentVectorSource> sources,
-            List<float[]> vectors) {
+    private static void validateVectors(List<IntentVectorSourceBuilder.IntentVectorSource> sources, List<float[]> vectors) {
         if (vectors == null || vectors.size() != sources.size()) {
             throw new BusinessException(HttpStatusEnum.INTERNAL_SERVER_ERROR, "Embedding返回数量与意图语义来源不一致");
         }
