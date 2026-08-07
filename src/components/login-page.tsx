@@ -16,7 +16,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
 import { AuthenticationError } from "@/lib/auth";
 import { useAuth } from "./auth-provider";
 import { useThemeMode } from "./app-provider";
@@ -63,6 +63,19 @@ export function LoginPage() {
     }
   };
 
+  const handleFormKeyDown = (event: KeyboardEvent<HTMLFormElement>) => {
+    if (
+      event.key !== "Enter" ||
+      event.nativeEvent.isComposing ||
+      event.target instanceof HTMLButtonElement
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.currentTarget.requestSubmit();
+  };
+
   return (
     <main className={styles.page} data-theme={appearance}>
       <div className={styles.ambientOne} />
@@ -74,7 +87,7 @@ export function LoginPage() {
             <Sparkles size={19} strokeWidth={2.4} />
           </span>
           <span>
-            <strong>灵析</strong>
+            <strong>灵犀</strong>
             <small>AI Workbench</small>
           </span>
         </div>
@@ -116,7 +129,7 @@ export function LoginPage() {
               <Sparkles size={15} />
             </span>
             <span>
-              <strong>灵析助手</strong>
+              <strong>灵犀助手</strong>
               <small>正在分析你的任务</small>
             </span>
             <i />
@@ -140,11 +153,11 @@ export function LoginPage() {
               <Sparkles size={20} />
             </span>
             <p>欢迎回来</p>
-            <h2 id="user-login-title">登录灵析工作台</h2>
+            <h2 id="user-login-title">登录灵犀工作台</h2>
             <span>使用公司为你分配的账号继续</span>
           </div>
 
-          <form onSubmit={handleSubmit}>
+          <form onKeyDown={handleFormKeyDown} onSubmit={handleSubmit}>
             <label className={styles.field} htmlFor="username">
               <span>账号</span>
               <span className={styles.inputWrap}>

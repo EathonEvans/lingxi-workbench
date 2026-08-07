@@ -654,78 +654,167 @@
   gap: 6px;
 }
 
-.subAgentItem {
+.executionItem {
   display: flex;
   align-items: center;
   width: fit-content;
-  min-height: 34px;
-  padding: 7px 11px;
-  border: 1px solid #dfe7f5;
-  border-radius: 10px;
-  color: #4d5d78;
-  background: #f5f8ff;
-  gap: 7px;
-  font-size: 12px;
-}
-
-.subAgentItem small {
-  margin-left: 5px;
-  color: #8792a4;
-  font-size: 10px;
-}
-
-.subAgentStatusIcon {
-  display: inline-flex;
-}
-
-.subAgentRUNNING .subAgentStatusIcon {
-  color: #4775d0;
-  animation: tool-spin 1s linear infinite;
-}
-
-.subAgentSUCCEEDED .subAgentStatusIcon {
-  color: #20a779;
-}
-
-.subAgentFAILED .subAgentStatusIcon {
-  color: #c14f4f;
-}
-
-.toolItem {
-  display: flex;
-  align-items: center;
-  width: fit-content;
-  min-height: 32px;
-  padding: 6px 10px;
-  border: 1px solid #e5e9f0;
-  border-radius: 9px;
-  color: #596273;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid #e2e7ef;
+  border-radius: 7px;
+  color: #596476;
   background: #f8fafc;
   gap: 6px;
   font-size: 12px;
 }
 
-.toolItem small {
-  margin-left: 5px;
-  color: #9299a5;
+.executionRunning {
+  border-color: #d9e3f8;
+  color: #49648f;
+  background: #f6f8fd;
+}
+
+.executionFailed {
+  border-color: #efd9d9;
+  color: #a34848;
+  background: #fdf8f8;
+}
+
+.executionDone {
+  color: #697383;
+}
+
+.executionSpinner {
+  flex: 0 0 auto;
+  animation: tool-spin 1s linear infinite;
+}
+
+.executionLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.executionDuration {
+  color: #929aa8;
   font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 
-.toolIcon {
-  display: inline-flex;
+.timeline {
+  width: min(520px, 100%);
+  margin: 0 0 12px;
+  border: 1px solid #e1e6ee;
+  border-radius: 8px;
+  background: #fafbfd;
+  overflow: hidden;
 }
 
-.toolRUNNING .toolIcon {
+.timelineSummary {
+  display: flex;
+  align-items: center;
+  width: min(520px, 100%);
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid #e1e6ee;
+  border-radius: 8px;
+  color: #586476;
+  background: #fafbfd;
+  gap: 8px;
+  font-size: 12px;
+  list-style: none;
+}
+
+.timeline > .timelineSummary {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.timelineSummary::-webkit-details-marker {
+  display: none;
+}
+
+.timelineSummary > svg:first-child {
+  flex: 0 0 auto;
+}
+
+.timelineSummary > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timelinerunning > svg:first-child,
+.timelineStepRUNNING .timelineStepIcon {
   color: #4775d0;
   animation: tool-spin 1s linear infinite;
 }
 
-.toolSUCCEEDED .toolIcon {
-  color: #20a779;
+.timelinecompleted > svg:first-child {
+  color: #24946d;
 }
 
-.toolFAILED .toolIcon {
-  color: #c14f4f;
+.timelinefailed > svg:first-child {
+  color: #bd5050;
+}
+
+.timelineChevron {
+  color: #929aa7;
+  transition: transform 160ms ease;
+}
+
+.timeline[open] .timelineChevron {
+  transform: rotate(180deg);
+}
+
+.timelineSteps {
+  display: grid;
+  padding: 2px 10px 9px 31px;
+  margin: 0;
+  border-top: 1px solid #edf0f4;
+  list-style: none;
+}
+
+.timelineStep {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  color: #687385;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.timelineStep + .timelineStep::before {
+  position: absolute;
+  top: -9px;
+  left: 6px;
+  width: 1px;
+  height: 18px;
+  background: #dfe4ec;
+  content: "";
+}
+
+.timelineStepIcon {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  color: #a0a8b5;
+  background: #fafbfd;
+}
+
+.timelineStepCOMPLETED .timelineStepIcon {
+  color: #24946d;
+}
+
+.timelineStepFAILED .timelineStepIcon {
+  color: #bd5050;
 }
 
 @keyframes tool-spin {
@@ -1236,6 +1325,42 @@
   border-color: #47648f;
 }
 
+.shell[data-theme="dark"] .executionItem,
+.shell[data-theme="dark"] .timeline,
+.shell[data-theme="dark"] .timelineSummary {
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #aeb8c8;
+  background: #1a1f28;
+}
+
+.shell[data-theme="dark"] .executionRunning {
+  border-color: #334767;
+  color: #b4c8e9;
+  background: #1a2638;
+}
+
+.shell[data-theme="dark"] .executionFailed {
+  border-color: #57383d;
+  color: #e09a9a;
+  background: #2a1d21;
+}
+
+.shell[data-theme="dark"] .timelineSteps {
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
+.shell[data-theme="dark"] .timelineStep {
+  color: #98a3b3;
+}
+
+.shell[data-theme="dark"] .timelineStepIcon {
+  background: #1a1f28;
+}
+
+.shell[data-theme="dark"] .timelineStep + .timelineStep::before {
+  background: #39414d;
+}
+
 :global(html[data-theme="dark"]) .historyDrawer :global(.ant-drawer-content),
 :global(html[data-theme="dark"]) .historyDrawer :global(.ant-drawer-header) {
   border-color: rgba(255, 255, 255, 0.08);
@@ -1388,9 +1513,16 @@
 
 @media (prefers-reduced-motion: reduce) {
   .authLoadingMark,
+  .executionSpinner,
   .thinking i,
-  .streamCaret {
+  .streamCaret,
+  .timelinerunning > svg:first-child,
+  .timelineStepRUNNING .timelineStepIcon {
     animation: none;
+  }
+
+  .timelineChevron {
+    transition: none;
   }
 
   .messageStage {

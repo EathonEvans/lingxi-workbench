@@ -1,4 +1,7 @@
 .page {
+  --conversation-blue: linear-gradient(135deg, #2e72ed, #4d63e8);
+  --conversation-blue-hover: linear-gradient(135deg, #2867dc, #4458d4);
+
   position: relative;
   display: grid;
   width: 100vw;
@@ -384,9 +387,23 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  border-color: #2e72ed !important;
   border-radius: 11px !important;
+  color: #fff !important;
+  background: var(--conversation-blue) !important;
   font-weight: 650 !important;
   box-shadow: 0 12px 28px rgba(42, 97, 220, 0.22) !important;
+}
+
+.submitButton:hover,
+.submitButton:focus-visible {
+  border-color: #245fda !important;
+  background: var(--conversation-blue-hover) !important;
+}
+
+.submitButton > span,
+.submitButton > svg {
+  color: #fff !important;
 }
 
 .legal {
@@ -398,6 +415,9 @@
 }
 
 .page[data-theme="dark"] {
+  --conversation-blue: linear-gradient(135deg, #2863cf, #4857c9);
+  --conversation-blue-hover: linear-gradient(135deg, #2459bb, #404db6);
+
   color: #edf1f8;
   background: #0b0e14;
 }

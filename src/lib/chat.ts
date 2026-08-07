@@ -1,8 +1,14 @@
 import { API_BASE_URL, type AuthSession } from "./auth";
 
+// ─── 类型定义 ───────────────────────────────────────────────
+
 type ChatChunk = {
   content: string;
   sequence: number;
+};
+
+type ChatSnapshot = {
+  content: string;
 };
 
 export type ChatToolEvent = {
@@ -25,9 +31,28 @@ export type ChatSubAgentEvent = {
   status: "FAILED" | "RUNNING" | "SUCCEEDED";
 };
 
+export type ChatPlanStep = {
+  capabilityCode: string;
+  name: string;
+  stepId: string;
+};
+
+export type ChatExecutionTimelineEvent = {
+  displayName?: string;
+  eventType: "CLARIFICATION_REQUIRED" | "PLANNING" | "PLAN_CREATED" | "REPLANNING" | "RUN_CANCELLED" | "RUN_COMPLETED" | "RUN_FAILED" | "STEP_COMPLETED" | "STEP_FAILED" | "STEP_STARTED";
+  message?: string;
+  planNo?: number;
+  runId: string;
+  sequence: number;
+  stepId?: string;
+  stepStatus?: "CANCELLED" | "COMPLETED" | "FAILED" | "RUNNING" | "SKIPPED";
+  steps: ChatPlanStep[];
+};
+
 export type ChatClarificationEvent = {
   clarificationId: string;
   expiresAt: string;
+  interactionType?: "PLANNER_CLARIFICATION" | "RISK_CONFIRMATION";
   options: Array<{ code: string; label: string }>;
   question: string;
   round: number;
@@ -36,6 +61,7 @@ export type ChatClarificationEvent = {
 
 export type ClarificationResponse = {
   clarificationId: string;
+  interactionType?: ChatClarificationEvent["interactionType"];
   optionCode?: string;
   value?: string;
 };
@@ -103,6 +129,7 @@ type StreamChatOptions = {
   onCancelled?: () => void;
   onChunk: (content: string, sequence: number) => void;
   onClarification?: (event: ChatClarificationEvent) => void;
+  onTimeline?: (event: ChatExecutionTimelineEvent) => void;
   onSnapshot?: (content: string) => void;
   onStart?: (start: ChatStart) => void;
   onSubAgent?: (event: ChatSubAgentEvent) => void;
@@ -125,6 +152,8 @@ type ResumeChatOptions = Omit<
   assistantMessageId: string;
 };
 
+// ─── 错误类型 ────────────────────────────────────────────────
+
 export class ChatStreamError extends Error {
   readonly code?: string;
   readonly status?: number;
@@ -137,7 +166,14 @@ export class ChatStreamError extends Error {
   }
 }
 
-function parseEventBlock(block: string) {
+// ─── SSE 解析 ────────────────────────────────────────────────
+
+type ParsedBlock = {
+  data: string;
+  event: string;
+};
+
+function parseEventBlock(block: string): ParsedBlock {
   let event = "message";
   const dataLines: string[] = [];
 
@@ -149,162 +185,180 @@ function parseEventBlock(block: string) {
   return { data: dataLines.join("\n"), event };
 }
 
-function handleEvent(
-  block: string,
-  options: Pick<
-    StreamChatOptions,
-    | "onCancelled"
-    | "onChunk"
-    | "onClarification"
-    | "onSnapshot"
-    | "onStart"
-    | "onSubAgent"
-    | "onTool"
-  >,
-) {
-  const { data, event } = parseEventBlock(block);
+/**
+ * 事件路由表：event 类型 → 处理函数。
+ * 返回 true 表示流结束（done/error/cancelled），false 表示继续接收。
+ */
+type EventHandler = (data: string, options: StreamChatOptions) => boolean;
 
-  if (event === "done") return true;
-  if (!data) return false;
+const EVENT_DISPATCH: Record<string, EventHandler> = {
+  message(data, options) {
+    const chunk = JSON.parse(data) as ChatChunk;
+    options.onChunk(chunk.content, chunk.sequence);
+    return false;
+  },
 
-  let payload:
-    | ChatChunk
-    | ChatClarificationEvent
-    | ChatErrorPayload
-    | ChatSubAgentEvent
-    | ChatToolEvent;
-  try {
-    payload = JSON.parse(data) as
-      | ChatChunk
-      | ChatClarificationEvent
-      | ChatErrorPayload
-      | ChatSubAgentEvent
-      | ChatToolEvent;
-  } catch {
-    throw new ChatStreamError("模型返回的数据格式不正确，请稍后重试");
-  }
+  snapshot(data, options) {
+    const snapshot = JSON.parse(data) as ChatSnapshot;
+    options.onSnapshot?.(snapshot.content);
+    return false;
+  },
 
-  if (event === "error") {
-    const error = payload as ChatErrorPayload;
-    throw new ChatStreamError(error.message || "模型服务暂时不可用，请稍后重试", {
-      code: error.code,
+  tool(data, options) {
+    const tool = JSON.parse(data) as ChatToolEvent;
+    options.onTool?.(tool);
+    return false;
+  },
+
+  subagent(data, options) {
+    const agent = JSON.parse(data) as ChatSubAgentEvent;
+    options.onSubAgent?.(agent);
+    return false;
+  },
+
+  clarification(data, options) {
+    const clarification = JSON.parse(data) as ChatClarificationEvent;
+    options.onClarification?.(clarification);
+    return false;
+  },
+
+  planning(data, options) {
+    options.onTimeline?.(JSON.parse(data) as ChatExecutionTimelineEvent);
+    return false;
+  },
+
+  plan(data, options) {
+    options.onTimeline?.(JSON.parse(data) as ChatExecutionTimelineEvent);
+    return false;
+  },
+
+  step(data, options) {
+    options.onTimeline?.(JSON.parse(data) as ChatExecutionTimelineEvent);
+    return false;
+  },
+
+  replanning(data, options) {
+    options.onTimeline?.(JSON.parse(data) as ChatExecutionTimelineEvent);
+    return false;
+  },
+
+  done() {
+    return true;
+  },
+
+  error(data) {
+    const payload = JSON.parse(data) as ChatErrorPayload;
+    throw new ChatStreamError(payload.message || "生成失败，请稍后重试", {
+      code: payload.code,
     });
-  }
+  },
 
-  if (event === "cancelled") {
+  cancelled(_data, options) {
     options.onCancelled?.();
     return true;
-  }
+  },
+};
 
-  if (event === "start") {
-    options.onStart?.(payload as ChatStart);
-    return false;
-  }
-
-  if (event === "snapshot") {
-    options.onSnapshot?.((payload as ChatChunk).content || "");
-    return false;
-  }
-
-  if (event === "tool") {
-    options.onTool?.(payload as ChatToolEvent);
-    return false;
-  }
-
-  if (event === "subagent") {
-    options.onSubAgent?.(payload as ChatSubAgentEvent);
-    return false;
-  }
-
-  if (event === "clarification") {
-    options.onClarification?.(payload as ChatClarificationEvent);
-    return false;
-  }
-
-  const chunk = payload as ChatChunk;
-  if (typeof chunk.content === "string" && chunk.content) {
-    options.onChunk(chunk.content, chunk.sequence || 0);
-  }
-  return false;
-}
-
-async function consumeEventStream(
-  response: Response,
-  options: Pick<
-    StreamChatOptions,
-    | "onCancelled"
-    | "onChunk"
-    | "onClarification"
-    | "onSnapshot"
-    | "onStart"
-    | "onSubAgent"
-    | "onTool"
-  >,
-) {
-  if (!response.body) throw new ChatStreamError("当前浏览器无法读取流式响应");
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let completed = false;
-  let terminalReceived = false;
+/** 处理单个 SSE 事件块。返回 true 表示流已终止。 */
+function dispatchEvent(
+  event: string,
+  data: string,
+  options: StreamChatOptions,
+): boolean {
+  const handler = EVENT_DISPATCH[event];
+  if (!handler) return false;
 
   try {
-    while (!completed) {
-      const { done, value } = await reader.read();
-      buffer += decoder.decode(value, { stream: !done });
-      buffer = buffer.replaceAll("\r\n", "\n");
-
-      let boundary = buffer.indexOf("\n\n");
-      while (boundary >= 0) {
-        const block = buffer.slice(0, boundary).trim();
-        buffer = buffer.slice(boundary + 2);
-        if (block && handleEvent(block, options)) {
-          completed = true;
-          terminalReceived = true;
-          break;
-        }
-        boundary = buffer.indexOf("\n\n");
-      }
-
-      if (done) {
-        const finalBlock = buffer.trim();
-        if (finalBlock && handleEvent(finalBlock, options)) terminalReceived = true;
-        break;
-      }
-    }
-    if (!terminalReceived) {
-      throw new ChatStreamError("流式连接已中断，刷新页面后可继续接收回答");
-    }
-  } finally {
-    await reader.cancel().catch(() => undefined);
+    return handler(data, options);
+  } catch (error) {
+    if (error instanceof ChatStreamError) throw error;
+    // 单个事件解析失败不中断整个流
+    return false;
   }
 }
 
-async function requireSuccessfulResponse(response: Response) {
-  if (response.ok) return;
-  const payload = (await response.json().catch(() => null)) as ChatErrorPayload | null;
-  throw new ChatStreamError(payload?.msg || payload?.message || "对话请求失败，请稍后重试", {
-    status: response.status,
-  });
+/** SSE 流读取器：正确处理跨 chunk 边界的行分割。 */
+async function consumeEventStream(
+  response: Response,
+  options: StreamChatOptions,
+): Promise<void> {
+  const reader = response.body?.getReader();
+  if (!reader) throw new ChatStreamError("响应流不可用");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const blocks = buffer.split("\n\n");
+    // 保留最后一个可能不完整的块，等待下一轮补充
+    buffer = blocks.pop() ?? "";
+
+    for (const block of blocks) {
+      if (options.signal?.aborted) return;
+      const { event, data } = parseEventBlock(block);
+      const terminated = dispatchEvent(event, data, options);
+      if (terminated) return;
+    }
+  }
+
+  // 处理流末尾可能残留的不完整块
+  if (buffer.trim() && !options.signal?.aborted) {
+    const { event, data } = parseEventBlock(buffer);
+    dispatchEvent(event, data, options);
+  }
 }
 
-async function readApiData<T>(response: Response, fallbackMessage: string): Promise<T> {
-  const payload = (await response.json().catch(() => null)) as
-    | { code: number; data?: T; msg?: string }
-    | null;
-  if (!response.ok || payload?.code !== 200 || payload.data === undefined) {
-    throw new ChatStreamError(payload?.msg || fallbackMessage, {
-      status: payload?.code || response.status,
+// ─── HTTP 基元 ────────────────────────────────────────────────
+
+type ApiEnvelope<T> = {
+  code: number;
+  data?: T;
+  msg?: string;
+};
+
+/** 读取 JSON body。 */
+async function readApiBody(response: Response): Promise<ApiEnvelope<unknown>> {
+  try {
+    return (await response.json()) as ApiEnvelope<unknown>;
+  } catch {
+    throw new ChatStreamError("服务响应异常，请稍后重试", {
+      status: response.status,
     });
   }
-  return payload.data;
 }
 
-async function readApiVoid(response: Response, fallbackMessage: string) {
-  const payload = (await response.json().catch(() => null)) as
-    | { code: number; msg?: string }
-    | null;
+/** 读取 API 响应 data 字段，业务失败抛出 ChatStreamError。 */
+async function readApiData<T>(
+  response: Response,
+  fallbackMessage: string,
+): Promise<T> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const payload = (await readApiBody(response)) as ApiEnvelope<any> | null;
+
+  if (!response.ok || payload?.code !== 200 || !payload) {
+    throw new ChatStreamError(
+      payload?.msg || fallbackMessage,
+      { status: payload?.code || response.status },
+    );
+  }
+
+  if (payload.data === undefined) {
+    throw new ChatStreamError(fallbackMessage, { status: payload.code });
+  }
+
+  return payload.data as T;
+}
+
+/** 读取 API 响应（无 data 字段）。 */
+async function readApiVoid(
+  response: Response,
+  fallbackMessage: string,
+): Promise<void> {
+  const payload = await readApiBody(response);
   if (!response.ok || payload?.code !== 200) {
     throw new ChatStreamError(payload?.msg || fallbackMessage, {
       status: payload?.code || response.status,
@@ -312,163 +366,182 @@ async function readApiVoid(response: Response, fallbackMessage: string) {
   }
 }
 
-function conversationQueryString(query: ConversationQuery) {
-  const params = new URLSearchParams({
-    current: String(query.current ?? 1),
-    size: String(query.size ?? 20),
+/** 构造鉴权 headers。 */
+function authHeaders(session: AuthSession): Record<string, string> {
+  return { [session.tokenName]: session.tokenValue };
+}
+
+/** 构造查询参数字符串（过滤 undefined 值）。 */
+function conversationQueryString(query: ConversationQuery): string {
+  return new URLSearchParams(
+    Object.entries({
+      current: query.current !== undefined ? String(query.current) : undefined,
+      keyword: query.keyword || undefined,
+      size: query.size !== undefined ? String(query.size) : undefined,
+      status: query.status || undefined,
+    }).filter(([, v]) => v !== undefined) as [string, string][],
+  ).toString();
+}
+
+/** 幂等请求缓存：相同 clientMessageId 的并发请求只发一次。 */
+const startRequestCache = new Map<string, Promise<ChatStart>>();
+
+// ─── 流式对话 ────────────────────────────────────────────────
+
+/**
+ * 创建模型生成任务并向服务端发起流式对话。
+ *
+ * 流程：
+ * 1. POST /start → 获得任务标识（conversationId、assistantMessageId）
+ * 2. 调用 resume 端点订阅 SSE，消费增量事件直到流结束
+ */
+export async function streamChat(options: StreamChatOptions): Promise<void> {
+  const { signal } = options;
+
+  // 步骤 1：创建生成任务（幂等去重）
+  const key = options.clientMessageId;
+  if (!startRequestCache.has(key)) {
+    startRequestCache.set(key, initiateChat(options));
+  }
+  const start = await startRequestCache.get(key)!;
+  startRequestCache.delete(key);
+
+  if (signal?.aborted) return;
+  options.onStart?.(start);
+
+  // 步骤 2：订阅 SSE 流
+  await resumeStream(start.assistantMessageId, 0, options);
+}
+
+/** POST /start：创建模型生成任务并返回任务标识。 */
+async function initiateChat(options: StreamChatOptions): Promise<ChatStart> {
+  const response = await fetch(`${API_BASE_URL}/v1/ai/chat/start`, {
+    body: JSON.stringify({
+      applicationCode: options.applicationCode,
+      clientMessageId: options.clientMessageId,
+      clarificationResponse: options.clarificationResponse,
+      conversationId: options.conversationId,
+      query: options.query,
+    }),
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(options.session),
+    },
+    method: "POST",
+    signal: options.signal,
   });
-  if (query.keyword?.trim()) params.set("keyword", query.keyword.trim());
-  if (query.status) params.set("status", query.status);
-  return params.toString();
+
+  return readApiData<ChatStart>(response, "发起对话失败，请稍后重试");
+}
+
+/** POST /resume：订阅 SSE 事件流。 */
+async function resumeStream(
+  assistantMessageId: string,
+  afterSequence: number,
+  options: Pick<StreamChatOptions, "session" | "signal" | "onChunk" | "onSnapshot" | "onTool" | "onSubAgent" | "onClarification" | "onTimeline" | "onCancelled">,
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/v1/ai/chat/resume`, {
+    body: JSON.stringify({ assistantMessageId, afterSequence }),
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "text/event-stream",
+      ...authHeaders(options.session),
+    },
+    method: "POST",
+    signal: options.signal,
+  });
+
+  if (!response.ok) {
+    // 先尝试解析业务错误信息
+    try {
+      const payload = await response.json() as ChatErrorPayload;
+      throw new ChatStreamError(
+        payload.message || payload.msg || "恢复生成任务失败",
+        { status: response.status },
+      );
+    } catch (error) {
+      if (error instanceof ChatStreamError) throw error;
+      throw new ChatStreamError("恢复生成任务失败", {
+        status: response.status,
+      });
+    }
+  }
+
+  await consumeEventStream(response, options as StreamChatOptions);
 }
 
 /**
- * 调用应用端 SSE 对话接口并逐块交付模型增量内容。
- * fetch 支持 POST 和动态认证头，EventSource 无法满足这两个条件。
+ * 刷新页面后恢复已存在的模型生成任务。
  */
-export async function streamChat({
-  applicationCode,
-  clientMessageId,
-  clarificationResponse,
-  conversationId,
-  onChunk,
-  onCancelled,
-  onClarification,
-  onSnapshot,
-  onStart,
-  onSubAgent,
-  onTool,
-  query,
-  session,
-  signal,
-}: StreamChatOptions) {
-  let response: Response;
-
-  try {
-    response = await fetch(`${API_BASE_URL}/v1/ai/chat/start`, {
-      body: JSON.stringify({
-        applicationCode,
-        clarificationResponse,
-        clientMessageId,
-        conversationId,
-        query,
-      }),
-      headers: {
-        "Content-Type": "application/json",
-        [session.tokenName]: session.tokenValue,
-      },
-      method: "POST",
-      signal,
-    });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") throw error;
-    throw new ChatStreamError("无法连接模型服务，请确认应用端服务已经启动");
-  }
-
-  await requireSuccessfulResponse(response);
-  const payload = (await response.json().catch(() => null)) as
-    | { code: number; data?: ChatStart; msg?: string }
-    | null;
-  if (payload?.code !== 200 || !payload.data) {
-    throw new ChatStreamError(payload?.msg || "创建模型生成任务失败，请稍后重试");
-  }
-  onStart?.(payload.data);
-  await resumeChat({
-    afterSequence: 0,
-    assistantMessageId: payload.data.assistantMessageId,
-    onCancelled,
-    onChunk,
-    onClarification,
-    onSnapshot,
-    onSubAgent,
-    onTool,
-    session,
-    signal,
-  });
+export async function resumeChat(options: ResumeChatOptions): Promise<void> {
+  await resumeStream(
+    options.assistantMessageId,
+    options.afterSequence,
+    options,
+  );
 }
 
-/** 查询用户端允许选择的已启用、已发布 AI 应用。 */
+/**
+ * 取消正在生成的模型任务。
+ */
+export async function cancelChat(
+  assistantMessageId: string,
+  session: AuthSession,
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/v1/ai/chat/cancel`,
+    {
+      body: JSON.stringify({ assistantMessageId }),
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(session),
+      },
+      method: "POST",
+    },
+  );
+  await readApiVoid(response, "停止生成失败，请稍后重试");
+}
+
+// ─── 可用应用 ────────────────────────────────────────────────
+
 export async function listAvailableApplications(
   session: AuthSession,
 ): Promise<AvailableApplication[]> {
-  const response = await fetch(`${API_BASE_URL}/v1/applications/available`, {
-    headers: { [session.tokenName]: session.tokenValue },
-  });
-  return readApiData(response, "查询可用应用失败，请稍后重试");
+  const response = await fetch(
+    `${API_BASE_URL}/v1/ai/chat/applications`,
+    { headers: authHeaders(session) },
+  );
+  return readApiData<AvailableApplication[]>(
+    response,
+    "获取可用应用失败，请稍后重试",
+  );
 }
 
-/** 浏览器刷新或网络恢复后，从最后一个增量序号继续订阅生成任务。 */
-export async function resumeChat({
-  afterSequence,
-  assistantMessageId,
-  onCancelled,
-  onChunk,
-  onClarification,
-  onSnapshot,
-  onSubAgent,
-  onTool,
-  session,
-  signal,
-}: ResumeChatOptions) {
-  let response: Response;
-  try {
-    response = await fetch(`${API_BASE_URL}/v1/ai/chat/resume`, {
-      body: JSON.stringify({ afterSequence, assistantMessageId }),
+// ─── 会话管理 ────────────────────────────────────────────────
+
+/** 创建新会话。 */
+export async function createConversation(
+  session: AuthSession,
+): Promise<Conversation> {
+  const response = await fetch(
+    `${API_BASE_URL}/v1/conversations/create`,
+    {
       headers: {
-        Accept: "text/event-stream, application/json",
         "Content-Type": "application/json",
-        [session.tokenName]: session.tokenValue,
+        ...authHeaders(session),
       },
       method: "POST",
-      signal,
-    });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") throw error;
-    throw new ChatStreamError("无法重新连接模型生成任务，请稍后重试");
-  }
-  await requireSuccessfulResponse(response);
-  await consumeEventStream(response, {
-    onCancelled,
-    onChunk,
-    onClarification,
-    onSnapshot,
-    onSubAgent,
-    onTool,
-  });
-}
-
-/** 显式取消模型生成；单纯中断 SSE 连接不会调用该接口。 */
-export async function cancelChat(assistantMessageId: string, session: AuthSession) {
-  const response = await fetch(`${API_BASE_URL}/v1/ai/chat/cancel`, {
-    body: JSON.stringify({ assistantMessageId }),
-    headers: {
-      "Content-Type": "application/json",
-      [session.tokenName]: session.tokenValue,
     },
-    method: "POST",
-  });
-  await requireSuccessfulResponse(response);
-  const payload = (await response.json().catch(() => null)) as
-    | { code: number; msg?: string }
+  );
+  const payload = await response
+    .json()
+    .catch(() => ({})) as { code?: number; data?: Conversation; msg?: string }
     | null;
-  if (payload?.code !== 200) {
-    throw new ChatStreamError(payload?.msg || "停止生成失败，请稍后重试");
-  }
-}
-
-/** 创建空会话，首条消息发送成功后由后端自动生成会话标题。 */
-export async function createConversation(session: AuthSession): Promise<Conversation> {
-  const response = await fetch(`${API_BASE_URL}/v1/conversations/create`, {
-    headers: { [session.tokenName]: session.tokenValue },
-    method: "POST",
-  });
-  const payload = (await response.json().catch(() => null)) as
-    | { code: number; data?: Conversation; msg?: string }
-    | null;
-  if (!response.ok || payload?.code !== 200 || !payload.data) {
-    throw new ChatStreamError(payload?.msg || "创建会话失败，请稍后重试", {
-      status: payload?.code || response.status,
-    });
+  if (!response.ok || payload?.code !== 200 || !payload?.data) {
+    throw new ChatStreamError(
+      payload?.msg || "创建会话失败，请稍后重试",
+      { status: payload?.code || response.status },
+    );
   }
   return payload.data;
 }
@@ -480,7 +553,7 @@ export async function listConversations(
 ): Promise<PageResult<Conversation>> {
   const response = await fetch(
     `${API_BASE_URL}/v1/conversations/list?${conversationQueryString(query)}`,
-    { headers: { [session.tokenName]: session.tokenValue } },
+    { headers: authHeaders(session) },
   );
   return readApiData(response, "查询会话记录失败，请稍后重试");
 }
@@ -498,7 +571,7 @@ export async function listConversationMessages(
   });
   const response = await fetch(
     `${API_BASE_URL}/v1/conversations/message-list?${params.toString()}`,
-    { headers: { [session.tokenName]: session.tokenValue } },
+    { headers: authHeaders(session) },
   );
   return readApiData(response, "查询历史消息失败，请稍后重试");
 }
@@ -515,7 +588,7 @@ export async function renameConversation(
       body: JSON.stringify({ title }),
       headers: {
         "Content-Type": "application/json",
-        [session.tokenName]: session.tokenValue,
+        ...authHeaders(session),
       },
       method: "POST",
     },
@@ -531,7 +604,7 @@ async function changeConversation(
   const response = await fetch(
     `${API_BASE_URL}/v1/conversations/${action}?conversationId=${encodeURIComponent(conversationId)}`,
     {
-      headers: { [session.tokenName]: session.tokenValue },
+      headers: authHeaders(session),
       method: "POST",
     },
   );
@@ -542,11 +615,17 @@ async function changeConversation(
 }
 
 /** 归档会话，归档后仍保留历史消息，但不能继续发送。 */
-export async function archiveConversation(conversationId: string, session: AuthSession) {
+export async function archiveConversation(
+  conversationId: string,
+  session: AuthSession,
+) {
   await changeConversation("archive", conversationId, session);
 }
 
 /** 删除当前用户的会话记录。 */
-export async function deleteConversation(conversationId: string, session: AuthSession) {
+export async function deleteConversation(
+  conversationId: string,
+  session: AuthSession,
+) {
   await changeConversation("delete", conversationId, session);
 }

@@ -3,7 +3,7 @@ import { AppProvider } from "@/components/app-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "灵析 AI Workbench",
+  title: "灵犀 AI Workbench",
   description: "面向企业知识与智能协作的 AI 工作台",
 };
 
