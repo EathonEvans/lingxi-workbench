@@ -46,15 +46,15 @@ public class KnowledgeRetrievalNode extends AbstractChatProcessNode {
              * 这里不再读取知识库“当前”的模型，也不再使用 application.yml 默认召回参数。
              * 这些值已经冻结在 AgentVersion 中，运行时必须完整复现发布时的检索契约。
              */
-            EmbeddingModelRuntimeConfig embeddingConfig =
-                    modelRuntimeConfigService.getEmbeddingModelConfig(
-                            context.getEmbeddingModelInstanceId());
+            EmbeddingModelRuntimeConfig embeddingConfig = modelRuntimeConfigService.getEmbeddingModelConfig(context.getEmbeddingModelInstanceId());
+
             List<KnowledgeSearchResultVO> chunks = knowledgeSearchService.search(
                     context.retrievalQuery(),
                     knowledgeBaseId,
                     embeddingConfig,
                     context.getRetrievalTopK(),
                     context.getRetrievalSimilarityThreshold());
+
             context.setKnowledgeChunks(chunks);
             RetrievalStatus retrievalStatus = RetrievalStatus.SUCCESS;
             if (chunks.isEmpty()) {

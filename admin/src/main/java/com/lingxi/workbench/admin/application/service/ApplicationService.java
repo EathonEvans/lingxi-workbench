@@ -35,7 +35,7 @@ public interface ApplicationService {
     /** 修改 Application 名称和描述。 */
     ApplicationDetailVO update(Long id, UpdateApplicationRequest request, Long operatorId);
 
-    /** 保存 Application Workflow 草稿，以 revision 做并发保护。 */
+    /** 保存 Application 草稿，以 revision 做并发保护。 */
     ApplicationDetailVO saveDraft(
             Long id, SaveApplicationDraftRequest request, Long operatorId);
 

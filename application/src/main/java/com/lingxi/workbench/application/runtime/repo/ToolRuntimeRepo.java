@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 /** Tool 运行端只读仓储。 */
 @Repository
@@ -24,5 +25,11 @@ public class ToolRuntimeRepo {
         return mapper.selectList(Wrappers.<RuntimeToolEntity>lambdaQuery()
                 .in(RuntimeToolEntity::getCode, codes)
                 .eq(RuntimeToolEntity::getStatus, "ACTIVE"));
+    }
+
+    public Optional<RuntimeToolEntity> findActiveById(Long id) {
+        return Optional.ofNullable(mapper.selectOne(Wrappers.<RuntimeToolEntity>lambdaQuery()
+                .eq(RuntimeToolEntity::getId, id)
+                .eq(RuntimeToolEntity::getStatus, "ACTIVE")));
     }
 }

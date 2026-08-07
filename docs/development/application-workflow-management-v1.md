@@ -1,5 +1,10 @@
 # Application Workflow 配置管理 V1
 
+> 历史设计说明：自 2026-08-07 起，Workflow 已升级为独立管理、独立发布的资源。
+> 新 Application 不再维护内嵌主 Workflow，而是通过意图叶子映射引用已发布
+> WorkflowVersion、AgentVersion 或固定答复。本文件中的内嵌 Workflow 仅用于理解和
+> 兼容迁移前快照，当前实现以 `application-intent-routing-v1.md` 和 Workflow 管理模块为准。
+
 ## 1. 数据边界
 
 ```text
@@ -17,7 +22,7 @@ ai_application_version
 `published_version_id` 由服务层维护引用完整性，数据库不创建
 `FOREIGN KEY` 约束。引用列通过唯一索引或普通索引保证查询效率。
 
-Workflow 是 Application 的内部能力，不引入独立的 Workflow 产品层级。
+历史 V1 中 Workflow 是 Application 的内部能力；当前版本已改为独立产品资源。
 Agent 独立管理，Application 的 Agent 节点只保存 Agent 引用和输入输出映射，
 不会复制 Agent 内部模型、Prompt、知识库或 RAG 策略。
 

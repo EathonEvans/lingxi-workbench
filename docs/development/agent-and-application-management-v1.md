@@ -1,5 +1,8 @@
 # Agent 与 AI Application 配置管理 V1 开发设计
 
+> 历史设计说明：本文的 Application 内嵌 Workflow 方案已被独立 Workflow 资源和
+> Application 意图叶子映射取代，仅保留用于追溯迁移前设计。
+>
 > 状态：Agent V1 已实现；Application 部分已由
 > [Application Workflow 配置管理 V1](./application-workflow-management-v1.md) 更新  
 > 首个场景：Application 绑定一个 RAG Agent Version 并提供 Chat  

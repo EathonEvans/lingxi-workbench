@@ -122,7 +122,7 @@ ApplicationDefinition
 - LEAF 只维护语义、槽位和澄清元数据；
 - Application 启用的叶子必须存在目标映射，或显式交由 fallback 处理；
 - AGENT 目标在草稿中保存稳定 `agentId`，发布时解析并锁定合法 AgentVersion；
-- WORKFLOW 目标指向当前 Application 快照内的 Workflow，不创建第二套独立版本关系；
+- WORKFLOW 目标在草稿中保存独立 `workflowId`，Application 发布时锁定合法 WorkflowVersion；
 - fallback、未识别和超范围属于路由策略，不进入向量索引。
 
 ## 4. 向量化与索引
@@ -182,7 +182,7 @@ Embedding 是外部调用，不能放进长数据库事务：
 
 Embedding 失败时意图树发布失败，旧正式版本继续生效；禁止发布成功后依赖运行时静默补索引。
 
-Application 发布时不重新生成向量，而是解析并锁定意图树当前正式版本，校验叶子映射完整性，再解析 AgentVersion 和当前 Workflow 快照。
+Application 发布时不重新生成向量，而是解析并锁定意图树当前正式版本，校验叶子映射完整性，再解析并锁定 AgentVersion 或独立 WorkflowVersion。
 
 ## 5. 运行时设计
 
@@ -198,8 +198,18 @@ IntentRoutingService
 
 - `IntentCandidateRetriever`：对当前消息和必要的对话摘要向量化，按 IntentTreeVersion 召回 Top-K；
 - `IntentDecisionPolicy`：确定性检查召回阈值、Top-1/Top-2 分差、必需槽位、权限和风险；
-- `IntentExecutionDispatcher`：根据已发布目标调用普通/Supervisor Agent、Application Workflow 或固定响应；
+- `IntentExecutionDispatcher`：根据已发布目标调用普通/Supervisor Agent、独立 WorkflowVersion 或固定响应；
 - 未完成澄清或确认前，不得执行带副作用的 Tool。
+
+运行时固定按以下顺序分发，Workflow 不再是 Chat 的默认执行外壳：
+
+```text
+用户消息 -> ApplicationVersion -> 意图识别 -> 命中叶子
+  -> WORKFLOW: 加载 targetId + targetVersionId 对应的 WorkflowVersion
+  -> AGENT: 直接执行 targetId + targetVersionId 对应的 AgentVersion
+  -> FIXED_RESPONSE: 直接返回，不调用执行引擎
+  -> CLARIFICATION: 发布澄清事件，等待用户补充
+```
 
 ### 5.2 路由结果
 
@@ -368,4 +378,4 @@ clarificationResponse
 
 本轮按 `M1 → M2 → M3 → M4 → M5` 顺序推进。M2 向量召回是本次范围内的正式能力，不作为后续可选优化。M1 合并前先冻结 IntentTree 与 Application Binding 两套边界清晰的协议；M2 通过后再接 LLM 分类，避免把召回、分类和执行问题混在一起调试；M4 完成前不允许意图路由接管默认 Chat 主链路。
 
-上线采用 Application 级开关：未配置或未启用 `intentBinding` 的既有 Application 继续走当前 Agent/Workflow/Supervisor 路径，保证向后兼容，不做静默行为变更。
+新 Application 必须配置启用的 `intentBinding`；未配置或未启用的历史 Application 仅通过已发布快照中的内嵌 Workflow 兼容运行，不再作为新草稿的正常编辑路径。

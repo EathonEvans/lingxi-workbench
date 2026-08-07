@@ -7,6 +7,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * pgvector 知识库 Chunk 向量数据仓库。
@@ -69,6 +70,31 @@ public class KnowledgeChunkVectorRepo {
     /** 更新单个 Chunk 对应的正文和向量，人工修订后调用。 */
     public void upsert(KnowledgeChunkEntity chunk, float[] vector) {
         upsertBatch(List.of(chunk), List.of(vector));
+    }
+
+    /** 校验冻结任务的向量维度一致，并返回该索引版本使用的维度。 */
+    public int findConsistentDimension(List<Long> taskIds, int expectedVectorCount) {
+        if (taskIds.isEmpty()) {
+            throw new IllegalArgumentException("知识索引至少需要一个分块任务");
+        }
+        String placeholders = String.join(",", java.util.Collections.nCopies(taskIds.size(), "?"));
+        String sql = """
+                SELECT MIN(vector_dims(vector.embedding)) AS min_dimension,
+                       MAX(vector_dims(vector.embedding)) AS max_dimension,
+                       COUNT(*) AS vector_count
+                  FROM lingxi_vector.knowledge_chunk_vector vector
+                  JOIN lingxi_core.ai_knowledge_chunk chunk ON chunk.id = vector.chunk_id
+                 WHERE chunk.task_id IN (%s)
+                   AND chunk.enabled = TRUE
+                """.formatted(placeholders);
+        Map<String, Object> result = jdbcTemplate.queryForMap(sql, taskIds.toArray());
+        Number count = (Number) result.get("vector_count");
+        Number minimum = (Number) result.get("min_dimension");
+        Number maximum = (Number) result.get("max_dimension");
+        if (count.intValue() != expectedVectorCount || minimum == null || maximum == null || minimum.intValue() != maximum.intValue()) {
+            throw new IllegalStateException("知识索引向量缺失或维度不一致");
+        }
+        return minimum.intValue();
     }
 
     /** 将 float 数组转换为 pgvector 字面量格式 [v1,v2,...]。 */

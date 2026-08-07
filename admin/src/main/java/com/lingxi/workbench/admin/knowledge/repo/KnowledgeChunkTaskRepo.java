@@ -27,6 +27,14 @@ public class KnowledgeChunkTaskRepo {
         return Optional.ofNullable(mapper.selectById(id));
     }
 
+    /** 批量读取待冻结的分块任务。 */
+    public List<KnowledgeChunkTaskEntity> findByIds(List<Long> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        return mapper.selectByIds(ids);
+    }
+
     /** 按文档 ID 查询最新版本的任务。 */
     public Optional<KnowledgeChunkTaskEntity> findLatestByDocumentId(Long documentId) {
         return Optional.ofNullable(mapper.selectOne(Wrappers.<KnowledgeChunkTaskEntity>lambdaQuery()

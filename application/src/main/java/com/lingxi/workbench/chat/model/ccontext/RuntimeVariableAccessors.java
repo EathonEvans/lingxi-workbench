@@ -74,6 +74,11 @@ public final class RuntimeVariableAccessors {
     public static final RuntimeVariableAccessor<List<ChatHistoryMessage>> SESSION_HISTORY =
             historyAccessor(BuiltInRuntimeVariable.SESSION_HISTORY);
     /**
+     * 已持久化的会话摘要。
+     */
+    public static final RuntimeVariableAccessor<String> SESSION_SUMMARY =
+            stringAccessor(BuiltInRuntimeVariable.SESSION_SUMMARY);
+    /**
      * 按问题改写策略独立裁剪后的历史消息。
      */
     public static final RuntimeVariableAccessor<List<ChatHistoryMessage>> QUERY_REWRITE_HISTORY =
@@ -88,6 +93,11 @@ public final class RuntimeVariableAccessors {
      */
     public static final RuntimeVariableAccessor<String> KNOWLEDGE_CONTEXT =
             stringAccessor(BuiltInRuntimeVariable.KNOWLEDGE_CONTEXT);
+    /**
+     * 长期记忆上下文，由 MemoryInjectionNode 注入。
+     */
+    public static final RuntimeVariableAccessor<String> LONG_TERM_MEMORY =
+            stringAccessor(BuiltInRuntimeVariable.LONG_TERM_MEMORY);
 
     private static final EnumMap<BuiltInRuntimeVariable, RuntimeVariableAccessor<?>>
             ACCESSORS = buildAccessors();
@@ -126,9 +136,11 @@ public final class RuntimeVariableAccessors {
         register(accessors, USER_QUERY);
         register(accessors, SESSION_ID);
         register(accessors, SESSION_HISTORY);
+        register(accessors, SESSION_SUMMARY);
         register(accessors, QUERY_REWRITE_HISTORY);
         register(accessors, KNOWLEDGE_RETRIEVAL_QUERY);
         register(accessors, KNOWLEDGE_CONTEXT);
+        register(accessors, LONG_TERM_MEMORY);
         return accessors;
     }
 

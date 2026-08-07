@@ -9,6 +9,7 @@ import com.lingxi.workbench.admin.agent.model.config.AgentMemoryPolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
+import com.lingxi.workbench.admin.agent.model.config.KnowledgeSearchCapabilitySnapshot;
 import com.lingxi.workbench.admin.agent.model.config.QueryRewritePolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
 import com.lingxi.workbench.admin.agent.model.converter.AgentConverter;
@@ -39,7 +40,9 @@ import com.lingxi.workbench.admin.agent.service.AgentService;
 import com.lingxi.workbench.admin.agent.service.AgentSnapshotChecksum;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeBaseEntity;
+import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeIndexVersionEntity;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeBaseRepo;
+import com.lingxi.workbench.admin.knowledge.service.KnowledgeIndexVersionService;
 import com.lingxi.workbench.admin.tool.service.ToolService;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
@@ -60,7 +63,9 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class AgentServiceImpl implements AgentService {
-    private static final int AGENT_SCHEMA_VERSION = 3;
+    private static final int AGENT_SCHEMA_VERSION = 4;
+    private static final int KNOWLEDGE_SEARCH_MAX_QUERY_CHARACTERS = 2000;
+    private static final int KNOWLEDGE_SEARCH_TIMEOUT_SECONDS = 15;
 
     private final AgentRepo agentRepo;
     private final AgentDraftRepo draftRepo;
@@ -68,6 +73,7 @@ public class AgentServiceImpl implements AgentService {
     private final AgentVersionRepo versionRepo;
     private final AgentVersionKnowledgeRepo versionKnowledgeRepo;
     private final KnowledgeBaseRepo knowledgeBaseRepo;
+    private final KnowledgeIndexVersionService knowledgeIndexVersionService;
     private final AgentDraftValidator draftValidator;
     private final AgentSnapshotChecksum snapshotChecksum;
     private final AgentConverter converter;
@@ -259,7 +265,8 @@ public class AgentServiceImpl implements AgentService {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "Agent发布校验失败：" + message);
         }
 
-        AgentDefinition definition = buildDefinition(agent, draft, knowledge);
+        KnowledgeIndexVersionEntity knowledgeIndex = publishKnowledgeIndex(agent, knowledge, operatorId);
+        AgentDefinition definition = buildDefinition(agent, draft, knowledge, knowledgeIndex);
         String checksum = snapshotChecksum.calculate(definition);
         if (versionRepo.existsByChecksum(id, checksum)) {
             throw new BusinessException(
@@ -278,7 +285,7 @@ public class AgentServiceImpl implements AgentService {
         version.setPublishedBy(operatorId);
         version.setPublishedAt(now);
         versionRepo.insert(version);
-        insertVersionKnowledge(version.getId(), knowledge);
+        insertVersionKnowledge(version.getId(), knowledge, knowledgeIndex);
 
         agent.setPublishedVersionId(version.getId());
         agent.setUpdatedBy(operatorId);
@@ -326,11 +333,11 @@ public class AgentServiceImpl implements AgentService {
     }
 
     private static void applyTypeSpecificDraft(AgentType agentType, AgentDraftEntity draft, SaveAgentDraftRequest request) {
-        if (agentType == AgentType.SUPERVISOR) {
+        if (agentType == AgentType.SUPERVISOR || agentType == AgentType.REACT) {
             draft.setRewriteModelInstanceId(null);
             draft.setRewritePromptVersionId(null);
             draft.setRewritePolicy(QueryRewritePolicy.defaults());
-            draft.setRetrievalPolicy(RetrievalPolicy.defaults());
+            draft.setRetrievalPolicy(agentType == AgentType.REACT ? request.getRetrievalPolicy() : RetrievalPolicy.defaults());
             return;
         }
         draft.setRewriteModelInstanceId(request.getRewriteModelInstanceId());
@@ -365,7 +372,15 @@ public class AgentServiceImpl implements AgentService {
         draftKnowledgeRepo.save(binding);
     }
 
-    private static AgentDefinition buildDefinition(AgentEntity agent, AgentDraftEntity draft, AgentDraftKnowledgeEntity knowledge) {
+    private KnowledgeIndexVersionEntity publishKnowledgeIndex(AgentEntity agent, AgentDraftKnowledgeEntity knowledge, Long operatorId) {
+        if (agent.getAgentType() != AgentType.REACT || Objects.isNull(knowledge)) {
+            return null;
+        }
+        return knowledgeIndexVersionService.publishCurrent(
+                knowledge.getKnowledgeBaseId(), knowledge.getEmbeddingModelInstanceId(), operatorId);
+    }
+
+    private static AgentDefinition buildDefinition(AgentEntity agent, AgentDraftEntity draft, AgentDraftKnowledgeEntity knowledge, KnowledgeIndexVersionEntity knowledgeIndex) {
         AgentDefinition.AgentDefinitionBuilder builder = AgentDefinition.builder()
                 .schemaVersion(draft.getSchemaVersion())
                 .agentType(agent.getAgentType())
@@ -382,12 +397,38 @@ public class AgentServiceImpl implements AgentService {
                     .rewritePolicy(QueryRewritePolicy.defaults())
                     .build();
         }
+        if (agent.getAgentType() == AgentType.REACT) {
+            return builder
+                    .rewritePolicy(QueryRewritePolicy.defaults())
+                    .retrievalPolicy(Objects.isNull(knowledge) ? null : draft.getRetrievalPolicy())
+                    .knowledgeSearch(toKnowledgeSearch(knowledge, knowledgeIndex, draft.getRetrievalPolicy()))
+                    .build();
+        }
         return builder
                 .rewriteModelInstanceId(draft.getRewriteModelInstanceId())
                 .rewritePromptVersionId(draft.getRewritePromptVersionId())
                 .knowledge(toKnowledgeBinding(knowledge))
                 .rewritePolicy(draft.getRewritePolicy())
                 .retrievalPolicy(draft.getRetrievalPolicy())
+                .build();
+    }
+
+    private static KnowledgeSearchCapabilitySnapshot toKnowledgeSearch(AgentDraftKnowledgeEntity knowledge, KnowledgeIndexVersionEntity index, RetrievalPolicy retrieval) {
+        if (Objects.isNull(knowledge)) {
+            return null;
+        }
+        if (Objects.isNull(index) || Objects.isNull(retrieval)) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "ReAct Agent知识搜索快照构建失败");
+        }
+        return KnowledgeSearchCapabilitySnapshot.builder()
+                .knowledgeBaseId(knowledge.getKnowledgeBaseId())
+                .knowledgeIndexVersionId(index.getId())
+                .embeddingModelInstanceId(knowledge.getEmbeddingModelInstanceId())
+                .topK(retrieval.getTopK())
+                .similarityThreshold(retrieval.getSimilarityThreshold())
+                .maxResultTokens(retrieval.getMaxContextTokens())
+                .maxQueryCharacters(KNOWLEDGE_SEARCH_MAX_QUERY_CHARACTERS)
+                .timeoutSeconds(KNOWLEDGE_SEARCH_TIMEOUT_SECONDS)
                 .build();
     }
 
@@ -403,7 +444,7 @@ public class AgentServiceImpl implements AgentService {
                 .build();
     }
 
-    private void insertVersionKnowledge(Long versionId, AgentDraftKnowledgeEntity knowledge) {
+    private void insertVersionKnowledge(Long versionId, AgentDraftKnowledgeEntity knowledge, KnowledgeIndexVersionEntity knowledgeIndex) {
         if (Objects.isNull(knowledge)) {
             return;
         }
@@ -411,6 +452,7 @@ public class AgentServiceImpl implements AgentService {
         versionKnowledge.setAgentVersionId(versionId);
         versionKnowledge.setKnowledgeBaseId(knowledge.getKnowledgeBaseId());
         versionKnowledge.setEmbeddingModelInstanceId(knowledge.getEmbeddingModelInstanceId());
+        versionKnowledge.setKnowledgeIndexVersionId(Objects.isNull(knowledgeIndex) ? null : knowledgeIndex.getId());
         versionKnowledge.setBindingMode(knowledge.getBindingMode());
         versionKnowledge.setPriority(knowledge.getPriority());
         versionKnowledgeRepo.insert(versionKnowledge);

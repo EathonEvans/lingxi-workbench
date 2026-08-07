@@ -102,4 +102,35 @@ class AgentRuntimeDefinitionJsonTest {
                 definition.resolveToolCodes().getFirst());
         assertEquals(2, definition.getToolPolicy().maxToolCalls());
     }
+
+    @Test
+    void shouldReadSchemaV4KnowledgeSearchSnapshot() {
+        AgentRuntimeDefinition definition = JSON.parseObject(
+                """
+                        {
+                          "schemaVersion": 4,
+                          "agentType": "REACT",
+                          "knowledgeSearch": {
+                            "knowledgeBaseId": 30,
+                            "knowledgeIndexVersionId": 31,
+                            "embeddingModelInstanceId": 40,
+                            "topK": 5,
+                            "similarityThreshold": 0.65,
+                            "maxResultTokens": 2000,
+                            "maxQueryCharacters": 1000,
+                            "timeoutSeconds": 8
+                          }
+                        }
+                        """,
+                AgentRuntimeDefinition.class);
+
+        AgentRuntimeDefinition.KnowledgeSearchCapability capability = definition.getKnowledgeSearch();
+        assertEquals("REACT", definition.getAgentType());
+        assertEquals(30L, capability.getKnowledgeBaseId());
+        assertEquals(31L, capability.getKnowledgeIndexVersionId());
+        assertEquals(40L, capability.getEmbeddingModelInstanceId());
+        assertEquals(5, capability.getTopK());
+        assertEquals(2000, capability.getMaxResultTokens());
+        assertEquals(8, capability.getTimeoutSeconds());
+    }
 }

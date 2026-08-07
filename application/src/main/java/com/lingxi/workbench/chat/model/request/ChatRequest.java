@@ -46,7 +46,9 @@ public class ChatRequest {
     @Pattern(regexp = "^[a-z][a-z0-9_-]{1,63}$", message = "AI应用编码格式不正确")
     String applicationCode;
 
-    /** 上一轮 clarification 事件的可选结构化响应。 */
+    /**
+     * 上一轮 clarification(澄清) 事件的可选结构化响应。
+     */
     @Valid
     ClarificationResponseRequest clarificationResponse;
 

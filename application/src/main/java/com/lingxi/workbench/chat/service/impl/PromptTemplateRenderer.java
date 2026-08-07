@@ -40,22 +40,14 @@ public class PromptTemplateRenderer {
      * @return 完成变量替换的 System Prompt
      */
     public String renderSystemPrompt(PromptRuntimeSnapshot snapshot, RuntimeVariables variables) {
-        return renderPrompt(
-                snapshot,
-                variables,
-                PromptRole.SYSTEM,
-                RuntimeVariableChannel.SYSTEM_PROMPT);
+        return renderPrompt(snapshot, variables, PromptRole.SYSTEM, RuntimeVariableChannel.SYSTEM_PROMPT);
     }
 
     /**
      * 渲染已发布 User Prompt，用户问题和知识上下文只能在该低优先级消息中使用。
      */
     public String renderUserPrompt(PromptRuntimeSnapshot snapshot, RuntimeVariables variables) {
-        return renderPrompt(
-                snapshot,
-                variables,
-                PromptRole.USER,
-                RuntimeVariableChannel.USER_PROMPT);
+        return renderPrompt(snapshot, variables, PromptRole.USER, RuntimeVariableChannel.USER_PROMPT);
     }
 
     /**
@@ -64,21 +56,11 @@ public class PromptTemplateRenderer {
      * <p>该 Prompt 在模型协议中仍是 SYSTEM 角色，但变量权限由独立的问题改写
      * 通道控制，不能因此放宽普通回答 System Prompt 的安全边界。</p>
      */
-    public String renderQueryRewritePrompt(
-            PromptRuntimeSnapshot snapshot,
-            RuntimeVariables variables) {
-        return renderPrompt(
-                snapshot,
-                variables,
-                PromptRole.SYSTEM,
-                RuntimeVariableChannel.QUERY_REWRITE_PROMPT);
+    public String renderQueryRewritePrompt(PromptRuntimeSnapshot snapshot, RuntimeVariables variables) {
+        return renderPrompt(snapshot, variables, PromptRole.SYSTEM, RuntimeVariableChannel.QUERY_REWRITE_PROMPT);
     }
 
-    private String renderPrompt(
-            PromptRuntimeSnapshot snapshot,
-            RuntimeVariables variables,
-            PromptRole expectedRole,
-            RuntimeVariableChannel variableChannel) {
+    private String renderPrompt(PromptRuntimeSnapshot snapshot, RuntimeVariables variables, PromptRole expectedRole, RuntimeVariableChannel variableChannel) {
         if (snapshot.role() != expectedRole) {
             throw invalidSnapshot(snapshot.promptVersionId(), "Prompt角色必须为" + expectedRole.getCode());
         }
@@ -91,12 +73,7 @@ public class PromptTemplateRenderer {
 
             referencedNames.add(variableName);
 
-            String replacement = resolveReplacement(
-                    snapshot.promptVersionId(),
-                    variableName,
-                    definitions.get(variableName),
-                    variables,
-                    variableChannel);
+            String replacement = resolveReplacement(snapshot.promptVersionId(), variableName, definitions.get(variableName), variables, variableChannel);
             matcher.appendReplacement(rendered, Matcher.quoteReplacement(replacement));
         }
         matcher.appendTail(rendered);
@@ -120,23 +97,13 @@ public class PromptTemplateRenderer {
         return definitions;
     }
 
-    private String resolveReplacement(
-            Long promptVersionId,
-            String variableName,
-            PromptRuntimeVariableDefinition definition,
-            RuntimeVariables variables,
-            RuntimeVariableChannel variableChannel) {
+    private String resolveReplacement(Long promptVersionId, String variableName, PromptRuntimeVariableDefinition definition, RuntimeVariables variables, RuntimeVariableChannel variableChannel) {
         if (definition == null) {
             throw invalidSnapshot(promptVersionId, "模板使用了未声明变量：" + variableName);
         }
-        BuiltInRuntimeVariable variable = RuntimeVariableCatalog.find(variableName)
-                .orElseThrow(() -> invalidSnapshot(
-                        promptVersionId,
-                        "运行端不支持变量：" + variableName));
+        BuiltInRuntimeVariable variable = RuntimeVariableCatalog.find(variableName).orElseThrow(() -> invalidSnapshot(promptVersionId, "运行端不支持变量：" + variableName));
         if (!variable.supportsChannel(variableChannel)) {
-            throw invalidSnapshot(
-                    promptVersionId,
-                    variableChannel.getDescribe() + "禁止使用变量：" + variableName);
+            throw invalidSnapshot(promptVersionId, variableChannel.getDescribe() + "禁止使用变量：" + variableName);
         }
         if (!variable.getType().getCode().equals(definition.type())) {
             throw invalidSnapshot(promptVersionId, "变量类型与内置契约不一致：" + variableName);

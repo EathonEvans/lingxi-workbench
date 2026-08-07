@@ -5,6 +5,7 @@ import com.lingxi.workbench.admin.agent.model.config.AgentMemoryPolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
+import com.lingxi.workbench.admin.agent.model.config.KnowledgeSearchCapabilitySnapshot;
 import com.lingxi.workbench.admin.agent.model.config.QueryRewritePolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
 import lombok.AccessLevel;
@@ -31,6 +32,7 @@ public class AgentDefinitionVO {
     private List<String> toolCodes;
     private AgentToolPolicy toolPolicy;
     private AgentKnowledgeBindingVO knowledge;
+    private KnowledgeSearchCapabilitySnapshot knowledgeSearch;
     private AgentMemoryPolicy memoryPolicy;
     private QueryRewritePolicy rewritePolicy;
     private RetrievalPolicy retrievalPolicy;

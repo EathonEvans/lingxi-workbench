@@ -3,6 +3,7 @@ package com.lingxi.workbench.application.runtime.service;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
+import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 
 /**
  * 将 Agent 执行中的可展示事件发布给对话生成任务。
@@ -26,6 +27,15 @@ public interface ChatExecutionEventPublisher {
      * 发布需要用户后续响应的结构化澄清事件。
      */
     default void publishClarification(ChatClarificationEventBO event) {
+    }
+
+    /** 发布可向用户展示并持久化恢复的执行时间线。 */
+    default void publishExecution(ChatExecutionTimelineEventBO event) {
+    }
+
+    /** 当前Assistant生成任务是否已被用户取消或进入其他终态。 */
+    default boolean isCancelled() {
+        return false;
     }
 
     /**
@@ -59,6 +69,16 @@ public interface ChatExecutionEventPublisher {
             @Override
             public void publishTool(AgentToolExecutionEvent event) {
                 target.publishTool(event);
+            }
+
+            @Override
+            public void publishExecution(ChatExecutionTimelineEventBO event) {
+                target.publishExecution(event);
+            }
+
+            @Override
+            public boolean isCancelled() {
+                return target.isCancelled();
             }
         };
     }

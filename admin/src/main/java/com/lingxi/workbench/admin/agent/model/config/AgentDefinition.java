@@ -35,6 +35,8 @@ public class AgentDefinition {
     /** 工具调用运行边界。 */
     private AgentToolPolicy toolPolicy;
     private AgentKnowledgeBinding knowledge;
+    /** Schema V4 ReAct知识搜索能力；资源与索引版本均在发布时冻结。 */
+    private KnowledgeSearchCapabilitySnapshot knowledgeSearch;
     private AgentMemoryPolicy memoryPolicy;
     private QueryRewritePolicy rewritePolicy;
     private RetrievalPolicy retrievalPolicy;

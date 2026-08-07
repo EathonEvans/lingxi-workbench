@@ -57,6 +57,37 @@ public interface ConversationMessageMapper extends BaseMapper<ConversationMessag
                                                                 @Param("beforeSequenceNo") Integer beforeSequenceNo,
                                                                 @Param("maxRounds") int maxRounds);
 
+    /** 查询摘要覆盖位置之后最早的一批完整问答，结果按消息序号正序排列。 */
+    @Select("""
+            WITH summary_round AS (
+                SELECT user_message.sequence_no AS user_sequence_no
+                FROM lingxi_core.ai_conversation_message user_message
+                INNER JOIN lingxi_core.ai_conversation_message assistant_message
+                    ON assistant_message.conversation_id = user_message.conversation_id
+                    AND assistant_message.sequence_no = user_message.sequence_no + 1
+                    AND assistant_message.role = 'ASSISTANT'
+                    AND assistant_message.status = 'COMPLETED'
+                WHERE user_message.conversation_id = #{conversationId}
+                  AND user_message.sequence_no > #{afterUserSequenceNo}
+                  AND user_message.sequence_no <= #{throughUserSequenceNo}
+                  AND user_message.role = 'USER'
+                  AND user_message.status = 'COMPLETED'
+                ORDER BY user_message.sequence_no ASC
+                LIMIT #{maxRounds}
+            )
+            SELECT message.*
+            FROM lingxi_core.ai_conversation_message message
+            INNER JOIN summary_round round
+                ON message.conversation_id = #{conversationId}
+                AND (message.sequence_no = round.user_sequence_no
+                    OR message.sequence_no = round.user_sequence_no + 1)
+            ORDER BY message.sequence_no ASC
+            """)
+    List<ConversationMessageEntity> selectCompletedRoundsAfter(@Param("conversationId") Long conversationId,
+                                                               @Param("afterUserSequenceNo") int afterUserSequenceNo,
+                                                               @Param("throughUserSequenceNo") int throughUserSequenceNo,
+                                                               @Param("maxRounds") int maxRounds);
+
     /**
      * 查询当前用户拥有的 Assistant 消息。
      */

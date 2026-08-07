@@ -10,6 +10,7 @@ import com.lingxi.workbench.admin.knowledge.repo.KnowledgeBaseRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeDocumentRepo;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeBaseService;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeEmbeddingModelResolver;
+import com.lingxi.workbench.admin.knowledge.service.KnowledgeIndexVersionService;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageResult;
@@ -34,6 +35,7 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
     private final KnowledgeConverter converter;
     private final AuditService auditService;
     private final KnowledgeEmbeddingModelResolver embeddingModelResolver;
+    private final KnowledgeIndexVersionService knowledgeIndexVersionService;
 
     /**
      * 分页查询知识库列表，按关键字和状态过滤，按更新时间降序排列。
@@ -99,6 +101,9 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         KnowledgeBaseEntity entity = requireBase(id);
         if (documentRepo.existsByBaseId(id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "知识库中仍有文档，不能删除");
+        }
+        if (knowledgeIndexVersionService.hasPublishedVersion(id)) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "知识库已有发布索引版本，不能删除");
         }
         baseRepo.delete(id);
         auditService.record("KNOWLEDGE", "BASE", id, operatorId, "KNOWLEDGE_DELETE", "知识库=" + entity.getCode());

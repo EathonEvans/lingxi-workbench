@@ -13,12 +13,18 @@ import com.lingxi.workbench.application.runtime.repo.IntentTreeRuntimeRepo;
 import com.lingxi.workbench.application.runtime.repo.IntentVectorRuntimeRepo;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
+import com.lingxi.workbench.chat.model.ccontext.ContextBudget;
+import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.chat.model.request.ClarificationResponseRequest;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.infra.ai.embedding.EmbeddingGateway;
 import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
+import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
+import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
@@ -41,8 +47,11 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class IntentRoutingServiceImplTest {
@@ -85,6 +94,22 @@ class IntentRoutingServiceImplTest {
         assertThat(result.getAction()).isEqualTo(IntentRoutingAction.EXECUTE_WORKFLOW);
         assertThat(result.getIntentCode()).isEqualTo("refund");
         assertThat(result.getExecutionQuery()).isEqualTo("我要退款");
+    }
+
+    @Test
+    void shouldUseContextualizedQueryForFreshRouting() {
+        stubVersion(List.of(leaf("refund", "申请退款")));
+        when(vectorRepo.search(any(), any(), any(), any(Integer.class)))
+                .thenReturn(List.of(new IntentVectorRuntimeRepo.IntentCandidateRow("refund-node", "refund", 0.91)));
+        ApplicationRuntimeSnapshot snapshot = snapshot(List.of(workflowMapping("refund")));
+        LoginUser loginUser = new LoginUser(7L, "tester", "测试用户", null);
+        ChatTurnBO turn = new ChatTurnBO(10L, 11L, 12L, 1);
+        ConversationContext context = context(snapshot, loginUser, turn, "它可以退吗", "iPhone 订单可以退款吗");
+
+        IntentRoutingResult result = service.route(context, null);
+
+        assertThat(result.getExecutionQuery()).isEqualTo("iPhone 订单可以退款吗");
+        org.mockito.Mockito.verify(embeddingGateway).embed(eq(List.of("iPhone 订单可以退款吗")), any());
     }
 
     @Test
@@ -169,6 +194,54 @@ class IntentRoutingServiceImplTest {
         assertThat(session.getStatus()).isEqualTo(IntentRoutingSessionStatus.COMPLETED);
     }
 
+    @Test
+    void shouldFallThroughWhenOptionalFastRouteHasNoCandidate() {
+        stubVersion(List.of(leaf("refund", "申请退款")));
+        when(vectorRepo.search(any(), any(), any(), any(Integer.class))).thenReturn(List.of());
+
+        IntentRoutingResult result = route(optionalSnapshot(List.of(optionalWorkflowMapping("refund"))), "聊聊天");
+
+        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.NO_MATCH);
+        assertThat(result.getExecutionQuery()).isEqualTo("聊聊天");
+    }
+
+    @Test
+    void shouldFallThroughWhenTopOptionalLeafIsNotMapped() {
+        stubVersion(List.of(leaf("refund", "申请退款"), leaf("exchange", "申请换货")));
+        when(vectorRepo.search(any(), any(), any(), any(Integer.class)))
+                .thenReturn(List.of(new IntentVectorRuntimeRepo.IntentCandidateRow("exchange-node", "exchange", 0.91)));
+
+        IntentRoutingResult result = route(optionalSnapshot(List.of(optionalWorkflowMapping("refund"))), "我要换货");
+
+        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.NO_MATCH);
+    }
+
+    @Test
+    void shouldFallThroughInsteadOfClarifyingUnsafeOptionalAmbiguity() {
+        stubVersion(List.of(leaf("refund", "申请退款"), leaf("exchange", "申请换货")));
+        when(vectorRepo.search(any(), any(), any(), any(Integer.class))).thenReturn(List.of(
+                new IntentVectorRuntimeRepo.IntentCandidateRow("refund-node", "refund", 0.91),
+                new IntentVectorRuntimeRepo.IntentCandidateRow("exchange-node", "exchange", 0.87)));
+
+        IntentRoutingResult result = route(optionalSnapshot(List.of(optionalWorkflowMapping("refund"))), "订单有问题");
+
+        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.NO_MATCH);
+        verify(sessionRepo, never()).insert(any());
+    }
+
+    @Test
+    void shouldRouteMappedOptionalLeafToLockedCapability() {
+        stubVersion(List.of(leaf("refund", "申请退款")));
+        when(vectorRepo.search(any(), any(), any(), any(Integer.class)))
+                .thenReturn(List.of(new IntentVectorRuntimeRepo.IntentCandidateRow("refund-node", "refund", 0.91)));
+
+        IntentRoutingResult result = route(optionalSnapshot(List.of(optionalWorkflowMapping("refund"))), "我要退款");
+
+        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.EXECUTE_WORKFLOW);
+        assertThat(result.getMapping().getCapabilityCode()).isEqualTo("refund_workflow");
+        assertThat(result.getMapping().getTargetVersionId()).isEqualTo(50L);
+    }
+
     private IntentRoutingResult route(ApplicationRuntimeSnapshot snapshot, String query) {
         return route(snapshot, query, null);
     }
@@ -177,12 +250,31 @@ class IntentRoutingServiceImplTest {
             ApplicationRuntimeSnapshot snapshot,
             String query,
             ClarificationResponseRequest clarificationResponse) {
-        return service.route(
-                snapshot,
-                query,
-                new LoginUser(7L, "tester", "测试用户", null),
-                new ChatTurnBO(10L, 11L, 12L, 1),
-                clarificationResponse);
+        LoginUser loginUser = new LoginUser(7L, "tester", "测试用户", null);
+        ChatTurnBO turn = new ChatTurnBO(10L, 11L, 12L, 1);
+        ConversationContext context = context(snapshot, loginUser, turn, query, query);
+        return service.route(context, clarificationResponse);
+    }
+
+    private static ConversationContext context(ApplicationRuntimeSnapshot snapshot, LoginUser loginUser, ChatTurnBO turn, String originalQuery, String contextualizedQuery) {
+        return ConversationContext.builder()
+                .applicationSnapshot(snapshot)
+                .loginUser(loginUser)
+                .turn(turn)
+                .originalQuery(originalQuery)
+                .contextualizedQuery(contextualizedQuery)
+                .recentMessages(List.of())
+                .summary("")
+                .longTermMemory("")
+                .budget(contextBudget())
+                .runtimeVariables(new RuntimeVariablesInitializer("Lingxi Workbench").initialize(loginUser, originalQuery, turn.conversationId()))
+                .build();
+    }
+
+    private static ContextBudget contextBudget() {
+        return ContextBudget.builder().maxHistoryRounds(10).maxSystemPromptTokens(4000).maxCapabilityTokens(4000)
+                .maxHistoryTokens(4000).maxMemoryTokens(4000).maxInputTokens(4000).maxObservationTokens(4000)
+                .reservedOutputTokens(4000).build();
     }
 
     private static IntentRoutingSessionEntity pendingSession(
@@ -229,6 +321,36 @@ class IntentRoutingServiceImplTest {
                 1L, "support", 30L, new ApplicationDefinition(2, workflow, null, binding));
     }
 
+    private static ApplicationRuntimeSnapshot optionalSnapshot(List<ApplicationIntentMapping> mappings) {
+        ApplicationIntentBinding fastRoutes = ApplicationIntentBinding.builder()
+                .enabled(true)
+                .intentTreeId(2L)
+                .intentTreeVersionId(20L)
+                .mappings(mappings)
+                .build();
+        ApplicationAgentReference defaultAgent = new ApplicationAgentReference(60L, 70L, "默认助手", "处理普通请求");
+        ApplicationCapabilityDefinition defaultCapability = ApplicationCapabilityDefinition.builder()
+                .code("default_agent")
+                .type(ApplicationCapabilityType.REACT_AGENT)
+                .targetId(60L)
+                .targetVersionId(70L)
+                .build();
+        ApplicationCapabilityDefinition workflowCapability = ApplicationCapabilityDefinition.builder()
+                .code("refund_workflow")
+                .type(ApplicationCapabilityType.WORKFLOW)
+                .targetId(40L)
+                .targetVersionId(50L)
+                .build();
+        return new ApplicationRuntimeSnapshot(1L, "support", 30L, ApplicationDefinition.builder()
+                .schemaVersion(5)
+                .defaultAgent(defaultAgent)
+                .capabilityCatalog(CapabilityCatalogSnapshot.builder()
+                        .capabilities(List.of(defaultCapability, workflowCapability))
+                        .build())
+                .optionalFastRoutes(fastRoutes)
+                .build());
+    }
+
     private static IntentNodeDefinition leaf(String code, String name) {
         return IntentNodeDefinition.builder()
                 .id(code + "-node")
@@ -245,6 +367,16 @@ class IntentRoutingServiceImplTest {
         return ApplicationIntentMapping.builder()
                 .intentCode(intentCode)
                 .targetType(IntentExecutionTargetType.WORKFLOW)
+                .build();
+    }
+
+    private static ApplicationIntentMapping optionalWorkflowMapping(String intentCode) {
+        return ApplicationIntentMapping.builder()
+                .intentCode(intentCode)
+                .targetType(IntentExecutionTargetType.WORKFLOW)
+                .capabilityCode("refund_workflow")
+                .targetId(40L)
+                .targetVersionId(50L)
                 .build();
     }
 }

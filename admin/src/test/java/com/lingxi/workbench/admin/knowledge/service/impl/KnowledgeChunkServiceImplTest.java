@@ -18,6 +18,7 @@ import com.lingxi.workbench.admin.knowledge.repo.KnowledgeChunkTaskRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeChunkVectorRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeDocumentRepo;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeEmbeddingModelResolver;
+import com.lingxi.workbench.admin.knowledge.service.KnowledgeIndexVersionService;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeDocumentChunker;
 import com.lingxi.workbench.admin.knowledge.event.event.KnowledgeChunkRequestedEvent;
 import com.lingxi.workbench.framework.audit.AuditService;
@@ -59,6 +60,7 @@ class KnowledgeChunkServiceImplTest {
     @Mock private AuditService auditService;
     @Mock private ApplicationEventPublisher eventPublisher;
     @Mock private TransactionTemplate transactionTemplate;
+    @Mock private KnowledgeIndexVersionService knowledgeIndexVersionService;
 
     @InjectMocks private KnowledgeChunkServiceImpl service;
 
@@ -166,6 +168,27 @@ class KnowledgeChunkServiceImplTest {
         verify(auditService).record(
                 "KNOWLEDGE", "CHUNK", 31L, 9L,
                 "KNOWLEDGE_CHUNK_UPDATE", "文档=产品手册，Chunk=2");
+    }
+
+    @Test
+    void shouldRejectEditingChunkFrozenByPublishedIndex() {
+        KnowledgeChunkEntity chunk = new KnowledgeChunkEntity();
+        chunk.setId(31L);
+        chunk.setTaskId(19L);
+        chunk.setDocumentId(11L);
+        KnowledgeChunkTaskEntity task = new KnowledgeChunkTaskEntity();
+        task.setId(19L);
+        task.setStatus(KnowledgeChunkTaskStatus.SUCCEEDED);
+        KnowledgeDocumentEntity document = pendingDocument();
+        document.setActiveChunkTaskId(19L);
+        when(chunkRepo.findById(31L)).thenReturn(Optional.of(chunk));
+        when(taskRepo.findById(19L)).thenReturn(Optional.of(task));
+        when(documentRepo.findById(11L)).thenReturn(Optional.of(document));
+        when(knowledgeIndexVersionService.isPublishedTask(19L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.update(31L, new UpdateKnowledgeChunkRequest("新正文"), 9L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("知识索引版本冻结");
     }
 
     private static KnowledgeDocumentEntity pendingDocument() {

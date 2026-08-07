@@ -5,6 +5,8 @@ package com.lingxi.workbench.application.runtime.common.constants;
  */
 public interface AgentChatConstants {
 
+    String REACT_AGENT_TYPE = "REACT";
+
     String RAG_CHAT_AGENT_TYPE = "RAG_CHAT";
 
     String SUPERVISOR_AGENT_TYPE = "SUPERVISOR";

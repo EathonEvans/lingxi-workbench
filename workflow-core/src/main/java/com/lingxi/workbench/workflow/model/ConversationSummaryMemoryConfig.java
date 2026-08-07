@@ -1,0 +1,44 @@
+package com.lingxi.workbench.workflow.model;
+
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+/** 会话滚动摘要配置。 */
+@Getter
+@Setter
+@Builder
+@EqualsAndHashCode
+@NoArgsConstructor
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
+public class ConversationSummaryMemoryConfig {
+
+    private static final int DEFAULT_MIN_ROUNDS = 12;
+    private static final int DEFAULT_MIN_TOKENS = 4_000;
+
+    private boolean enabled;
+    private Long chatModelInstanceId;
+    private Long promptVersionId;
+    private int minRounds;
+    private int minTokens;
+
+    public int effectiveMinRounds() {
+        return minRounds > 0 ? minRounds : DEFAULT_MIN_ROUNDS;
+    }
+
+    public int effectiveMinTokens() {
+        return minTokens > 0 ? minTokens : DEFAULT_MIN_TOKENS;
+    }
+
+    public static ConversationSummaryMemoryConfig disabled() {
+        return ConversationSummaryMemoryConfig.builder()
+                .enabled(false)
+                .minRounds(DEFAULT_MIN_ROUNDS)
+                .minTokens(DEFAULT_MIN_TOKENS)
+                .build();
+    }
+}

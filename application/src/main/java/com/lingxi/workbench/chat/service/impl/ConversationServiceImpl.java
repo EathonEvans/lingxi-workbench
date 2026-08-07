@@ -167,8 +167,20 @@ public class ConversationServiceImpl implements ConversationService {
      */
     @Override
     @Transactional
-    public void completeAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage) {
-        messageRepo.finish(assistantMessageId, MessageStatus.COMPLETED, content, null, null, tokenUsage, OffsetDateTime.now());
+    public void completeAssistant(
+            Long assistantMessageId,
+            String content,
+            TokenUsage tokenUsage,
+            Long modelInstanceId) {
+        messageRepo.finish(
+                assistantMessageId,
+                MessageStatus.COMPLETED,
+                content,
+                null,
+                null,
+                tokenUsage,
+                modelInstanceId,
+                OffsetDateTime.now());
     }
 
     /**
@@ -177,7 +189,7 @@ public class ConversationServiceImpl implements ConversationService {
     @Override
     @Transactional
     public void failAssistant(Long assistantMessageId, String content, String errorCode, String errorMessage, TokenUsage tokenUsage) {
-        messageRepo.finish(assistantMessageId, MessageStatus.FAILED, content, errorCode, truncate(errorMessage, 255), tokenUsage, OffsetDateTime.now());
+        messageRepo.finish(assistantMessageId, MessageStatus.FAILED, content, errorCode, truncate(errorMessage, 255), tokenUsage, null, OffsetDateTime.now());
     }
 
     /**
@@ -186,7 +198,7 @@ public class ConversationServiceImpl implements ConversationService {
     @Override
     @Transactional
     public void cancelAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage) {
-        messageRepo.finish(assistantMessageId, MessageStatus.CANCELLED, content, "CLIENT_CANCELLED", "客户端中断了本次回答", tokenUsage, OffsetDateTime.now());
+        messageRepo.finish(assistantMessageId, MessageStatus.CANCELLED, content, "CLIENT_CANCELLED", "客户端中断了本次回答", tokenUsage, null, OffsetDateTime.now());
     }
 
     /**
@@ -195,7 +207,7 @@ public class ConversationServiceImpl implements ConversationService {
     @Override
     @Transactional
     public void interruptAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage) {
-        messageRepo.finish(assistantMessageId, MessageStatus.INTERRUPTED, content, "GENERATION_INTERRUPTED", "模型生成任务已中断", tokenUsage, OffsetDateTime.now());
+        messageRepo.finish(assistantMessageId, MessageStatus.INTERRUPTED, content, "GENERATION_INTERRUPTED", "模型生成任务已中断", tokenUsage, null, OffsetDateTime.now());
     }
 
     /**

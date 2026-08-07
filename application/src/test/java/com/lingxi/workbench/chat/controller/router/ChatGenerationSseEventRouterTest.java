@@ -1,6 +1,11 @@
 package com.lingxi.workbench.chat.controller.router;
 
+import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
+import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
+import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
+import com.lingxi.workbench.chat.model.bo.ChatPlanStepBO;
+import com.lingxi.workbench.chat.model.vo.ChatExecutionTimelineVO;
 import com.lingxi.workbench.chat.model.vo.ChatSubAgentEventVO;
 import com.lingxi.workbench.chat.model.vo.ChatToolEventVO;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
@@ -71,5 +76,27 @@ class ChatGenerationSseEventRouterTest {
         assertEquals("clarification", routed.event());
         assertEquals("9", routed.id());
         assertEquals(clarification, routed.data());
+    }
+
+    @Test
+    void shouldRouteSafePlanTimelineWithoutExecutionInternals() {
+        ChatExecutionTimelineEventBO timeline = ChatExecutionTimelineEventBO.builder()
+                .runId("run-1")
+                .eventType(ExecutionEventType.PLAN_CREATED)
+                .planNo(1)
+                .displayName("退款处理计划")
+                .stepStatus(ExecutionStepStatus.RUNNING)
+                .steps(List.of(new ChatPlanStepBO("collect", "收集退款资料", "refund_agent")))
+                .build();
+
+        ServerSentEvent<?> routed = ChatGenerationSseEventRouter.rout(
+                ChatGenerationEventBO.execution(10, com.lingxi.workbench.chat.common.enums.ChatGenerationEventType.PLAN, timeline));
+
+        assertEquals("plan", routed.event());
+        assertEquals("10", routed.id());
+        ChatExecutionTimelineVO payload = assertInstanceOf(ChatExecutionTimelineVO.class, routed.data());
+        assertEquals("run-1", payload.getRunId());
+        assertEquals("PLAN_CREATED", payload.getEventType());
+        assertEquals("refund_agent", payload.getSteps().getFirst().capabilityCode());
     }
 }

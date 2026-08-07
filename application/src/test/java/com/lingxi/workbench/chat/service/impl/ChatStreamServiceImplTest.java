@@ -1,9 +1,9 @@
 package com.lingxi.workbench.chat.service.impl;
 
 import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
-import com.lingxi.workbench.application.runtime.model.WorkflowChatResult;
+import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
 import com.lingxi.workbench.application.runtime.service.ApplicationRuntimeService;
-import com.lingxi.workbench.application.runtime.service.ApplicationWorkflowChatService;
+import com.lingxi.workbench.application.runtime.service.ApplicationChatExecutionService;
 import com.lingxi.workbench.application.runtime.service.ChatExecutionEventPublisher;
 import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
@@ -69,8 +69,8 @@ class ChatStreamServiceImplTest {
     private final ChatGenerationEventRepo generationEventRepo = mock(ChatGenerationEventRepo.class);
     private final ApplicationRuntimeService applicationRuntimeService =
             mock(ApplicationRuntimeService.class);
-    private final ApplicationWorkflowChatService applicationWorkflowChatService =
-            mock(ApplicationWorkflowChatService.class);
+    private final ApplicationChatExecutionService applicationChatExecutionService =
+            mock(ApplicationChatExecutionService.class);
 
     private ChatStreamServiceImpl service;
 
@@ -78,30 +78,26 @@ class ChatStreamServiceImplTest {
     void setUp() {
         when(applicationRuntimeService.resolvePublished("support"))
                 .thenReturn(APPLICATION_SNAPSHOT);
-        when(applicationWorkflowChatService.resolveEntryModelInstanceId(APPLICATION_SNAPSHOT))
-                .thenReturn(1L);
         when(conversationService.startTurn(
-                        7L, 10L, "client-001", "你好", 1L, 20L, 30L))
+                        7L, 10L, "client-001", "你好", null, 20L, 30L))
                 .thenReturn(new ChatTurnBO(10L, 11L, 12L, 3));
         when(messageRepo.findOwnedAssistantMessage(12L, 7L))
                 .thenReturn(Optional.of(assistant(MessageStatus.GENERATING, "")));
         when(generationEventRepo.findAfter(any(), anyLong())).thenReturn(List.of());
 
-        service = new ChatStreamServiceImpl(conversationService, messageRepo, generationEventRepo, applicationRuntimeService, applicationWorkflowChatService);
+        service = new ChatStreamServiceImpl(conversationService, messageRepo, generationEventRepo, applicationRuntimeService, applicationChatExecutionService, event -> { });
     }
 
     @Test
     void shouldResolvePublishedApplicationBeforeCreatingTurn() {
-        WorkflowExecutionGate gate = prepareWorkflow("应用回答");
+        ApplicationExecutionGate gate = prepareApplicationExecution("应用回答");
 
         service.start(createChatRequest(), LOGIN_USER);
         gate.awaitStarted();
 
         verify(applicationRuntimeService).resolvePublished("support");
-        verify(applicationWorkflowChatService)
-                .resolveEntryModelInstanceId(APPLICATION_SNAPSHOT);
         verify(conversationService).startTurn(
-                7L, 10L, "client-001", "你好", 1L, 20L, 30L);
+                7L, 10L, "client-001", "你好", null, 20L, 30L);
 
         gate.release();
     }
@@ -122,8 +118,8 @@ class ChatStreamServiceImplTest {
     }
 
     @Test
-    void shouldPublishAndPersistWorkflowAnswer() {
-        WorkflowExecutionGate gate = prepareWorkflow("完整回答");
+    void shouldPublishAndPersistApplicationAnswer() {
+        ApplicationExecutionGate gate = prepareApplicationExecution("完整回答");
 
         service.start(createChatRequest(), LOGIN_USER);
         gate.awaitStarted();
@@ -143,12 +139,13 @@ class ChatStreamServiceImplTest {
         verify(conversationService).completeAssistant(
                 12L,
                 "完整回答",
-                TokenUsage.of(12, 4, 16));
+                TokenUsage.of(12, 4, 16),
+                99L);
     }
 
     @Test
     void shouldCancelOnlyOnExplicitRequest() {
-        WorkflowExecutionGate gate = prepareWorkflow("不会返回");
+        ApplicationExecutionGate gate = prepareApplicationExecution("不会返回");
 
         service.start(createChatRequest(), LOGIN_USER);
         gate.awaitStarted();
@@ -162,7 +159,7 @@ class ChatStreamServiceImplTest {
 
     @Test
     void shouldInterruptRunningTaskWhenApplicationShutsDown() {
-        WorkflowExecutionGate gate = prepareWorkflow("不会返回");
+        ApplicationExecutionGate gate = prepareApplicationExecution("不会返回");
 
         service.start(createChatRequest(), LOGIN_USER);
         gate.awaitStarted();
@@ -212,18 +209,18 @@ class ChatStreamServiceImplTest {
     }
 
     /**
-     * 让同步 Workflow 调用停在后台线程，测试可以稳定观察“任务运行中”的状态，
+     * 让同步 Application 目标执行停在后台线程，测试可以稳定观察“任务运行中”的状态，
      * 避免依赖线程调度快慢产生偶发失败。
      */
-    private WorkflowExecutionGate prepareWorkflow(String answer) {
-        WorkflowExecutionGate gate = new WorkflowExecutionGate();
+    private ApplicationExecutionGate prepareApplicationExecution(String answer) {
+        ApplicationExecutionGate gate = new ApplicationExecutionGate();
         doAnswer(invocation -> {
             gate.markStarted();
             gate.awaitRelease();
             ChatExecutionEventPublisher eventPublisher = invocation.getArgument(5);
             eventPublisher.publishText(new ChatStreamChunk(answer, TokenUsage.of(12, 4, 16)));
-            return new WorkflowChatResult(answer, TokenUsage.of(12, 4, 16), List.of());
-        }).when(applicationWorkflowChatService).execute(
+            return new ApplicationChatResult(answer, TokenUsage.of(12, 4, 16), List.of(), 99L);
+        }).when(applicationChatExecutionService).execute(
                 eq(APPLICATION_SNAPSHOT),
                 eq("你好"),
                 eq(LOGIN_USER),
@@ -255,7 +252,7 @@ class ChatStreamServiceImplTest {
      * 测试专用的两阶段门闩：started 表示 Workflow 已进入后台线程，
      * release 由测试决定何时允许它返回最终回答。
      */
-    private static final class WorkflowExecutionGate {
+    private static final class ApplicationExecutionGate {
 
         private final CountDownLatch started = new CountDownLatch(1);
         private final CountDownLatch release = new CountDownLatch(1);

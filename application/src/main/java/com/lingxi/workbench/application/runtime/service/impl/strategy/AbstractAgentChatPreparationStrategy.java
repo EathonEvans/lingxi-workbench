@@ -12,7 +12,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * RAG_CHAT 和 SUPERVISOR 两类 Agent 共享的 Prompt 加载、记忆配置和持久化轮次上下文装配基类。
+ * 历史 RAG_CHAT 和 SUPERVISOR Agent 的兼容上下文装配基类。
  *
  * <p>子类只需实现 {@link #agentType()} 返回类型标识和 {@link #prepare} 执行类型专属逻辑。
  * 通用能力由本类提供：</p>
@@ -26,7 +26,7 @@ import java.util.Optional;
  *   <li><b>处理链</b>：通过构造函数注入的 ChatProcessChain 对上下文执行有序后处理</li>
  * </ul>
  *
- * <p>子类通过 {@code @Qualifier} 注入不同的 ChatProcessChain：
+ * <p>子类通过 {@code @Qualifier} 注入旧版 ChatProcessChain：
  * RAG_CHAT 走标准链（问题改写 → 检索 → 记忆提取 → 生成），
  * SUPERVISOR 走协作链（成员列表注入 → 委派工具注册 → 生成）。</p>
  */
@@ -35,8 +35,7 @@ public abstract class AbstractAgentChatPreparationStrategy implements AgentChatP
     private final PromptRuntimeService promptRuntimeService;
     private final ChatProcessChain processChain;
 
-    protected AbstractAgentChatPreparationStrategy(
-            PromptRuntimeService promptRuntimeService, ChatProcessChain processChain) {
+    protected AbstractAgentChatPreparationStrategy(PromptRuntimeService promptRuntimeService, ChatProcessChain processChain) {
         this.promptRuntimeService = promptRuntimeService;
         this.processChain = processChain;
     }
@@ -51,19 +50,16 @@ public abstract class AbstractAgentChatPreparationStrategy implements AgentChatP
      * @param execution  对话执行上下文
      * @return 待子类进一步定制和处理的 ModelChatContext Builder
      */
-    protected ModelChatContext.ModelChatContextBuilder commonContext(
-            AgentRuntimeDefinition definition, ChatExecutionContext execution) {
+    protected ModelChatContext.ModelChatContextBuilder commonContext(AgentRuntimeDefinition definition, ChatExecutionContext execution) {
         AgentRuntimeDefinition.MemoryPolicy memory = definition.getMemoryPolicy();
         return ModelChatContext.builder()
                 .runtimeVariables(execution.getRuntimeVariables())
-                .memoryEnabled(Optional.ofNullable(memory)
-                        .map(AgentRuntimeDefinition.MemoryPolicy::enabled).orElse(null))
-                .memoryMaxRounds(Optional.ofNullable(memory)
-                        .map(AgentRuntimeDefinition.MemoryPolicy::maxRounds).orElse(null))
-                .memoryMaxTokens(Optional.ofNullable(memory)
-                        .map(AgentRuntimeDefinition.MemoryPolicy::maxTokens).orElse(null))
-                .systemPrompt(promptRuntimeService.resolvePublished(
-                        definition.resolveSystemPromptVersionId()))
+                .conversationContext(execution.getConversationContext())
+                .memoryEnabled(Optional.ofNullable(memory).map(AgentRuntimeDefinition.MemoryPolicy::enabled).orElse(null))
+                .memoryMaxRounds(Optional.ofNullable(memory).map(AgentRuntimeDefinition.MemoryPolicy::maxRounds).orElse(null))
+                .memoryMaxTokens(Optional.ofNullable(memory).map(AgentRuntimeDefinition.MemoryPolicy::maxTokens).orElse(null))
+                .memoryConfig(execution.getMemoryConfig())
+                .systemPrompt(promptRuntimeService.resolvePublished(definition.resolveSystemPromptVersionId()))
                 .userPrompt(resolveUserPrompt(definition).orElse(null))
                 .turn(execution.getTurn())
                 .modelUsageRecorder(execution::recordUsage);

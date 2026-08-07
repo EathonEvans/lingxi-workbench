@@ -63,6 +63,12 @@ public class ConversationMessageRepo {
         return mapper.selectRecentCompletedRounds(conversationId, beforeSequenceNo, maxRounds);
     }
 
+    /** 查询指定覆盖位置之后最早的完整问答轮次，供滚动摘要连续推进。 */
+    public List<ConversationMessageEntity> findCompletedRoundsAfter(Long conversationId, int afterUserSequenceNo,
+                                                                    int throughUserSequenceNo, int maxRounds) {
+        return mapper.selectCompletedRoundsAfter(conversationId, afterUserSequenceNo, throughUserSequenceNo, maxRounds);
+    }
+
     /**
      * 新增一条会话消息；消息内容更新统一通过明确的终态方法完成。
      */
@@ -81,7 +87,15 @@ public class ConversationMessageRepo {
      * 只允许尚在生成中的 Assistant 消息进入终态，避免并发覆盖。
      * 条件更新失败时返回 false，表示该消息已经被其他完成、失败或取消流程处理。
      */
-    public boolean finish(Long id, MessageStatus status, String content, String errorCode, String errorMessage, TokenUsage tokenUsage, OffsetDateTime now) {
+    public boolean finish(
+            Long id,
+            MessageStatus status,
+            String content,
+            String errorCode,
+            String errorMessage,
+            TokenUsage tokenUsage,
+            Long modelInstanceId,
+            OffsetDateTime now) {
         ConversationMessageEntity update = new ConversationMessageEntity();
         update.setStatus(status);
         update.setContent(content);
@@ -90,6 +104,7 @@ public class ConversationMessageRepo {
         update.setInputTokens(tokenUsage.inputTokens());
         update.setOutputTokens(tokenUsage.outputTokens());
         update.setTotalTokens(tokenUsage.totalTokens());
+        update.setModelInstanceId(modelInstanceId);
         update.setCompletedAt(now);
         return mapper.update(update, Wrappers.<ConversationMessageEntity>lambdaUpdate().eq(ConversationMessageEntity::getId, id).eq(ConversationMessageEntity::getRole, MessageRole.ASSISTANT).eq(ConversationMessageEntity::getStatus, MessageStatus.GENERATING)) == 1;
     }

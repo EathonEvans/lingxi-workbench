@@ -18,6 +18,7 @@ public class AgentVersionKnowledgeEntity {
     private Long agentVersionId;
     private Long knowledgeBaseId;
     private Long embeddingModelInstanceId;
+    private Long knowledgeIndexVersionId;
     private KnowledgeBindingMode bindingMode;
     private Integer priority;
     @TableField(fill = FieldFill.INSERT)

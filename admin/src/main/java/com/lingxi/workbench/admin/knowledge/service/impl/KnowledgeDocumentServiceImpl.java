@@ -17,6 +17,7 @@ import com.lingxi.workbench.admin.knowledge.repo.KnowledgeChunkVectorRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeDocumentRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeObjectStorage;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeDocumentService;
+import com.lingxi.workbench.admin.knowledge.service.KnowledgeIndexVersionService;
 import com.lingxi.workbench.admin.knowledge.event.event.KnowledgeObjectDeleteRequestedEvent;
 import com.lingxi.workbench.admin.knowledge.event.event.KnowledgeObjectStoredEvent;
 import com.lingxi.workbench.framework.audit.AuditService;
@@ -63,6 +64,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     private final KnowledgeConverter converter;
     private final ApplicationEventPublisher eventPublisher;
     private final AuditService auditService;
+    private final KnowledgeIndexVersionService knowledgeIndexVersionService;
 
     @Override
     @Transactional(readOnly = true)
@@ -171,6 +173,9 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         KnowledgeDocumentEntity entity = requireDocument(id);
         if (entity.getStatus() == KnowledgeDocumentStatus.RUNNING || taskRepo.existsActive(id)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "文档正在处理，不能删除");
+        }
+        if (knowledgeIndexVersionService.isPublishedDocument(id)) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "文档已被知识索引版本冻结，不能删除");
         }
         // 仅使用逻辑外键，必须按派生数据到主数据的顺序显式清理。
         vectorRepo.deleteByDocumentId(id);

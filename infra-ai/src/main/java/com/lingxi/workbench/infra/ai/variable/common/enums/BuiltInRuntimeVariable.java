@@ -130,6 +130,17 @@ public enum BuiltInRuntimeVariable {
             RuntimeVariableProducer.CONVERSATION_HISTORY,
             RuntimeVariableChannel.STRUCTURED_MESSAGE,
             RuntimeVariableChannel.NODE_CONTEXT),
+    SESSION_SUMMARY(
+            RuntimeVariableGroup.SESSION,
+            "summary",
+            "会话摘要",
+            PromptVariableDataType.STRING,
+            "已持久化且完成覆盖范围去重的会话摘要",
+            RuntimeVariableProducer.CONVERSATION_HISTORY,
+            RuntimeVariableChannel.SYSTEM_PROMPT,
+            RuntimeVariableChannel.USER_PROMPT,
+            RuntimeVariableChannel.QUERY_REWRITE_PROMPT,
+            RuntimeVariableChannel.NODE_CONTEXT),
     QUERY_REWRITE_HISTORY(
             RuntimeVariableGroup.QUERY,
             "rewrite_history",
@@ -156,6 +167,15 @@ public enum BuiltInRuntimeVariable {
             "本轮向量召回后可供用户消息引用的知识库上下文",
             RuntimeVariableProducer.KNOWLEDGE_RETRIEVAL,
             RuntimeVariableChannel.USER_PROMPT,
+            RuntimeVariableChannel.NODE_CONTEXT),
+    LONG_TERM_MEMORY(
+            RuntimeVariableGroup.SESSION,
+            "long_term_memory",
+            "长期记忆",
+            PromptVariableDataType.STRING,
+            "上下文准备阶段加载的用户画像与历史交互记录",
+            RuntimeVariableProducer.CONVERSATION_HISTORY,
+            RuntimeVariableChannel.SYSTEM_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT);
 
     private final RuntimeVariableGroup group;

@@ -5,12 +5,14 @@ import com.lingxi.workbench.admin.tool.model.request.CreateToolRequest;
 import com.lingxi.workbench.admin.tool.model.request.ToolPageQuery;
 import com.lingxi.workbench.admin.tool.model.request.UpdateToolRequest;
 import com.lingxi.workbench.admin.tool.model.bo.McpToolImport;
+import com.lingxi.workbench.admin.tool.model.bo.ToolReferenceBO;
 import com.lingxi.workbench.admin.tool.model.vo.ToolOptionVO;
 import com.lingxi.workbench.admin.tool.model.vo.ToolVO;
 import com.lingxi.workbench.framework.convention.PageResult;
 
 import java.util.List;
 import java.util.Set;
+import java.util.Optional;
 
 /** Tool 控制面业务服务。 */
 public interface ToolService {
@@ -22,6 +24,8 @@ public interface ToolService {
     List<ToolOptionVO> activeOptions();
 
     Set<String> findActiveCodes(List<String> codes);
+
+    Optional<ToolReferenceBO> findReference(Long id);
 
     ToolVO create(CreateToolRequest request, Long operatorId);
 

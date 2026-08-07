@@ -2,6 +2,7 @@ package com.lingxi.workbench.application.runtime.model;
 
 import com.lingxi.workbench.application.runtime.service.ChatExecutionEventPublisher;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
+import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
@@ -9,6 +10,7 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
+import com.lingxi.workbench.workflow.model.MemoryConfig;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -70,6 +72,14 @@ public final class ChatExecutionContext {
      */
     private final AgentCollaborationScope collaborationScope;
 
+    /** 当前 ApplicationVersion 冻结的长期记忆配置。 */
+    @Getter
+    private final MemoryConfig memoryConfig;
+
+    /** 路由前已经准备完成的共享对话上下文。 */
+    @Getter
+    private final ConversationContext conversationContext;
+
     /*
      * 一次 Agent 对话可能包含改写、工具判断和回答生成等多次模型调用，
      * Token 用量需要累计。
@@ -87,12 +97,14 @@ public final class ChatExecutionContext {
      * @param eventPublisher   本次执行的文本和工具状态发布器
      */
     @Builder
-    private ChatExecutionContext(String executionId, RuntimeVariables runtimeVariables, ChatTurnBO turn, ChatExecutionEventPublisher eventPublisher, AgentCollaborationScope collaborationScope, TokenUsageAccumulator tokenUsageAccumulator) {
+    private ChatExecutionContext(String executionId, RuntimeVariables runtimeVariables, ChatTurnBO turn, ChatExecutionEventPublisher eventPublisher, AgentCollaborationScope collaborationScope, MemoryConfig memoryConfig, ConversationContext conversationContext, TokenUsageAccumulator tokenUsageAccumulator) {
         this.executionId = executionId;
         this.runtimeVariables = Objects.requireNonNull(runtimeVariables, "运行时变量不能为空");
         this.turn = Objects.requireNonNull(turn, "对话轮次不能为空");
         this.eventPublisher = Objects.requireNonNullElseGet(eventPublisher, ChatExecutionEventPublisher::noop);
         this.collaborationScope = collaborationScope;
+        this.memoryConfig = Objects.requireNonNullElseGet(memoryConfig, MemoryConfig::disabled);
+        this.conversationContext = conversationContext;
         this.tokenUsageAccumulator = Objects.requireNonNullElseGet(tokenUsageAccumulator, TokenUsageAccumulator::new);
     }
 
@@ -113,7 +125,16 @@ public final class ChatExecutionContext {
         AgentCollaborationScope childScope = collaborationScope()
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "当前执行未启用Agent协作"))
                 .delegateTo(target);
-        return new ChatExecutionContext(executionId, runtimeVariables.forkForAgentTask(task), turn, ChatExecutionEventPublisher.suppressText(eventPublisher), childScope, tokenUsageAccumulator);
+        return ChatExecutionContext.builder()
+                .executionId(executionId)
+                .runtimeVariables(runtimeVariables.forkForAgentTask(task))
+                .turn(turn)
+                .eventPublisher(ChatExecutionEventPublisher.suppressText(eventPublisher))
+                .collaborationScope(childScope)
+                .memoryConfig(memoryConfig)
+                .conversationContext(conversationContext)
+                .tokenUsageAccumulator(tokenUsageAccumulator)
+                .build();
     }
 
     /**
@@ -146,5 +167,10 @@ public final class ChatExecutionContext {
      */
     public TokenUsage tokenUsage() {
         return tokenUsageAccumulator.snapshot();
+    }
+
+    /** 在计划步骤之间读取同一个Assistant任务的取消状态。 */
+    public boolean isCancelled() {
+        return eventPublisher.isCancelled();
     }
 }

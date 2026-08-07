@@ -4,6 +4,9 @@ import com.alibaba.fastjson2.JSON;
 import com.lingxi.workbench.workflow.model.config.AgentNodeConfig;
 import com.lingxi.workbench.workflow.model.config.EndNodeConfig;
 import com.lingxi.workbench.workflow.model.config.StartNodeConfig;
+import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
+import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
+import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
 import com.lingxi.workbench.workflow.service.WorkflowDefinitionValidator;
 import org.junit.jupiter.api.Test;
 
@@ -124,5 +127,93 @@ class WorkflowDefinitionJsonTest {
         assertThatCode(() -> validator.validateDraft(draft)).doesNotThrowAnyException();
         assertThatThrownBy(() -> validator.validate(draft))
                 .hasMessageContaining("agentVersionId");
+    }
+
+    @Test
+    void shouldRoundTripApplicationV3ContextPolicy() {
+        ContextualizationPolicy contextualization = ContextualizationPolicy.builder()
+                .enabled(true)
+                .chatModelInstanceId(11L)
+                .promptVersionId(12L)
+                .fallbackToOriginal(false)
+                .maxOutputTokens(256)
+                .maxOutputCharacters(1000)
+                .timeoutSeconds(15)
+                .build();
+        ApplicationDefinition source = ApplicationDefinition.builder()
+                .schemaVersion(3)
+                .contextPolicy(ApplicationContextPolicy.builder()
+                        .contextualization(contextualization)
+                        .budget(ContextBudgetPolicy.defaults())
+                        .build())
+                .build();
+
+        String json = JSON.toJSONString(source);
+        ApplicationDefinition restored = JSON.parseObject(json, ApplicationDefinition.class);
+
+        assertThat(restored).isEqualTo(source);
+        assertThat(restored.contextPolicy().contextualization().getPromptVersionId()).isEqualTo(12L);
+        assertThat(restored.contextPolicy().budget().getMaxObservationTokens()).isEqualTo(16000);
+    }
+
+    @Test
+    void shouldRoundTripApplicationV4CapabilityCatalog() {
+        ApplicationAgentReference defaultAgent = new ApplicationAgentReference(10L, 11L, "默认助手", "处理通用请求");
+        ApplicationCapabilityDefinition capability = ApplicationCapabilityDefinition.builder()
+                .code("default_agent")
+                .type(ApplicationCapabilityType.REACT_AGENT)
+                .name("默认助手")
+                .description("处理通用请求")
+                .targetId(10L)
+                .targetVersionId(11L)
+                .riskLevel(CapabilityRiskLevel.READ_ONLY)
+                .timeoutSeconds(120)
+                .maxCalls(1)
+                .resultTokenBudget(8192)
+                .build();
+        ApplicationDefinition source = ApplicationDefinition.builder()
+                .schemaVersion(4)
+                .defaultAgent(defaultAgent)
+                .plannerPolicy(PlannerPolicy.disabled())
+                .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(capability)).build())
+                .runtimePolicy(ApplicationRuntimePolicy.defaults())
+                .build();
+
+        String json = JSON.toJSONString(source);
+        ApplicationDefinition restored = JSON.parseObject(json, ApplicationDefinition.class);
+
+        assertThat(restored).isEqualTo(source);
+        assertThat(restored.defaultAgent().agentVersionId()).isEqualTo(11L);
+        assertThat(restored.capabilityCatalog().capabilities()).singleElement()
+                .satisfies(item -> assertThat(item.getCode()).isEqualTo("default_agent"));
+        assertThat(json).contains("\"targetVersionId\":\"11\"");
+    }
+
+    @Test
+    void shouldRoundTripApplicationV5OptionalFastRoutes() {
+        ApplicationIntentMapping mapping = ApplicationIntentMapping.builder()
+                .intentCode("refund")
+                .targetType(IntentExecutionTargetType.WORKFLOW)
+                .capabilityCode("refund_workflow")
+                .targetId(20L)
+                .targetVersionId(21L)
+                .build();
+        ApplicationDefinition source = ApplicationDefinition.builder()
+                .schemaVersion(5)
+                .optionalFastRoutes(ApplicationIntentBinding.builder()
+                        .enabled(true)
+                        .intentTreeId(30L)
+                        .intentTreeVersionId(31L)
+                        .mappings(List.of(mapping))
+                        .build())
+                .build();
+
+        String json = JSON.toJSONString(source);
+        ApplicationDefinition restored = JSON.parseObject(json, ApplicationDefinition.class);
+
+        assertThat(restored).isEqualTo(source);
+        assertThat(restored.intentBinding()).isNull();
+        assertThat(restored.optionalFastRoutes().mappings()).singleElement()
+                .satisfies(item -> assertThat(item.getCapabilityCode()).isEqualTo("refund_workflow"));
     }
 }

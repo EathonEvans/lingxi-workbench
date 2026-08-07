@@ -86,14 +86,24 @@ public final class RuntimeVariables {
      *处理链重新产生，不能复用父 Agent 的派生变量。</p>
      */
     public synchronized RuntimeVariables forkForAgentTask(String task) {
-        Objects.requireNonNull(task, "委派任务不能为空");
+        return forkForQuery(task);
+    }
+
+    /**
+     * 为路由结果创建新的执行变量，只替换当前任务问题。
+     *
+     * <p>共享历史、摘要和长期记忆由 ConversationContext 在 Agent 准备阶段重新投影，
+     * 这里仅复制请求入口冻结的身份和时间事实，避免携带旧问题派生结果。</p>
+     */
+    public synchronized RuntimeVariables forkForQuery(String query) {
+        Objects.requireNonNull(query, "执行问题不能为空");
         RuntimeVariables child = new RuntimeVariables();
         values.forEach((variable, value) -> {
             if (variable.getProducer() == RuntimeVariableProducer.REQUEST_INITIALIZATION && variable != BuiltInRuntimeVariable.USER_QUERY) {
                 child.values.put(variable, value);
             }
         });
-        child.put(RuntimeVariableAccessors.USER_QUERY, task);
+        child.put(RuntimeVariableAccessors.USER_QUERY, query);
         return child;
     }
 }

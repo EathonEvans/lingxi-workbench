@@ -25,6 +25,12 @@ public class ConversationEntity extends TimeEntity {
     private Integer messageCount;
     /** 最近一条消息时间，用于列表排序。 */
     private OffsetDateTime lastMessageAt;
+    /** 会话摘要，消息超过阈值时由 LLM 异步生成。 */
+    private String summary;
+    /** 摘要生成时间。 */
+    private OffsetDateTime summaryAt;
+    /** 摘要覆盖到的最后用户消息序号，用于防止异步旧结果回写。 */
+    private Integer summarySequenceNo;
     /** 软删除时间，删除后保留追溯能力。 */
     private OffsetDateTime deletedAt;
 }

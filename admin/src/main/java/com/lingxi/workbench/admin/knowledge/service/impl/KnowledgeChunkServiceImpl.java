@@ -20,6 +20,7 @@ import com.lingxi.workbench.admin.knowledge.repo.KnowledgeChunkTaskRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeChunkVectorRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeDocumentRepo;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeChunkService;
+import com.lingxi.workbench.admin.knowledge.service.KnowledgeIndexVersionService;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeEmbeddingModelResolver;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeDocumentChunker;
 import com.lingxi.workbench.admin.knowledge.event.event.KnowledgeChunkRequestedEvent;
@@ -56,6 +57,7 @@ public class KnowledgeChunkServiceImpl implements KnowledgeChunkService {
     private final KnowledgeChunkRepo chunkRepo;
     private final KnowledgeChunkVectorRepo vectorRepo;
     private final KnowledgeEmbeddingModelResolver embeddingModelResolver;
+    private final KnowledgeIndexVersionService knowledgeIndexVersionService;
     private final KnowledgeDocumentChunker documentChunker;
     private final EmbeddingGateway embeddingGateway;
     private final KnowledgeConverter converter;
@@ -163,6 +165,9 @@ public class KnowledgeChunkServiceImpl implements KnowledgeChunkService {
         if (task.getStatus() != KnowledgeChunkTaskStatus.SUCCEEDED
                 || !Objects.equals(document.getActiveChunkTaskId(), task.getId())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "只能编辑当前生效版本的Chunk");
+        }
+        if (knowledgeIndexVersionService.isPublishedTask(task.getId())) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "该Chunk已被知识索引版本冻结，请重新执行文档处理后再修改");
         }
 
         String content = request.content().trim();

@@ -12,6 +12,7 @@ import com.lingxi.workbench.admin.knowledge.repo.KnowledgeChunkTaskRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeChunkVectorRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeDocumentRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeObjectStorage;
+import com.lingxi.workbench.admin.knowledge.service.KnowledgeIndexVersionService;
 import com.lingxi.workbench.admin.knowledge.event.event.KnowledgeObjectDeleteRequestedEvent;
 import com.lingxi.workbench.admin.knowledge.event.event.KnowledgeObjectStoredEvent;
 import com.lingxi.workbench.framework.audit.AuditService;
@@ -51,6 +52,7 @@ class KnowledgeDocumentServiceImplTest {
     @Mock private KnowledgeConverter converter;
     @Mock private ApplicationEventPublisher eventPublisher;
     @Mock private AuditService auditService;
+    @Mock private KnowledgeIndexVersionService knowledgeIndexVersionService;
 
     @InjectMocks private KnowledgeDocumentServiceImpl service;
 
@@ -93,6 +95,20 @@ class KnowledgeDocumentServiceImplTest {
         verify(eventPublisher).publishEvent(eventCaptor.capture());
         assertThat(eventCaptor.getValue()).isEqualTo(
                 new KnowledgeObjectDeleteRequestedEvent("knowledge/1/document.pdf"));
+    }
+
+    @Test
+    void shouldRejectDeletingDocumentFrozenByPublishedIndex() {
+        KnowledgeDocumentEntity document = new KnowledgeDocumentEntity();
+        document.setId(21L);
+        document.setName("制度文档");
+        when(documentRepo.findById(21L)).thenReturn(Optional.of(document));
+        when(taskRepo.existsActive(21L)).thenReturn(false);
+        when(knowledgeIndexVersionService.isPublishedDocument(21L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.delete(21L, 9L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("知识索引版本冻结");
     }
 
     @Test

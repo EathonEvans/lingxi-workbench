@@ -47,6 +47,9 @@ public class ChatClarificationEventBO {
     /** 澄清会话唯一标识 */
     private String clarificationId;
 
+    /** Planner澄清或风险确认的来源标识；旧意图澄清为空。 */
+    private String interactionType;
+
     /** 澄清问题文本 */
     private String question;
 

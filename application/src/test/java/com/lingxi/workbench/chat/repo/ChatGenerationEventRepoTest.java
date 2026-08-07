@@ -1,9 +1,13 @@
 package com.lingxi.workbench.chat.repo;
 
 import com.alibaba.fastjson2.JSON;
+import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
+import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
 import com.lingxi.workbench.chat.config.ChatGenerationEventProperties;
+import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventCacheBO;
+import com.lingxi.workbench.chat.model.bo.ChatPlanStepBO;
 import com.lingxi.workbench.framework.cache.RedisUtil;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
@@ -54,6 +58,35 @@ class ChatGenerationEventRepoTest {
         assertEquals(1, events.size());
         assertEquals(2, events.getFirst().sequence());
         assertEquals(AgentToolExecutionStatus.SUCCEEDED, events.getFirst().tool().getStatus());
+    }
+
+    @Test
+    void shouldRoundTripExecutionTimelineThroughReplayCache() {
+        RedisUtil redisUtil = mock(RedisUtil.class);
+        ChatGenerationEventRepo repo = new ChatGenerationEventRepo(redisUtil, properties());
+        ChatExecutionTimelineEventBO timeline = ChatExecutionTimelineEventBO.builder()
+                .runId("run-1")
+                .eventType(ExecutionEventType.STEP_STARTED)
+                .planNo(1)
+                .stepId("collect")
+                .displayName("收集资料")
+                .stepStatus(ExecutionStepStatus.RUNNING)
+                .steps(List.of(new ChatPlanStepBO("collect", "收集资料", "support_agent")))
+                .build();
+        ChatGenerationEventBO source = ChatGenerationEventBO.execution(
+                3, com.lingxi.workbench.chat.common.enums.ChatGenerationEventType.STEP, timeline);
+        when(redisUtil.lRange(EVENT_KEY, 0, -1)).thenReturn(List.of(
+                JSON.toJSONString(ChatGenerationEventCacheBO.from(source))));
+
+        ChatGenerationEventBO restored = repo.findAfter(12L, 2).getFirst();
+
+        assertEquals(3, restored.sequence());
+        assertEquals("run-1", restored.execution().getRunId());
+        assertEquals(ExecutionEventType.STEP_STARTED, restored.execution().getEventType());
+        assertEquals("收集资料", restored.execution().getDisplayName());
+        assertEquals(ExecutionStepStatus.RUNNING, restored.execution().getStepStatus());
+        assertEquals("collect", restored.execution().steps().getFirst().stepId());
+        assertEquals("support_agent", restored.execution().steps().getFirst().capabilityCode());
     }
 
     private static ChatGenerationEventProperties properties() {

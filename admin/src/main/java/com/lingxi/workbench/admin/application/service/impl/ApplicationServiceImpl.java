@@ -31,11 +31,7 @@ import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.exception.WorkflowDefinitionException;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
-import com.lingxi.workbench.workflow.model.WorkflowEdgeDefinition;
-import com.lingxi.workbench.workflow.model.WorkflowNodeDefinition;
-import com.lingxi.workbench.workflow.model.WorkflowNodeType;
-import com.lingxi.workbench.workflow.model.config.EndNodeConfig;
-import com.lingxi.workbench.workflow.model.config.StartNodeConfig;
+import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import com.lingxi.workbench.workflow.service.WorkflowDefinitionValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -124,7 +120,7 @@ public class ApplicationServiceImpl implements ApplicationService {
 
     @Override
     @Transactional
-    /** 创建 Application，同时初始化 Start→End 默认 Workflow 草稿，记录审计。 */
+    /** 创建 Application，同时初始化空行为草稿，记录审计。 */
     public ApplicationDetailVO create(
             CreateApplicationRequest request, Long operatorId) {
         String code = request.getCode().trim().toLowerCase();
@@ -182,16 +178,18 @@ public class ApplicationServiceImpl implements ApplicationService {
 
     @Override
     @Transactional
-    /** 保存 Application Workflow 草稿，先校验结构然后以 revision 乐观锁更新。 */
+    /** 保存 Application 草稿，并以 revision 乐观锁保护并发编辑。 */
     public ApplicationDetailVO saveDraft(
             Long id, SaveApplicationDraftRequest request, Long operatorId) {
         requireApplication(id);
-        try {
-            workflowValidator.validateDraft(request.getWorkflow());
-        } catch (WorkflowDefinitionException exception) {
-            throw new BusinessException(
-                    HttpStatusEnum.BAD_REQUEST,
-                    "Workflow草稿结构无效：" + exception.getMessage());
+        if (Objects.nonNull(request.getWorkflow())) {
+            try {
+                workflowValidator.validateDraft(request.getWorkflow());
+            } catch (WorkflowDefinitionException exception) {
+                throw new BusinessException(
+                        HttpStatusEnum.BAD_REQUEST,
+                        "历史Workflow草稿结构无效：" + exception.getMessage());
+            }
         }
 
         AiApplicationDraftEntity draft = draftRepo.findByApplicationIdForUpdate(id)
@@ -202,12 +200,23 @@ public class ApplicationServiceImpl implements ApplicationService {
                     HttpStatusEnum.CONFLICT,
                     "Application草稿已被其他操作修改，请刷新后重试");
         }
+        ApplicationIntentBinding optionalFastRoutes =
+                Objects.nonNull(request.getOptionalFastRoutes())
+                        ? request.getOptionalFastRoutes()
+                        : request.getIntentBinding();
         draft.setSchemaVersion(APPLICATION_SCHEMA_VERSION);
-        draft.setDefinition(new ApplicationDefinition(
-                APPLICATION_SCHEMA_VERSION,
-                request.getWorkflow(),
-                request.getCollaboration(),
-                request.getIntentBinding()));
+        draft.setDefinition(ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .workflow(request.getWorkflow())
+                .collaboration(request.getCollaboration())
+                .optionalFastRoutes(optionalFastRoutes)
+                .memory(Objects.requireNonNullElseGet(request.getMemory(), com.lingxi.workbench.workflow.model.MemoryConfig::disabled))
+                .contextPolicy(Objects.requireNonNullElseGet(request.getContextPolicy(), com.lingxi.workbench.workflow.model.ApplicationContextPolicy::defaults))
+                .defaultAgent(request.getDefaultAgent())
+                .plannerPolicy(Objects.requireNonNullElseGet(request.getPlannerPolicy(), com.lingxi.workbench.workflow.model.PlannerPolicy::disabled))
+                .capabilityCatalog(Objects.requireNonNullElseGet(request.getCapabilityCatalog(), com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot::empty))
+                .runtimePolicy(Objects.requireNonNullElseGet(request.getRuntimePolicy(), com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy::defaults))
+                .build());
         draft.setChangeNote(trimToNull(request.getChangeNote()));
         draft.setUpdatedBy(operatorId);
         if (!draftRepo.updateWithRevision(draft, request.getExpectedRevision())) {
@@ -369,22 +378,14 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     private static ApplicationDefinition defaultDefinition() {
-        WorkflowDefinition workflow = new WorkflowDefinition(
-                1,
-                "main",
-                List.of(
-                        new WorkflowNodeDefinition(
-                                "start",
-                                "开始",
-                                WorkflowNodeType.START,
-                                new StartNodeConfig()),
-                        new WorkflowNodeDefinition(
-                                "end",
-                                "结束",
-                                WorkflowNodeType.END,
-                                new EndNodeConfig(Map.of("response", "query")))),
-                List.of(WorkflowEdgeDefinition.direct("start", "end")));
-        return new ApplicationDefinition(APPLICATION_SCHEMA_VERSION, workflow);
+        return ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .memory(com.lingxi.workbench.workflow.model.MemoryConfig.disabled())
+                .contextPolicy(com.lingxi.workbench.workflow.model.ApplicationContextPolicy.defaults())
+                .plannerPolicy(com.lingxi.workbench.workflow.model.PlannerPolicy.disabled())
+                .capabilityCatalog(com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot.empty())
+                .runtimePolicy(com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy.defaults())
+                .build();
     }
 
     private static String versionName(String requestedName, int versionNo) {

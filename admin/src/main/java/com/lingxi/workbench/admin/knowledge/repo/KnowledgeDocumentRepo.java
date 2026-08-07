@@ -5,12 +5,14 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeDocumentEntity;
 import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeChunkStrategy;
+import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeDocumentStatus;
 import com.lingxi.workbench.admin.knowledge.model.request.KnowledgeDocumentPageQuery;
 import com.lingxi.workbench.admin.knowledge.repo.mapper.KnowledgeDocumentMapper;
 import com.lingxi.workbench.framework.convention.PageResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -48,6 +50,15 @@ public class KnowledgeDocumentRepo {
     public boolean existsByBaseId(Long knowledgeBaseId) {
         return mapper.exists(Wrappers.<KnowledgeDocumentEntity>lambdaQuery()
                 .eq(KnowledgeDocumentEntity::getKnowledgeBaseId, knowledgeBaseId));
+    }
+
+    /** 查询知识库中已经完成处理且具备生效分块任务的文档。 */
+    public List<KnowledgeDocumentEntity> findIndexableByBaseId(Long knowledgeBaseId) {
+        return mapper.selectList(Wrappers.<KnowledgeDocumentEntity>lambdaQuery()
+                .eq(KnowledgeDocumentEntity::getKnowledgeBaseId, knowledgeBaseId)
+                .eq(KnowledgeDocumentEntity::getStatus, KnowledgeDocumentStatus.SUCCESS)
+                .isNotNull(KnowledgeDocumentEntity::getActiveChunkTaskId)
+                .orderByAsc(KnowledgeDocumentEntity::getId));
     }
 
     /**

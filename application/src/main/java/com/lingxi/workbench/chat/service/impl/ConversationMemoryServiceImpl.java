@@ -2,6 +2,12 @@ package com.lingxi.workbench.chat.service.impl;
 
 import com.lingxi.workbench.chat.config.ChatMemoryProperties;
 import com.lingxi.workbench.chat.model.bo.ChatMemoryMessageBO;
+import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
+import com.lingxi.workbench.chat.model.bo.ConversationMemorySnapshot;
+import com.lingxi.workbench.chat.model.bo.ConversationSummarySource;
+import com.lingxi.workbench.chat.model.bo.ConversationSummaryTrigger;
+import com.lingxi.workbench.chat.model.ccontext.ContextBudget;
+import com.lingxi.workbench.chat.model.entity.ConversationEntity;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
 import com.lingxi.workbench.chat.repo.ConversationMessageRepo;
 import com.lingxi.workbench.chat.repo.ConversationRepo;
@@ -16,6 +22,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * 基于已落库完整问答轮次的窗口记忆实现。
@@ -34,17 +42,43 @@ public class ConversationMemoryServiceImpl implements ConversationMemoryService 
     private final ChatMemoryProperties properties;
     private final TokenCountEstimator tokenCountEstimator;
 
-    /**
-     * 获取当前轮之前可注入模型的窗口记忆。
-     *
-     * <p>只选择已经完成的完整问答轮次，按轮数和 Token 预算从近到远裁剪，
-     * 最终返回按时间正序排列的历史消息。</p>
-     *
-     * @param userId           当前登录用户主键，用于校验会话归属
-     * @param conversationId   会话主键
-     * @param beforeSequenceNo 当前用户消息序号，只查询该序号之前的历史消息
-     * @return 可直接注入模型上下文的历史消息，按产生时间正序排列
-     */
+    @Override
+    @Transactional(readOnly = true)
+    public ConversationMemorySnapshot loadContextMemory(Long userId, ChatTurnBO turn, ContextBudget budget) {
+        ConversationEntity conversation = findOwnedConversation(turn.conversationId(), userId);
+        List<ChatMemoryMessageBO> messages = loadWindowMemory(turn.conversationId(), turn.userSequenceNo(), budget.getMaxHistoryRounds(), budget.getMaxHistoryTokens());
+        String summary = Objects.requireNonNullElse(conversation.getSummary(), "").trim();
+        return new ConversationMemorySnapshot(summary, removeSummaryCoveredMessages(messages, summary, conversation.getSummarySequenceNo()));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ConversationSummarySource> loadSummarySource(Long userId, ChatTurnBO turn, ConversationSummaryTrigger trigger) {
+        if (trigger.minNewRounds() <= 0 || trigger.minNewTokens() <= 0 || trigger.maxInputTokens() <= 0) {
+            throw new IllegalArgumentException("摘要触发轮数、Token阈值和输入上限必须大于0");
+        }
+        ConversationEntity conversation = findOwnedConversation(turn.conversationId(), userId);
+        int previousCoveredSequenceNo = Objects.requireNonNullElse(conversation.getSummarySequenceNo(), 0);
+        List<ConversationMessageEntity> messages = messageRepo.findCompletedRoundsAfter(
+                turn.conversationId(), previousCoveredSequenceNo, turn.userSequenceNo(), trigger.minNewRounds());
+        if (messages.isEmpty()) {
+            return Optional.empty();
+        }
+        List<ChatMemoryMessageBO> sourceMessages = messages.stream()
+                .map(message -> new ChatMemoryMessageBO(message.getSequenceNo(), message.getRole(), message.getContent()))
+                .toList();
+        int completeRounds = sourceMessages.size() / 2;
+        int newMessageTokens = sourceMessages.stream().mapToInt(this::estimate).sum();
+        if (completeRounds < trigger.minNewRounds() && newMessageTokens < trigger.minNewTokens()) {
+            return Optional.empty();
+        }
+        String previousSummary = Objects.requireNonNullElse(conversation.getSummary(), "").trim();
+        List<ChatMemoryMessageBO> selectedMessages = selectSummaryBatch(sourceMessages, previousSummary, trigger.maxInputTokens());
+        Integer coveredUserSequenceNo = selectedMessages.get(selectedMessages.size() - 2).sequenceNo();
+        return Optional.of(new ConversationSummarySource(
+                previousSummary, conversation.getSummarySequenceNo(), coveredUserSequenceNo, selectedMessages));
+    }
+
     /**
      * 使用默认配置的窗口记忆限制读取历史消息。
      * 轮数和 Token 上限均取自 ChatMemoryProperties 配置。
@@ -59,13 +93,15 @@ public class ConversationMemoryServiceImpl implements ConversationMemoryService 
     @Transactional(readOnly = true)
     public List<ChatMemoryMessageBO> getWindowMemory(Long userId, Long conversationId, Integer beforeSequenceNo, int configuredMaxRounds, int configuredMaxTokens) {
         // 记忆查询同样必须校验会话归属，不能仅依赖上游已经执行过权限校验。
-        if (conversationRepo.findOwnedById(conversationId, userId).isEmpty()) {
-            throw new BusinessException(HttpStatusEnum.NOT_FOUND, "会话不存在");
-        }
+        findOwnedConversation(conversationId, userId);
 
         // 配置出现负数时按 0 处理；任一限制为 0 都代表本次关闭历史记忆。
         int maxRounds = Math.max(configuredMaxRounds, 0);
         int maxTokens = Math.max(configuredMaxTokens, 0);
+        return loadWindowMemory(conversationId, beforeSequenceNo, maxRounds, maxTokens);
+    }
+
+    private List<ChatMemoryMessageBO> loadWindowMemory(Long conversationId, Integer beforeSequenceNo, int maxRounds, int maxTokens) {
         if (maxRounds == 0 || maxTokens == 0) {
             return List.of();
         }
@@ -76,33 +112,88 @@ public class ConversationMemoryServiceImpl implements ConversationMemoryService 
             return List.of();
         }
 
-        // 从最新轮次向前选择，保证 Token 不足时优先保留离当前问题最近的上下文。
+        List<ChatMemoryMessageBO> loadedMessages = messages.stream()
+                .map(message -> new ChatMemoryMessageBO(message.getSequenceNo(), message.getRole(), message.getContent()))
+                .toList();
+        return selectWindow(loadedMessages, maxRounds, maxTokens);
+    }
+
+    @Override
+    public List<ChatMemoryMessageBO> selectWindow(List<ChatMemoryMessageBO> messages) {
+        return selectWindow(messages, properties.getMaxRounds(), properties.getMaxTokens());
+    }
+
+    @Override
+    public List<ChatMemoryMessageBO> selectWindow(List<ChatMemoryMessageBO> messages, int configuredMaxRounds, int configuredMaxTokens) {
+        int maxRounds = Math.max(configuredMaxRounds, 0);
+        int maxTokens = Math.max(configuredMaxTokens, 0);
+        if (messages.isEmpty() || maxRounds == 0 || maxTokens == 0) {
+            return List.of();
+        }
         List<ChatMemoryMessageBO> selectedReversed = new ArrayList<>();
         int usedTokens = 0;
-        // 必须按完整问答轮次从新到旧裁剪，避免只携带半轮上下文。
-        for (int index = messages.size() - 2; index >= 0; index -= 2) {
-            ConversationMessageEntity userMessage = messages.get(index);
-            ConversationMessageEntity assistantMessage = messages.get(index + 1);
+        int selectedRounds = 0;
+        for (int index = messages.size() - 2; index >= 0 && selectedRounds < maxRounds; index -= 2) {
+            ChatMemoryMessageBO userMessage = messages.get(index);
+            ChatMemoryMessageBO assistantMessage = messages.get(index + 1);
             int roundTokens = estimate(userMessage) + estimate(assistantMessage);
             if (usedTokens + roundTokens > maxTokens) {
-                // 不拆分问答轮次；当前轮放不下时直接停止继续向更早历史扩展。
                 break;
             }
-            // 当前正在反向遍历，先加入 Assistant 再加入 User，最终统一 reverse 恢复时间正序。
-            selectedReversed.add(new ChatMemoryMessageBO(assistantMessage.getRole(), assistantMessage.getContent()));
-            selectedReversed.add(new ChatMemoryMessageBO(userMessage.getRole(), userMessage.getContent()));
+            selectedReversed.add(assistantMessage);
+            selectedReversed.add(userMessage);
             usedTokens += roundTokens;
+            selectedRounds++;
         }
-
-        // 模型上下文必须按照真实对话顺序组织：User → Assistant → User → Assistant。
         Collections.reverse(selectedReversed);
         return List.copyOf(selectedReversed);
+    }
+
+    private ConversationEntity findOwnedConversation(Long conversationId, Long userId) {
+        return conversationRepo.findOwnedById(conversationId, userId)
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "会话不存在"));
+    }
+
+    /**
+     * 摘要覆盖的完整问答轮次不再进入最近消息窗口。
+     */
+    private static List<ChatMemoryMessageBO> removeSummaryCoveredMessages(List<ChatMemoryMessageBO> messages, String summary, Integer summarySequenceNo) {
+        if (summary.isBlank() || Objects.isNull(summarySequenceNo)) {
+            return messages;
+        }
+        long coveredAssistantSequence = (long) summarySequenceNo + 1L;
+        return messages.stream()
+                .filter(message -> Objects.isNull(message.sequenceNo()) || message.sequenceNo() > coveredAssistantSequence)
+                .toList();
     }
 
     /**
      * 估算消息文本 Token，并为角色名及消息协议结构预留固定开销。
      */
-    private int estimate(ConversationMessageEntity message) {
-        return tokenCountEstimator.estimate(message.getContent()) + MESSAGE_OVERHEAD_TOKENS;
+    private int estimate(ChatMemoryMessageBO message) {
+        return tokenCountEstimator.estimate(message.content()) + MESSAGE_OVERHEAD_TOKENS;
+    }
+
+    /**
+     * 从最早未覆盖轮次开始连续选择，确保滚动摘要不会在历史中间留下空洞。
+     */
+    private List<ChatMemoryMessageBO> selectSummaryBatch(List<ChatMemoryMessageBO> messages, String previousSummary, int maxTokens) {
+        int usedTokens = tokenCountEstimator.estimate(previousSummary);
+        List<ChatMemoryMessageBO> selected = new ArrayList<>();
+        for (int index = 0; index + 1 < messages.size(); index += 2) {
+            ChatMemoryMessageBO userMessage = messages.get(index);
+            ChatMemoryMessageBO assistantMessage = messages.get(index + 1);
+            int roundTokens = estimate(userMessage) + estimate(assistantMessage);
+            if (usedTokens + roundTokens > maxTokens) {
+                break;
+            }
+            selected.add(userMessage);
+            selected.add(assistantMessage);
+            usedTokens += roundTokens;
+        }
+        if (selected.isEmpty()) {
+            throw new IllegalStateException("最早未摘要问答超过会话摘要Token预算");
+        }
+        return List.copyOf(selected);
     }
 }

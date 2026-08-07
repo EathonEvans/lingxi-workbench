@@ -8,6 +8,8 @@ import lombok.Data;
 @Builder
 public class ToolOptionVO {
 
+    private String id;
+
     private String code;
 
     private String name;

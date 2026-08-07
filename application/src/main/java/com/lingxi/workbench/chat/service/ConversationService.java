@@ -54,7 +54,7 @@ public interface ConversationService {
      * @param conversationId  会话主键
      * @param clientMessageId 客户端生成的幂等消息标识
      * @param prompt          已规范化的用户输入
-     * @param modelInstanceId 本轮使用的模型实例主键
+     * @param modelInstanceId 本轮使用的模型实例主键；意图路由前创建占位消息时为空
      * @return 会话、用户消息、Assistant 消息主键以及当前用户消息序号
      */
     default ChatTurnBO startTurn(Long userId, Long conversationId, String clientMessageId, String prompt, Long modelInstanceId) {
@@ -66,7 +66,7 @@ public interface ConversationService {
     /**
      * 将 Assistant 消息更新为完整回答。
      */
-    void completeAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage);
+    void completeAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage, Long modelInstanceId);
 
     /**
      * 记录模型调用失败及已经生成的部分回答。

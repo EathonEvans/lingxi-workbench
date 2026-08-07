@@ -36,6 +36,11 @@ public class KnowledgeBaseRepo {
         return Optional.ofNullable(mapper.selectById(id));
     }
 
+    /** 锁定知识库主记录，序列化索引版本号分配与生效指针切换。 */
+    public Optional<KnowledgeBaseEntity> findByIdForUpdate(Long id) {
+        return mapper.selectByIdForUpdate(id);
+    }
+
     /** 检查编码是否已存在，可排除指定ID用于修改场景。 */
     public boolean existsByCode(String code, Long excludedId) {
         return mapper.exists(Wrappers.<KnowledgeBaseEntity>lambdaQuery()

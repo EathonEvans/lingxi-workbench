@@ -2,6 +2,12 @@ package com.lingxi.workbench.admin.application.model.request;
 
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
+import com.lingxi.workbench.workflow.model.MemoryConfig;
+import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
+import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
+import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
+import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
+import com.lingxi.workbench.workflow.model.PlannerPolicy;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -9,18 +15,39 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
-/** 保存 Workflow 草稿；Agent版本可为空，表示发布时跟随其当前生效版本。 */
+/** 保存 Application 草稿；资源版本可为空，表示发布时锁定其当前生效版本。 */
 @Data
 public class SaveApplicationDraftRequest {
-    @NotNull(message = "缺少Workflow定义")
+    /** 迁移前内嵌 Workflow，仅用于保存旧草稿；新管理端不再提交。 */
     @Valid
     private WorkflowDefinition workflow;
     /** 可选的 Application 级 Supervisor 协作配置。 */
     @Valid
     private AgentCollaborationDefinition collaboration;
-    /** 可选的独立意图树绑定与叶子执行映射。 */
+    /** 旧管理端兼容字段；保存 Schema V5 时自动转换为 optionalFastRoutes。 */
     @Valid
     private ApplicationIntentBinding intentBinding;
+    /** 可选快速路由，只配置需要确定性直达的叶子。 */
+    @Valid
+    private ApplicationIntentBinding optionalFastRoutes;
+    /** Application 级长期记忆配置。 */
+    @Valid
+    private MemoryConfig memory;
+    /** 路由前问题上下文化与共享上下文分区预算。 */
+    @Valid
+    private ApplicationContextPolicy contextPolicy;
+    /** 默认 ReAct Agent；草稿只提交 agentId，发布时锁定版本。 */
+    @Valid
+    private ApplicationAgentReference defaultAgent;
+    /** Planner 配置由 M3 冻结，M4 启用执行。 */
+    @Valid
+    private PlannerPolicy plannerPolicy;
+    /** Application 可见的 Agent、Workflow 与 Tool 能力。 */
+    @Valid
+    private CapabilityCatalogSnapshot capabilityCatalog;
+    /** 单轮 Application 执行总预算。 */
+    @Valid
+    private ApplicationRuntimePolicy runtimePolicy;
     @NotNull(message = "缺少草稿revision")
     @Min(value = 0, message = "草稿revision不能小于0")
     private Long expectedRevision;

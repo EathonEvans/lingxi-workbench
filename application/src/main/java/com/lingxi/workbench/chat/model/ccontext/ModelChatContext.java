@@ -7,6 +7,7 @@ import com.lingxi.workbench.chat.model.bo.PromptPair;
 import com.lingxi.workbench.chat.model.bo.QueryRewriteConfig;
 import com.lingxi.workbench.knowledge.model.vo.KnowledgeSearchResultVO;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
+import com.lingxi.workbench.workflow.model.MemoryConfig;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.Setter;
@@ -17,8 +18,8 @@ import java.util.Optional;
 /**
  * 单轮对话前置处理链的共享上下文。
  *
- * <p>用户、会话、问题和历史消息通过 RuntimeVariables 共享，召回结果和最终
- * Prompt 由对应节点按顺序写入。</p>
+ * <p>用户、会话、问题和历史消息通过 RuntimeVariables 共享。处理链只产生历史、
+ * 记忆和旧版检索结果，最终 Prompt 由 ModelRequestFactory 在模型边界直接编译。</p>
  */
 @Getter
 @Builder
@@ -30,6 +31,8 @@ public class ModelChatContext {
      * <p>用户、会话、原始问题和历史消息只保存在这里，不在 Chat Context 中重复建模。</p>
      */
     private RuntimeVariables runtimeVariables;
+    /** 路由前准备完成的共享上下文；旧调用链兼容场景可以为空。 */
+    private ConversationContext conversationContext;
     /*
      * 以下字段来自已发布 AgentVersion，描述该版本对本轮执行施加的策略。
      * 字段为空只能表示当前 Agent 类型未启用对应能力，不能回退到请求参数或平台默认配置。
@@ -54,6 +57,12 @@ public class ModelChatContext {
      * 注入历史消息的最大 Token 数。
      */
     private Integer memoryMaxTokens;
+    /**
+     * Application 级记忆系统配置（向量模型、Chat模型、阈值等）。
+     * 为空或 disabled 时跳过长期记忆注入和后处理。
+     */
+    @Setter
+    private MemoryConfig memoryConfig;
     /**
      * AgentVersion 解析后的问题改写节点配置。
      */
@@ -90,8 +99,7 @@ public class ModelChatContext {
     private ModelUsageRecorder modelUsageRecorder;
 
     /*
-     * 以下字段由处理链节点按照装配顺序逐步写入。
-     * 检索节点和 Prompt 节点分别只负责自己的输出。
+     * 以下字段由准备过程按照装配顺序逐步写入。
      */
     /**
      * 按相关度排序的知识库召回片段。
@@ -104,7 +112,7 @@ public class ModelChatContext {
     @Setter
     private RetrievalStatus retrievalStatus;
     /**
-     * 可直接交给模型网关的用户 Prompt 与 System Prompt。
+     * ModelRequestFactory 编译后可直接交给模型网关的用户 Prompt 与 System Prompt。
      */
     @Setter
     private PromptPair promptPair;

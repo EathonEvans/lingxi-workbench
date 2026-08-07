@@ -84,6 +84,7 @@ class ConversationServiceImplTest {
                 org.mockito.ArgumentMatchers.eq("AI_MODEL_ERROR"),
                 org.mockito.ArgumentMatchers.eq("模型服务调用失败"),
                 org.mockito.ArgumentMatchers.eq(tokenUsage),
+                org.mockito.ArgumentMatchers.isNull(),
                 org.mockito.ArgumentMatchers.any());
     }
 }

@@ -35,6 +35,29 @@ public class KnowledgeVectorRepo {
             ORDER BY similarity DESC
             LIMIT ?
             """;
+    private static final String VERSION_SEARCH_SQL = """
+            SELECT chunk_id, similarity
+            FROM (
+                SELECT
+                    chunk.id AS chunk_id,
+                    1 - (vector.embedding <=> ?::vector) AS similarity
+                FROM lingxi_core.ai_knowledge_index_version version
+                JOIN lingxi_core.ai_knowledge_index_version_task reference
+                  ON reference.index_version_id = version.id
+                JOIN lingxi_core.ai_knowledge_chunk chunk
+                  ON chunk.task_id = reference.chunk_task_id
+                JOIN lingxi_vector.knowledge_chunk_vector vector
+                  ON vector.chunk_id = chunk.id
+                WHERE version.id = ?
+                  AND version.knowledge_base_id = ?
+                  AND version.embedding_model_instance_id = ?
+                  AND chunk.knowledge_base_id = ?
+                  AND chunk.enabled = TRUE
+            ) t
+            WHERE similarity >= ?
+            ORDER BY similarity DESC
+            LIMIT ?
+            """;
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -55,6 +78,16 @@ public class KnowledgeVectorRepo {
                         rs.getDouble("similarity")
                 ),
                 vectorLiteral, knowledgeBaseId, threshold, topK);
+    }
+
+    /** 仅在发布版本冻结的分块任务集合中执行相似度检索。 */
+    public List<VectorSearchRow> searchVersion(float[] queryVector, Long knowledgeBaseId, Long indexVersionId, Long embeddingModelInstanceId, int topK, double threshold) {
+        String vectorLiteral = toVectorLiteral(queryVector);
+        return jdbcTemplate.query(VERSION_SEARCH_SQL,
+                (resultSet, rowNumber) -> new VectorSearchRow(
+                        resultSet.getLong("chunk_id"), resultSet.getDouble("similarity")),
+                vectorLiteral, indexVersionId, knowledgeBaseId, embeddingModelInstanceId,
+                knowledgeBaseId, threshold, topK);
     }
 
     private static String toVectorLiteral(float[] vector) {

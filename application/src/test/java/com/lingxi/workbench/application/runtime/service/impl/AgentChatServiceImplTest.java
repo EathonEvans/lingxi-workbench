@@ -6,9 +6,12 @@ import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.model.AgentCollaborationScope;
 import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.PromptRuntimeVariableDefinition;
 import com.lingxi.workbench.application.runtime.service.PromptRuntimeService;
 import com.lingxi.workbench.application.runtime.service.ToolRuntimeService;
+import com.lingxi.workbench.application.runtime.tool.KnowledgeSearchAgentToolFactory;
 import com.lingxi.workbench.application.runtime.service.impl.strategy.RagChatPreparationStrategy;
+import com.lingxi.workbench.application.runtime.service.impl.strategy.ReactPreparationStrategy;
 import com.lingxi.workbench.application.runtime.service.impl.strategy.SupervisorPreparationStrategy;
 import com.lingxi.workbench.chat.common.enums.RetrievalStatus;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
@@ -18,10 +21,13 @@ import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
 import com.lingxi.workbench.chat.service.ChatProcessChain;
 import com.lingxi.workbench.chat.service.ChatProcessNode;
+import com.lingxi.workbench.chat.service.impl.ModelRequestFactory;
+import com.lingxi.workbench.chat.service.impl.PromptTemplateRenderer;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.infra.ai.chat.StreamingChatGateway;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
+import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatStreamCommand;
@@ -47,6 +53,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class AgentChatServiceImplTest {
 
@@ -62,7 +71,7 @@ class AgentChatServiceImplTest {
 
         AgentChatServiceImpl service = service(
                 definition,
-                promptVersionId -> promptSnapshot(),
+                AgentChatServiceImplTest::promptSnapshotByVersion,
                 command -> {
                     captured.set(command);
                     return Flux.just(
@@ -93,7 +102,7 @@ class AgentChatServiceImplTest {
         definition.setKnowledge(null);
         AgentChatServiceImpl service = service(
                 definition,
-                promptVersionId -> promptSnapshot(),
+                AgentChatServiceImplTest::promptSnapshotByVersion,
                 command -> Flux.empty(),
                 toolCodes -> List.of());
 
@@ -153,7 +162,7 @@ class AgentChatServiceImplTest {
                 .build();
         AgentChatServiceImpl service = supervisorService(
                 definition,
-                promptVersionId -> promptSnapshot(),
+                AgentChatServiceImplTest::promptSnapshotByVersion,
                 command -> {
                     captured.set(command);
                     return Flux.just(new ChatStreamChunk("统一回答"));
@@ -178,7 +187,7 @@ class AgentChatServiceImplTest {
     void shouldRejectSupervisorSnapshotContainingRetrievalConfiguration() {
         AgentRuntimeDefinition definition = supervisorDefinition();
         definition.setRetrievalPolicy(definition().getRetrievalPolicy());
-        AgentChatServiceImpl service = supervisorService(definition, promptVersionId -> promptSnapshot(), command -> Flux.empty(), toolCodes -> List.of());
+        AgentChatServiceImpl service = supervisorService(definition, AgentChatServiceImplTest::promptSnapshotByVersion, command -> Flux.empty(), toolCodes -> List.of());
         ChatExecutionContext execution = ChatExecutionContext.builder()
                 .executionId("run-invalid-supervisor")
                 .runtimeVariables(runtimeVariables())
@@ -246,18 +255,52 @@ class AgentChatServiceImplTest {
         assertTrue(captured.get().systemPrompt().contains("不得因为知识片段缺少相关内容而拒绝回答"));
     }
 
+    @Test
+    void shouldInjectFrozenKnowledgeSearchToolForReactAgent() {
+        AgentRuntimeDefinition definition = reactDefinition();
+        AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
+        KnowledgeSearchAgentToolFactory toolFactory = mock(KnowledgeSearchAgentToolFactory.class);
+        when(toolFactory.create(definition.getKnowledgeSearch())).thenReturn(new KnowledgeSearchStubAgentTool());
+        PromptRuntimeService promptRuntimeService = AgentChatServiceImplTest::promptSnapshotByVersion;
+        ReactPreparationStrategy strategy = new ReactPreparationStrategy(promptRuntimeService, modelRequestFactory());
+        AgentChatPreparationStrategyRegistry registry = new AgentChatPreparationStrategyRegistry(List.of(strategy));
+        AgentChatServiceImpl service = new AgentChatServiceImpl(
+                (agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition),
+                registry,
+                modelService(),
+                command -> {
+                    captured.set(command);
+                    return Flux.just(new ChatStreamChunk("知识回答"));
+                },
+                toolCodes -> List.of(),
+                toolFactory);
+        RuntimeVariables variables = runtimeVariables("退款条件");
+        variables.put(RuntimeVariableAccessors.SESSION_HISTORY, List.of());
+        ChatExecutionContext execution = ChatExecutionContext.builder()
+                .executionId("run-react-knowledge")
+                .runtimeVariables(variables)
+                .turn(new ChatTurnBO(10L, 11L, 12L, 3))
+                .build();
+
+        String answer = service.chat(10L, 20L, "退款条件", execution);
+
+        assertEquals("知识回答", answer);
+        assertEquals("knowledge_search", captured.get().toolRuntimeConfig().orElseThrow().getTools().getFirst().definition().getCode());
+        verify(toolFactory).create(definition.getKnowledgeSearch());
+    }
+
     private static AgentChatServiceImpl service(AgentRuntimeDefinition definition, PromptRuntimeService promptRuntimeService, StreamingChatGateway streamingChatGateway, ToolRuntimeService toolRuntimeService) {
         ModelRuntimeConfigService modelRuntimeConfigService = modelService();
-        RagChatPreparationStrategy strategy = new RagChatPreparationStrategy(promptRuntimeService, modelRuntimeConfigService, new ChatProcessChain(new PreparingNode()));
+        RagChatPreparationStrategy strategy = new RagChatPreparationStrategy(promptRuntimeService, modelRuntimeConfigService, modelRequestFactory(), new ChatProcessChain(new PreparingNode()));
         AgentChatPreparationStrategyRegistry registry = new AgentChatPreparationStrategyRegistry(List.of(strategy));
-        return new AgentChatServiceImpl((agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition), registry, modelRuntimeConfigService, streamingChatGateway, toolRuntimeService);
+        return new AgentChatServiceImpl((agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition), registry, modelRuntimeConfigService, streamingChatGateway, toolRuntimeService, mock(KnowledgeSearchAgentToolFactory.class));
     }
 
     private static AgentChatServiceImpl supervisorService(AgentRuntimeDefinition definition, PromptRuntimeService promptRuntimeService, StreamingChatGateway streamingChatGateway, ToolRuntimeService toolRuntimeService) {
         ModelRuntimeConfigService modelRuntimeConfigService = modelService();
-        SupervisorPreparationStrategy strategy = new SupervisorPreparationStrategy(promptRuntimeService, new ChatProcessChain(new SupervisorPreparingNode()));
+        SupervisorPreparationStrategy strategy = new SupervisorPreparationStrategy(promptRuntimeService, modelRequestFactory(), new ChatProcessChain(new SupervisorPreparingNode()));
         AgentChatPreparationStrategyRegistry registry = new AgentChatPreparationStrategyRegistry(List.of(strategy));
-        return new AgentChatServiceImpl((agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition), registry, modelRuntimeConfigService, streamingChatGateway, toolRuntimeService);
+        return new AgentChatServiceImpl((agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition), registry, modelRuntimeConfigService, streamingChatGateway, toolRuntimeService, mock(KnowledgeSearchAgentToolFactory.class));
     }
 
     private static ModelRuntimeConfigService modelService() {
@@ -347,6 +390,38 @@ class AgentChatServiceImplTest {
                 .build();
     }
 
+    private static AgentRuntimeDefinition reactDefinition() {
+        return AgentRuntimeDefinition.builder()
+                .schemaVersion(4)
+                .agentType("REACT")
+                .chatModelInstanceId(99L)
+                .systemPromptVersionId(88L)
+                .userPromptVersionId(89L)
+                .toolCodes(List.of())
+                .toolPolicy(new AgentRuntimeDefinition.ToolPolicy(1, 1000))
+                .knowledgeSearch(AgentRuntimeDefinition.KnowledgeSearchCapability.builder()
+                        .knowledgeBaseId(30L)
+                        .knowledgeIndexVersionId(31L)
+                        .embeddingModelInstanceId(40L)
+                        .topK(5)
+                        .similarityThreshold(new BigDecimal("0.65"))
+                        .maxResultTokens(2000)
+                        .maxQueryCharacters(1000)
+                        .timeoutSeconds(8)
+                        .build())
+                .memoryPolicy(new AgentRuntimeDefinition.MemoryPolicy(true, 10, 4000))
+                .rewritePolicy(AgentRuntimeDefinition.RewritePolicy.builder().enabled(false).build())
+                .generationPolicy(AgentRuntimeDefinition.GenerationPolicy.builder()
+                        .temperature(new BigDecimal("0.2"))
+                        .topP(new BigDecimal("0.9"))
+                        .maxOutputTokens(2048)
+                        .timeoutSeconds(60)
+                        .maxRetries(1)
+                        .build())
+                .runtimePolicy(new AgentRuntimeDefinition.RuntimePolicy(90, 2, 12000, 2048))
+                .build();
+    }
+
     private static LoginUser loginUser() {
         return new LoginUser(7L, "tester", "测试用户", null);
     }
@@ -368,6 +443,17 @@ class AgentChatServiceImplTest {
                 PromptRole.SYSTEM);
     }
 
+    private static PromptRuntimeSnapshot promptSnapshotByVersion(Long promptVersionId) {
+        if (promptVersionId == 89L) {
+            return new PromptRuntimeSnapshot(89L, "{{user.query}}", List.of(new PromptRuntimeVariableDefinition("user.query", "STRING", true)), PromptRole.USER);
+        }
+        return promptSnapshot();
+    }
+
+    private static ModelRequestFactory modelRequestFactory() {
+        return new ModelRequestFactory(context -> new PromptPair(context.getRuntimeVariables().require(RuntimeVariableAccessors.USER_QUERY), context.getSystemPromptSnapshot().content()), new PromptTemplateRenderer());
+    }
+
     private static final class PreparingNode implements ChatProcessNode {
 
         @Override
@@ -385,17 +471,11 @@ class AgentChatServiceImplTest {
             context.getRuntimeVariables().put(
                     RuntimeVariableAccessors.SESSION_HISTORY,
                     List.of(
-                    new com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage(
-                            com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage.Role.USER,
-                            "历史问题")));
-            context.setPromptPair(new PromptPair(
-                    context.getRuntimeVariables().require(
-                            RuntimeVariableAccessors.USER_QUERY),
-                    context.getSystemPrompt().content()));
+                            new ChatHistoryMessage(ChatHistoryMessage.Role.USER, "历史问题")));
         }
     }
 
-    /** 模拟 Supervisor 的历史与直接 Prompt 节点，断言运行时未注入 RAG 配置。 */
+    /** 模拟 Supervisor 的历史与记忆投影节点，断言运行时未注入 RAG 配置。 */
     private static final class SupervisorPreparingNode implements ChatProcessNode {
 
         @Override
@@ -408,7 +488,6 @@ class AgentChatServiceImplTest {
             assertEquals(null, context.getKnowledgeBaseId());
             assertEquals(null, context.getRetrievalTopK());
             context.getRuntimeVariables().put(RuntimeVariableAccessors.SESSION_HISTORY, List.of());
-            context.setPromptPair(new PromptPair(context.getRuntimeVariables().require(RuntimeVariableAccessors.USER_QUERY), context.getSystemPrompt().content()));
         }
     }
 
@@ -443,6 +522,37 @@ class AgentChatServiceImplTest {
                 @Override
                 public String call(String toolInput) {
                     return "{\"currentTime\":\"2026-07-31T10:00:00+08:00\"}";
+                }
+            };
+        }
+    }
+
+    private static final class KnowledgeSearchStubAgentTool implements AgentTool {
+
+        @Override
+        public AgentToolDefinition definition() {
+            return AgentToolDefinition.builder()
+                    .code("knowledge_search")
+                    .displayName("知识搜索")
+                    .description("搜索发布知识")
+                    .build();
+        }
+
+        @Override
+        public ToolCallback callback() {
+            return new ToolCallback() {
+                @Override
+                public ToolDefinition getToolDefinition() {
+                    return ToolDefinition.builder()
+                            .name("knowledge_search")
+                            .description("搜索发布知识")
+                            .inputSchema("{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}}}")
+                            .build();
+                }
+
+                @Override
+                public String call(String toolInput) {
+                    return "{\"chunks\":[]}";
                 }
             };
         }

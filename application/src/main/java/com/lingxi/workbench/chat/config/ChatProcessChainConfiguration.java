@@ -2,16 +2,15 @@ package com.lingxi.workbench.chat.config;
 
 import com.lingxi.workbench.chat.service.ChatProcessChain;
 import com.lingxi.workbench.chat.service.node.ConversationHistoryNode;
-import com.lingxi.workbench.chat.service.node.DirectPromptBuildNode;
 import com.lingxi.workbench.chat.service.node.KnowledgeRetrievalNode;
-import com.lingxi.workbench.chat.service.node.PromptBuildNode;
+import com.lingxi.workbench.chat.service.node.MemoryInjectionNode;
 import com.lingxi.workbench.chat.service.node.QueryRewriteNode;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * 显式声明对话前置处理链的业务顺序。
+ * 显式声明旧 AgentVersion 的兼容处理链顺序。
  */
 @Configuration
 public class ChatProcessChainConfiguration {
@@ -19,33 +18,34 @@ public class ChatProcessChainConfiguration {
     /**
      * 按业务依赖显式装配单向处理链。
      *
-     * <p>当前顺序先准备两套独立的历史窗口，再生成检索问题、执行知识检索，
-     * 最后由 Prompt 节点消费召回结果。显式装配可以直接从这里阅读完整流程，
-     * 也避免依赖 Spring Bean 扫描顺序。</p>
+     * <p>该链仅服务历史 RAG_CHAT 版本：投影共享上下文中的历史和记忆后，继续执行
+     * 旧问题改写、自动知识检索和 Prompt 构建。新 ReAct 路径不得接入该链。</p>
      *
-     * @param historyNode   会话历史加载节点
-     * @param queryRewriteNode 问题改写节点
-     * @param retrievalNode 知识库向量检索节点
-     * @param promptBuildNode 模型 Prompt 构建节点
+     * @param historyNodes      会话历史加载节点
+     * @param memoryNodes       用户记忆节点
+     * @param queryRewriteNodes 问题改写节点
+     * @param retrievalNodes    知识库向量检索节点
      * @return 从历史加载节点开始执行的对话处理链
      */
     @Bean("ragChatProcessChain")
-    public ChatProcessChain ragChatProcessChain(ObjectProvider<ConversationHistoryNode> historyNodes, ObjectProvider<QueryRewriteNode> queryRewriteNodes, ObjectProvider<KnowledgeRetrievalNode> retrievalNodes, ObjectProvider<PromptBuildNode> promptBuildNodes) {
+    public ChatProcessChain ragChatProcessChain(ObjectProvider<ConversationHistoryNode> historyNodes, ObjectProvider<MemoryInjectionNode> memoryNodes, ObjectProvider<QueryRewriteNode> queryRewriteNodes, ObjectProvider<KnowledgeRetrievalNode> retrievalNodes) {
         ConversationHistoryNode historyNode = historyNodes.getObject();
+        MemoryInjectionNode memoryNode = memoryNodes.getObject();
         QueryRewriteNode queryRewriteNode = queryRewriteNodes.getObject();
         KnowledgeRetrievalNode retrievalNode = retrievalNodes.getObject();
-        PromptBuildNode promptBuildNode = promptBuildNodes.getObject();
-        historyNode.next(queryRewriteNode)
-                .next(retrievalNode)
-                .next(promptBuildNode);
+        historyNode.next(memoryNode)
+                .next(queryRewriteNode)
+                .next(retrievalNode);
         return new ChatProcessChain(historyNode);
     }
 
-    /** Supervisor 只加载历史并直接组装 Prompt，不进入问题改写和知识检索。 */
+    /**
+     * 历史 Supervisor 版本复用共享历史和长期记忆后组装 Prompt，不进入自动知识检索。
+     */
     @Bean("supervisorChatProcessChain")
-    public ChatProcessChain supervisorChatProcessChain(ObjectProvider<ConversationHistoryNode> historyNodes, ObjectProvider<DirectPromptBuildNode> promptBuildNodes) {
+    public ChatProcessChain supervisorChatProcessChain(ObjectProvider<ConversationHistoryNode> historyNodes, ObjectProvider<MemoryInjectionNode> memoryNodes) {
         ConversationHistoryNode historyNode = historyNodes.getObject();
-        historyNode.next(promptBuildNodes.getObject());
+        historyNode.next(memoryNodes.getObject());
         return new ChatProcessChain(historyNode);
     }
 }

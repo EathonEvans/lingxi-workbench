@@ -39,7 +39,7 @@ public class ApplicationRuntimeServiceImpl implements ApplicationRuntimeService 
 
     /**
      * 按稳定编码解析当前已启用的 Application 版本。
-     * 校验应用处于启用状态、已发布版本存在且包含有效 Workflow 定义。
+     * 校验应用处于启用状态、已发布版本存在且定义快照满足运行不变量。
      */
     @Override
     @Transactional(readOnly = true)
@@ -52,14 +52,14 @@ public class ApplicationRuntimeServiceImpl implements ApplicationRuntimeService 
         }
         RuntimeApplicationVersionEntity version = repo.findVersion(application.getId(), application.getPublishedVersionId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "AI应用生效版本不存在"));
-        if (Objects.isNull(version.getDefinitionSnapshot())
-                || Objects.isNull(version.getDefinitionSnapshot().workflow())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "AI应用生效版本缺少Workflow");
+        if (Objects.isNull(version.getDefinitionSnapshot())) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "AI应用生效版本缺少定义快照");
         }
-        return new ApplicationRuntimeSnapshot(
-                application.getId(),
-                application.getCode(),
-                version.getId(),
-                version.getDefinitionSnapshot());
+        try {
+            return new ApplicationRuntimeSnapshot(
+                    application.getId(), application.getCode(), version.getId(), version.getDefinitionSnapshot());
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "AI应用生效版本不可执行：" + exception.getMessage());
+        }
     }
 }

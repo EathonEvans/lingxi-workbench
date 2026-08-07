@@ -5,6 +5,7 @@ import com.lingxi.workbench.chat.common.enums.ChatProcessResult;
 import com.lingxi.workbench.chat.model.bo.ChatMemoryMessageBO;
 import com.lingxi.workbench.chat.model.bo.QueryRewriteConfig;
 import com.lingxi.workbench.chat.model.ccontext.ModelChatContext;
+import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;
 import com.lingxi.workbench.chat.service.AbstractChatProcessNode;
 import com.lingxi.workbench.chat.service.ConversationMemoryService;
@@ -60,6 +61,13 @@ public class ConversationHistoryNode extends AbstractChatProcessNode {
         if (Boolean.FALSE.equals(context.getMemoryEnabled())) {
             return List.of();
         }
+        ConversationContext conversationContext = context.getConversationContext();
+        if (conversationContext != null) {
+            if (context.getMemoryMaxRounds() != null && context.getMemoryMaxTokens() != null) {
+                return conversationMemoryService.selectWindow(conversationContext.getRecentMessages(), context.getMemoryMaxRounds(), context.getMemoryMaxTokens());
+            }
+            return conversationMemoryService.selectWindow(conversationContext.getRecentMessages());
+        }
         Long userId = context.getRuntimeVariables().require(RuntimeVariableAccessors.USER_ID);
         Long sessionId = context.getRuntimeVariables().require(RuntimeVariableAccessors.SESSION_ID);
         if (context.getMemoryMaxRounds() != null && context.getMemoryMaxTokens() != null) {
@@ -72,6 +80,10 @@ public class ConversationHistoryNode extends AbstractChatProcessNode {
         QueryRewriteConfig config = context.getQueryRewriteConfig();
         if (config == null || !config.isEnabled()) {
             return List.of();
+        }
+        ConversationContext conversationContext = context.getConversationContext();
+        if (conversationContext != null) {
+            return conversationMemoryService.selectWindow(conversationContext.getRecentMessages(), config.getMaxHistoryRounds(), config.getMaxHistoryTokens());
         }
         Long userId = context.getRuntimeVariables().require(
                 RuntimeVariableAccessors.USER_ID);

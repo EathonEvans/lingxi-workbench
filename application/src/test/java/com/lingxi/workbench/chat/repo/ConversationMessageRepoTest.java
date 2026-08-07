@@ -48,6 +48,7 @@ class ConversationMessageRepoTest {
                 null,
                 null,
                 TokenUsage.of(120, 30, 150),
+                99L,
                 completedAt);
 
         ArgumentCaptor<ConversationMessageEntity> entityCaptor =
@@ -60,6 +61,7 @@ class ConversationMessageRepoTest {
         assertEquals(120, entity.getInputTokens());
         assertEquals(30, entity.getOutputTokens());
         assertEquals(150, entity.getTotalTokens());
+        assertEquals(99L, entity.getModelInstanceId());
         assertEquals(completedAt, entity.getCompletedAt());
     }
 }

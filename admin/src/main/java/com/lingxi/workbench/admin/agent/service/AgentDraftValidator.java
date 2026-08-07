@@ -15,6 +15,7 @@ import com.lingxi.workbench.admin.agent.model.vo.AgentValidationResultVO;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeBaseEntity;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeBaseRepo;
+import com.lingxi.workbench.admin.knowledge.service.KnowledgeIndexVersionService;
 import com.lingxi.workbench.admin.model.common.enums.ModelCapability;
 import com.lingxi.workbench.admin.model.common.enums.ModelConnectionTestStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
@@ -27,6 +28,7 @@ import com.lingxi.workbench.admin.prompt.model.entity.PromptVersionEntity;
 import com.lingxi.workbench.admin.prompt.repo.PromptRepo;
 import com.lingxi.workbench.admin.prompt.repo.PromptVersionRepo;
 import com.lingxi.workbench.admin.tool.service.ToolService;
+import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import com.lingxi.workbench.infra.ai.variable.RuntimeVariableCatalog;
 import com.lingxi.workbench.infra.ai.variable.common.enums.BuiltInRuntimeVariable;
@@ -52,6 +54,7 @@ public class AgentDraftValidator {
     private final KnowledgeBaseRepo knowledgeBaseRepo;
     private final Validator beanValidator;
     private final ToolService toolService;
+    private final KnowledgeIndexVersionService knowledgeIndexVersionService;
 
     /** 对 Agent 及其草稿执行发布前完整校验：状态、模型、Prompt、知识库、策略跨字段限制。 */
     public AgentValidationResultVO validate(AgentEntity agent, AgentDraftEntity draft, AgentDraftKnowledgeEntity knowledgeBinding) {
@@ -60,7 +63,7 @@ public class AgentDraftValidator {
             add(issues, "AGENT_DISABLED", "停用的Agent不能发布");
         }
         AgentType agentType = agent.getAgentType();
-        validatePolicies(agentType, draft, issues);
+        validatePolicies(agentType, draft, knowledgeBinding, issues);
 
         ModelInstanceEntity chatModel = validateModel(draft.getChatModelInstanceId(), ModelType.CHAT, "CHAT_MODEL", issues)
                 .orElse(null);
@@ -69,7 +72,7 @@ public class AgentDraftValidator {
                 || !chatModel.getCapabilities().contains(ModelCapability.STREAMING))) {
             add(issues, "CHAT_MODEL_STREAMING_REQUIRED", "回答模型必须支持流式输出");
         }
-        validateTools(agentType, draft, chatModel, issues);
+        validateTools(agentType, draft, knowledgeBinding, chatModel, issues);
         validatePrompt(draft.getSystemPromptVersionId(), PromptRole.SYSTEM, RuntimeVariableChannel.SYSTEM_PROMPT, "SYSTEM_PROMPT", agentType, issues);
         validatePrompt(draft.getUserPromptVersionId(), PromptRole.USER, RuntimeVariableChannel.USER_PROMPT, "USER_PROMPT", agentType, issues);
 
@@ -79,17 +82,15 @@ public class AgentDraftValidator {
             rewriteModel = validateModel(draft.getRewriteModelInstanceId(), ModelType.CHAT, "REWRITE_MODEL", issues).orElse(null);
             validatePrompt(draft.getRewritePromptVersionId(), PromptRole.SYSTEM, RuntimeVariableChannel.QUERY_REWRITE_PROMPT, "REWRITE_PROMPT", agentType, issues);
         }
-        if (agentType == AgentType.SUPERVISOR && Objects.nonNull(rewritePolicy) && Boolean.TRUE.equals(rewritePolicy.getEnabled())) {
-            add(issues, "SUPERVISOR_REWRITE_UNSUPPORTED", "Supervisor Agent不使用问题改写和知识检索");
+        if (agentType != AgentType.RAG_CHAT && Objects.nonNull(rewritePolicy) && Boolean.TRUE.equals(rewritePolicy.getEnabled())) {
+            add(issues, "REWRITE_UNSUPPORTED", "ReAct和Supervisor Agent不使用旧版问题改写链");
         }
-        if (agentType == AgentType.RAG_CHAT) {
-            validateKnowledge(knowledgeBinding, issues);
-        }
-        validateCrossLimits(agentType, draft, chatModel, rewriteModel, issues);
+        validateKnowledge(agentType, knowledgeBinding, issues);
+        validateCrossLimits(agentType, draft, knowledgeBinding, chatModel, rewriteModel, issues);
         return new AgentValidationResultVO(issues.isEmpty(), issues);
     }
 
-    private void validatePolicies(AgentType agentType, AgentDraftEntity draft, List<AgentValidationIssueVO> issues) {
+    private void validatePolicies(AgentType agentType, AgentDraftEntity draft, AgentDraftKnowledgeEntity knowledgeBinding, List<AgentValidationIssueVO> issues) {
         validatePolicy(draft.getMemoryPolicy(), "MEMORY_POLICY", issues);
         validatePolicy(draft.getGenerationPolicy(), "GENERATION_POLICY", issues);
         validatePolicy(draft.getRuntimePolicy(), "RUNTIME_POLICY", issues);
@@ -97,11 +98,13 @@ public class AgentDraftValidator {
         if (agentType == AgentType.RAG_CHAT) {
             validatePolicy(draft.getRewritePolicy(), "REWRITE_POLICY", issues);
             validatePolicy(draft.getRetrievalPolicy(), "RETRIEVAL_POLICY", issues);
+        } else if (agentType == AgentType.REACT && Objects.nonNull(knowledgeBinding)) {
+            validatePolicy(draft.getRetrievalPolicy(), "KNOWLEDGE_SEARCH_POLICY", issues);
         }
     }
 
     /** 校验 Tool 已在控制面启用，并要求回答模型声明 TOOL_CALLING 能力。 */
-    private void validateTools(AgentType agentType, AgentDraftEntity draft, ModelInstanceEntity chatModel, List<AgentValidationIssueVO> issues) {
+    private void validateTools(AgentType agentType, AgentDraftEntity draft, AgentDraftKnowledgeEntity knowledgeBinding, ModelInstanceEntity chatModel, List<AgentValidationIssueVO> issues) {
         List<String> toolCodes = draft.getToolCodes();
         if (Objects.isNull(toolCodes)) {
             add(issues, "TOOL_CODES_MISSING", "工具编码列表不能为空");
@@ -117,14 +120,16 @@ public class AgentDraftValidator {
                 add(issues, "TOOL_UNAVAILABLE", "Tool 不存在或已停用：" + toolCode);
             }
         }
-        boolean toolCallingRequired = agentType == AgentType.SUPERVISOR || !toolCodes.isEmpty();
+        boolean toolCallingRequired = agentType == AgentType.SUPERVISOR
+                || !toolCodes.isEmpty()
+                || (agentType == AgentType.REACT && Objects.nonNull(knowledgeBinding));
         if (toolCallingRequired
                 && Objects.nonNull(chatModel)
                 && (Objects.isNull(chatModel.getCapabilities())
                 || !chatModel.getCapabilities().contains(ModelCapability.TOOL_CALLING))) {
             String message = agentType == AgentType.SUPERVISOR
                     ? "Supervisor Agent的回答模型必须支持工具调用"
-                    : "绑定工具后，回答模型必须支持工具调用";
+                    : "绑定Tool或知识搜索后，回答模型必须支持工具调用";
             add(issues, "CHAT_MODEL_TOOL_CALLING_REQUIRED", message);
         }
     }
@@ -219,8 +224,8 @@ public class AgentDraftValidator {
                 continue;
             }
             BuiltInRuntimeVariable variable = variableOptional.get();
-            if (agentType == AgentType.SUPERVISOR && variable == BuiltInRuntimeVariable.KNOWLEDGE_CONTEXT) {
-                add(issues, codePrefix + "_VARIABLE_UNAVAILABLE", "Supervisor Agent不提供知识上下文变量：" + definition.getName());
+            if (agentType != AgentType.RAG_CHAT && variable == BuiltInRuntimeVariable.KNOWLEDGE_CONTEXT) {
+                add(issues, codePrefix + "_VARIABLE_UNAVAILABLE", "ReAct和Supervisor Agent不提供旧版知识上下文变量：" + definition.getName());
                 continue;
             }
             if (agentType != AgentType.SUPERVISOR && variable == BuiltInRuntimeVariable.COLLABORATION_MAX_DELEGATIONS) {
@@ -276,10 +281,15 @@ public class AgentDraftValidator {
         }
     }
 
-    private void validateKnowledge(
-            AgentDraftKnowledgeEntity binding, List<AgentValidationIssueVO> issues) {
+    private void validateKnowledge(AgentType agentType, AgentDraftKnowledgeEntity binding, List<AgentValidationIssueVO> issues) {
         if (Objects.isNull(binding)) {
-            add(issues, "KNOWLEDGE_MISSING", "缺少知识库绑定");
+            if (agentType == AgentType.RAG_CHAT) {
+                add(issues, "KNOWLEDGE_MISSING", "缺少知识库绑定");
+            }
+            return;
+        }
+        if (agentType == AgentType.SUPERVISOR) {
+            add(issues, "KNOWLEDGE_UNSUPPORTED", "Supervisor Agent不能绑定知识库");
             return;
         }
         Optional<KnowledgeBaseEntity> optional =
@@ -302,9 +312,17 @@ public class AgentDraftValidator {
                 ModelType.EMBEDDING,
                 "EMBEDDING_MODEL",
                 issues);
+        if (agentType == AgentType.REACT) {
+            try {
+                knowledgeIndexVersionService.validatePublishable(
+                        binding.getKnowledgeBaseId(), binding.getEmbeddingModelInstanceId());
+            } catch (BusinessException exception) {
+                add(issues, "KNOWLEDGE_INDEX_UNPUBLISHABLE", exception.getMessage());
+            }
+        }
     }
 
-    private void validateCrossLimits(AgentType agentType, AgentDraftEntity draft, ModelInstanceEntity chatModel, ModelInstanceEntity rewriteModel, List<AgentValidationIssueVO> issues) {
+    private void validateCrossLimits(AgentType agentType, AgentDraftEntity draft, AgentDraftKnowledgeEntity knowledgeBinding, ModelInstanceEntity chatModel, ModelInstanceEntity rewriteModel, List<AgentValidationIssueVO> issues) {
         AgentMemoryPolicy memory = draft.getMemoryPolicy();
         QueryRewritePolicy rewrite = draft.getRewritePolicy();
         RetrievalPolicy retrieval = draft.getRetrievalPolicy();
@@ -342,7 +360,9 @@ public class AgentDraftValidator {
             add(issues, "REWRITE_INPUT_BUDGET_CONFLICT", "改写历史必须为当前问题和Prompt预留输入空间");
         }
         int requiredCalls = rewriteEnabled ? 2 : 1;
-        if (Objects.nonNull(draft.getToolCodes()) && !draft.getToolCodes().isEmpty()) {
+        boolean toolEnabled = Objects.nonNull(draft.getToolCodes()) && !draft.getToolCodes().isEmpty();
+        boolean knowledgeSearchEnabled = agentType == AgentType.REACT && Objects.nonNull(knowledgeBinding);
+        if (toolEnabled || knowledgeSearchEnabled) {
             /*
              * 每次串行工具调用后都要再次调用模型，最后还需要一次模型调用生成自然语言回答。
              * 改写调用也计入 Agent 全局模型次数预算。
@@ -356,8 +376,8 @@ public class AgentDraftValidator {
                     "模型调用次数上限不足，当前配置至少需要" + requiredCalls + "次");
         }
         int memoryTokens = Boolean.TRUE.equals(memory.getEnabled()) ? memory.getMaxTokens() : 0;
-        if (agentType == AgentType.RAG_CHAT && Objects.nonNull(retrieval) && Objects.nonNull(retrieval.getMaxContextTokens()) && memoryTokens + retrieval.getMaxContextTokens() >= runtime.getMaxInputTokens()) {
-            add(issues, "INPUT_BUDGET_CONFLICT", "记忆与检索上下文必须为用户问题和Prompt预留输入空间");
+        if ((agentType == AgentType.RAG_CHAT || knowledgeSearchEnabled) && Objects.nonNull(retrieval) && Objects.nonNull(retrieval.getMaxContextTokens()) && memoryTokens + retrieval.getMaxContextTokens() >= runtime.getMaxInputTokens()) {
+            add(issues, "INPUT_BUDGET_CONFLICT", "记忆与知识搜索结果必须为用户问题和Prompt预留输入空间");
         }
         if (agentType == AgentType.SUPERVISOR && memoryTokens >= runtime.getMaxInputTokens()) {
             add(issues, "INPUT_BUDGET_CONFLICT", "会话记忆必须为Supervisor指令和当前问题预留输入空间");

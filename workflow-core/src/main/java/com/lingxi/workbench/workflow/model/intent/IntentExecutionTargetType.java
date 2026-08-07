@@ -5,8 +5,8 @@ package com.lingxi.workbench.workflow.model.intent;
  *
  * <p>发布时根据类型执行不同逻辑：</p>
  * <ul>
- *   <li><b>WORKFLOW</b> — 目标为当前 ApplicationVersion 内的主 Workflow 快照，
- *       不需要额外的 targetId。利用 Workflow 的有序 DAG 执行确定性流程。</li>
+ *   <li><b>WORKFLOW</b> — 目标为独立 Workflow 的已发布版本（WorkflowVersion）。
+ *       发布 Application 时解析并锁定 targetId 和 targetVersionId。</li>
  *   <li><b>AGENT</b> — 目标为独立 Agent 的已发布版本（AgentVersion）。
  *       包含普通 RAG_CHAT 类型和 SUPERVISOR 多 Agent 调度类型。
  *       发布时解析 Agent 当前生效版本并锁定。</li>
@@ -16,8 +16,8 @@ package com.lingxi.workbench.workflow.model.intent;
  */
 public enum IntentExecutionTargetType {
 
-    /** 执行当前 Application 内部 Workflow */
-    WORKFLOW("WORKFLOW", "Application Workflow"),
+    /** 执行指定 Workflow 的已发布版本 */
+    WORKFLOW("WORKFLOW", "Workflow"),
 
     /** 执行指定 Agent 的已发布版本 */
     AGENT("AGENT", "Agent"),

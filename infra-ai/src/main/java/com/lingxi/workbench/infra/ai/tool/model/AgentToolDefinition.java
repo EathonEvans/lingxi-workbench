@@ -1,6 +1,7 @@
 package com.lingxi.workbench.infra.ai.tool.model;
 
 import lombok.Builder;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
 
 import java.util.Objects;
@@ -12,6 +13,7 @@ import java.util.Objects;
  * 仍由 Spring AI 根据工具入参类型生成，避免项目重复实现协议细节。</p>
  */
 @Getter
+@EqualsAndHashCode
 public final class AgentToolDefinition {
 
     /**

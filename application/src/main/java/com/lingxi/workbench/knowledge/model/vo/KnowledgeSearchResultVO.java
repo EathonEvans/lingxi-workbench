@@ -13,16 +13,28 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class KnowledgeSearchResultVO {
-    /** Chunk ID。 */
+    /**
+     * Chunk ID。
+     */
     private Long chunkId;
-    /** Chunk 文本内容。 */
+    /**
+     * Chunk 文本内容。
+     */
     private String content;
-    /** 余弦相似度（0~1），越高越相关。 */
+    /**
+     * 余弦相似度（0~1），越高越相关。
+     */
     private Double similarity;
-    /** 文档名称。 */
+    /**
+     * 文档名称。
+     */
     private String documentName;
-    /** 所属章节路径。 */
+    /**
+     * 所属章节路径。
+     */
     private String sectionTitle;
-    /** 页码。 */
+    /**
+     * 页码。
+     */
     private Integer pageNumber;
 }

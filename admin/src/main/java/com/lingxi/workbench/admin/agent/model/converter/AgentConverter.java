@@ -129,6 +129,7 @@ public class AgentConverter {
                 .toolCodes(Objects.requireNonNullElse(definition.getToolCodes(), java.util.List.of()))
                 .toolPolicy(definition.getToolPolicy())
                 .knowledge(toKnowledgeVO(definition.getKnowledge()))
+                .knowledgeSearch(definition.getKnowledgeSearch())
                 .memoryPolicy(definition.getMemoryPolicy())
                 .rewritePolicy(definition.getRewritePolicy())
                 .retrievalPolicy(definition.getRetrievalPolicy())

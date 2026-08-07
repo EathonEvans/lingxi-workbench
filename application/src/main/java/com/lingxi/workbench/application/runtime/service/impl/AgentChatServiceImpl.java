@@ -8,6 +8,7 @@ import com.lingxi.workbench.application.runtime.service.AgentChatService;
 import com.lingxi.workbench.application.runtime.service.AgentRuntimeService;
 import com.lingxi.workbench.application.runtime.service.ToolRuntimeService;
 import com.lingxi.workbench.application.runtime.tool.AgentDelegationTool;
+import com.lingxi.workbench.application.runtime.tool.KnowledgeSearchAgentToolFactory;
 import com.lingxi.workbench.chat.common.enums.RetrievalStatus;
 import com.lingxi.workbench.chat.model.bo.PromptPair;
 import com.lingxi.workbench.chat.model.ccontext.ModelChatContext;
@@ -65,6 +66,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final ModelRuntimeConfigService modelRuntimeConfigService;
     private final StreamingChatGateway streamingChatGateway;
     private final ToolRuntimeService toolRuntimeService;
+    private final KnowledgeSearchAgentToolFactory knowledgeSearchToolFactory;
 
     @Override
     public String chat(Long agentId, Long agentVersionId, String query, ChatExecutionContext execution) {
@@ -74,9 +76,11 @@ public class AgentChatServiceImpl implements AgentChatService {
         validateEntryQuery(query, execution);
         prepareCollaborationVariables(agentId, execution);
 
-        List<AgentTool> runtimeTools = resolveRuntimeTools(execution, snapshot);
+        List<AgentTool> runtimeTools = this.loadRuntimeTools(execution, snapshot);
 
-        ModelChatContext chatContext = preparationStrategyRegistry.require(definition.getAgentType()).prepare(definition, execution);
+        ModelChatContext chatContext = preparationStrategyRegistry
+                .require(definition.getAgentType())
+                .prepare(definition, execution);
 
         if (shouldReturnEmptyKnowledgeHint(chatContext, definition) && runtimeTools.isEmpty()) {
             execution.getEventPublisher().publishText(new ChatStreamChunk(EMPTY_KNOWLEDGE_HINT));
@@ -169,10 +173,13 @@ public class AgentChatServiceImpl implements AgentChatService {
     /**
      * 合并 Agent 自身工具与 Application 动态成员 Agent 工具。
      */
-    private List<AgentTool> resolveRuntimeTools(ChatExecutionContext execution, AgentRuntimeSnapshot snapshot) {
+    private List<AgentTool> loadRuntimeTools(ChatExecutionContext execution, AgentRuntimeSnapshot snapshot) {
         List<AgentTool> tools = new ArrayList<>();
         if (!snapshot.definition().resolveToolCodes().isEmpty()) {
             tools.addAll(toolRuntimeService.resolveActiveTools(snapshot.definition().resolveToolCodes()));
+        }
+        if (Objects.nonNull(snapshot.definition().getKnowledgeSearch())) {
+            tools.add(knowledgeSearchToolFactory.create(snapshot.definition().getKnowledgeSearch()));
         }
         execution.collaborationScope()
                 .filter(scope -> scope.canDelegate(snapshot.agentId()))
@@ -209,7 +216,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         int configuredToolCalls = Math.max(localToolCalls, configuredDelegations);
         int maxToolCalls = Math.min(configuredToolCalls, generationModelCalls - 1);
         if (maxToolCalls < MIN_TOOL_CALLS) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "Supervisor Agent模型调用次数不足以完成协作闭环，请提高运行限制");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "Agent模型调用次数不足以完成Tool执行闭环，请提高运行限制");
         }
         int maxResultCharacters = Optional.ofNullable(toolPolicy).map(AgentRuntimeDefinition.ToolPolicy::maxResultCharacters).orElse(DEFAULT_DELEGATION_RESULT_CHARACTERS);
         AgentToolExecutionContext toolExecutionContext = AgentToolExecutionContext.builder()
@@ -246,7 +253,19 @@ public class AgentChatServiceImpl implements AgentChatService {
         Integer timeoutSeconds = Objects.requireNonNullElse(policy.getTimeoutSeconds(), source.getTimeoutSeconds());
         Integer maxRetries = Objects.requireNonNullElse(policy.getMaxRetries(), source.getMaxRetries());
 
-        return ChatModelRuntimeConfig.builder().instanceId(source.getInstanceId()).baseUrl(source.getBaseUrl()).apiKey(source.getApiKey()).modelCode(source.getModelCode()).temperature(temperature).topP(topP).maxTokens(maxTokens).stopSequences(source.getStopSequences()).extensionParameters(source.getExtensionParameters()).timeoutSeconds(timeoutSeconds).maxRetries(maxRetries).build();
+        return ChatModelRuntimeConfig.builder()
+                .instanceId(source.getInstanceId())
+                .baseUrl(source.getBaseUrl())
+                .apiKey(source.getApiKey())
+                .modelCode(source.getModelCode())
+                .temperature(temperature)
+                .topP(topP)
+                .maxTokens(maxTokens)
+                .stopSequences(source.getStopSequences())
+                .extensionParameters(source.getExtensionParameters())
+                .timeoutSeconds(timeoutSeconds)
+                .maxRetries(maxRetries)
+                .build();
     }
 
     private static Duration timeout(AgentRuntimeDefinition definition) {
@@ -271,7 +290,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     }
 
     private static void validateToolPolicy(AgentRuntimeDefinition definition) {
-        if (definition.resolveToolCodes().isEmpty()) {
+        if (definition.resolveToolCodes().isEmpty() && Objects.isNull(definition.getKnowledgeSearch())) {
             return;
         }
         if (Objects.isNull(definition.getToolPolicy()) || Objects.isNull(definition.getToolPolicy().maxToolCalls()) || Objects.isNull(definition.getToolPolicy().maxResultCharacters()) || Objects.isNull(definition.getRuntimePolicy()) || Objects.isNull(definition.getRuntimePolicy().maxModelCalls())) {

@@ -6,6 +6,7 @@ import com.lingxi.workbench.application.runtime.service.PromptRuntimeService;
 import com.lingxi.workbench.chat.model.bo.QueryRewriteConfig;
 import com.lingxi.workbench.chat.model.ccontext.ModelChatContext;
 import com.lingxi.workbench.chat.service.ChatProcessChain;
+import com.lingxi.workbench.chat.service.impl.ModelRequestFactory;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
@@ -25,11 +26,13 @@ public class RagChatPreparationStrategy extends AbstractAgentChatPreparationStra
 
     private final ModelRuntimeConfigService modelRuntimeConfigService;
     private final PromptRuntimeService promptRuntimeService;
+    private final ModelRequestFactory modelRequestFactory;
 
-    public RagChatPreparationStrategy(PromptRuntimeService promptRuntimeService, ModelRuntimeConfigService modelRuntimeConfigService, @Qualifier("ragChatProcessChain") ChatProcessChain processChain) {
+    public RagChatPreparationStrategy(PromptRuntimeService promptRuntimeService, ModelRuntimeConfigService modelRuntimeConfigService, ModelRequestFactory modelRequestFactory, @Qualifier("ragChatProcessChain") ChatProcessChain processChain) {
         super(promptRuntimeService, processChain);
         this.promptRuntimeService = promptRuntimeService;
         this.modelRuntimeConfigService = modelRuntimeConfigService;
+        this.modelRequestFactory = modelRequestFactory;
     }
 
     @Override
@@ -50,7 +53,9 @@ public class RagChatPreparationStrategy extends AbstractAgentChatPreparationStra
                 .retrievalSimilarityThreshold(retrieval.getSimilarityThreshold().doubleValue())
                 .retrievalFailureStrategy(retrieval.getFailureStrategy())
                 .build();
-        return process(context);
+        ModelChatContext preparedContext = process(context);
+        preparedContext.setPromptPair(modelRequestFactory.createRetrievalPrompt(preparedContext));
+        return preparedContext;
     }
 
     private QueryRewriteConfig resolveQueryRewriteConfig(AgentRuntimeDefinition definition) {

@@ -36,6 +36,7 @@ public class ToolConverter {
     /** 转换 Agent 可绑定的启用 Tool 选项。 */
     public ToolOptionVO toOptionVO(ToolEntity entity) {
         return ToolOptionVO.builder()
+                .id(String.valueOf(entity.getId()))
                 .code(entity.getCode())
                 .name(entity.getName())
                 .description(entity.getDescription())

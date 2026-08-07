@@ -15,4 +15,5 @@ public class RuntimeAgentVersionEntity {
     private Long agentId;
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private AgentRuntimeDefinition definitionSnapshot;
+    private String snapshotChecksum;
 }

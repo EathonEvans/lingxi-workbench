@@ -70,6 +70,8 @@ public class AgentRuntimeDefinition {
      * 知识库及其 Embedding 模型绑定。
      */
     private KnowledgeBinding knowledge;
+    /** Schema V4 ReAct知识搜索Tool的冻结资源与预算。 */
+    private KnowledgeSearchCapability knowledgeSearch;
     /**
      * 多轮记忆策略。
      */
@@ -118,6 +120,23 @@ public class AgentRuntimeDefinition {
      */
     public record KnowledgeBinding(Long knowledgeBaseId, Long embeddingModelInstanceId, String bindingMode,
                                    Integer priority) {
+    }
+
+    /** ReAct知识搜索Tool的服务端可信配置。 */
+    @Getter
+    @Setter
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor(access = AccessLevel.PRIVATE)
+    public static class KnowledgeSearchCapability {
+        private Long knowledgeBaseId;
+        private Long knowledgeIndexVersionId;
+        private Long embeddingModelInstanceId;
+        private Integer topK;
+        private BigDecimal similarityThreshold;
+        private Integer maxResultTokens;
+        private Integer maxQueryCharacters;
+        private Integer timeoutSeconds;
     }
 
     /**

@@ -11,8 +11,10 @@ import com.lingxi.workbench.admin.prompt.model.vo.PromptVO;
 import com.lingxi.workbench.admin.prompt.model.vo.PromptVariableVO;
 import com.lingxi.workbench.admin.prompt.model.vo.PromptVersionVO;
 import com.lingxi.workbench.framework.convention.PageResult;
+import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Prompt模板管理业务。
@@ -63,4 +65,15 @@ public interface PromptService {
      * 使用测试变量渲染Prompt预览。
      */
     PreviewPromptVO preview(PreviewPromptRequest request);
+
+    /** 查询供其他发布配置锁定的 PromptVersion 引用。 */
+    Optional<PromptVersionReference> findPublishedVersion(Long versionId);
+
+    /**
+     * @param versionId PromptVersion 主键
+     * @param role Prompt 角色
+     * @param active Prompt 主记录是否启用
+     */
+    record PromptVersionReference(Long versionId, PromptRole role, boolean active) {
+    }
 }

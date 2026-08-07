@@ -96,6 +96,18 @@ public class PromptServiceImpl implements PromptService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Optional<PromptVersionReference> findPublishedVersion(Long versionId) {
+        return versionRepo.findById(versionId)
+                .filter(version -> version.getStatus() == PromptVersionStatus.PUBLISHED)
+                .flatMap(version -> promptRepo.findById(version.getPromptId())
+                        .map(prompt -> new PromptVersionReference(
+                                version.getId(),
+                                prompt.getRole(),
+                                prompt.getStatus() == EnableStatus.ACTIVE)));
+    }
+
+    @Override
     public AvailablePromptVariableCatalogVO availableVariables() {
         return templateProcessor.availableVariables();
     }

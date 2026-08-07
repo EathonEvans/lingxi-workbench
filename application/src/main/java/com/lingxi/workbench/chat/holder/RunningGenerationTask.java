@@ -2,12 +2,16 @@ package com.lingxi.workbench.chat.holder;
 
 import cn.hutool.core.text.CharSequenceUtil;
 import com.lingxi.workbench.application.runtime.service.ChatExecutionEventPublisher;
+import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
+import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
+import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
+import com.lingxi.workbench.workflow.model.MemoryConfig;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
@@ -26,7 +30,13 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
     /**
      * 对应数据库中的 Assistant 消息主键。
      */
-    private final Long id;
+    private final ChatTurnBO turn;
+    /** 所属用户主键。 */
+    private final Long userId;
+    /** 本轮冻结的 ApplicationVersion 主键。 */
+    private final Long applicationVersionId;
+    /** Application 级记忆系统配置。 */
+    private final MemoryConfig memoryConfig;
     /**
      * Redis 增量事件仓库，使浏览器刷新和本机任务释放后仍可恢复工具状态与文本。
      */
@@ -57,13 +67,32 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
      */
     private TokenUsage tokenUsage = TokenUsage.empty();
 
-    public RunningGenerationTask(Long id, ChatGenerationEventRepo eventRepo) {
-        this.id = id;
+    public RunningGenerationTask(ChatTurnBO turn, Long userId, Long applicationVersionId, MemoryConfig memoryConfig, ChatGenerationEventRepo eventRepo) {
+        this.turn = Objects.requireNonNull(turn, "对话轮次不能为空");
+        this.userId = userId;
+        this.applicationVersionId = Objects.requireNonNull(applicationVersionId, "ApplicationVersion不能为空");
+        this.memoryConfig = Objects.requireNonNullElseGet(memoryConfig, MemoryConfig::disabled);
         this.eventRepo = eventRepo;
     }
 
     public Long id() {
-        return id;
+        return turn.assistantMessageId();
+    }
+
+    public Long userId() {
+        return userId;
+    }
+
+    public Long applicationVersionId() {
+        return applicationVersionId;
+    }
+
+    public ChatTurnBO turn() {
+        return turn;
+    }
+
+    public MemoryConfig memoryConfig() {
+        return memoryConfig;
     }
 
     /**
@@ -84,7 +113,7 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
         }
         answer.append(chunk.content());
         ChatGenerationEventBO event = ChatGenerationEventBO.chunk(++sequence, chunk.content());
-        eventRepo.append(id, event);
+        eventRepo.append(id(), event);
         eventSink.emitNext(event, Sinks.EmitFailureHandler.FAIL_FAST);
     }
 
@@ -105,7 +134,7 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
             return;
         }
         ChatGenerationEventBO generationEvent = ChatGenerationEventBO.tool(++sequence, event);
-        eventRepo.append(id, generationEvent);
+        eventRepo.append(id(), generationEvent);
         eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
     }
 
@@ -116,8 +145,29 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
         }
         event.setSequence(++sequence);
         ChatGenerationEventBO generationEvent = ChatGenerationEventBO.clarification(sequence, event);
-        eventRepo.append(id, generationEvent);
+        eventRepo.append(id(), generationEvent);
         eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
+    }
+
+    @Override
+    public synchronized void publishExecution(ChatExecutionTimelineEventBO event) {
+        if (terminal) {
+            return;
+        }
+        ChatGenerationEventType type = switch (event.getEventType()) {
+            case PLANNING -> ChatGenerationEventType.PLANNING;
+            case PLAN_CREATED -> ChatGenerationEventType.PLAN;
+            case REPLANNING -> ChatGenerationEventType.REPLANNING;
+            default -> ChatGenerationEventType.STEP;
+        };
+        ChatGenerationEventBO generationEvent = ChatGenerationEventBO.execution(++sequence, type, event);
+        eventRepo.append(id(), generationEvent);
+        eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
+    }
+
+    @Override
+    public synchronized boolean isCancelled() {
+        return terminal;
     }
 
     /**

@@ -13,6 +13,14 @@ public enum ChatGenerationEventType {
     TOOL("TOOL", "工具状态"),
     /** 需要用户补充意图或槽位。 */
     CLARIFICATION("CLARIFICATION", "澄清问题"),
+    /** Planner开始构建执行决策。 */
+    PLANNING("PLANNING", "正在规划"),
+    /** Planner返回可展示计划。 */
+    PLAN("PLAN", "执行计划"),
+    /** 计划步骤状态变化。 */
+    STEP("STEP", "计划步骤"),
+    /** 步骤失败后开始有限重规划。 */
+    REPLANNING("REPLANNING", "正在重规划"),
     /** 从数据库恢复的完整或部分回答快照。 */
     SNAPSHOT("SNAPSHOT", "回答快照"),
     /** 模型回答生成完成。 */

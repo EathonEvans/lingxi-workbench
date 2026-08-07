@@ -61,4 +61,18 @@ public class ConversationRepo {
             mapper.updateById(entity);
         }
     }
+
+    /** 仅当当前覆盖位置与调用方读取时一致，才推进会话摘要投影。 */
+    public boolean promoteSummary(Long conversationId, Integer expectedSequenceNo, Integer coveredSequenceNo, String summary) {
+        ConversationEntity entity = new ConversationEntity();
+        entity.setSummary(summary);
+        entity.setSummaryAt(java.time.OffsetDateTime.now());
+        entity.setSummarySequenceNo(coveredSequenceNo);
+        return mapper.update(
+                entity,
+                Wrappers.<ConversationEntity>lambdaUpdate()
+                        .eq(ConversationEntity::getId, conversationId)
+                        .eq(Objects.nonNull(expectedSequenceNo), ConversationEntity::getSummarySequenceNo, expectedSequenceNo)
+                        .isNull(Objects.isNull(expectedSequenceNo), ConversationEntity::getSummarySequenceNo)) == 1;
+    }
 }

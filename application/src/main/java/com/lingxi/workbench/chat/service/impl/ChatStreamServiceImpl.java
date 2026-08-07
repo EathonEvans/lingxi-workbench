@@ -2,15 +2,17 @@ package com.lingxi.workbench.chat.service.impl;
 
 import cn.hutool.core.text.CharSequenceUtil;
 import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
-import com.lingxi.workbench.application.runtime.model.WorkflowChatResult;
+import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
 import com.lingxi.workbench.application.runtime.service.ApplicationRuntimeService;
-import com.lingxi.workbench.application.runtime.service.ApplicationWorkflowChatService;
+import com.lingxi.workbench.application.runtime.service.ApplicationChatExecutionService;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import com.lingxi.workbench.chat.holder.RunningGenerationTask;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
+import com.lingxi.workbench.chat.memory.event.AssistantCompletedEvent;
 import com.lingxi.workbench.chat.model.request.ChatRequest;
+import com.lingxi.workbench.chat.model.request.ClarificationResponseRequest;
 import com.lingxi.workbench.chat.model.vo.ChatStartVO;
 import com.lingxi.workbench.chat.repo.ConversationMessageRepo;
 import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
@@ -23,6 +25,7 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
@@ -40,7 +43,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>模型生成任务由服务端主动订阅并独立运行，SSE 连接只是任务观察者。
  * 浏览器断开连接不会取消模型调用，只有显式取消请求才会终止任务。</p>
  *
- * <p>一次完整调用按照“配置加载 → 消息占位落库 → 记忆构建 → 后台模型调用 →
+ * <p>一次完整调用按照“配置加载 → 消息占位落库 → 共享上下文构建 → 后台模型调用 →
  * 增量事件推送 → Assistant 消息终态落库”的顺序执行。数据库中的 Assistant
  * 消息是生成任务的持久化标识，进程内任务只负责保存实时增量和订阅状态。</p>
  */
@@ -60,7 +63,8 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     private final ConversationMessageRepo messageRepo;
     private final ChatGenerationEventRepo generationEventRepo;
     private final ApplicationRuntimeService applicationRuntimeService;
-    private final ApplicationWorkflowChatService applicationWorkflowChatService;
+    private final ApplicationChatExecutionService applicationChatExecutionService;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 创建并启动一次流式模型生成任务。
@@ -68,8 +72,8 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      * <p>本方法返回时，用户消息和 Assistant 占位消息已经落库，模型生成任务也已由服务端主动订阅。
      * 返回的 {@link Flux} 仅用于观察生成事件，客户端取消订阅不会反向取消模型任务。</p>
      *
-     * @param request 用户输入、会话标识和客户端幂等消息标识
-     * @param loginUser  当前登录用户
+     * @param request   用户输入、会话标识和客户端幂等消息标识
+     * @param loginUser 当前登录用户
      * @return 已落库的会话、用户消息和 Assistant 消息主键
      */
     @Override
@@ -80,27 +84,27 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         /*
          * 配置解析必须发生在消息落库之前：
          * 1. 配置无效时不创建 GENERATING 占位消息；
-         * 2. Assistant 消息从创建时就记录真实的模型和应用版本，后续无需补写归属信息。
+         * 2. Assistant 消息先锁定 ApplicationVersion；实际模型要等意图命中叶子后才能确定。
          */
         ApplicationRuntimeSnapshot applicationSnapshot = applicationRuntimeService.resolvePublished(request.getApplicationCode());
-        Long modelInstanceId = applicationWorkflowChatService.resolveEntryModelInstanceId(applicationSnapshot);
 
         /*
          * startTurn 在一个数据库事务中锁定会话并创建两条消息：
          * 已完成的 User 消息，以及等待后台任务填充的 GENERATING Assistant 消息。
          * 消息先落库、模型后启动，才能为启动失败、取消和服务重启保留统一的持久化任务标识。
          */
-        ChatTurnBO turn = conversationService.startTurn(userId, Long.valueOf(request.getConversationId()), request.getClientMessageId(), query, modelInstanceId, applicationSnapshot.applicationId(), applicationSnapshot.applicationVersionId());
+        ChatTurnBO turn = conversationService.startTurn(userId, Long.valueOf(request.getConversationId()), request.getClientMessageId(), query, null, applicationSnapshot.applicationId(), applicationSnapshot.applicationVersionId());
 
         // Assistant 消息主键同时作为生成任务主键，便于 SSE 续接、取消和数据库终态恢复使用同一标识。
-        RunningGenerationTask task = new RunningGenerationTask(turn.assistantMessageId(), generationEventRepo);
+        RunningGenerationTask task = new RunningGenerationTask(turn, userId, applicationSnapshot.applicationVersionId(),
+                applicationSnapshot.definition().memory(), generationEventRepo);
         try {
             /*
-             * Application 是所有对话的运行入口。即使业务上表现为“普通聊天”，也应由
-             * Application 中配置的默认 Agent 节点承担，不能绕过发布快照读取平台默认模型。
+             * Application 是所有对话的运行入口，后台任务必须先按发布快照识别意图，
+             * 再执行叶子映射目标，不能绕过路由读取平台默认模型。
              */
             runningTasks.put(turn.assistantMessageId(), task);
-            this.startWorkflowGeneration(
+            this.startApplicationGeneration(
                     task,
                     applicationSnapshot,
                     query,
@@ -110,7 +114,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         } catch (RuntimeException exception) {
             /*
              * 这里只处理任务注册或 Reactor 订阅创建阶段同步抛出的异常。
-             * Workflow 已进入后台线程后的执行异常由 failTask 统一推进 Assistant 失败终态。
+             * 路由或目标执行进入后台线程后的异常由 failTask 统一推进 Assistant 失败终态。
              */
             runningTasks.remove(turn.assistantMessageId());
             try {
@@ -171,41 +175,42 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     }
 
     /**
-     * Workflow 的同步图执行放到有界弹性线程池，避免阻塞 HTTP 请求线程。
-     * Agent 执行期间通过 task 实时发布文本和工具状态，Workflow 完成后再校准
-     * 最终 response 与 Token 用量；任务取消仍会释放该后台订阅。
+     * Application 意图路由和目标执行放到有界弹性线程池，避免阻塞 HTTP 请求线程。
+     * Agent 或 Workflow 执行期间通过 task 实时发布文本和工具状态，目标执行完成后再校准
+     * 最终回答与 Token 用量；任务取消仍会释放该后台订阅。
      */
-    private void startWorkflowGeneration(
-            RunningGenerationTask task,
-            ApplicationRuntimeSnapshot snapshot,
-            String query,
-            LoginUser loginUser,
-            ChatTurnBO turn,
-            com.lingxi.workbench.chat.model.request.ClarificationResponseRequest clarificationResponse) {
-        Disposable subscription = Mono.fromCallable(() -> applicationWorkflowChatService.execute(
-                        snapshot, query, loginUser, turn, clarificationResponse, task))
+    private void startApplicationGeneration(RunningGenerationTask task, ApplicationRuntimeSnapshot snapshot,
+                                            String query, LoginUser loginUser, ChatTurnBO turn,
+                                            ClarificationResponseRequest clarificationResponse) {
+
+        Disposable subscription = Mono
+                .fromCallable(() -> applicationChatExecutionService.execute(snapshot, query, loginUser, turn, clarificationResponse, task))
                 .subscribeOn(Schedulers.boundedElastic())
-                .subscribe(result -> completeWorkflowTask(task, result),
+                .subscribe(result -> completeApplicationTask(task, result),
                         exception -> failTask(task, exception));
         task.setSubscription(subscription);
     }
 
-    private void completeWorkflowTask(RunningGenerationTask task, WorkflowChatResult result) {
+    private void completeApplicationTask(RunningGenerationTask task, ApplicationChatResult result) {
         task.reconcileFinalResult(result.answer(), result.tokenUsage());
-        completeTask(task);
+        completeTask(task, result.modelInstanceId());
     }
 
     /**
      * 模型流正常结束：持久化完整回答和 Token 用量，并发布完成事件。
      */
-    private void completeTask(RunningGenerationTask task) {
+    private void completeTask(RunningGenerationTask task, Long modelInstanceId) {
         // beginTerminal 保证完成、失败、取消等并发终态中只有一个能够成功执行。
         if (!task.beginTerminal()) {
             return;
         }
         try {
-            conversationService.completeAssistant(task.id(), task.answer(), task.tokenUsage());
+            conversationService.completeAssistant(
+                    task.id(), task.answer(), task.tokenUsage(), modelInstanceId);
             task.publishTerminal(ChatGenerationEventBO.completed());
+            // 发布领域事件，触发记忆后处理（摘要、画像、交互记录）
+            eventPublisher.publishEvent(new AssistantCompletedEvent(
+                    task.userId(), task.turn(), task.applicationVersionId(), task.memoryConfig()));
         } catch (Exception exception) {
             log.error("模型回答完成后持久化失败，assistantMessageId={}", task.id(), exception);
             task.publishTerminal(ChatGenerationEventBO.failed());
@@ -275,17 +280,25 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         if (CharSequenceUtil.isNotEmpty(message.getContent())) {
             snapshot = Flux.just(ChatGenerationEventBO.snapshot(message.getContent()));
         }
-        ChatGenerationEventBO terminal = switch (message.getStatus()) {
+
+        // 生成中但当前进程不存在对应任务 → 修正为 INTERRUPTED
+        if (message.getStatus() == MessageStatus.GENERATING) {
+            conversationService.interruptAssistant(message.getId(), message.getContent(), TokenUsage.empty());
+        }
+
+        ChatGenerationEventBO terminal = statusToTerminalEvent(message.getStatus());
+        return snapshot.concatWithValues(terminal);
+    }
+
+    /**
+     * 将消息终态映射为对应的 SSE 终态事件。
+     */
+    private ChatGenerationEventBO statusToTerminalEvent(MessageStatus status) {
+        return switch (status) {
             case COMPLETED -> ChatGenerationEventBO.completed();
             case CANCELLED -> ChatGenerationEventBO.cancelled();
-            case FAILED, INTERRUPTED -> ChatGenerationEventBO.failed();
-            case GENERATING -> {
-                // 生成中但当前进程不存在对应任务，说明服务曾异常退出。
-                conversationService.interruptAssistant(message.getId(), message.getContent(), TokenUsage.empty());
-                yield ChatGenerationEventBO.failed();
-            }
+            case FAILED, INTERRUPTED, GENERATING -> ChatGenerationEventBO.failed();
         };
-        return snapshot.concatWithValues(terminal);
     }
 
     /**

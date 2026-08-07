@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 @Getter
 @RequiredArgsConstructor
 public enum AgentType {
+    REACT("REACT", "ReAct Agent"),
     RAG_CHAT("RAG_CHAT", "知识库问答"),
     SUPERVISOR("SUPERVISOR", "多Agent监督者");
 

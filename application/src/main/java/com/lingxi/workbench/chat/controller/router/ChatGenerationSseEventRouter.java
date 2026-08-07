@@ -1,8 +1,11 @@
 package com.lingxi.workbench.chat.controller.router;
 
+import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
+import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.vo.ChatChunkVO;
 import com.lingxi.workbench.chat.model.vo.ChatErrorVO;
+import com.lingxi.workbench.chat.model.vo.ChatExecutionTimelineVO;
 import com.lingxi.workbench.chat.model.vo.ChatSnapshotVO;
 import com.lingxi.workbench.chat.model.vo.ChatSubAgentEventVO;
 import com.lingxi.workbench.chat.model.vo.ChatToolEventVO;
@@ -36,10 +39,44 @@ public final class ChatGenerationSseEventRouter {
             case CHUNK -> messageEvent(event);
             case TOOL -> executionEvent(event);
             case CLARIFICATION -> clarificationEvent(event);
+            case PLANNING, PLAN, STEP, REPLANNING -> timelineEvent(event);
             case SNAPSHOT -> snapshotEvent(event.content());
             case COMPLETED -> doneEvent();
             case FAILED -> errorEvent();
             case CANCELLED -> cancelledEvent();
+        };
+    }
+
+    private static ServerSentEvent<ChatExecutionTimelineVO> timelineEvent(ChatGenerationEventBO event) {
+        ChatExecutionTimelineEventBO execution = Objects.requireNonNull(event.execution(), "执行时间线内容不能为空");
+        ChatExecutionTimelineVO payload = ChatExecutionTimelineVO.builder()
+                .sequence(event.sequence())
+                .runId(execution.getRunId())
+                .eventType(execution.getEventType().getCode())
+                .planNo(execution.getPlanNo())
+                .stepId(execution.getStepId())
+                .displayName(execution.getDisplayName())
+                .stepStatus(execution.getStepStatus() == null ? null : execution.getStepStatus().getCode())
+                .message(execution.getMessage())
+                .steps(execution.steps().stream()
+                        .map(step -> new ChatExecutionTimelineVO.PlanStepVO(
+                                step.stepId(), step.name(), step.capabilityCode()))
+                        .toList())
+                .build();
+        return ServerSentEvent.<ChatExecutionTimelineVO>builder()
+                .id(String.valueOf(event.sequence()))
+                .event(eventName(event.type()))
+                .data(payload)
+                .build();
+    }
+
+    private static String eventName(ChatGenerationEventType type) {
+        return switch (type) {
+            case PLANNING -> "planning";
+            case PLAN -> "plan";
+            case STEP -> "step";
+            case REPLANNING -> "replanning";
+            default -> throw new IllegalArgumentException("不是执行时间线事件：" + type);
         };
     }
 

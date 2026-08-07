@@ -25,8 +25,7 @@ class PromptBuilderServiceImplTest {
 
     @Test
     void shouldRenderSystemVariablesWithoutPromotingUserQuery() {
-        PromptBuilderServiceImpl service = new PromptBuilderServiceImpl(
-                new PromptTemplateRenderer());
+        PromptBuilderServiceImpl service = new PromptBuilderServiceImpl(new PromptTemplateRenderer());
         RuntimeVariablesInitializer initializer =
                 new RuntimeVariablesInitializer(
                         Clock.fixed(

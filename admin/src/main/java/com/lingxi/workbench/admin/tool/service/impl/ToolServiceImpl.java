@@ -4,6 +4,7 @@ import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.tool.model.converter.ToolConverter;
 import com.lingxi.workbench.admin.tool.common.enums.ToolSourceType;
 import com.lingxi.workbench.admin.tool.model.bo.McpToolImport;
+import com.lingxi.workbench.admin.tool.model.bo.ToolReferenceBO;
 import com.lingxi.workbench.admin.tool.model.entity.ToolEntity;
 import com.lingxi.workbench.admin.tool.model.request.CreateToolRequest;
 import com.lingxi.workbench.admin.tool.model.request.ToolPageQuery;
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -71,6 +73,22 @@ public class ToolServiceImpl implements ToolService {
     @Transactional(readOnly = true)
     public Set<String> findActiveCodes(List<String> codes) {
         return toolRepo.findActiveCodes(codes);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ToolReferenceBO> findReference(Long id) {
+        return toolRepo.findById(id).map(entity -> ToolReferenceBO.builder()
+                .id(entity.getId())
+                .name(entity.getName())
+                .code(entity.getCode())
+                .description(entity.getDescription())
+                .sourceType(entity.getSourceType())
+                .mcpServerId(entity.getMcpServerId())
+                .remoteToolName(entity.getRemoteToolName())
+                .parameterSchema(entity.getParameterSchema())
+                .status(entity.getStatus())
+                .build());
     }
 
     /**

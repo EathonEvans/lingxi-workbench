@@ -1,12 +1,15 @@
 package com.lingxi.workbench.application.runtime.common.enums;
 
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+
 /**
  * 意图门控完成后交给上层执行调度器的动作指令。
  *
  * <p>该枚举由 {@code IntentRoutingServiceImpl} 返回，上层
- * {@code ApplicationWorkflowChatServiceImpl} 根据动作类型决定后续行为：</p>
+ * {@code ApplicationChatExecutionServiceImpl} 根据动作类型决定后续行为：</p>
  * <ul>
- *   <li><b>EXECUTE_WORKFLOW</b> — 意图明确且槽位完整，直接启动主 Workflow 执行。
+ *   <li><b>EXECUTE_WORKFLOW</b> — 意图明确且槽位完整，执行叶子映射锁定的 WorkflowVersion。
  *       executionQuery 包含原始问题或拼接了已收集槽位的增强查询。</li>
  *   <li><b>EXECUTE_AGENT</b> — 意图绑定到独立 Agent（含 Supervisor），
  *       跳过 Workflow 直接调用 Agent 的 ReAct 循环。</li>
@@ -14,19 +17,28 @@ package com.lingxi.workbench.application.runtime.common.enums;
  *       直接返回预定义文本，不调用模型也不执行 Tool。</li>
  *   <li><b>CLARIFICATION</b> — 需要用户补充信息（歧义消解或补槽位）。
  *       此时 SSE 返回 clarification 事件，前端展示选项或追问。</li>
+ *   <li><b>NO_MATCH</b> — 可选快速路由未形成确定结果，交由 Planner 或默认 ReAct Agent。</li>
  * </ul>
  */
+@Getter
+@RequiredArgsConstructor
 public enum IntentRoutingAction {
 
-    /** 启动主 Workflow 执行 */
-    EXECUTE_WORKFLOW,
+    /** 执行叶子映射锁定的 WorkflowVersion */
+    EXECUTE_WORKFLOW("EXECUTE_WORKFLOW", "执行Workflow"),
 
     /** 直接调用指定 Agent */
-    EXECUTE_AGENT,
+    EXECUTE_AGENT("EXECUTE_AGENT", "执行ReAct Agent"),
 
     /** 返回固定答复文本 */
-    FIXED_RESPONSE,
+    FIXED_RESPONSE("FIXED_RESPONSE", "返回固定答复"),
 
     /** 需要用户澄清或补充信息 */
-    CLARIFICATION
+    CLARIFICATION("CLARIFICATION", "请求用户澄清"),
+
+    /** 可选快速路由未形成确定性结果，交由Planner或默认ReAct Agent。 */
+    NO_MATCH("NO_MATCH", "交由模型决策");
+
+    private final String code;
+    private final String describe;
 }

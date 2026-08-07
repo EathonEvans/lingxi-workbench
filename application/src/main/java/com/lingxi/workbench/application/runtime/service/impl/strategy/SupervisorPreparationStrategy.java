@@ -6,6 +6,7 @@ import com.lingxi.workbench.application.runtime.service.PromptRuntimeService;
 import com.lingxi.workbench.chat.model.bo.QueryRewriteConfig;
 import com.lingxi.workbench.chat.model.ccontext.ModelChatContext;
 import com.lingxi.workbench.chat.service.ChatProcessChain;
+import com.lingxi.workbench.chat.service.impl.ModelRequestFactory;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -42,8 +43,11 @@ import static com.lingxi.workbench.application.runtime.common.constants.AgentCha
 @Component
 public class SupervisorPreparationStrategy extends AbstractAgentChatPreparationStrategy {
 
-    public SupervisorPreparationStrategy(PromptRuntimeService promptRuntimeService,@Qualifier("supervisorChatProcessChain") ChatProcessChain processChain) {
+    private final ModelRequestFactory modelRequestFactory;
+
+    public SupervisorPreparationStrategy(PromptRuntimeService promptRuntimeService, ModelRequestFactory modelRequestFactory, @Qualifier("supervisorChatProcessChain") ChatProcessChain processChain) {
         super(promptRuntimeService, processChain);
+        this.modelRequestFactory = modelRequestFactory;
     }
 
     @Override
@@ -63,6 +67,8 @@ public class SupervisorPreparationStrategy extends AbstractAgentChatPreparationS
         ModelChatContext context = commonContext(definition, execution)
                 .queryRewriteConfig(QueryRewriteConfig.disabled())
                 .build();
-        return process(context);
+        ModelChatContext preparedContext = process(context);
+        preparedContext.setPromptPair(modelRequestFactory.createDirectPrompt(preparedContext));
+        return preparedContext;
     }
 }

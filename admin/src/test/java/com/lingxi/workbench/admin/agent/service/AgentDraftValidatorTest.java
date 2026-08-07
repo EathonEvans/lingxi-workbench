@@ -15,6 +15,7 @@ import com.lingxi.workbench.admin.agent.model.vo.AgentValidationResultVO;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeBaseEntity;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeBaseRepo;
+import com.lingxi.workbench.admin.knowledge.service.KnowledgeIndexVersionService;
 import com.lingxi.workbench.admin.model.common.enums.ModelCapability;
 import com.lingxi.workbench.admin.model.common.enums.ModelConnectionTestStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
@@ -32,6 +33,8 @@ import com.lingxi.workbench.admin.tool.repo.ToolRepo;
 import com.lingxi.workbench.admin.tool.service.ToolService;
 import com.lingxi.workbench.admin.tool.service.impl.ToolParameterSchemaFactory;
 import com.lingxi.workbench.admin.tool.service.impl.ToolServiceImpl;
+import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
+import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import jakarta.validation.Validation;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +48,9 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 
 class AgentDraftValidatorTest {
 
@@ -58,6 +64,7 @@ class AgentDraftValidatorTest {
     private InMemoryPromptRepo promptRepo;
     private InMemoryPromptVersionRepo promptVersionRepo;
     private InMemoryKnowledgeBaseRepo knowledgeBaseRepo;
+    private KnowledgeIndexVersionService knowledgeIndexVersionService;
     private AgentDraftValidator validator;
 
     @BeforeEach
@@ -68,13 +75,15 @@ class AgentDraftValidatorTest {
         knowledgeBaseRepo = new InMemoryKnowledgeBaseRepo();
         ToolParameterSchemaFactory parameterSchemaFactory = new ToolParameterSchemaFactory();
         ToolService toolService = new ToolServiceImpl(new InMemoryToolRepo(), new ToolConverter(parameterSchemaFactory), parameterSchemaFactory, null, null);
+        knowledgeIndexVersionService = mock(KnowledgeIndexVersionService.class);
         validator = new AgentDraftValidator(
                 modelRepo,
                 promptRepo,
                 promptVersionRepo,
                 knowledgeBaseRepo,
                 Validation.buildDefaultValidatorFactory().getValidator(),
-                toolService);
+                toolService,
+                knowledgeIndexVersionService);
         prepareModelsAndKnowledge();
         preparePrompt(
                 SYSTEM_VERSION_ID,
@@ -308,6 +317,71 @@ class AgentDraftValidatorTest {
         assertTrue(issueCodes.contains("USER_PROMPT_VARIABLE_UNAVAILABLE"));
     }
 
+    @Test
+    void shouldAcceptReactAgentWithoutKnowledgeSearch() {
+        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, reactUserVariables());
+        AgentDraftEntity draft = validDraft();
+        draft.setRetrievalPolicy(null);
+
+        AgentValidationResultVO result = validator.validate(activeAgent(AgentType.REACT), draft, null);
+
+        assertTrue(result.valid());
+    }
+
+    @Test
+    void shouldRequireToolCallingAndValidateIndexWhenReactBindsKnowledge() {
+        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, reactUserVariables());
+
+        AgentValidationResultVO result = validator.validate(activeAgent(AgentType.REACT), validDraft(), knowledgeBinding());
+        List<String> issueCodes = result.issues().stream().map(AgentValidationIssueVO::code).toList();
+
+        assertFalse(result.valid());
+        assertTrue(issueCodes.contains("CHAT_MODEL_TOOL_CALLING_REQUIRED"));
+        verify(knowledgeIndexVersionService).validatePublishable(40L, EMBEDDING_MODEL_ID);
+    }
+
+    @Test
+    void shouldAcceptPublishableReactKnowledgeSearch() {
+        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, reactUserVariables());
+        ModelInstanceEntity chatModel = model(CHAT_MODEL_ID, ModelType.CHAT, List.of(ModelCapability.STREAMING, ModelCapability.TOOL_CALLING));
+        chatModel.setMaxTokens(4096);
+        chatModel.setContextWindow(16000);
+        modelRepo.put(chatModel);
+
+        AgentValidationResultVO result = validator.validate(activeAgent(AgentType.REACT), validDraft(), knowledgeBinding());
+
+        assertTrue(result.valid());
+        verify(knowledgeIndexVersionService).validatePublishable(40L, EMBEDDING_MODEL_ID);
+    }
+
+    @Test
+    void shouldRejectLegacyKnowledgeContextVariableForReact() {
+        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, userVariables());
+
+        AgentValidationResultVO result = validator.validate(activeAgent(AgentType.REACT), validDraft(), null);
+        List<String> issueCodes = result.issues().stream().map(AgentValidationIssueVO::code).toList();
+
+        assertFalse(result.valid());
+        assertTrue(issueCodes.contains("USER_PROMPT_VARIABLE_UNAVAILABLE"));
+    }
+
+    @Test
+    void shouldReturnKnowledgeIndexFailureAsValidationIssue() {
+        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, reactUserVariables());
+        ModelInstanceEntity chatModel = model(CHAT_MODEL_ID, ModelType.CHAT, List.of(ModelCapability.STREAMING, ModelCapability.TOOL_CALLING));
+        chatModel.setMaxTokens(4096);
+        chatModel.setContextWindow(16000);
+        modelRepo.put(chatModel);
+        doThrow(new BusinessException(HttpStatusEnum.CONFLICT, "知识索引向量缺失或维度不一致"))
+                .when(knowledgeIndexVersionService).validatePublishable(40L, EMBEDDING_MODEL_ID);
+
+        AgentValidationResultVO result = validator.validate(activeAgent(AgentType.REACT), validDraft(), knowledgeBinding());
+        List<String> issueCodes = result.issues().stream().map(AgentValidationIssueVO::code).toList();
+
+        assertFalse(result.valid());
+        assertTrue(issueCodes.contains("KNOWLEDGE_INDEX_UNPUBLISHABLE"));
+    }
+
     private void prepareModelsAndKnowledge() {
         ModelInstanceEntity chatModel = model(
                 CHAT_MODEL_ID,
@@ -398,6 +472,10 @@ class AgentDraftValidatorTest {
         return List.of(
                 variable("user.query", PromptVariableType.STRING, true),
                 variable("knowledge.context", PromptVariableType.STRING, false));
+    }
+
+    private static List<PromptVariableDefinition> reactUserVariables() {
+        return List.of(variable("user.query", PromptVariableType.STRING, true));
     }
 
     private static PromptVariableDefinition variable(

@@ -13,46 +13,58 @@ public final class ChatGenerationEventBO {
     private final String content;
     private final AgentToolExecutionEvent tool;
     private final ChatClarificationEventBO clarification;
+    private final ChatExecutionTimelineEventBO execution;
 
     private ChatGenerationEventBO(
             ChatGenerationEventType type,
             long sequence,
             String content,
             AgentToolExecutionEvent tool,
-            ChatClarificationEventBO clarification) {
+            ChatClarificationEventBO clarification,
+            ChatExecutionTimelineEventBO execution) {
         this.type = type;
         this.sequence = sequence;
         this.content = content;
         this.tool = tool;
         this.clarification = clarification;
+        this.execution = execution;
     }
 
     public static ChatGenerationEventBO chunk(long sequence, String content) {
-        return new ChatGenerationEventBO(ChatGenerationEventType.CHUNK, sequence, content, null, null);
+        return new ChatGenerationEventBO(ChatGenerationEventType.CHUNK, sequence, content, null, null, null);
     }
 
     public static ChatGenerationEventBO tool(long sequence, AgentToolExecutionEvent tool) {
-        return new ChatGenerationEventBO(ChatGenerationEventType.TOOL, sequence, null, tool, null);
+        return new ChatGenerationEventBO(ChatGenerationEventType.TOOL, sequence, null, tool, null, null);
     }
 
     public static ChatGenerationEventBO clarification(long sequence, ChatClarificationEventBO clarification) {
-        return new ChatGenerationEventBO(ChatGenerationEventType.CLARIFICATION, sequence, null, null, clarification);
+        return new ChatGenerationEventBO(ChatGenerationEventType.CLARIFICATION, sequence, null, null, clarification, null);
+    }
+
+    public static ChatGenerationEventBO execution(long sequence, ChatGenerationEventType type,
+                                                  ChatExecutionTimelineEventBO execution) {
+        if (type != ChatGenerationEventType.PLANNING && type != ChatGenerationEventType.PLAN
+                && type != ChatGenerationEventType.STEP && type != ChatGenerationEventType.REPLANNING) {
+            throw new IllegalArgumentException("执行时间线事件类型不正确");
+        }
+        return new ChatGenerationEventBO(type, sequence, null, null, null, execution);
     }
 
     public static ChatGenerationEventBO snapshot(String content) {
-        return new ChatGenerationEventBO(ChatGenerationEventType.SNAPSHOT, 0, content, null, null);
+        return new ChatGenerationEventBO(ChatGenerationEventType.SNAPSHOT, 0, content, null, null, null);
     }
 
     public static ChatGenerationEventBO completed() {
-        return new ChatGenerationEventBO(ChatGenerationEventType.COMPLETED, 0, null, null, null);
+        return new ChatGenerationEventBO(ChatGenerationEventType.COMPLETED, 0, null, null, null, null);
     }
 
     public static ChatGenerationEventBO failed() {
-        return new ChatGenerationEventBO(ChatGenerationEventType.FAILED, 0, null, null, null);
+        return new ChatGenerationEventBO(ChatGenerationEventType.FAILED, 0, null, null, null, null);
     }
 
     public static ChatGenerationEventBO cancelled() {
-        return new ChatGenerationEventBO(ChatGenerationEventType.CANCELLED, 0, null, null, null);
+        return new ChatGenerationEventBO(ChatGenerationEventType.CANCELLED, 0, null, null, null, null);
     }
 
     public ChatGenerationEventType type() {
@@ -73,5 +85,9 @@ public final class ChatGenerationEventBO {
 
     public ChatClarificationEventBO clarification() {
         return clarification;
+    }
+
+    public ChatExecutionTimelineEventBO execution() {
+        return execution;
     }
 }

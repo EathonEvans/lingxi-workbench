@@ -24,6 +24,13 @@ public class AliOssObjectStorage implements ObjectStorage {
 
     private final String bucket;
 
+    /**
+     * 关闭底层 OSS 客户端，释放连接池和线程资源。
+     */
+    public void shutdown() {
+        client.shutdown();
+    }
+
     @Override
     public void put(String objectKey, byte[] content, String contentType) {
         try {

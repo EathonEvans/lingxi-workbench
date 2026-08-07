@@ -6,6 +6,7 @@ import com.lingxi.workbench.infra.ai.embedding.EmbeddingGateway;
 import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig;
 import com.lingxi.workbench.knowledge.model.entity.KnowledgeBaseEntity;
 import com.lingxi.workbench.knowledge.model.entity.KnowledgeChunkEntity;
+import com.lingxi.workbench.knowledge.model.entity.KnowledgeChunkMetadata;
 import com.lingxi.workbench.knowledge.model.vo.KnowledgeSearchResultVO;
 import com.lingxi.workbench.knowledge.repo.KnowledgeBaseRepo;
 import com.lingxi.workbench.knowledge.repo.KnowledgeChunkRepo;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -35,47 +37,58 @@ public class KnowledgeSearchServiceImpl implements KnowledgeSearchService {
     private final EmbeddingGateway embeddingGateway;
 
     @Override
-    public List<KnowledgeSearchResultVO> search(
-            String query,
-            Long knowledgeBaseId,
-            EmbeddingModelRuntimeConfig embeddingConfig,
-            int topK,
-            double similarityThreshold) {
-        // 1. 校验知识库存在且启用
-        KnowledgeBaseEntity knowledgeBase = knowledgeBaseRepo.findActiveById(knowledgeBaseId)
-                .orElseThrow(() -> new BusinessException(HttpStatusEnum.BAD_REQUEST, "知识库不存在或已停用"));
+    public List<KnowledgeSearchResultVO> search(String query, Long knowledgeBaseId, EmbeddingModelRuntimeConfig embeddingConfig, int topK, double similarityThreshold) {
+        requireKnowledgeBase(knowledgeBaseId);
+        float[] queryVector = embed(query, embeddingConfig);
+        List<KnowledgeVectorRepo.VectorSearchRow> rows = knowledgeVectorRepo.search(queryVector, knowledgeBaseId, topK, similarityThreshold);
+        return loadResults(rows);
+    }
 
-        // 2. Query Embedding
-        float[] queryVector = embeddingGateway.embed(List.of(query), embeddingConfig).get(0);
+    @Override
+    public List<KnowledgeSearchResultVO> searchVersion(String query, Long knowledgeBaseId, Long indexVersionId, EmbeddingModelRuntimeConfig embeddingConfig, int topK, double similarityThreshold) {
+        requireKnowledgeBase(knowledgeBaseId);
+        float[] queryVector = embed(query, embeddingConfig);
+        List<KnowledgeVectorRepo.VectorSearchRow> rows = knowledgeVectorRepo.searchVersion(
+                queryVector, knowledgeBaseId, indexVersionId, embeddingConfig.getInstanceId(), topK, similarityThreshold);
+        return loadResults(rows);
+    }
 
-        // 3. pgvector 相似度检索
-        List<KnowledgeVectorRepo.VectorSearchRow> rows = knowledgeVectorRepo.search(
-                queryVector, knowledgeBaseId, topK, similarityThreshold);
+    private List<KnowledgeSearchResultVO> loadResults(List<KnowledgeVectorRepo.VectorSearchRow> rows) {
         if (rows.isEmpty()) {
             return List.of();
         }
-
-        // 4. Chunk 详情回填
         List<Long> chunkIds = rows.stream().map(KnowledgeVectorRepo.VectorSearchRow::chunkId).toList();
-        Map<Long, KnowledgeChunkEntity> chunkMap = knowledgeChunkRepo.findEnabledByIds(chunkIds).stream()
-                .collect(Collectors.toMap(KnowledgeChunkEntity::getId, Function.identity()));
+        Map<Long, KnowledgeChunkEntity> chunkMap = knowledgeChunkRepo.findEnabledByIds(chunkIds).stream().collect(Collectors.toMap(KnowledgeChunkEntity::getId, Function.identity()));
+        return rows.stream()
+                .map(row -> {
+                    KnowledgeChunkEntity chunk = chunkMap.get(row.chunkId());
+                    if (Objects.isNull(chunk)) {
+                        return null;
+                    }
+                    KnowledgeChunkMetadata metadata = chunk.getMetadata();
+                    return KnowledgeSearchResultVO.builder()
+                            .chunkId(row.chunkId())
+                            .content(chunk.getContent())
+                            .similarity(Math.round(row.similarity() * 10000.0) / 10000.0)
+                            .documentName(Objects.nonNull(metadata) ? chunk.getMetadata().getDocumentName() : null)
+                            .sectionTitle(Objects.nonNull(metadata) ? chunk.getMetadata().getSectionTitle() : null)
+                            .pageNumber(Objects.nonNull(metadata) ? chunk.getMetadata().getPageNumber() : null)
+                            .build();
+                })
+                .filter(Objects::nonNull)
+                .toList();
+    }
 
-        // 5. 按 pgvector 排序组装
-        List<KnowledgeSearchResultVO> results = new ArrayList<>(rows.size());
-        for (KnowledgeVectorRepo.VectorSearchRow row : rows) {
-            KnowledgeChunkEntity chunk = chunkMap.get(row.chunkId());
-            if (chunk == null) {
-                continue;
-            }
-            results.add(KnowledgeSearchResultVO.builder()
-                    .chunkId(row.chunkId())
-                    .content(chunk.getContent())
-                    .similarity(Math.round(row.similarity() * 10000.0) / 10000.0)
-                    .documentName(chunk.getMetadata() != null ? chunk.getMetadata().getDocumentName() : null)
-                    .sectionTitle(chunk.getMetadata() != null ? chunk.getMetadata().getSectionTitle() : null)
-                    .pageNumber(chunk.getMetadata() != null ? chunk.getMetadata().getPageNumber() : null)
-                    .build());
+    private KnowledgeBaseEntity requireKnowledgeBase(Long knowledgeBaseId) {
+        return knowledgeBaseRepo.findActiveById(knowledgeBaseId)
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.BAD_REQUEST, "知识库不存在或已停用"));
+    }
+
+    private float[] embed(String query, EmbeddingModelRuntimeConfig embeddingConfig) {
+        List<float[]> vectors = embeddingGateway.embed(List.of(query), embeddingConfig);
+        if (vectors.size() != 1 || Objects.isNull(vectors.getFirst()) || vectors.getFirst().length == 0) {
+            throw new BusinessException(HttpStatusEnum.INTERNAL_SERVER_ERROR, "知识搜索Query向量生成失败");
         }
-        return results;
+        return vectors.getFirst();
     }
 }

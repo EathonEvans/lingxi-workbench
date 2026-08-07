@@ -20,10 +20,10 @@ public interface KnowledgeSearchService {
      * @param similarityThreshold AgentVersion 配置的最低相似度
      * @return 按相似度降序排列的检索结果
      */
-    List<KnowledgeSearchResultVO> search(
-            String query,
-            Long knowledgeBaseId,
-            EmbeddingModelRuntimeConfig embeddingConfig,
-            int topK,
-            double similarityThreshold);
+    List<KnowledgeSearchResultVO> search(String query, Long knowledgeBaseId, EmbeddingModelRuntimeConfig embeddingConfig, int topK, double similarityThreshold);
+
+    /** 在发布快照锁定的知识索引版本中检索。 */
+    default List<KnowledgeSearchResultVO> searchVersion(String query, Long knowledgeBaseId, Long indexVersionId, EmbeddingModelRuntimeConfig embeddingConfig, int topK, double similarityThreshold) {
+        throw new UnsupportedOperationException("当前知识搜索实现不支持版本化检索");
+    }
 }

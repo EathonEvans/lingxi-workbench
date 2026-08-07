@@ -56,6 +56,15 @@ public class ToolRuntimeServiceImpl implements ToolRuntimeService {
                 .toList();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public AgentTool resolveActiveTool(Long toolId) {
+        RuntimeToolEntity definition = toolRuntimeRepo.findActiveById(toolId)
+                .orElseThrow(() -> new AgentToolException("Application锁定的Tool不存在或已停用"));
+        Map<Long, RuntimeMcpServerEntity> mcpServers = loadMcpServers(List.of(definition));
+        return managedTool(definition, resolveExecutor(definition, mcpServers));
+    }
+
     private Map<Long, RuntimeMcpServerEntity> loadMcpServers(List<RuntimeToolEntity> definitions) {
         List<Long> serverIds = definitions.stream()
                 .filter(definition -> definition.getSourceType() == RuntimeToolSourceType.MCP)

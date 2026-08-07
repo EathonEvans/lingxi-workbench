@@ -1,5 +1,9 @@
 package com.lingxi.workbench.application.runtime.common.enums;
 
+import com.baomidou.mybatisplus.annotation.EnumValue;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+
 /**
  * V1 支持的意图澄清类型。
  *
@@ -18,11 +22,21 @@ package com.lingxi.workbench.application.runtime.common.enums;
  * <p>注意：V1 暂不实现 OPERATION_CONFIRMATION（高风险操作确认），
  * 待 M3 阶段引入风险评分和 LLM 复判后补充。</p>
  */
+@Getter
+@RequiredArgsConstructor
 public enum IntentClarificationType {
 
-    /** 歧义消解：多个候选接近，需用户选择 */
-    INTENT_DISAMBIGUATION,
+    /**
+     * 歧义消解：多个候选接近，需用户选择
+     */
+    INTENT_DISAMBIGUATION("INTENT_DISAMBIGUATION", "意图歧义消解"),
 
-    /** 缺少槽位：目标明确但缺必填参数 */
-    MISSING_SLOT
+    /**
+     * 缺少槽位：目标明确但缺必填参数
+     */
+    MISSING_SLOT("MISSING_SLOT", "必填槽位补充");
+
+    @EnumValue
+    private final String code;
+    private final String describe;
 }

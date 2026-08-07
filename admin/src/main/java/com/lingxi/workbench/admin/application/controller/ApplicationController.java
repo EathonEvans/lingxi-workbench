@@ -79,7 +79,7 @@ public class ApplicationController {
         return ApiResponse.success(applicationService.update(id, request, UserContext.userId()));
     }
 
-    /** 保存 Application Workflow 草稿，使用 revision 实现并发编辑保护。 */
+    /** 保存 Application 草稿，使用 revision 实现并发编辑保护。 */
     @PostMapping("/save-draft/{id}")
     @SaCheckPermission("application:manage")
     public ApiResponse<ApplicationDetailVO> saveDraft(@PathVariable Long id, @Valid @RequestBody SaveApplicationDraftRequest request) {
