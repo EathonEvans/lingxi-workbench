@@ -36,6 +36,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type AvailableApplication,
@@ -585,7 +586,15 @@ export default function WorkbenchShell() {
       >
         <div className={styles.brandRow}>
           <div className={styles.brandMark}>
-            <Sparkles size={18} strokeWidth={2.4} />
+            <Image
+              alt=""
+              className={styles.brandLogo}
+              height={32}
+              priority
+              src="/lingxi-logo.png"
+              style={{ height: "auto" }}
+              width={36}
+            />
           </div>
           <div className={styles.brandText}>
             <strong>灵犀</strong>
@@ -692,7 +701,7 @@ export default function WorkbenchShell() {
         open={historyOpen}
         placement="left"
         title="全部会话"
-        width={380}
+        size={380}
       >
         <Input.Search
           allowClear
@@ -817,7 +826,15 @@ export default function WorkbenchShell() {
             <section className={styles.hero}>
               <div className={styles.heroGlow} />
               <div className={styles.heroIcon}>
-                <Sparkles size={27} strokeWidth={1.9} />
+                <Image
+                  alt=""
+                  className={styles.heroLogo}
+                  height={58}
+                  priority
+                  src="/lingxi-logo-glass.png"
+                  style={{ height: "auto" }}
+                  width={64}
+                />
               </div>
               <p className={styles.eyebrow}>你的企业智能协作伙伴</p>
               <h1>你好，今天想一起完成什么？</h1>

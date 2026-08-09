@@ -66,19 +66,25 @@
   margin-bottom: 18px;
 }
 
-.brandMark,
 .heroIcon {
   display: grid;
-  color: white;
-  background: linear-gradient(145deg, #1768ff, #7057f5);
-  box-shadow: 0 8px 24px rgba(43, 103, 246, 0.25);
   place-items: center;
 }
 
 .brandMark {
-  width: 34px;
+  display: grid;
+  flex: none;
+  width: 36px;
   height: 34px;
-  border-radius: 11px;
+  place-items: center;
+}
+
+.brandLogo {
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 5px 9px rgba(43, 103, 246, 0.2));
 }
 
 .brandText,
@@ -454,11 +460,17 @@
 
 .heroIcon {
   position: relative;
-  width: 56px;
-  height: 56px;
-  margin-bottom: 20px;
-  border-radius: 18px;
-  box-shadow: 0 14px 34px rgba(48, 98, 224, 0.26);
+  width: 64px;
+  height: 58px;
+  margin-bottom: 18px;
+}
+
+.heroLogo {
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 14px 24px rgba(48, 98, 224, 0.22));
 }
 
 .eyebrow {
@@ -1458,8 +1470,8 @@
   }
 
   .heroIcon {
-    width: 50px;
-    height: 50px;
+    width: 58px;
+    height: 52px;
     margin-bottom: 17px;
   }
 

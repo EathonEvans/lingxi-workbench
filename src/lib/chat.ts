@@ -508,7 +508,7 @@ export async function listAvailableApplications(
   session: AuthSession,
 ): Promise<AvailableApplication[]> {
   const response = await fetch(
-    `${API_BASE_URL}/v1/ai/chat/applications`,
+    `${API_BASE_URL}/v1/applications/available`,
     { headers: authHeaders(session) },
   );
   return readApiData<AvailableApplication[]>(

@@ -67,16 +67,21 @@
 .brandMark,
 .mobileMark {
   display: grid;
-  color: #fff;
-  background: linear-gradient(145deg, #1768ff, #7057f5);
-  box-shadow: 0 9px 25px rgba(47, 99, 226, 0.25);
+  flex: none;
   place-items: center;
 }
 
 .brandMark {
-  width: 38px;
+  width: 40px;
   height: 38px;
-  border-radius: 12px;
+}
+
+.brandLogo {
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 10px rgba(47, 99, 226, 0.2));
 }
 
 .brand strong {
@@ -519,9 +524,8 @@
 
   .mobileMark {
     display: grid;
-    width: 42px;
+    width: 46px;
     height: 42px;
     margin-bottom: 28px;
-    border-radius: 13px;
   }
 }

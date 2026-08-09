@@ -16,6 +16,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
 import { AuthenticationError } from "@/lib/auth";
 import { useAuth } from "./auth-provider";
@@ -84,7 +85,15 @@ export function LoginPage() {
       <header className={styles.header}>
         <div className={styles.brand}>
           <span className={styles.brandMark}>
-            <Sparkles size={19} strokeWidth={2.4} />
+            <Image
+              alt=""
+              className={styles.brandLogo}
+              height={36}
+              priority
+              src="/lingxi-logo.png"
+              style={{ height: "auto" }}
+              width={40}
+            />
           </span>
           <span>
             <strong>灵犀</strong>
@@ -150,7 +159,15 @@ export function LoginPage() {
         <div className={styles.loginCard}>
           <div className={styles.loginHeading}>
             <span className={styles.mobileMark}>
-              <Sparkles size={20} />
+              <Image
+                alt=""
+                className={styles.brandLogo}
+                height={42}
+                priority
+                src="/lingxi-logo.png"
+                style={{ height: "auto" }}
+                width={46}
+              />
             </span>
             <p>欢迎回来</p>
             <h2 id="user-login-title">登录灵犀工作台</h2>
