@@ -20,21 +20,28 @@ import lombok.Data;
 @Data
 public class ClarificationResponseRequest {
 
-    /** 澄清会话 ID，前端从 clarification 事件中获取 */
+    /**
+     * 澄清会话 ID，前端从 clarification 事件中获取
+     */
     @Pattern(regexp = "^[1-9]\\d*$", message = "澄清会话ID格式不正确")
     private String clarificationId;
 
-    /** 可选的澄清来源；缺省时保持旧意图澄清兼容行为。 */
-    @Pattern(
-            regexp = "^(PLANNER_CLARIFICATION|RISK_CONFIRMATION)$",
+    /**
+     * 可选的澄清来源；缺省时保持旧意图澄清兼容行为。
+     */
+    @Pattern(regexp = "^(PLANNER_CLARIFICATION|RISK_CONFIRMATION)$",
             message = "澄清来源格式不正确")
     private String interactionType;
 
-    /** 选择的选项编码（歧义消解） */
+    /**
+     * 选择的选项编码（歧义消解）
+     */
     @Size(max = 64, message = "澄清选项编码不能超过64个字符")
     private String optionCode;
 
-    /** 自由文本值（槽位补充） */
+    /**
+     * 自由文本值（槽位补充）
+     */
     @Size(max = 2000, message = "澄清值不能超过2000个字符")
     private String value;
 }

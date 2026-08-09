@@ -12,7 +12,7 @@ import java.util.Map;
 /**
  * pgvector 知识库 Chunk 向量数据仓库。
  *
- * <p>向量存储在独立的 lingxi_vector Schema 中，通过 Chunk ID 外键关联。
+ * <p>向量存储在独立的 lingxi_vector Schema 中，通过 Chunk ID 逻辑关联。
  * 所有写入使用 ON CONFLICT 实现幂等 Upsert。</p>
  */
 @Repository

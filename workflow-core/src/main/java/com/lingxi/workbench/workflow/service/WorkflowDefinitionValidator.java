@@ -9,6 +9,7 @@ import com.lingxi.workbench.workflow.model.WorkflowRoute;
 import com.lingxi.workbench.workflow.model.config.AgentNodeConfig;
 import com.lingxi.workbench.workflow.model.config.ConditionNodeConfig;
 import com.lingxi.workbench.workflow.model.config.EndNodeConfig;
+import com.lingxi.workbench.workflow.model.config.IntentClassifierNodeConfig;
 import com.lingxi.workbench.workflow.model.config.StartNodeConfig;
 import com.lingxi.workbench.workflow.model.config.WorkflowNodeConfig;
 
@@ -32,9 +33,11 @@ public class WorkflowDefinitionValidator {
     public static final int SUPPORTED_SCHEMA_VERSION = 1;
     /** 系统保留变量的前缀 */
     private static final String RESERVED_VARIABLE_PREFIX = "_";
+    /** 意图识别节点允许映射的标准输出。 */
+    private static final Set<String> INTENT_OUTPUTS = Set.of("status", "intentCode", "confidence", "candidateCodes");
 
     /**
-     * 校验发布版本的工作流定义，要求 Agent 节点必须锁定版本。
+     * 校验发布版本的工作流定义，要求外部资源节点必须锁定版本。
      *
      * @param definition 工作流定义
      */
@@ -43,7 +46,7 @@ public class WorkflowDefinitionValidator {
     }
 
     /**
-     * 校验可编辑草稿。草稿中的 Agent 版本可以留空，发布时再解析为当前正式版本。
+     * 校验可编辑草稿。草稿中的外部资源版本可以留空，发布时再解析为当前正式版本。
      *
      * @param definition 工作流定义
      */
@@ -51,7 +54,7 @@ public class WorkflowDefinitionValidator {
         validate(definition, false);
     }
 
-    private void validate(WorkflowDefinition definition, boolean requireLockedAgentVersion) {
+    private void validate(WorkflowDefinition definition, boolean requireLockedVersions) {
         require(definition != null, "Workflow定义不能为空");
         require(
                 definition.schemaVersion() == SUPPORTED_SCHEMA_VERSION,
@@ -61,7 +64,7 @@ public class WorkflowDefinitionValidator {
 
         Map<String, WorkflowNodeDefinition> nodesById = indexNodes(definition.nodes());
         validateNodeCounts(definition.nodes());
-        validateNodes(definition.nodes(), requireLockedAgentVersion);
+        validateNodes(definition.nodes(), requireLockedVersions);
         validateEdges(definition.edges(), nodesById);
         validateNodeDegrees(definition.nodes(), definition.edges());
         validateReachabilityAndCycles(definition.nodes(), definition.edges());
@@ -82,16 +85,14 @@ public class WorkflowDefinitionValidator {
         long startCount = count(nodes, WorkflowNodeType.START);
         long endCount = count(nodes, WorkflowNodeType.END);
         require(startCount == 1, "Workflow必须且只能包含一个START节点");
-        require(endCount == 1, "POC阶段Workflow必须且只能包含一个END节点");
+        require(endCount == 1, "Workflow必须且只能包含一个END节点");
     }
 
     private long count(List<WorkflowNodeDefinition> nodes, WorkflowNodeType type) {
         return nodes.stream().filter(node -> node.type() == type).count();
     }
 
-    private void validateNodes(
-            List<WorkflowNodeDefinition> nodes,
-            boolean requireLockedAgentVersion) {
+    private void validateNodes(List<WorkflowNodeDefinition> nodes, boolean requireLockedVersions) {
         for (WorkflowNodeDefinition node : nodes) {
             require(node.type() != null, "节点类型不能为空: " + node.id());
             require(isNotBlank(node.name()), "节点名称不能为空: " + node.id());
@@ -101,11 +102,23 @@ public class WorkflowDefinitionValidator {
             if (node.config() instanceof AgentNodeConfig config) {
                 require(config.agentId() != null, "Agent节点缺少agentId: " + node.id());
                 require(
-                        !requireLockedAgentVersion || config.agentVersionId() != null,
+                        !requireLockedVersions || config.agentVersionId() != null,
                         "Agent节点必须锁定agentVersionId: " + node.id());
                 validateMapping(config.inputMapping(), "Agent输入映射", node.id());
                 validateMapping(config.outputMapping(), "Agent输出映射", node.id());
                 require(!config.outputMapping().isEmpty(), "Agent节点至少需要一个输出映射: " + node.id());
+            } else if (node.config() instanceof IntentClassifierNodeConfig config) {
+                require(config.intentTreeId() != null, "意图识别节点缺少intentTreeId: " + node.id());
+                require(!requireLockedVersions || config.intentTreeVersionId() != null,
+                        "意图识别节点必须锁定intentTreeVersionId: " + node.id());
+                require(isNotBlank(config.queryVariable()), "意图识别节点查询变量不能为空: " + node.id());
+                require(!config.queryVariable().startsWith(RESERVED_VARIABLE_PREFIX),
+                        "意图识别节点不能读取保留变量: " + node.id());
+                validateMapping(config.outputMapping(), "意图识别输出映射", node.id());
+                require(config.outputMapping().keySet().stream().allMatch(INTENT_OUTPUTS::contains),
+                        "意图识别节点包含未知输出: " + node.id());
+                require(config.outputMapping().containsKey("status"),
+                        "意图识别节点必须映射status输出: " + node.id());
             } else if (node.config() instanceof ConditionNodeConfig config) {
                 require(isNotBlank(config.variable()), "条件节点变量不能为空: " + node.id());
                 require(
@@ -123,6 +136,7 @@ public class WorkflowDefinitionValidator {
         WorkflowNodeConfig config = node.config();
         boolean matched = switch (node.type()) {
             case START -> config instanceof StartNodeConfig;
+            case INTENT_CLASSIFIER -> config instanceof IntentClassifierNodeConfig;
             case AGENT -> config instanceof AgentNodeConfig;
             case CONDITION -> config instanceof ConditionNodeConfig;
             case END -> config instanceof EndNodeConfig;
@@ -185,6 +199,10 @@ public class WorkflowDefinitionValidator {
                 case AGENT -> {
                     require(!in.isEmpty(), "Agent节点至少需要一条入边: " + node.id());
                     require(out.size() == 1, "Agent节点必须且只能有一条出边: " + node.id());
+                }
+                case INTENT_CLASSIFIER -> {
+                    require(!in.isEmpty(), "意图识别节点至少需要一条入边: " + node.id());
+                    require(out.size() == 1, "意图识别节点必须且只能有一条出边: " + node.id());
                 }
                 case CONDITION -> {
                     require(!in.isEmpty(), "条件节点至少需要一条入边: " + node.id());
@@ -254,7 +272,7 @@ public class WorkflowDefinitionValidator {
                 }
             }
         }
-        require(visited == nodes.size(), "POC阶段Workflow不允许存在环路");
+        require(visited == nodes.size(), "Workflow不允许存在环路");
     }
 
     private static void require(boolean condition, String message) {

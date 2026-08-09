@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -84,7 +85,7 @@ class PromptTemplateProcessorTest {
     void shouldApplySupportedNamespaceRuleConsistently() {
         List<String> namespaces = List.of(
                 "system", "app", "agent", "collaboration", "user", "input",
-                "session", "query", "workflow", "node", "tools", "knowledge");
+                "session", "query", "workflow", "node", "tools");
 
         for (String namespace : namespaces) {
             String variableName = namespace + ".value";
@@ -106,11 +107,13 @@ class PromptTemplateProcessorTest {
         /*
          * 前端只负责展示后端变量目录，变量能否进入具体角色 Prompt，
          * 以及是否由运行节点特殊消费，仍由后端契约决定。
-         */
+        */
         assertTrue(variableCodes.contains("session.history"));
-        assertTrue(variableCodes.contains("query.rewrite_history"));
-        assertTrue(variableCodes.contains("knowledge.retrieval_query"));
+        assertTrue(variableCodes.contains("query.contextualization_history"));
         assertTrue(variableCodes.contains("collaboration.max_delegations"));
+        assertFalse(variableCodes.contains("query.rewrite_history"));
+        assertFalse(variableCodes.contains("knowledge.retrieval_query"));
+        assertFalse(variableCodes.contains("knowledge.context"));
         assertEquals(
                 "Agent协作",
                 catalog.groups().stream()
@@ -128,15 +131,15 @@ class PromptTemplateProcessorTest {
     }
 
     @Test
-    void shouldAcceptQueryRewriteHistoryPlaceholder() {
-        PromptVariableRequest rewriteHistory = variable(
-                "query.rewrite_history",
+    void shouldAcceptContextualizationHistoryPlaceholder() {
+        PromptVariableRequest contextualizationHistory = variable(
+                "query.contextualization_history",
                 PromptVariableType.MESSAGE_LIST,
                 true);
 
         processor.validate(
-                "历史消息：{{query.rewrite_history}}",
-                List.of(rewriteHistory));
+                "历史消息：{{query.contextualization_history}}",
+                List.of(contextualizationHistory));
     }
 
     @Test

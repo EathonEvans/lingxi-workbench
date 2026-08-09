@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.agent.model.vo;
 
-import com.lingxi.workbench.admin.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;

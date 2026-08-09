@@ -7,7 +7,7 @@ import reactor.core.publisher.Mono;
 /**
  * 面向业务模块的非流式模型调用能力。
  *
- * <p>问题改写、意图识别等中间节点需要等待一个完整且可校验的结果，不应复用面向
+ * <p>问题上下文化、意图识别等非流式模型任务需要等待一个完整且可校验的结果，不应复用面向
  * 最终回答展示的流式网关。</p>
  */
 public interface ChatCompletionGateway {

@@ -5,7 +5,6 @@ import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
-import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
 import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
@@ -16,55 +15,45 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
 
 class ApplicationRuntimeSnapshotTest {
 
-    private static final ApplicationDefinition VALID_DEFINITION =
-            new ApplicationDefinition(
-                    1,
-                    new WorkflowDefinition(
-                            1,
-                            "main",
-                            List.of(),
-                            List.of()));
+    private static final ApplicationDefinition VALID_DEFINITION = definition(null);
 
     @Test
     void shouldRejectBlankApplicationCode() {
-        assertThrows(IllegalArgumentException.class, () -> new ApplicationRuntimeSnapshot(1L, " ", 2L, VALID_DEFINITION));
+        assertThrows(IllegalArgumentException.class, () -> new AppRuntimeSnapshot(1L, " ", 2L, VALID_DEFINITION));
     }
 
     @Test
     void shouldRejectMissingPublishedVersion() {
-        assertThrows(NullPointerException.class, () -> new ApplicationRuntimeSnapshot(1L, "support", null, VALID_DEFINITION));
+        assertThrows(NullPointerException.class, () -> new AppRuntimeSnapshot(1L, "support", null, VALID_DEFINITION));
     }
 
     @Test
     void shouldRejectDefinitionWithoutAnyExecutionEntry() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> new ApplicationRuntimeSnapshot(1L, "support", 2L, new ApplicationDefinition(1, null)));
+                () -> new AppRuntimeSnapshot(1L, "support", 2L,
+                        ApplicationDefinition.builder().schemaVersion(APPLICATION_SCHEMA_VERSION).build()));
 
-        assertEquals("Application缺少默认Agent、意图路由或历史Workflow", error.getMessage());
+        assertEquals("Application缺少默认ReAct Agent", error.getMessage());
     }
 
     @Test
-    void shouldAllowIntentRoutingWithoutEmbeddedWorkflow() {
-        ApplicationIntentBinding intentBinding = ApplicationIntentBinding.builder()
-                .enabled(true)
-                .intentTreeId(10L)
-                .intentTreeVersionId(11L)
-                .mappings(List.of())
-                .build();
-        ApplicationDefinition definition = ApplicationDefinition.builder()
-                .schemaVersion(2)
-                .intentBinding(intentBinding)
-                .build();
+    void shouldRejectLegacySchema() {
+        ApplicationDefinition definition = definition(null);
+        definition.setSchemaVersion(APPLICATION_SCHEMA_VERSION - 1);
 
-        assertDoesNotThrow(() -> new ApplicationRuntimeSnapshot(1L, "support", 2L, definition));
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> new AppRuntimeSnapshot(1L, "support", 2L, definition));
+
+        assertEquals("Application运行定义版本不受支持", error.getMessage());
     }
 
     @Test
-    void shouldAllowV5FastRouteThatReferencesLockedCapability() {
-        ApplicationDefinition definition = v5Definition(ApplicationIntentMapping.builder()
+    void shouldAllowFastRouteThatReferencesLockedCapability() {
+        ApplicationDefinition definition = definition(ApplicationIntentMapping.builder()
                 .intentCode("refund")
                 .targetType(IntentExecutionTargetType.WORKFLOW)
                 .capabilityCode("refund_workflow")
@@ -72,12 +61,12 @@ class ApplicationRuntimeSnapshotTest {
                 .targetVersionId(21L)
                 .build());
 
-        assertDoesNotThrow(() -> new ApplicationRuntimeSnapshot(1L, "support", 2L, definition));
+        assertDoesNotThrow(() -> new AppRuntimeSnapshot(1L, "support", 2L, definition));
     }
 
     @Test
-    void shouldRejectV5FastRouteOutsideCapabilityCatalog() {
-        ApplicationDefinition definition = v5Definition(ApplicationIntentMapping.builder()
+    void shouldRejectFastRouteOutsideCapabilityCatalog() {
+        ApplicationDefinition definition = definition(ApplicationIntentMapping.builder()
                 .intentCode("refund")
                 .targetType(IntentExecutionTargetType.WORKFLOW)
                 .capabilityCode("unknown")
@@ -86,14 +75,14 @@ class ApplicationRuntimeSnapshotTest {
                 .build());
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> new ApplicationRuntimeSnapshot(1L, "support", 2L, definition));
+                () -> new AppRuntimeSnapshot(1L, "support", 2L, definition));
 
         assertEquals("Application快速路由未引用锁定能力目录", error.getMessage());
     }
 
     @Test
-    void shouldRejectV5FastRouteWithoutCapabilityCode() {
-        ApplicationDefinition definition = v5Definition(ApplicationIntentMapping.builder()
+    void shouldRejectFastRouteWithoutCapabilityCode() {
+        ApplicationDefinition definition = definition(ApplicationIntentMapping.builder()
                 .intentCode("refund")
                 .targetType(IntentExecutionTargetType.WORKFLOW)
                 .targetId(20L)
@@ -101,12 +90,12 @@ class ApplicationRuntimeSnapshotTest {
                 .build());
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> new ApplicationRuntimeSnapshot(1L, "support", 2L, definition));
+                () -> new AppRuntimeSnapshot(1L, "support", 2L, definition));
 
         assertEquals("Application快速路由能力编码不能为空", error.getMessage());
     }
 
-    private static ApplicationDefinition v5Definition(ApplicationIntentMapping mapping) {
+    private static ApplicationDefinition definition(ApplicationIntentMapping mapping) {
         ApplicationAgentReference defaultAgent = new ApplicationAgentReference(10L, 11L, "默认助手", "处理普通请求");
         ApplicationCapabilityDefinition defaultCapability = ApplicationCapabilityDefinition.builder()
                 .code("default_agent")
@@ -121,18 +110,18 @@ class ApplicationRuntimeSnapshotTest {
                 .targetVersionId(21L)
                 .build();
         ApplicationIntentBinding fastRoutes = ApplicationIntentBinding.builder()
-                .enabled(true)
+                .enabled(mapping != null)
                 .intentTreeId(30L)
                 .intentTreeVersionId(31L)
-                .mappings(List.of(mapping))
+                .mappings(mapping == null ? List.of() : List.of(mapping))
                 .build();
         return ApplicationDefinition.builder()
-                .schemaVersion(5)
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(defaultAgent)
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder()
                         .capabilities(List.of(defaultCapability, workflowCapability))
                         .build())
-                .optionalFastRoutes(fastRoutes)
+                .optionalFastRoutes(mapping == null ? null : fastRoutes)
                 .build();
     }
 }

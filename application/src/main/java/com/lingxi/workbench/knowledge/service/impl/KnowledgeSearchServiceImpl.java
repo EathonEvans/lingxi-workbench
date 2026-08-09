@@ -48,8 +48,7 @@ public class KnowledgeSearchServiceImpl implements KnowledgeSearchService {
     public List<KnowledgeSearchResultVO> searchVersion(String query, Long knowledgeBaseId, Long indexVersionId, EmbeddingModelRuntimeConfig embeddingConfig, int topK, double similarityThreshold) {
         requireKnowledgeBase(knowledgeBaseId);
         float[] queryVector = embed(query, embeddingConfig);
-        List<KnowledgeVectorRepo.VectorSearchRow> rows = knowledgeVectorRepo.searchVersion(
-                queryVector, knowledgeBaseId, indexVersionId, embeddingConfig.getInstanceId(), topK, similarityThreshold);
+        List<KnowledgeVectorRepo.VectorSearchRow> rows = knowledgeVectorRepo.searchVersion(queryVector, knowledgeBaseId, indexVersionId, embeddingConfig.getInstanceId(), topK, similarityThreshold);
         return loadResults(rows);
     }
 

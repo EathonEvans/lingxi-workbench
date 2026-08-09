@@ -19,9 +19,9 @@ public class AgentNodeInvocation {
      */
     private final String executionId;
     /**
-     * Application 发布版本 ID，用于版本锁定和审计。
+     * Workflow 发布版本 ID，用于版本锁定和审计。
      */
-    private final String applicationVersionId;
+    private final Long workflowVersionId;
     /**
      * Workflow 中发起调用的 Agent 节点 ID。
      */
@@ -42,13 +42,13 @@ public class AgentNodeInvocation {
     @Builder
     private AgentNodeInvocation(
             String executionId,
-            String applicationVersionId,
+            Long workflowVersionId,
             String nodeId,
             Long agentId,
             Long agentVersionId,
             Map<String, Object> inputs) {
         this.executionId = executionId;
-        this.applicationVersionId = applicationVersionId;
+        this.workflowVersionId = workflowVersionId;
         this.nodeId = nodeId;
         this.agentId = agentId;
         this.agentVersionId = agentVersionId;

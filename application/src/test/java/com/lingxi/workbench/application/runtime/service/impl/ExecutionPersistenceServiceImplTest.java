@@ -2,7 +2,7 @@ package com.lingxi.workbench.application.runtime.service.impl;
 
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
-import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionRunStartCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionStepAttemptCommand;
@@ -36,9 +36,9 @@ class ExecutionPersistenceServiceImplTest {
         ExecutionRunRepo runRepo = mock(ExecutionRunRepo.class);
         ExecutionEventRepo eventRepo = mock(ExecutionEventRepo.class);
         ExecutionPersistenceServiceImpl service = service(runRepo, eventRepo);
-        ApplicationRuntimeSnapshot application = mock(ApplicationRuntimeSnapshot.class);
+        AppRuntimeSnapshot application = mock(AppRuntimeSnapshot.class);
         when(application.applicationId()).thenReturn(10L);
-        when(application.applicationVersionId()).thenReturn(11L);
+        when(application.versionId()).thenReturn(11L);
 
         String runId = service.startRun(ExecutionRunStartCommand.builder()
                 .application(application)

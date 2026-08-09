@@ -14,6 +14,7 @@ import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -22,6 +23,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
@@ -62,6 +64,19 @@ class SysRoleServiceImplTest {
         assertThrows(BusinessException.class, () -> service.delete(1L));
 
         verify(sysRoleRepo, never()).delete(1L);
+    }
+
+    @Test
+    void shouldDeleteLogicalRelationsBeforeDeletingRole() {
+        when(sysRoleRepo.findById(2L)).thenReturn(Optional.of(role(2L, RoleDataScope.SELF, false)));
+        when(sysRoleRepo.countRoleUsers(2L)).thenReturn(0L);
+
+        service.delete(2L);
+
+        InOrder order = inOrder(sysRoleRepo);
+        order.verify(sysRoleRepo).replaceRoleMenus(2L, Set.of());
+        order.verify(sysRoleRepo).replaceRoleDepartments(2L, Set.of());
+        order.verify(sysRoleRepo).delete(2L);
     }
 
     @Test

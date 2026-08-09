@@ -1,16 +1,13 @@
 package com.lingxi.workbench.admin.agent.service.impl;
 
 import cn.hutool.core.text.CharSequenceUtil;
-import com.lingxi.workbench.admin.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
 import com.lingxi.workbench.admin.agent.common.enums.KnowledgeBindingMode;
 import com.lingxi.workbench.admin.agent.model.config.AgentDefinition;
-import com.lingxi.workbench.admin.agent.model.config.AgentKnowledgeBinding;
-import com.lingxi.workbench.admin.agent.model.config.AgentMemoryPolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.KnowledgeSearchCapabilitySnapshot;
-import com.lingxi.workbench.admin.agent.model.config.QueryRewritePolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
 import com.lingxi.workbench.admin.agent.model.converter.AgentConverter;
 import com.lingxi.workbench.admin.agent.model.entity.AgentDraftEntity;
@@ -159,8 +156,6 @@ public class AgentServiceImpl implements AgentService {
         AgentDraftEntity draft = new AgentDraftEntity();
         draft.setAgentId(agent.getId());
         draft.setSchemaVersion(AGENT_SCHEMA_VERSION);
-        draft.setMemoryPolicy(AgentMemoryPolicy.defaults());
-        draft.setRewritePolicy(QueryRewritePolicy.defaults());
         draft.setRetrievalPolicy(RetrievalPolicy.defaults());
         draft.setGenerationPolicy(GenerationPolicy.defaults());
         draft.setRuntimePolicy(AgentRuntimePolicy.defaults());
@@ -211,7 +206,6 @@ public class AgentServiceImpl implements AgentService {
         draft.setUserPromptVersionId(request.getUserPromptVersionId());
         draft.setToolCodes(request.getToolCodes().stream().distinct().toList());
         draft.setToolPolicy(request.getToolPolicy());
-        draft.setMemoryPolicy(request.getMemoryPolicy());
         applyTypeSpecificDraft(agent.getAgentType(), draft, request);
         draft.setGenerationPolicy(request.getGenerationPolicy());
         draft.setRuntimePolicy(request.getRuntimePolicy());
@@ -333,17 +327,9 @@ public class AgentServiceImpl implements AgentService {
     }
 
     private static void applyTypeSpecificDraft(AgentType agentType, AgentDraftEntity draft, SaveAgentDraftRequest request) {
-        if (agentType == AgentType.SUPERVISOR || agentType == AgentType.REACT) {
-            draft.setRewriteModelInstanceId(null);
-            draft.setRewritePromptVersionId(null);
-            draft.setRewritePolicy(QueryRewritePolicy.defaults());
-            draft.setRetrievalPolicy(agentType == AgentType.REACT ? request.getRetrievalPolicy() : RetrievalPolicy.defaults());
-            return;
-        }
-        draft.setRewriteModelInstanceId(request.getRewriteModelInstanceId());
-        draft.setRewritePromptVersionId(request.getRewritePromptVersionId());
-        draft.setRewritePolicy(request.getRewritePolicy());
-        draft.setRetrievalPolicy(request.getRetrievalPolicy());
+        draft.setRetrievalPolicy(agentType == AgentType.REACT
+                ? request.getRetrievalPolicy()
+                : RetrievalPolicy.defaults());
     }
 
     private void saveKnowledgeBinding(AgentType agentType, AgentDraftEntity draft, Long knowledgeBaseId) {
@@ -389,27 +375,13 @@ public class AgentServiceImpl implements AgentService {
                 .userPromptVersionId(draft.getUserPromptVersionId())
                 .toolCodes(List.copyOf(draft.getToolCodes()))
                 .toolPolicy(draft.getToolPolicy())
-                .memoryPolicy(draft.getMemoryPolicy())
                 .generationPolicy(draft.getGenerationPolicy())
                 .runtimePolicy(draft.getRuntimePolicy());
         if (agent.getAgentType() == AgentType.SUPERVISOR) {
-            return builder
-                    .rewritePolicy(QueryRewritePolicy.defaults())
-                    .build();
-        }
-        if (agent.getAgentType() == AgentType.REACT) {
-            return builder
-                    .rewritePolicy(QueryRewritePolicy.defaults())
-                    .retrievalPolicy(Objects.isNull(knowledge) ? null : draft.getRetrievalPolicy())
-                    .knowledgeSearch(toKnowledgeSearch(knowledge, knowledgeIndex, draft.getRetrievalPolicy()))
-                    .build();
+            return builder.build();
         }
         return builder
-                .rewriteModelInstanceId(draft.getRewriteModelInstanceId())
-                .rewritePromptVersionId(draft.getRewritePromptVersionId())
-                .knowledge(toKnowledgeBinding(knowledge))
-                .rewritePolicy(draft.getRewritePolicy())
-                .retrievalPolicy(draft.getRetrievalPolicy())
+                .knowledgeSearch(toKnowledgeSearch(knowledge, knowledgeIndex, draft.getRetrievalPolicy()))
                 .build();
     }
 
@@ -429,18 +401,6 @@ public class AgentServiceImpl implements AgentService {
                 .maxResultTokens(retrieval.getMaxContextTokens())
                 .maxQueryCharacters(KNOWLEDGE_SEARCH_MAX_QUERY_CHARACTERS)
                 .timeoutSeconds(KNOWLEDGE_SEARCH_TIMEOUT_SECONDS)
-                .build();
-    }
-
-    private static AgentKnowledgeBinding toKnowledgeBinding(AgentDraftKnowledgeEntity knowledge) {
-        if (Objects.isNull(knowledge)) {
-            return null;
-        }
-        return AgentKnowledgeBinding.builder()
-                .knowledgeBaseId(knowledge.getKnowledgeBaseId())
-                .embeddingModelInstanceId(knowledge.getEmbeddingModelInstanceId())
-                .bindingMode(knowledge.getBindingMode())
-                .priority(knowledge.getPriority())
                 .build();
     }
 

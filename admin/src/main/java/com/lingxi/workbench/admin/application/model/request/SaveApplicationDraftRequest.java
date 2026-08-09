@@ -1,6 +1,5 @@
 package com.lingxi.workbench.admin.application.model.request;
 
-import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
 import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
@@ -18,15 +17,9 @@ import lombok.Data;
 /** 保存 Application 草稿；资源版本可为空，表示发布时锁定其当前生效版本。 */
 @Data
 public class SaveApplicationDraftRequest {
-    /** 迁移前内嵌 Workflow，仅用于保存旧草稿；新管理端不再提交。 */
-    @Valid
-    private WorkflowDefinition workflow;
     /** 可选的 Application 级 Supervisor 协作配置。 */
     @Valid
     private AgentCollaborationDefinition collaboration;
-    /** 旧管理端兼容字段；保存 Schema V5 时自动转换为 optionalFastRoutes。 */
-    @Valid
-    private ApplicationIntentBinding intentBinding;
     /** 可选快速路由，只配置需要确定性直达的叶子。 */
     @Valid
     private ApplicationIntentBinding optionalFastRoutes;

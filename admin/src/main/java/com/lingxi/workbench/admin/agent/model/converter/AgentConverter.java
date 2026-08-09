@@ -1,7 +1,6 @@
 package com.lingxi.workbench.admin.agent.model.converter;
 
 import com.lingxi.workbench.admin.agent.model.config.AgentDefinition;
-import com.lingxi.workbench.admin.agent.model.config.AgentKnowledgeBinding;
 import com.lingxi.workbench.admin.agent.model.entity.AgentDraftEntity;
 import com.lingxi.workbench.admin.agent.model.entity.AgentDraftKnowledgeEntity;
 import com.lingxi.workbench.admin.agent.model.entity.AgentEntity;
@@ -69,15 +68,11 @@ public class AgentConverter {
                 .baseVersionId(stringId(draft.getBaseVersionId()))
                 .schemaVersion(draft.getSchemaVersion())
                 .chatModelInstanceId(stringId(draft.getChatModelInstanceId()))
-                .rewriteModelInstanceId(stringId(draft.getRewriteModelInstanceId()))
                 .systemPromptVersionId(stringId(draft.getSystemPromptVersionId()))
                 .userPromptVersionId(stringId(draft.getUserPromptVersionId()))
-                .rewritePromptVersionId(stringId(draft.getRewritePromptVersionId()))
                 .toolCodes(Objects.requireNonNullElse(draft.getToolCodes(), java.util.List.of()))
                 .toolPolicy(draft.getToolPolicy())
                 .knowledge(toKnowledgeVO(knowledge))
-                .memoryPolicy(draft.getMemoryPolicy())
-                .rewritePolicy(draft.getRewritePolicy())
                 .retrievalPolicy(draft.getRetrievalPolicy())
                 .generationPolicy(draft.getGenerationPolicy())
                 .runtimePolicy(draft.getRuntimePolicy())
@@ -121,35 +116,17 @@ public class AgentConverter {
                 .schemaVersion(definition.getSchemaVersion())
                 .agentType(definition.getAgentType())
                 .chatModelInstanceId(stringId(definition.getChatModelInstanceId()))
-                .rewriteModelInstanceId(stringId(definition.getRewriteModelInstanceId()))
-                .systemPromptVersionId(stringId(
-                        definition.resolveSystemPromptVersionId()))
+                .systemPromptVersionId(stringId(definition.getSystemPromptVersionId()))
                 .userPromptVersionId(stringId(definition.getUserPromptVersionId()))
-                .rewritePromptVersionId(stringId(definition.getRewritePromptVersionId()))
                 .toolCodes(Objects.requireNonNullElse(definition.getToolCodes(), java.util.List.of()))
                 .toolPolicy(definition.getToolPolicy())
-                .knowledge(toKnowledgeVO(definition.getKnowledge()))
                 .knowledgeSearch(definition.getKnowledgeSearch())
-                .memoryPolicy(definition.getMemoryPolicy())
-                .rewritePolicy(definition.getRewritePolicy())
-                .retrievalPolicy(definition.getRetrievalPolicy())
                 .generationPolicy(definition.getGenerationPolicy())
                 .runtimePolicy(definition.getRuntimePolicy())
                 .build();
     }
 
     private AgentKnowledgeBindingVO toKnowledgeVO(AgentDraftKnowledgeEntity knowledge) {
-        if (Objects.isNull(knowledge)) {
-            return null;
-        }
-        return new AgentKnowledgeBindingVO(
-                stringId(knowledge.getKnowledgeBaseId()),
-                stringId(knowledge.getEmbeddingModelInstanceId()),
-                knowledge.getBindingMode(),
-                knowledge.getPriority());
-    }
-
-    private AgentKnowledgeBindingVO toKnowledgeVO(AgentKnowledgeBinding knowledge) {
         if (Objects.isNull(knowledge)) {
             return null;
         }

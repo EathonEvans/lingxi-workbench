@@ -7,7 +7,7 @@ import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.bo.ConversationMemorySnapshot;
 import com.lingxi.workbench.chat.model.bo.ConversationSummarySource;
 import com.lingxi.workbench.chat.model.bo.ConversationSummaryTrigger;
-import com.lingxi.workbench.chat.model.ccontext.ContextBudget;
+import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.chat.model.entity.ConversationEntity;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
 import com.lingxi.workbench.chat.repo.ConversationMessageRepo;
@@ -73,7 +73,7 @@ class ConversationMemoryServiceImplTest {
                 message(6, MessageRole.ASSISTANT, "第三答")));
         when(estimator.estimate(anyString())).thenReturn(1);
         ConversationMemoryServiceImpl service = new ConversationMemoryServiceImpl(conversationRepo, messageRepo, properties, estimator);
-        ContextBudget budget = ContextBudget.builder().maxHistoryRounds(10).maxSystemPromptTokens(1000).maxCapabilityTokens(1000)
+        ContextBudgetPolicy budget = ContextBudgetPolicy.builder().maxHistoryRounds(10).maxSystemPromptTokens(1000).maxCapabilityTokens(1000)
                 .maxHistoryTokens(1000).maxMemoryTokens(1000).maxInputTokens(1000).maxObservationTokens(1000)
                 .reservedOutputTokens(1000).build();
 

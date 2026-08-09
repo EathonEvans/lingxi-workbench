@@ -3,7 +3,7 @@ package com.lingxi.workbench.application.runtime.service.impl;
 import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingAction;
 import com.lingxi.workbench.application.runtime.common.enums.IntentClarificationType;
 import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingSessionStatus;
-import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.IntentClarificationContext;
 import com.lingxi.workbench.application.runtime.model.IntentRoutingResult;
 import com.lingxi.workbench.application.runtime.model.entity.IntentRoutingSessionEntity;
@@ -13,7 +13,7 @@ import com.lingxi.workbench.application.runtime.repo.IntentTreeRuntimeRepo;
 import com.lingxi.workbench.application.runtime.repo.IntentVectorRuntimeRepo;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
-import com.lingxi.workbench.chat.model.ccontext.ContextBudget;
+import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.chat.model.request.ClarificationResponseRequest;
 import com.lingxi.workbench.framework.context.LoginUser;
@@ -25,11 +25,9 @@ import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
-import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
 import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
-import com.lingxi.workbench.workflow.model.intent.IntentFallbackPolicy;
 import com.lingxi.workbench.workflow.model.intent.IntentNodeDefinition;
 import com.lingxi.workbench.workflow.model.intent.IntentNodeType;
 import com.lingxi.workbench.workflow.model.intent.IntentRoutingPolicy;
@@ -53,6 +51,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
 
 class IntentRoutingServiceImplTest {
 
@@ -61,8 +60,10 @@ class IntentRoutingServiceImplTest {
     private final IntentRoutingSessionRepo sessionRepo = mock(IntentRoutingSessionRepo.class);
     private final ModelRuntimeConfigService modelConfigService = mock(ModelRuntimeConfigService.class);
     private final EmbeddingGateway embeddingGateway = mock(EmbeddingGateway.class);
+    private final IntentRecognitionServiceImpl recognitionService = new IntentRecognitionServiceImpl(
+            intentTreeRepo, vectorRepo, modelConfigService, embeddingGateway);
     private final IntentRoutingServiceImpl service = new IntentRoutingServiceImpl(
-            intentTreeRepo, vectorRepo, sessionRepo, modelConfigService, embeddingGateway);
+            intentTreeRepo, recognitionService, sessionRepo);
 
     @BeforeEach
     void setUp() {
@@ -73,14 +74,14 @@ class IntentRoutingServiceImplTest {
     }
 
     @Test
-    void shouldUseExplicitFallbackWhenNoCandidatePassesThreshold() {
+    void shouldReturnNoMatchWhenNoCandidatePassesThreshold() {
         stubVersion(List.of(leaf("refund", "申请退款")));
         when(vectorRepo.search(any(), any(), any(), any(Integer.class))).thenReturn(List.of());
 
-        IntentRoutingResult result = route(snapshot(List.of(workflowMapping("refund"))), "我想咨询");
+        IntentRoutingResult result = route(optionalSnapshot(List.of(optionalWorkflowMapping("refund"))), "我想咨询");
 
-        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.FIXED_RESPONSE);
-        assertThat(result.getResponse()).isEqualTo("请重新描述需求");
+        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.NO_MATCH);
+        assertThat(result.getExecutionQuery()).isEqualTo("我想咨询");
     }
 
     @Test
@@ -89,7 +90,7 @@ class IntentRoutingServiceImplTest {
         when(vectorRepo.search(any(), any(), any(), any(Integer.class)))
                 .thenReturn(List.of(new IntentVectorRuntimeRepo.IntentCandidateRow("refund-node", "refund", 0.91)));
 
-        IntentRoutingResult result = route(snapshot(List.of(workflowMapping("refund"))), "我要退款");
+        IntentRoutingResult result = route(optionalSnapshot(List.of(optionalWorkflowMapping("refund"))), "我要退款");
 
         assertThat(result.getAction()).isEqualTo(IntentRoutingAction.EXECUTE_WORKFLOW);
         assertThat(result.getIntentCode()).isEqualTo("refund");
@@ -101,7 +102,7 @@ class IntentRoutingServiceImplTest {
         stubVersion(List.of(leaf("refund", "申请退款")));
         when(vectorRepo.search(any(), any(), any(), any(Integer.class)))
                 .thenReturn(List.of(new IntentVectorRuntimeRepo.IntentCandidateRow("refund-node", "refund", 0.91)));
-        ApplicationRuntimeSnapshot snapshot = snapshot(List.of(workflowMapping("refund")));
+        AppRuntimeSnapshot snapshot = optionalSnapshot(List.of(optionalWorkflowMapping("refund")));
         LoginUser loginUser = new LoginUser(7L, "tester", "测试用户", null);
         ChatTurnBO turn = new ChatTurnBO(10L, 11L, 12L, 1);
         ConversationContext context = context(snapshot, loginUser, turn, "它可以退吗", "iPhone 订单可以退款吗");
@@ -124,8 +125,8 @@ class IntentRoutingServiceImplTest {
             return null;
         }).when(sessionRepo).insert(any());
 
-        IntentRoutingResult result = route(snapshot(List.of(
-                workflowMapping("refund"), workflowMapping("exchange"))), "订单有问题");
+        IntentRoutingResult result = route(optionalSnapshot(List.of(
+                optionalWorkflowMapping("refund"), optionalWorkflowMapping("exchange"))), "订单有问题");
 
         assertThat(result.getAction()).isEqualTo(IntentRoutingAction.CLARIFICATION);
         assertThat(result.getClarification().getClarificationId()).isEqualTo("99");
@@ -151,7 +152,7 @@ class IntentRoutingServiceImplTest {
         response.setOptionCode("refund");
 
         IntentRoutingResult result = route(
-                snapshot(List.of(workflowMapping("refund"), workflowMapping("exchange"))),
+                optionalSnapshot(List.of(optionalWorkflowMapping("refund"), optionalWorkflowMapping("exchange"))),
                 "申请退款",
                 response);
 
@@ -185,7 +186,7 @@ class IntentRoutingServiceImplTest {
         response.setValue("A10086");
 
         IntentRoutingResult result = route(
-                snapshot(List.of(workflowMapping("refund"))),
+                optionalSnapshot(List.of(optionalWorkflowMapping("refund"))),
                 "A10086",
                 response);
 
@@ -242,12 +243,12 @@ class IntentRoutingServiceImplTest {
         assertThat(result.getMapping().getTargetVersionId()).isEqualTo(50L);
     }
 
-    private IntentRoutingResult route(ApplicationRuntimeSnapshot snapshot, String query) {
+    private IntentRoutingResult route(AppRuntimeSnapshot snapshot, String query) {
         return route(snapshot, query, null);
     }
 
     private IntentRoutingResult route(
-            ApplicationRuntimeSnapshot snapshot,
+            AppRuntimeSnapshot snapshot,
             String query,
             ClarificationResponseRequest clarificationResponse) {
         LoginUser loginUser = new LoginUser(7L, "tester", "测试用户", null);
@@ -256,7 +257,7 @@ class IntentRoutingServiceImplTest {
         return service.route(context, clarificationResponse);
     }
 
-    private static ConversationContext context(ApplicationRuntimeSnapshot snapshot, LoginUser loginUser, ChatTurnBO turn, String originalQuery, String contextualizedQuery) {
+    private static ConversationContext context(AppRuntimeSnapshot snapshot, LoginUser loginUser, ChatTurnBO turn, String originalQuery, String contextualizedQuery) {
         return ConversationContext.builder()
                 .applicationSnapshot(snapshot)
                 .loginUser(loginUser)
@@ -271,8 +272,8 @@ class IntentRoutingServiceImplTest {
                 .build();
     }
 
-    private static ContextBudget contextBudget() {
-        return ContextBudget.builder().maxHistoryRounds(10).maxSystemPromptTokens(4000).maxCapabilityTokens(4000)
+    private static ContextBudgetPolicy contextBudget() {
+        return ContextBudgetPolicy.builder().maxHistoryRounds(10).maxSystemPromptTokens(4000).maxCapabilityTokens(4000)
                 .maxHistoryTokens(4000).maxMemoryTokens(4000).maxInputTokens(4000).maxObservationTokens(4000)
                 .reservedOutputTokens(4000).build();
     }
@@ -308,20 +309,7 @@ class IntentRoutingServiceImplTest {
         when(intentTreeRepo.findVersion(2L, 20L)).thenReturn(Optional.of(version));
     }
 
-    private static ApplicationRuntimeSnapshot snapshot(List<ApplicationIntentMapping> mappings) {
-        ApplicationIntentBinding binding = ApplicationIntentBinding.builder()
-                .enabled(true)
-                .intentTreeId(2L)
-                .intentTreeVersionId(20L)
-                .fallbackPolicy(new IntentFallbackPolicy("请重新描述需求", "澄清失败"))
-                .mappings(mappings)
-                .build();
-        WorkflowDefinition workflow = new WorkflowDefinition(1, "main", List.of(), List.of());
-        return new ApplicationRuntimeSnapshot(
-                1L, "support", 30L, new ApplicationDefinition(2, workflow, null, binding));
-    }
-
-    private static ApplicationRuntimeSnapshot optionalSnapshot(List<ApplicationIntentMapping> mappings) {
+    private static AppRuntimeSnapshot optionalSnapshot(List<ApplicationIntentMapping> mappings) {
         ApplicationIntentBinding fastRoutes = ApplicationIntentBinding.builder()
                 .enabled(true)
                 .intentTreeId(2L)
@@ -341,8 +329,8 @@ class IntentRoutingServiceImplTest {
                 .targetId(40L)
                 .targetVersionId(50L)
                 .build();
-        return new ApplicationRuntimeSnapshot(1L, "support", 30L, ApplicationDefinition.builder()
-                .schemaVersion(5)
+        return new AppRuntimeSnapshot(1L, "support", 30L, ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(defaultAgent)
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder()
                         .capabilities(List.of(defaultCapability, workflowCapability))
@@ -360,13 +348,6 @@ class IntentRoutingServiceImplTest {
                 .nodeType(IntentNodeType.LEAF)
                 .positiveExamples(List.of(name, "办理" + name))
                 .enabled(true)
-                .build();
-    }
-
-    private static ApplicationIntentMapping workflowMapping(String intentCode) {
-        return ApplicationIntentMapping.builder()
-                .intentCode(intentCode)
-                .targetType(IntentExecutionTargetType.WORKFLOW)
                 .build();
     }
 

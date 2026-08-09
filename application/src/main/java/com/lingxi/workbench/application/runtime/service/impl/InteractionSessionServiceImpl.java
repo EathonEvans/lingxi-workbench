@@ -3,7 +3,7 @@ package com.lingxi.workbench.application.runtime.service.impl;
 import cn.hutool.core.text.CharSequenceUtil;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionStatus;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
-import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.InteractionSessionContext;
 import com.lingxi.workbench.application.runtime.model.InteractionSessionOpenCommand;
 import com.lingxi.workbench.application.runtime.model.PlannerInteractionResolution;
@@ -44,7 +44,7 @@ public class InteractionSessionServiceImpl implements InteractionSessionService 
         InteractionSessionEntity session = new InteractionSessionEntity();
         session.setConversationId(command.getTurn().conversationId());
         session.setUserId(command.getUserId());
-        session.setApplicationVersionId(command.getApplication().applicationVersionId());
+        session.setApplicationVersionId(command.getApplication().versionId());
         session.setRunId(command.getRunId());
         session.setInteractionType(command.getInteractionType());
         session.setStatus(InteractionSessionStatus.PENDING);
@@ -57,7 +57,7 @@ public class InteractionSessionServiceImpl implements InteractionSessionService 
 
     @Override
     @Transactional
-    public Optional<PlannerInteractionResolution> resolve(ApplicationRuntimeSnapshot application, ChatTurnBO turn,
+    public Optional<PlannerInteractionResolution> resolve(AppRuntimeSnapshot application, ChatTurnBO turn,
                                                           Long userId, String query,
                                                           ClarificationResponseRequest response) {
         if (!isPlannerResponse(response)) {
@@ -88,15 +88,15 @@ public class InteractionSessionServiceImpl implements InteractionSessionService 
 
     private void cancelPending(InteractionSessionOpenCommand command) {
         repo.findPending(command.getTurn().conversationId(), command.getUserId(),
-                        command.getApplication().applicationVersionId())
+                        command.getApplication().versionId())
                 .ifPresent(session -> {
                     session.setStatus(InteractionSessionStatus.CANCELLED);
                     repo.update(session);
                 });
     }
 
-    private InteractionSessionEntity findSession(ApplicationRuntimeSnapshot application, ChatTurnBO turn, Long userId,
-                                                  ClarificationResponseRequest response) {
+    private InteractionSessionEntity findSession(AppRuntimeSnapshot application, ChatTurnBO turn, Long userId,
+                                                 ClarificationResponseRequest response) {
         InteractionSessionEntity session;
         if (CharSequenceUtil.isNotBlank(response.getClarificationId())) {
             long sessionId;
@@ -108,10 +108,10 @@ public class InteractionSessionServiceImpl implements InteractionSessionService 
             session = repo.findOwned(sessionId, turn.conversationId(), userId)
                     .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "交互会话不存在"));
         } else {
-            session = repo.findPending(turn.conversationId(), userId, application.applicationVersionId())
+            session = repo.findPending(turn.conversationId(), userId, application.versionId())
                     .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "待处理交互会话不存在"));
         }
-        if (!Objects.equals(session.getApplicationVersionId(), application.applicationVersionId())
+        if (!Objects.equals(session.getApplicationVersionId(), application.versionId())
                 || session.getStatus() != InteractionSessionStatus.PENDING
                 || !session.getInteractionType().getCode().equals(response.getInteractionType())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "交互会话状态或版本不匹配");

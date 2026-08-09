@@ -10,7 +10,7 @@ import lombok.Getter;
 @Builder
 public class ExecutionRunStartCommand {
 
-    private ApplicationRuntimeSnapshot application;
+    private AppRuntimeSnapshot application;
     private ChatTurnBO turn;
     private Long userId;
     private PlannerPolicy plannerPolicy;

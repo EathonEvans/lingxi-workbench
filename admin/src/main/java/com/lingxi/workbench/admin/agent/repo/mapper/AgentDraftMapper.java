@@ -14,14 +14,10 @@ public interface AgentDraftMapper extends BaseMapper<AgentDraftEntity> {
     @Update("""
             UPDATE lingxi_core.ai_agent_draft
                SET chat_model_instance_id = #{entity.chatModelInstanceId},
-                   rewrite_model_instance_id = #{entity.rewriteModelInstanceId},
                    system_prompt_version_id = #{entity.systemPromptVersionId},
                    user_prompt_version_id = #{entity.userPromptVersionId},
-                   rewrite_prompt_version_id = #{entity.rewritePromptVersionId},
                    tool_codes = #{entity.toolCodes,typeHandler=com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler},
                    tool_policy = #{entity.toolPolicy,typeHandler=com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler},
-                   memory_policy = #{entity.memoryPolicy,typeHandler=com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler},
-                   rewrite_policy = #{entity.rewritePolicy,typeHandler=com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler},
                    retrieval_policy = #{entity.retrievalPolicy,typeHandler=com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler},
                    generation_policy = #{entity.generationPolicy,typeHandler=com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler},
                    runtime_policy = #{entity.runtimePolicy,typeHandler=com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler},

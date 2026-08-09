@@ -90,11 +90,7 @@ class PromptTemplateRendererTest {
     }
 
     @Test
-    void shouldRenderUserPromptWithQueryAndKnowledgeContext() {
-        RuntimeVariables variables = runtimeVariables();
-        variables.put(
-                RuntimeVariableAccessors.KNOWLEDGE_CONTEXT,
-                "[1] 退款需要三个工作日");
+    void shouldRejectRemovedKnowledgeContextVariable() {
         PromptRuntimeSnapshot snapshot = new PromptRuntimeSnapshot(
                 89L,
                 "资料：{{knowledge.context}}\n问题：{{user.query}}",
@@ -103,10 +99,11 @@ class PromptTemplateRendererTest {
                         definition("user.query", "STRING")),
                 PromptRole.USER);
 
-        String rendered = renderer.renderUserPrompt(snapshot, variables);
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> renderer.renderUserPrompt(snapshot, runtimeVariables()));
 
-        assertTrue(rendered.contains("[1] 退款需要三个工作日"));
-        assertTrue(rendered.contains("问题：如何退款"));
+        assertTrue(exception.getMessage().contains("运行端不支持变量：knowledge.context"));
     }
 
     @Test
@@ -125,24 +122,24 @@ class PromptTemplateRendererTest {
     }
 
     @Test
-    void shouldRenderQueryRewriteVariablesWithoutRelaxingSystemPrompt() {
+    void shouldRenderContextualizationVariablesWithoutRelaxingSystemPrompt() {
         RuntimeVariables variables = runtimeVariables();
         variables.put(
-                RuntimeVariableAccessors.QUERY_REWRITE_HISTORY,
+                RuntimeVariableAccessors.CONTEXTUALIZATION_HISTORY,
                 List.of(new ChatHistoryMessage(
                         ChatHistoryMessage.Role.USER,
                         "介绍一下 iPhone 16 Pro")));
         PromptRuntimeSnapshot snapshot = new PromptRuntimeSnapshot(
                 90L,
-                "历史：{{query.rewrite_history}}\n当前问题：{{user.query}}",
+                "历史：{{query.contextualization_history}}\n当前问题：{{user.query}}",
                 List.of(
                         definition(
-                                "query.rewrite_history",
+                                "query.contextualization_history",
                                 "MESSAGE_LIST"),
                         definition("user.query", "STRING")),
                 PromptRole.SYSTEM);
 
-        String rendered = renderer.renderQueryRewritePrompt(
+        String rendered = renderer.renderContextualizationPrompt(
                 snapshot,
                 variables);
 

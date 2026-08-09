@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.agent.service;
 
-import com.lingxi.workbench.admin.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
 
 import java.util.Optional;
 

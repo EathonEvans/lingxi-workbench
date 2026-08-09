@@ -16,11 +16,11 @@ import java.time.OffsetDateTime;
  *
  * <p>核心设计原则：</p>
  * <ol>
- *   <li>会话创建时锁定 {@code applicationVersionId} 和 {@code intentTreeVersionId}，
+ *   <li>会话创建时锁定 {@code versionId} 和 {@code intentTreeVersionId}，
  *       避免澄清过程中任一资源发布新版本造成选项或执行目标漂移。</li>
  *   <li>会话以 PENDING 状态存在，仅在状态变为 RESOLVED / COMPLETED / CANCELLED / EXPIRED / FAILED
  *       后才不再拦截后续消息。</li>
- *   <li>同一次对话（conversationId + userId + applicationVersionId）中同一时间
+ *   <li>同一次对话（conversationId + userId + versionId）中同一时间
  *       最多只有一个 PENDING 状态的会话。</li>
  *   <li>过期时间（expiresAt）默认为创建后 10 分钟，超时后状态变为 EXPIRED，
  *       下一条消息重新识别意图。</li>

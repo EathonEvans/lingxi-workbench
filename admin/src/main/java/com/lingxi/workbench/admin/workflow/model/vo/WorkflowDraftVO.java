@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.workflow.model.vo;
 
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
+import com.lingxi.workbench.admin.workflow.model.config.WorkflowCanvasState;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -15,6 +16,7 @@ public class WorkflowDraftVO {
     private final String baseVersionId;
     private final Integer schemaVersion;
     private final WorkflowDefinition definition;
+    private final WorkflowCanvasState canvasState;
     private final Long revision;
     private final String changeNote;
 }

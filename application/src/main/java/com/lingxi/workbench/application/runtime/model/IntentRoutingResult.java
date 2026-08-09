@@ -19,9 +19,6 @@ import lombok.Getter;
  *   <li>如果澄清（clarification）—— 问题文本、选项列表、轮次、过期时间</li>
  *   <li>如果固定答复（response）—— 直接返回的文本</li>
  * </ul>
- *
- * <p>{@code workflow()} 静态工厂方法用于兼容未启用意图路由的已有 Application，
- * 直接返回 EXECUTE_WORKFLOW 动作，query 原样透传。</p>
  */
 @Getter
 @Builder
@@ -59,22 +56,18 @@ public class IntentRoutingResult {
     private final ChatClarificationEventBO clarification;
 
     /**
-     * 创建兼容旧模式的直通 Workflow 结果。
-     * 用于 Application 未启用意图路由时的默认行为。
-     *
-     * @param intentCode 意图编码，可为 null
-     * @param query      原始用户查询
-     * @return 指示执行历史内嵌 Workflow 的兼容结果
+     * 当前请求未进入快速路由。
      */
-    public static IntentRoutingResult workflow(String intentCode, String query) {
+    public static IntentRoutingResult skipped(String query) {
         return builder()
-                .action(IntentRoutingAction.EXECUTE_WORKFLOW)
-                .intentCode(intentCode)
+                .action(IntentRoutingAction.SKIPPED)
                 .executionQuery(query)
                 .build();
     }
 
-    /** 可选快速路由未命中时交还上层模型决策。 */
+    /**
+     * 可选快速路由未命中时交还上层模型决策。
+     */
     public static IntentRoutingResult noMatch(String query) {
         return builder()
                 .action(IntentRoutingAction.NO_MATCH)

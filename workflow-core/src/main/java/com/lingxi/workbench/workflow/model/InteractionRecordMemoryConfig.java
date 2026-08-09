@@ -20,11 +20,17 @@ public class InteractionRecordMemoryConfig {
     private static final int DEFAULT_TOP_K = 3;
     private static final int DEFAULT_RETENTION_DAYS = 365;
 
+    /** 是否启用交互记录提取和检索。 */
     private boolean enabled;
+    /** Embedding 模型实例主键。 */
     private Long embeddingModelInstanceId;
+    /** Chat 模型实例主键（提取用）。 */
     private Long chatModelInstanceId;
+    /** 已发布 PromptVersion 主键。 */
     private Long promptVersionId;
+    /** 向量检索 topK，默认 3。 */
     private int topK;
+    /** 交互记录保留天数，默认 365 天。 */
     private int retentionDays;
 
     public int effectiveTopK() {

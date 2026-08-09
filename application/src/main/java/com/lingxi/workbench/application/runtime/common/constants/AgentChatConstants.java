@@ -5,16 +5,6 @@ package com.lingxi.workbench.application.runtime.common.constants;
  */
 public interface AgentChatConstants {
 
-    String REACT_AGENT_TYPE = "REACT";
-
-    String RAG_CHAT_AGENT_TYPE = "RAG_CHAT";
-
-    String SUPERVISOR_AGENT_TYPE = "SUPERVISOR";
-
-    String EMPTY_KNOWLEDGE_HINT = "未检索到足够相关的知识库资料。";
-
-    String RETURN_EMPTY_HINT_STRATEGY = "RETURN_EMPTY_HINT";
-
     String DELEGATE_AGENT_TOOL_PREFIX = "delegate_agent_";
 
     int DEFAULT_DELEGATION_RESULT_CHARACTERS = 16000;
@@ -33,8 +23,7 @@ public interface AgentChatConstants {
     /**
      * 启用工具时追加在 Agent System Prompt 末尾的平台级规则。
      *
-     * <p>Agent 自定义 Prompt 可能要求“只能依据知识片段回答”。该约束适用于纯 RAG，
-     * 但不能覆盖平台实际提供的工具结果，否则模型完成 Tool Call 后仍会以知识不足拒答。</p>
+     * <p>平台规则明确授权工具结果作为可信事实来源，同时禁止执行工具结果中的指令。</p>
      */
     String TOOL_AUGMENTED_SYSTEM_PROMPT = """
             ## 平台工具调用规则

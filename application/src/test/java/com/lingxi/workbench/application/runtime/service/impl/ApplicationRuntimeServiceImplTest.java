@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.impl;
 
-import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.entity.RuntimeApplicationEntity;
 import com.lingxi.workbench.application.runtime.model.entity.RuntimeApplicationVersionEntity;
 import com.lingxi.workbench.application.runtime.model.vo.AvailableApplicationVO;
@@ -19,6 +19,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
 
 /**
  * Application 运行时业务测试。
@@ -47,21 +48,23 @@ class ApplicationRuntimeServiceImplTest {
         ApplicationRuntimeServiceImpl service = new ApplicationRuntimeServiceImpl(
                 new StubApplicationRuntimeRepo(application, version));
 
-        ApplicationRuntimeSnapshot snapshot = assertDoesNotThrow(
-                () -> service.resolvePublished("GENERAL_ASSISTANT"));
+        AppRuntimeSnapshot snapshot = assertDoesNotThrow(
+                () -> service.loadRuntimeAppConfig("GENERAL_ASSISTANT"));
 
-        assertEquals(35L, snapshot.applicationVersionId());
+        assertEquals(35L, snapshot.versionId());
         assertEquals(40L, snapshot.definition().defaultAgent().agentId());
     }
 
     @Test
     void shouldRejectPublishedApplicationWithoutExecutionEntry() {
         RuntimeApplicationEntity application = application();
-        RuntimeApplicationVersionEntity version = version(ApplicationDefinition.builder().schemaVersion(4).build());
+        RuntimeApplicationVersionEntity version = version(ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .build());
         ApplicationRuntimeServiceImpl service = new ApplicationRuntimeServiceImpl(
                 new StubApplicationRuntimeRepo(application, version));
 
-        assertThrows(BusinessException.class, () -> service.resolvePublished("general_assistant"));
+        assertThrows(BusinessException.class, () -> service.loadRuntimeAppConfig("general_assistant"));
     }
 
     private static RuntimeApplicationEntity application() {
@@ -91,7 +94,7 @@ class ApplicationRuntimeServiceImplTest {
                 .targetVersionId(41L)
                 .build();
         return ApplicationDefinition.builder()
-                .schemaVersion(4)
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(defaultAgent)
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(capability)).build())
                 .build();

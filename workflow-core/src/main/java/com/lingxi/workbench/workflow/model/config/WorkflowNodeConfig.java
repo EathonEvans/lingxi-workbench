@@ -12,12 +12,13 @@ import com.alibaba.fastjson2.annotation.JSONField;
         typeKey = "configType",
         seeAlso = {
                 StartNodeConfig.class,
+                IntentClassifierNodeConfig.class,
                 AgentNodeConfig.class,
                 ConditionNodeConfig.class,
                 EndNodeConfig.class
         })
 public sealed interface WorkflowNodeConfig
-        permits StartNodeConfig, AgentNodeConfig, ConditionNodeConfig, EndNodeConfig {
+        permits StartNodeConfig, IntentClassifierNodeConfig, AgentNodeConfig, ConditionNodeConfig, EndNodeConfig {
 
     /**
      * 显式写入配置类型，确保 JSONB 不依赖 Fastjson2 的全局 WriteClassName。
@@ -26,6 +27,7 @@ public sealed interface WorkflowNodeConfig
     default String getConfigType() {
         return switch (this) {
             case StartNodeConfig ignored -> "START";
+            case IntentClassifierNodeConfig ignored -> "INTENT_CLASSIFIER";
             case AgentNodeConfig ignored -> "AGENT";
             case ConditionNodeConfig ignored -> "CONDITION";
             case EndNodeConfig ignored -> "END";

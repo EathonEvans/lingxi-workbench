@@ -23,7 +23,7 @@ public enum BuiltInRuntimeVariable {
             RuntimeVariableProducer.REQUEST_INITIALIZATION,
             RuntimeVariableChannel.SYSTEM_PROMPT,
             RuntimeVariableChannel.USER_PROMPT,
-            RuntimeVariableChannel.QUERY_REWRITE_PROMPT,
+            RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
     SYSTEM_CURRENT_DATE(
             RuntimeVariableGroup.SYSTEM,
@@ -34,7 +34,7 @@ public enum BuiltInRuntimeVariable {
             RuntimeVariableProducer.REQUEST_INITIALIZATION,
             RuntimeVariableChannel.SYSTEM_PROMPT,
             RuntimeVariableChannel.USER_PROMPT,
-            RuntimeVariableChannel.QUERY_REWRITE_PROMPT,
+            RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
     SYSTEM_TIMEZONE(
             RuntimeVariableGroup.SYSTEM,
@@ -45,7 +45,7 @@ public enum BuiltInRuntimeVariable {
             RuntimeVariableProducer.REQUEST_INITIALIZATION,
             RuntimeVariableChannel.SYSTEM_PROMPT,
             RuntimeVariableChannel.USER_PROMPT,
-            RuntimeVariableChannel.QUERY_REWRITE_PROMPT,
+            RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
     SYSTEM_LANGUAGE(
             RuntimeVariableGroup.SYSTEM,
@@ -56,7 +56,7 @@ public enum BuiltInRuntimeVariable {
             RuntimeVariableProducer.REQUEST_INITIALIZATION,
             RuntimeVariableChannel.SYSTEM_PROMPT,
             RuntimeVariableChannel.USER_PROMPT,
-            RuntimeVariableChannel.QUERY_REWRITE_PROMPT,
+            RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
     SYSTEM_PLATFORM_NAME(
             RuntimeVariableGroup.SYSTEM,
@@ -67,7 +67,7 @@ public enum BuiltInRuntimeVariable {
             RuntimeVariableProducer.REQUEST_INITIALIZATION,
             RuntimeVariableChannel.SYSTEM_PROMPT,
             RuntimeVariableChannel.USER_PROMPT,
-            RuntimeVariableChannel.QUERY_REWRITE_PROMPT,
+            RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
     COLLABORATION_MAX_DELEGATIONS(
             RuntimeVariableGroup.COLLABORATION,
@@ -88,7 +88,7 @@ public enum BuiltInRuntimeVariable {
             RuntimeVariableProducer.REQUEST_INITIALIZATION,
             RuntimeVariableChannel.SYSTEM_PROMPT,
             RuntimeVariableChannel.USER_PROMPT,
-            RuntimeVariableChannel.QUERY_REWRITE_PROMPT,
+            RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
     USER_NAME(
             RuntimeVariableGroup.USER,
@@ -98,7 +98,7 @@ public enum BuiltInRuntimeVariable {
             "当前用户显示名称",
             RuntimeVariableProducer.REQUEST_INITIALIZATION,
             RuntimeVariableChannel.USER_PROMPT,
-            RuntimeVariableChannel.QUERY_REWRITE_PROMPT,
+            RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
     USER_QUERY(
             RuntimeVariableGroup.USER,
@@ -108,7 +108,7 @@ public enum BuiltInRuntimeVariable {
             "当前轮用户输入",
             RuntimeVariableProducer.REQUEST_INITIALIZATION,
             RuntimeVariableChannel.USER_PROMPT,
-            RuntimeVariableChannel.QUERY_REWRITE_PROMPT,
+            RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
     SESSION_ID(
             RuntimeVariableGroup.SESSION,
@@ -119,7 +119,7 @@ public enum BuiltInRuntimeVariable {
             RuntimeVariableProducer.REQUEST_INITIALIZATION,
             RuntimeVariableChannel.SYSTEM_PROMPT,
             RuntimeVariableChannel.USER_PROMPT,
-            RuntimeVariableChannel.QUERY_REWRITE_PROMPT,
+            RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
     SESSION_HISTORY(
             RuntimeVariableGroup.SESSION,
@@ -139,34 +139,17 @@ public enum BuiltInRuntimeVariable {
             RuntimeVariableProducer.CONVERSATION_HISTORY,
             RuntimeVariableChannel.SYSTEM_PROMPT,
             RuntimeVariableChannel.USER_PROMPT,
-            RuntimeVariableChannel.QUERY_REWRITE_PROMPT,
+            RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
-    QUERY_REWRITE_HISTORY(
+    CONTEXTUALIZATION_HISTORY(
             RuntimeVariableGroup.QUERY,
-            "rewrite_history",
-            "问题改写历史",
+            "contextualization_history",
+            "问题上下文化历史",
             PromptVariableDataType.MESSAGE_LIST,
-            "按照问题改写策略裁剪的会话消息列表",
+            "按照问题上下文化策略裁剪的会话消息列表",
             RuntimeVariableProducer.CONVERSATION_HISTORY,
-            RuntimeVariableChannel.QUERY_REWRITE_PROMPT,
+            RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
             RuntimeVariableChannel.STRUCTURED_MESSAGE,
-            RuntimeVariableChannel.NODE_CONTEXT),
-    KNOWLEDGE_RETRIEVAL_QUERY(
-            RuntimeVariableGroup.KNOWLEDGE,
-            "retrieval_query",
-            "知识检索问题",
-            PromptVariableDataType.STRING,
-            "问题改写完成后供向量召回使用的独立问题",
-            RuntimeVariableProducer.QUERY_REWRITE,
-            RuntimeVariableChannel.NODE_CONTEXT),
-    KNOWLEDGE_CONTEXT(
-            RuntimeVariableGroup.KNOWLEDGE,
-            "context",
-            "知识库上下文",
-            PromptVariableDataType.STRING,
-            "本轮向量召回后可供用户消息引用的知识库上下文",
-            RuntimeVariableProducer.KNOWLEDGE_RETRIEVAL,
-            RuntimeVariableChannel.USER_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
     LONG_TERM_MEMORY(
             RuntimeVariableGroup.SESSION,

@@ -19,9 +19,13 @@ import java.util.Objects;
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class UserProfileMemoryConfig {
 
+    /** 是否启用用户画像提取。 */
     private boolean enabled;
+    /** Chat 模型实例主键。 */
     private Long chatModelInstanceId;
+    /** 已发布 PromptVersion 主键。 */
     private Long promptVersionId;
+    /** 画像更新策略，默认 MERGE。 */
     private UserProfileUpdateStrategy updateStrategy;
 
     public UserProfileUpdateStrategy effectiveUpdateStrategy() {

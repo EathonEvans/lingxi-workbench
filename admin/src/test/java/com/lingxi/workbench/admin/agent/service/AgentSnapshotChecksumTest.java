@@ -1,13 +1,10 @@
 package com.lingxi.workbench.admin.agent.service;
 
-import com.lingxi.workbench.admin.agent.common.enums.AgentType;
-import com.lingxi.workbench.admin.agent.common.enums.KnowledgeBindingMode;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
 import com.lingxi.workbench.admin.agent.model.config.AgentDefinition;
-import com.lingxi.workbench.admin.agent.model.config.AgentKnowledgeBinding;
-import com.lingxi.workbench.admin.agent.model.config.AgentMemoryPolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
-import com.lingxi.workbench.admin.agent.model.config.QueryRewritePolicy;
+import com.lingxi.workbench.admin.agent.model.config.KnowledgeSearchCapabilitySnapshot;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -35,8 +32,6 @@ class AgentSnapshotChecksumTest {
     void defaultPoliciesShouldSatisfyBeanValidation() {
         try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
             Validator validator = factory.getValidator();
-            assertThat(validator.validate(AgentMemoryPolicy.defaults())).isEmpty();
-            assertThat(validator.validate(QueryRewritePolicy.defaults())).isEmpty();
             assertThat(validator.validate(RetrievalPolicy.defaults())).isEmpty();
             assertThat(validator.validate(GenerationPolicy.defaults())).isEmpty();
             assertThat(validator.validate(AgentRuntimePolicy.defaults())).isEmpty();
@@ -44,23 +39,19 @@ class AgentSnapshotChecksumTest {
     }
 
     private static AgentDefinition definition(int topK) {
-        RetrievalPolicy retrieval = RetrievalPolicy.defaults();
-        retrieval.setTopK(topK);
         return AgentDefinition.builder()
-                .schemaVersion(2)
-                .agentType(AgentType.RAG_CHAT)
+                .schemaVersion(4)
+                .agentType(AgentType.REACT)
                 .chatModelInstanceId(10L)
                 .systemPromptVersionId(20L)
                 .userPromptVersionId(21L)
-                .knowledge(AgentKnowledgeBinding.builder()
+                .knowledgeSearch(KnowledgeSearchCapabilitySnapshot.builder()
                         .knowledgeBaseId(30L)
+                        .knowledgeIndexVersionId(31L)
                         .embeddingModelInstanceId(40L)
-                        .bindingMode(KnowledgeBindingMode.LATEST)
-                        .priority(0)
+                        .topK(topK)
+                        .maxResultTokens(4000)
                         .build())
-                .memoryPolicy(AgentMemoryPolicy.defaults())
-                .rewritePolicy(QueryRewritePolicy.defaults())
-                .retrievalPolicy(retrieval)
                 .generationPolicy(GenerationPolicy.defaults())
                 .runtimePolicy(AgentRuntimePolicy.defaults())
                 .build();

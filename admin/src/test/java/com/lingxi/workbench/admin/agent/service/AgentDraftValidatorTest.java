@@ -1,11 +1,9 @@
 package com.lingxi.workbench.admin.agent.service;
 
-import com.lingxi.workbench.admin.agent.common.enums.AgentType;
-import com.lingxi.workbench.admin.agent.model.config.AgentMemoryPolicy;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
 import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
-import com.lingxi.workbench.admin.agent.model.config.QueryRewritePolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
 import com.lingxi.workbench.admin.agent.model.entity.AgentDraftEntity;
 import com.lingxi.workbench.admin.agent.model.entity.AgentDraftKnowledgeEntity;
@@ -43,14 +41,12 @@ import org.junit.jupiter.api.Test;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.verify;
 
 class AgentDraftValidatorTest {
 
@@ -58,13 +54,12 @@ class AgentDraftValidatorTest {
     private static final long EMBEDDING_MODEL_ID = 11L;
     private static final long SYSTEM_VERSION_ID = 20L;
     private static final long USER_VERSION_ID = 21L;
-    private static final long REWRITE_VERSION_ID = 22L;
 
     private InMemoryModelRepo modelRepo;
     private InMemoryPromptRepo promptRepo;
     private InMemoryPromptVersionRepo promptVersionRepo;
     private InMemoryKnowledgeBaseRepo knowledgeBaseRepo;
-    private KnowledgeIndexVersionService knowledgeIndexVersionService;
+    private StubKnowledgeIndexVersionService knowledgeIndexVersionService;
     private AgentDraftValidator validator;
 
     @BeforeEach
@@ -75,7 +70,7 @@ class AgentDraftValidatorTest {
         knowledgeBaseRepo = new InMemoryKnowledgeBaseRepo();
         ToolParameterSchemaFactory parameterSchemaFactory = new ToolParameterSchemaFactory();
         ToolService toolService = new ToolServiceImpl(new InMemoryToolRepo(), new ToolConverter(parameterSchemaFactory), parameterSchemaFactory, null, null);
-        knowledgeIndexVersionService = mock(KnowledgeIndexVersionService.class);
+        knowledgeIndexVersionService = new StubKnowledgeIndexVersionService();
         validator = new AgentDraftValidator(
                 modelRepo,
                 promptRepo,
@@ -98,47 +93,12 @@ class AgentDraftValidatorTest {
                 USER_VERSION_ID,
                 31L,
                 PromptRole.USER,
-                userVariables());
+                reactUserVariables());
 
         AgentValidationResultVO result = validator.validate(
                 activeAgent(),
                 validDraft(),
-                knowledgeBinding());
-
-        assertTrue(result.valid());
-    }
-
-    @Test
-    void shouldAcceptCompleteQueryRewriteConfiguration() {
-        preparePrompt(
-                USER_VERSION_ID,
-                31L,
-                PromptRole.USER,
-                userVariables());
-        preparePrompt(
-                REWRITE_VERSION_ID,
-                32L,
-                PromptRole.SYSTEM,
-                List.of(
-                        variable(
-                                "user.query",
-                                PromptVariableType.STRING,
-                                true),
-                        variable(
-                                "query.rewrite_history",
-                                PromptVariableType.MESSAGE_LIST,
-                                true)));
-        AgentDraftEntity draft = validDraft();
-        QueryRewritePolicy rewritePolicy = QueryRewritePolicy.defaults();
-        rewritePolicy.setEnabled(true);
-        draft.setRewritePolicy(rewritePolicy);
-        draft.setRewriteModelInstanceId(CHAT_MODEL_ID);
-        draft.setRewritePromptVersionId(REWRITE_VERSION_ID);
-
-        AgentValidationResultVO result = validator.validate(
-                activeAgent(),
-                draft,
-                knowledgeBinding());
+                null);
 
         assertTrue(result.valid());
     }
@@ -157,7 +117,7 @@ class AgentDraftValidatorTest {
                 USER_VERSION_ID,
                 31L,
                 PromptRole.USER,
-                userVariables());
+                reactUserVariables());
 
         AgentValidationResultVO result = validator.validate(
                 activeAgent(),
@@ -172,41 +132,7 @@ class AgentDraftValidatorTest {
     }
 
     @Test
-    void shouldRejectVariableUnavailableDuringQueryRewrite() {
-        preparePrompt(
-                USER_VERSION_ID,
-                31L,
-                PromptRole.USER,
-                userVariables());
-        preparePrompt(
-                REWRITE_VERSION_ID,
-                32L,
-                PromptRole.SYSTEM,
-                List.of(variable(
-                        "knowledge.context",
-                        PromptVariableType.STRING,
-                        true)));
-        AgentDraftEntity draft = validDraft();
-        QueryRewritePolicy rewritePolicy = QueryRewritePolicy.defaults();
-        rewritePolicy.setEnabled(true);
-        draft.setRewritePolicy(rewritePolicy);
-        draft.setRewriteModelInstanceId(CHAT_MODEL_ID);
-        draft.setRewritePromptVersionId(REWRITE_VERSION_ID);
-
-        AgentValidationResultVO result = validator.validate(
-                activeAgent(),
-                draft,
-                knowledgeBinding());
-        List<String> issueCodes = result.issues().stream()
-                .map(AgentValidationIssueVO::code)
-                .toList();
-
-        assertFalse(result.valid());
-        assertTrue(issueCodes.contains("REWRITE_PROMPT_VARIABLE_UNSAFE"));
-    }
-
-    @Test
-    void shouldRejectWrongUserPromptRoleAndMissingKnowledgeVariable() {
+    void shouldRejectWrongUserPromptRole() {
         preparePrompt(
                 USER_VERSION_ID,
                 31L,
@@ -223,7 +149,6 @@ class AgentDraftValidatorTest {
 
         assertFalse(result.valid());
         assertTrue(issueCodes.contains("USER_PROMPT_ROLE_INVALID"));
-        assertTrue(issueCodes.contains("USER_PROMPT_VARIABLE_MISSING"));
     }
 
     @Test
@@ -232,7 +157,7 @@ class AgentDraftValidatorTest {
                 USER_VERSION_ID,
                 31L,
                 PromptRole.USER,
-                userVariables());
+                reactUserVariables());
         AgentDraftEntity draft = validDraft();
         draft.setToolCodes(List.of("system_current_time"));
 
@@ -269,20 +194,19 @@ class AgentDraftValidatorTest {
     }
 
     @Test
-    void shouldRejectCollaborationVariableForRagAgent() {
+    void shouldRejectCollaborationVariableForReactAgent() {
         preparePrompt(
                 USER_VERSION_ID,
                 31L,
                 PromptRole.USER,
                 List.of(
                         variable("user.query", PromptVariableType.STRING, true),
-                        variable("knowledge.context", PromptVariableType.STRING, true),
                         variable("collaboration.max_delegations", PromptVariableType.INTEGER, true)));
 
         AgentValidationResultVO result = validator.validate(
-                activeAgent(AgentType.RAG_CHAT),
+                activeAgent(AgentType.REACT),
                 validDraft(),
-                knowledgeBinding());
+                null);
         List<String> issueCodes = result.issues().stream()
                 .map(AgentValidationIssueVO::code)
                 .toList();
@@ -303,8 +227,8 @@ class AgentDraftValidatorTest {
     }
 
     @Test
-    void shouldRejectKnowledgeVariableInSupervisorUserPrompt() {
-        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, userVariables());
+    void shouldRejectRemovedKnowledgeVariableInSupervisorUserPrompt() {
+        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, userVariablesWithRemovedKnowledgeContext());
         ModelInstanceEntity chatModel = model(CHAT_MODEL_ID, ModelType.CHAT, List.of(ModelCapability.STREAMING, ModelCapability.TOOL_CALLING));
         chatModel.setMaxTokens(4096);
         chatModel.setContextWindow(16000);
@@ -314,7 +238,7 @@ class AgentDraftValidatorTest {
         List<String> issueCodes = result.issues().stream().map(AgentValidationIssueVO::code).toList();
 
         assertFalse(result.valid());
-        assertTrue(issueCodes.contains("USER_PROMPT_VARIABLE_UNAVAILABLE"));
+        assertTrue(issueCodes.contains("USER_PROMPT_VARIABLE_UNSUPPORTED"));
     }
 
     @Test
@@ -337,7 +261,7 @@ class AgentDraftValidatorTest {
 
         assertFalse(result.valid());
         assertTrue(issueCodes.contains("CHAT_MODEL_TOOL_CALLING_REQUIRED"));
-        verify(knowledgeIndexVersionService).validatePublishable(40L, EMBEDDING_MODEL_ID);
+        assertTrue(knowledgeIndexVersionService.wasValidated(40L, EMBEDDING_MODEL_ID));
     }
 
     @Test
@@ -351,18 +275,18 @@ class AgentDraftValidatorTest {
         AgentValidationResultVO result = validator.validate(activeAgent(AgentType.REACT), validDraft(), knowledgeBinding());
 
         assertTrue(result.valid());
-        verify(knowledgeIndexVersionService).validatePublishable(40L, EMBEDDING_MODEL_ID);
+        assertTrue(knowledgeIndexVersionService.wasValidated(40L, EMBEDDING_MODEL_ID));
     }
 
     @Test
-    void shouldRejectLegacyKnowledgeContextVariableForReact() {
-        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, userVariables());
+    void shouldRejectRemovedKnowledgeContextVariableForReact() {
+        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, userVariablesWithRemovedKnowledgeContext());
 
         AgentValidationResultVO result = validator.validate(activeAgent(AgentType.REACT), validDraft(), null);
         List<String> issueCodes = result.issues().stream().map(AgentValidationIssueVO::code).toList();
 
         assertFalse(result.valid());
-        assertTrue(issueCodes.contains("USER_PROMPT_VARIABLE_UNAVAILABLE"));
+        assertTrue(issueCodes.contains("USER_PROMPT_VARIABLE_UNSUPPORTED"));
     }
 
     @Test
@@ -372,8 +296,7 @@ class AgentDraftValidatorTest {
         chatModel.setMaxTokens(4096);
         chatModel.setContextWindow(16000);
         modelRepo.put(chatModel);
-        doThrow(new BusinessException(HttpStatusEnum.CONFLICT, "知识索引向量缺失或维度不一致"))
-                .when(knowledgeIndexVersionService).validatePublishable(40L, EMBEDDING_MODEL_ID);
+        knowledgeIndexVersionService.failWith("知识索引向量缺失或维度不一致");
 
         AgentValidationResultVO result = validator.validate(activeAgent(AgentType.REACT), validDraft(), knowledgeBinding());
         List<String> issueCodes = result.issues().stream().map(AgentValidationIssueVO::code).toList();
@@ -435,7 +358,7 @@ class AgentDraftValidatorTest {
     }
 
     private static AgentEntity activeAgent() {
-        return activeAgent(AgentType.RAG_CHAT);
+        return activeAgent(AgentType.REACT);
     }
 
     private static AgentEntity activeAgent(AgentType agentType) {
@@ -451,8 +374,6 @@ class AgentDraftValidatorTest {
         draft.setChatModelInstanceId(CHAT_MODEL_ID);
         draft.setSystemPromptVersionId(SYSTEM_VERSION_ID);
         draft.setUserPromptVersionId(USER_VERSION_ID);
-        draft.setMemoryPolicy(AgentMemoryPolicy.defaults());
-        draft.setRewritePolicy(QueryRewritePolicy.defaults());
         draft.setRetrievalPolicy(RetrievalPolicy.defaults());
         draft.setGenerationPolicy(GenerationPolicy.defaults());
         draft.setRuntimePolicy(AgentRuntimePolicy.defaults());
@@ -468,7 +389,7 @@ class AgentDraftValidatorTest {
         return binding;
     }
 
-    private static List<PromptVariableDefinition> userVariables() {
+    private static List<PromptVariableDefinition> userVariablesWithRemovedKnowledgeContext() {
         return List.of(
                 variable("user.query", PromptVariableType.STRING, true),
                 variable("knowledge.context", PromptVariableType.STRING, false));
@@ -476,6 +397,34 @@ class AgentDraftValidatorTest {
 
     private static List<PromptVariableDefinition> reactUserVariables() {
         return List.of(variable("user.query", PromptVariableType.STRING, true));
+    }
+
+    private static final class StubKnowledgeIndexVersionService extends KnowledgeIndexVersionService {
+        private Long validatedKnowledgeBaseId;
+        private Long validatedEmbeddingModelId;
+        private String failureMessage;
+
+        private StubKnowledgeIndexVersionService() {
+            super(null, null, null, null, null);
+        }
+
+        @Override
+        public void validatePublishable(Long knowledgeBaseId, Long embeddingModelInstanceId) {
+            validatedKnowledgeBaseId = knowledgeBaseId;
+            validatedEmbeddingModelId = embeddingModelInstanceId;
+            if (Objects.nonNull(failureMessage)) {
+                throw new BusinessException(HttpStatusEnum.CONFLICT, failureMessage);
+            }
+        }
+
+        private boolean wasValidated(Long knowledgeBaseId, Long embeddingModelInstanceId) {
+            return knowledgeBaseId.equals(validatedKnowledgeBaseId)
+                    && embeddingModelInstanceId.equals(validatedEmbeddingModelId);
+        }
+
+        private void failWith(String message) {
+            failureMessage = message;
+        }
     }
 
     private static PromptVariableDefinition variable(

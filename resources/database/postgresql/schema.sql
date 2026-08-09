@@ -45,9 +45,7 @@ CREATE TABLE IF NOT EXISTS lingxi_core.sys_department
     sort_order  INTEGER      NOT NULL DEFAULT 0,
     status      VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE',
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_sys_department_parent
-        FOREIGN KEY (parent_id) REFERENCES lingxi_core.sys_department (id)
+    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uk_sys_department_code
@@ -57,23 +55,6 @@ CREATE INDEX IF NOT EXISTS idx_sys_department_parent
 
 COMMENT ON TABLE lingxi_core.sys_department IS '公司部门树';
 COMMENT ON COLUMN lingxi_core.sys_department.code IS '稳定的部门编码，不随部门名称修改';
-
--- 旧库重复执行脚本时，通过ADD COLUMN IF NOT EXISTS安全补齐所属部门字段。
-DO
-$$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'fk_sys_user_department'
-          AND conrelid = 'lingxi_core.sys_user'::REGCLASS
-    ) THEN
-        ALTER TABLE lingxi_core.sys_user
-            ADD CONSTRAINT fk_sys_user_department
-                FOREIGN KEY (department_id) REFERENCES lingxi_core.sys_department (id);
-    END IF;
-END
-$$;
 
 CREATE INDEX IF NOT EXISTS idx_sys_user_department
     ON lingxi_core.sys_user (department_id);
@@ -87,12 +68,11 @@ CREATE TABLE IF NOT EXISTS lingxi_core.sys_user_application_access
     disabled_at   TIMESTAMPTZ,
     updated_by    BIGINT,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_sys_user_application_access_user
-        FOREIGN KEY (user_id) REFERENCES lingxi_core.sys_user (id) ON DELETE CASCADE,
-    CONSTRAINT fk_sys_user_application_access_operator
-        FOREIGN KEY (updated_by) REFERENCES lingxi_core.sys_user (id)
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS idx_sys_user_application_access_operator
+    ON lingxi_core.sys_user_application_access (updated_by)
+    WHERE updated_by IS NOT NULL;
 
 COMMENT ON TABLE lingxi_core.sys_user_application_access IS '统一账号的应用端访问资格与扩展配置';
 
@@ -106,9 +86,7 @@ CREATE TABLE IF NOT EXISTS lingxi_audit.operation_log
     operator_user_id BIGINT       NOT NULL,
     action           VARCHAR(64)   NOT NULL,
     change_summary   VARCHAR(1000) NOT NULL,
-    created_at       TIMESTAMPTZ   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_operation_log_operator
-        FOREIGN KEY (operator_user_id) REFERENCES lingxi_core.sys_user (id)
+    created_at       TIMESTAMPTZ   NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_operation_log_target
@@ -155,8 +133,6 @@ CREATE TABLE IF NOT EXISTS lingxi_core.sys_menu
     status           VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE',
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at       TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_sys_menu_parent
-        FOREIGN KEY (parent_id) REFERENCES lingxi_core.sys_menu (id),
     CONSTRAINT ck_sys_menu_root_type
         CHECK (parent_id IS NOT NULL OR menu_type = 'DIRECTORY')
 );
@@ -177,11 +153,7 @@ CREATE TABLE IF NOT EXISTS lingxi_core.sys_user_role
     user_id    BIGINT NOT NULL,
     role_id    BIGINT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (user_id, role_id),
-    CONSTRAINT fk_sys_user_role_user
-        FOREIGN KEY (user_id) REFERENCES lingxi_core.sys_user (id) ON DELETE CASCADE,
-    CONSTRAINT fk_sys_user_role_role
-        FOREIGN KEY (role_id) REFERENCES lingxi_core.sys_role (id) ON DELETE CASCADE
+    PRIMARY KEY (user_id, role_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_sys_user_role_role
@@ -192,11 +164,7 @@ CREATE TABLE IF NOT EXISTS lingxi_core.sys_role_menu
     role_id    BIGINT NOT NULL,
     menu_id    BIGINT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (role_id, menu_id),
-    CONSTRAINT fk_sys_role_menu_role
-        FOREIGN KEY (role_id) REFERENCES lingxi_core.sys_role (id) ON DELETE CASCADE,
-    CONSTRAINT fk_sys_role_menu_menu
-        FOREIGN KEY (menu_id) REFERENCES lingxi_core.sys_menu (id) ON DELETE CASCADE
+    PRIMARY KEY (role_id, menu_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_sys_role_menu_menu
@@ -207,11 +175,7 @@ CREATE TABLE IF NOT EXISTS lingxi_core.sys_role_department
     role_id       BIGINT NOT NULL,
     department_id BIGINT NOT NULL,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (role_id, department_id),
-    CONSTRAINT fk_sys_role_department_role
-        FOREIGN KEY (role_id) REFERENCES lingxi_core.sys_role (id) ON DELETE CASCADE,
-    CONSTRAINT fk_sys_role_department_department
-        FOREIGN KEY (department_id) REFERENCES lingxi_core.sys_department (id) ON DELETE CASCADE
+    PRIMARY KEY (role_id, department_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_sys_role_department_department
@@ -251,8 +215,6 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_model_credential
     updated_by        BIGINT       NOT NULL,
     created_at        TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at        TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_ai_model_credential_provider
-        FOREIGN KEY (provider_id) REFERENCES lingxi_core.ai_model_provider (id),
     CONSTRAINT uk_ai_model_credential_name UNIQUE (provider_id, name),
     CONSTRAINT ck_ai_model_credential_secret CHECK (
         (status = 'REVOKED' AND secret_ciphertext IS NULL AND secret_iv IS NULL)
@@ -293,10 +255,6 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_model_instance
     updated_by             BIGINT       NOT NULL,
     created_at             TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_ai_model_instance_provider
-        FOREIGN KEY (provider_id) REFERENCES lingxi_core.ai_model_provider (id),
-    CONSTRAINT fk_ai_model_instance_credential
-        FOREIGN KEY (credential_id) REFERENCES lingxi_core.ai_model_credential (id),
     CONSTRAINT uk_ai_model_instance_code UNIQUE (code),
     CONSTRAINT ck_ai_model_instance_temperature CHECK (temperature IS NULL OR temperature BETWEEN 0 AND 2),
     CONSTRAINT ck_ai_model_instance_top_p CHECK (top_p IS NULL OR top_p BETWEEN 0 AND 1),
@@ -316,6 +274,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_ai_model_instance_default_type
     WHERE is_default = TRUE;
 CREATE INDEX IF NOT EXISTS idx_ai_model_instance_available
     ON lingxi_core.ai_model_instance (model_type, status, last_test_status);
+CREATE INDEX IF NOT EXISTS idx_ai_model_instance_provider
+    ON lingxi_core.ai_model_instance (provider_id);
+CREATE INDEX IF NOT EXISTS idx_ai_model_instance_credential
+    ON lingxi_core.ai_model_instance (credential_id);
 
 -- Prompt主记录维护稳定编码、启停状态和当前正式版本指针。
 CREATE TABLE IF NOT EXISTS lingxi_core.ai_prompt
@@ -354,8 +316,6 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_prompt_version
     updated_by     BIGINT       NOT NULL,
     created_at     TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_ai_prompt_version_prompt
-        FOREIGN KEY (prompt_id) REFERENCES lingxi_core.ai_prompt (id) ON DELETE CASCADE,
     CONSTRAINT uk_ai_prompt_version_no UNIQUE (prompt_id, version_no),
     CONSTRAINT ck_ai_prompt_version_no CHECK (version_no > 0)
 );
@@ -366,19 +326,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_ai_prompt_version_draft
 CREATE INDEX IF NOT EXISTS idx_ai_prompt_version_prompt
     ON lingxi_core.ai_prompt_version (prompt_id, version_no DESC);
 
--- 主表和版本表互相引用，待两个表均存在后补充正式版本外键。
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_ai_prompt_published_version'
-    ) THEN
-        ALTER TABLE lingxi_core.ai_prompt
-            ADD CONSTRAINT fk_ai_prompt_published_version
-            FOREIGN KEY (published_version_id)
-            REFERENCES lingxi_core.ai_prompt_version (id);
-    END IF;
-END
-$$;
+CREATE INDEX IF NOT EXISTS idx_ai_prompt_published_version
+    ON lingxi_core.ai_prompt (published_version_id)
+    WHERE published_version_id IS NOT NULL;
 
 -- Agent 控制面：稳定身份、可编辑草稿和不可变发布版本相互分离。
 CREATE TABLE IF NOT EXISTS lingxi_core.ai_agent
@@ -387,7 +337,7 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_agent
     name                 VARCHAR(64)  NOT NULL,
     code                 VARCHAR(64)  NOT NULL,
     description          VARCHAR(500),
-    agent_type           VARCHAR(32)  NOT NULL DEFAULT 'RAG_CHAT',
+    agent_type           VARCHAR(32)  NOT NULL DEFAULT 'REACT',
     status               VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE',
     published_version_id BIGINT,
     created_by           BIGINT       NOT NULL,
@@ -398,6 +348,8 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_agent
     CONSTRAINT ck_ai_agent_code CHECK (code = LOWER(BTRIM(code))),
     CONSTRAINT ck_ai_agent_status CHECK (status IN ('ACTIVE', 'DISABLED'))
 );
+CREATE INDEX IF NOT EXISTS idx_ai_agent_published_version
+    ON lingxi_core.ai_agent (published_version_id);
 
 -- Tool 控制面定义：运行端执行器按 code 注册，数据库不保存可执行代码。
 CREATE TABLE IF NOT EXISTS lingxi_core.ai_tool
@@ -473,15 +425,10 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_agent_draft
     base_version_id           BIGINT,
     schema_version            INTEGER      NOT NULL DEFAULT 4,
     chat_model_instance_id    BIGINT,
-    rewrite_model_instance_id BIGINT,
     system_prompt_version_id  BIGINT,
     user_prompt_version_id    BIGINT,
-    answer_prompt_version_id  BIGINT,
-    rewrite_prompt_version_id BIGINT,
     tool_codes                JSONB        NOT NULL DEFAULT '[]'::JSONB,
     tool_policy               JSONB        NOT NULL DEFAULT '{"maxToolCalls":2,"maxResultCharacters":8000}'::JSONB,
-    memory_policy             JSONB        NOT NULL,
-    rewrite_policy            JSONB        NOT NULL,
     retrieval_policy          JSONB        NOT NULL,
     generation_policy         JSONB        NOT NULL,
     runtime_policy            JSONB        NOT NULL,
@@ -492,21 +439,19 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_agent_draft
     created_at                TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uk_ai_agent_draft_agent UNIQUE (agent_id),
-    CONSTRAINT fk_ai_agent_draft_agent
-        FOREIGN KEY (agent_id) REFERENCES lingxi_core.ai_agent (id) ON DELETE CASCADE,
-    CONSTRAINT fk_ai_agent_draft_chat_model
-        FOREIGN KEY (chat_model_instance_id) REFERENCES lingxi_core.ai_model_instance (id),
-    CONSTRAINT fk_ai_agent_draft_rewrite_model
-        FOREIGN KEY (rewrite_model_instance_id) REFERENCES lingxi_core.ai_model_instance (id),
-    CONSTRAINT fk_ai_agent_draft_answer_prompt
-        FOREIGN KEY (answer_prompt_version_id) REFERENCES lingxi_core.ai_prompt_version (id),
-    CONSTRAINT fk_ai_agent_draft_rewrite_prompt
-        FOREIGN KEY (rewrite_prompt_version_id) REFERENCES lingxi_core.ai_prompt_version (id),
     CONSTRAINT ck_ai_agent_draft_schema_version CHECK (schema_version > 0),
     CONSTRAINT ck_ai_agent_draft_tool_codes CHECK (jsonb_typeof(tool_codes) = 'array'),
     CONSTRAINT ck_ai_agent_draft_tool_policy CHECK (jsonb_typeof(tool_policy) = 'object'),
     CONSTRAINT ck_ai_agent_draft_revision CHECK (revision >= 0)
 );
+CREATE INDEX IF NOT EXISTS idx_ai_agent_draft_base_version
+    ON lingxi_core.ai_agent_draft (base_version_id);
+CREATE INDEX IF NOT EXISTS idx_ai_agent_draft_chat_model
+    ON lingxi_core.ai_agent_draft (chat_model_instance_id);
+CREATE INDEX IF NOT EXISTS idx_ai_agent_draft_system_prompt
+    ON lingxi_core.ai_agent_draft (system_prompt_version_id);
+CREATE INDEX IF NOT EXISTS idx_ai_agent_draft_user_prompt
+    ON lingxi_core.ai_agent_draft (user_prompt_version_id);
 
 -- 草稿绑定知识库及其 Embedding 模型，发布时再冻结不可变知识索引版本。
 CREATE TABLE IF NOT EXISTS lingxi_core.ai_agent_draft_knowledge
@@ -520,13 +465,13 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_agent_draft_knowledge
     created_at                  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uk_ai_agent_draft_knowledge UNIQUE (agent_draft_id),
-    CONSTRAINT fk_ai_agent_draft_knowledge_draft
-        FOREIGN KEY (agent_draft_id) REFERENCES lingxi_core.ai_agent_draft (id) ON DELETE CASCADE,
-    CONSTRAINT fk_ai_agent_draft_knowledge_model
-        FOREIGN KEY (embedding_model_instance_id) REFERENCES lingxi_core.ai_model_instance (id),
     CONSTRAINT ck_ai_agent_draft_knowledge_mode CHECK (binding_mode IN ('LATEST')),
     CONSTRAINT ck_ai_agent_draft_knowledge_priority CHECK (priority >= 0)
 );
+CREATE INDEX IF NOT EXISTS idx_ai_agent_draft_knowledge_base
+    ON lingxi_core.ai_agent_draft_knowledge (knowledge_base_id);
+CREATE INDEX IF NOT EXISTS idx_ai_agent_draft_knowledge_model
+    ON lingxi_core.ai_agent_draft_knowledge (embedding_model_instance_id);
 
 CREATE TABLE IF NOT EXISTS lingxi_core.ai_agent_version
 (
@@ -541,8 +486,6 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_agent_version
     published_by        BIGINT       NOT NULL,
     published_at        TIMESTAMPTZ  NOT NULL,
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_ai_agent_version_agent
-        FOREIGN KEY (agent_id) REFERENCES lingxi_core.ai_agent (id) ON DELETE CASCADE,
     CONSTRAINT uk_ai_agent_version_no UNIQUE (agent_id, version_no),
     CONSTRAINT uk_ai_agent_version_snapshot UNIQUE (agent_id, snapshot_checksum),
     CONSTRAINT ck_ai_agent_version_no CHECK (version_no > 0),
@@ -561,35 +504,15 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_agent_version_knowledge
     priority                    INTEGER     NOT NULL DEFAULT 0,
     created_at                  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uk_ai_agent_version_knowledge UNIQUE (agent_version_id),
-    CONSTRAINT fk_ai_agent_version_knowledge_version
-        FOREIGN KEY (agent_version_id) REFERENCES lingxi_core.ai_agent_version (id) ON DELETE CASCADE,
-    CONSTRAINT fk_ai_agent_version_knowledge_model
-        FOREIGN KEY (embedding_model_instance_id) REFERENCES lingxi_core.ai_model_instance (id),
     CONSTRAINT ck_ai_agent_version_knowledge_mode CHECK (binding_mode IN ('LATEST')),
     CONSTRAINT ck_ai_agent_version_knowledge_priority CHECK (priority >= 0)
 );
+CREATE INDEX IF NOT EXISTS idx_ai_agent_version_knowledge_base
+    ON lingxi_core.ai_agent_version_knowledge (knowledge_base_id);
+CREATE INDEX IF NOT EXISTS idx_ai_agent_version_knowledge_model
+    ON lingxi_core.ai_agent_version_knowledge (embedding_model_instance_id);
 
--- 两个循环引用需在版本表创建完成后补充。
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_ai_agent_published_version'
-    ) THEN
-        ALTER TABLE lingxi_core.ai_agent
-            ADD CONSTRAINT fk_ai_agent_published_version
-            FOREIGN KEY (published_version_id) REFERENCES lingxi_core.ai_agent_version (id);
-    END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_ai_agent_draft_base_version'
-    ) THEN
-        ALTER TABLE lingxi_core.ai_agent_draft
-            ADD CONSTRAINT fk_ai_agent_draft_base_version
-            FOREIGN KEY (base_version_id) REFERENCES lingxi_core.ai_agent_version (id);
-    END IF;
-END
-$$;
-
--- AI Application 控制面：应用拥有Workflow，发布快照锁定具体AgentVersion。
+-- AI Application 控制面：发布快照锁定默认Agent、能力目录与可选快速路由。
 CREATE TABLE IF NOT EXISTS lingxi_core.ai_application
 (
     id                   BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
@@ -612,7 +535,7 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_application_draft
     id               BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
     application_id   BIGINT       NOT NULL,
     base_version_id  BIGINT,
-    schema_version   INTEGER      NOT NULL DEFAULT 1,
+    schema_version   INTEGER      NOT NULL DEFAULT 7,
     definition       JSONB        NOT NULL,
     revision         BIGINT       NOT NULL DEFAULT 0,
     change_note      VARCHAR(255),
@@ -621,7 +544,7 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_application_draft
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at       TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uk_ai_application_draft_application UNIQUE (application_id),
-    CONSTRAINT ck_ai_application_draft_schema CHECK (schema_version > 0),
+    CONSTRAINT ck_ai_application_draft_schema CHECK (schema_version = 7),
     CONSTRAINT ck_ai_application_draft_revision CHECK (revision >= 0)
 );
 
@@ -642,7 +565,7 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_application_version
     CONSTRAINT uk_ai_application_version_snapshot
         UNIQUE (application_id, snapshot_checksum),
     CONSTRAINT ck_ai_application_version_no CHECK (version_no > 0),
-    CONSTRAINT ck_ai_application_version_schema CHECK (schema_version > 0)
+    CONSTRAINT ck_ai_application_version_schema CHECK (schema_version = 7)
 );
 CREATE INDEX IF NOT EXISTS idx_ai_application_version_application
     ON lingxi_core.ai_application_version (application_id, version_no DESC);
@@ -668,14 +591,65 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_conversation
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at      TIMESTAMPTZ,
-    CONSTRAINT fk_ai_conversation_user
-        FOREIGN KEY (user_id) REFERENCES lingxi_core.sys_user (id),
     CONSTRAINT ck_ai_conversation_message_count CHECK (message_count >= 0)
 );
 
 CREATE INDEX IF NOT EXISTS idx_ai_conversation_user_time
     ON lingxi_core.ai_conversation (user_id, last_message_at DESC, id DESC)
     WHERE deleted_at IS NULL;
+
+-- 用户画像保存跨会话积累的稳定偏好，来源消息使用逻辑外键追溯。
+CREATE TABLE IF NOT EXISTS lingxi_core.ai_user_profile
+(
+    id                BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    user_id           BIGINT      NOT NULL,
+    profile           JSONB       NOT NULL DEFAULT '{}',
+    version           INTEGER     NOT NULL DEFAULT 1,
+    source_message_id BIGINT,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_ai_user_profile_user UNIQUE (user_id)
+);
+COMMENT ON TABLE lingxi_core.ai_user_profile IS '用户画像，跨会话累积的用户偏好与特征';
+COMMENT ON COLUMN lingxi_core.ai_user_profile.profile IS 'JSON 声明式画像，不存储可执行指令';
+COMMENT ON COLUMN lingxi_core.ai_user_profile.source_message_id IS '画像来源消息逻辑外键';
+
+-- 交互记录保存每次对话提炼的业务事实，Assistant 消息作为幂等逻辑外键。
+CREATE TABLE IF NOT EXISTS lingxi_core.ai_interaction_record
+(
+    id                   BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    user_id              BIGINT      NOT NULL,
+    conversation_id      BIGINT,
+    assistant_message_id BIGINT      NOT NULL,
+    summary              TEXT        NOT NULL,
+    entities             JSONB,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_ai_interaction_record_assistant UNIQUE (assistant_message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ai_interaction_record_user
+    ON lingxi_core.ai_interaction_record (user_id, created_at DESC);
+COMMENT ON TABLE lingxi_core.ai_interaction_record IS '交互记录，每次会话提炼的关键事件叙述';
+COMMENT ON COLUMN lingxi_core.ai_interaction_record.summary IS '用于记忆检索的业务事实摘要';
+COMMENT ON COLUMN lingxi_core.ai_interaction_record.entities IS '用于精确查询的结构化业务实体';
+COMMENT ON COLUMN lingxi_core.ai_interaction_record.assistant_message_id IS 'Assistant 消息逻辑外键，同时作为记忆后处理幂等键';
+
+-- 交互记录向量严格绑定 Embedding 模型及维度，record_id 为逻辑外键。
+CREATE TABLE IF NOT EXISTS lingxi_vector.interaction_record_vector
+(
+    id                          BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    record_id                   BIGINT      NOT NULL,
+    embedding_model_instance_id BIGINT      NOT NULL,
+    embedding_dimension         INTEGER     NOT NULL,
+    embedding                   VECTOR      NOT NULL,
+    created_at                  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_irv_record UNIQUE (record_id),
+    CONSTRAINT ck_irv_embedding_dimension CHECK (embedding_dimension > 0)
+);
+CREATE INDEX IF NOT EXISTS idx_irv_embedding_contract
+    ON lingxi_vector.interaction_record_vector
+    (embedding_model_instance_id, embedding_dimension, record_id);
+COMMENT ON TABLE lingxi_vector.interaction_record_vector IS '交互记录向量索引，用于按语义相似度检索历史交互';
+COMMENT ON COLUMN lingxi_vector.interaction_record_vector.record_id IS '交互记录逻辑外键，由服务校验和维护生命周期';
 
 -- 会话摘要快照只追加保存，全部关联字段均为带索引的逻辑外键。
 CREATE TABLE IF NOT EXISTS lingxi_core.ai_conversation_summary_snapshot
@@ -724,10 +698,6 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_conversation_message
     created_at        TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at        TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at      TIMESTAMPTZ,
-    CONSTRAINT fk_ai_conversation_message_conversation
-        FOREIGN KEY (conversation_id) REFERENCES lingxi_core.ai_conversation (id),
-    CONSTRAINT fk_ai_conversation_message_model
-        FOREIGN KEY (model_instance_id) REFERENCES lingxi_core.ai_model_instance (id),
     CONSTRAINT uk_ai_conversation_message_sequence UNIQUE (conversation_id, sequence_no),
     CONSTRAINT ck_ai_conversation_message_sequence CHECK (sequence_no > 0),
     CONSTRAINT ck_ai_conversation_message_tokens CHECK (
@@ -746,6 +716,9 @@ CREATE INDEX IF NOT EXISTS idx_ai_conversation_message_application
 CREATE INDEX IF NOT EXISTS idx_ai_conversation_message_application_version
     ON lingxi_core.ai_conversation_message (application_version_id)
     WHERE application_version_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_ai_conversation_message_model
+    ON lingxi_core.ai_conversation_message (model_instance_id)
+    WHERE model_instance_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS uk_ai_conversation_generating_message
     ON lingxi_core.ai_conversation_message (conversation_id)
     WHERE role = 'ASSISTANT' AND status = 'GENERATING';
@@ -770,26 +743,6 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_knowledge_base
 );
 CREATE INDEX IF NOT EXISTS idx_ai_knowledge_base_embedding_model
     ON lingxi_core.ai_knowledge_base (embedding_model_instance_id);
-
--- Agent 表创建早于知识库表，知识库外键在双方均存在后补充。
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_ai_agent_draft_knowledge_base'
-    ) THEN
-        ALTER TABLE lingxi_core.ai_agent_draft_knowledge
-            ADD CONSTRAINT fk_ai_agent_draft_knowledge_base
-            FOREIGN KEY (knowledge_base_id) REFERENCES lingxi_core.ai_knowledge_base (id);
-    END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_ai_agent_version_knowledge_base'
-    ) THEN
-        ALTER TABLE lingxi_core.ai_agent_version_knowledge
-            ADD CONSTRAINT fk_ai_agent_version_knowledge_base
-            FOREIGN KEY (knowledge_base_id) REFERENCES lingxi_core.ai_knowledge_base (id);
-    END IF;
-END
-$$;
 
 CREATE TABLE IF NOT EXISTS lingxi_core.ai_knowledge_document
 (
@@ -1363,6 +1316,76 @@ CREATE TABLE IF NOT EXISTS lingxi_core.ai_execution_event
 );
 CREATE INDEX IF NOT EXISTS idx_execution_event_run
     ON lingxi_core.ai_execution_event (run_id, sequence_no);
+
+-- Workflow 运行数据只记录安全元数据；关联字段均为带索引的逻辑外键。
+CREATE TABLE IF NOT EXISTS lingxi_core.ai_workflow_run
+(
+    id                     BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    run_id                 VARCHAR(64) NOT NULL,
+    execution_id           VARCHAR(64) NOT NULL,
+    assistant_message_id   BIGINT      NOT NULL,
+    conversation_id        BIGINT      NOT NULL,
+    user_id                BIGINT      NOT NULL,
+    application_id         BIGINT      NOT NULL,
+    application_version_id BIGINT      NOT NULL,
+    workflow_id            BIGINT      NOT NULL,
+    workflow_version_id    BIGINT      NOT NULL,
+    status                 VARCHAR(16) NOT NULL,
+    started_at             TIMESTAMPTZ NOT NULL,
+    finished_at            TIMESTAMPTZ,
+    error_code             VARCHAR(64),
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_workflow_run_id UNIQUE (run_id)
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_run_execution
+    ON lingxi_core.ai_workflow_run (execution_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_run_message
+    ON lingxi_core.ai_workflow_run (assistant_message_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_run_conversation
+    ON lingxi_core.ai_workflow_run (conversation_id, user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_run_app_version
+    ON lingxi_core.ai_workflow_run (application_version_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_run_workflow_version
+    ON lingxi_core.ai_workflow_run (workflow_id, workflow_version_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS lingxi_core.ai_workflow_node_attempt
+(
+    id              BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    run_id          VARCHAR(64) NOT NULL,
+    node_id         VARCHAR(64) NOT NULL,
+    node_type       VARCHAR(32) NOT NULL,
+    attempt_no      INTEGER     NOT NULL,
+    status          VARCHAR(16) NOT NULL,
+    started_at      TIMESTAMPTZ NOT NULL,
+    finished_at     TIMESTAMPTZ NOT NULL,
+    duration_millis BIGINT      NOT NULL,
+    error_code      VARCHAR(64),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_workflow_node_attempt UNIQUE (run_id, node_id, attempt_no),
+    CONSTRAINT ck_workflow_node_attempt_no CHECK (attempt_no > 0),
+    CONSTRAINT ck_workflow_node_duration CHECK (duration_millis >= 0)
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_node_attempt_run
+    ON lingxi_core.ai_workflow_node_attempt (run_id, started_at);
+
+CREATE TABLE IF NOT EXISTS lingxi_core.ai_workflow_run_event
+(
+    id            BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    run_id        VARCHAR(64)  NOT NULL,
+    sequence_no   BIGINT       NOT NULL,
+    event_type    VARCHAR(32)  NOT NULL,
+    node_id       VARCHAR(64),
+    node_type     VARCHAR(32),
+    display_name  VARCHAR(128),
+    node_status   VARCHAR(16),
+    message       VARCHAR(500),
+    occurred_at   TIMESTAMPTZ  NOT NULL,
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_workflow_run_event_sequence UNIQUE (run_id, sequence_no),
+    CONSTRAINT ck_workflow_run_event_sequence CHECK (sequence_no > 0)
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_run_event_run
+    ON lingxi_core.ai_workflow_run_event (run_id, sequence_no);
 
 CREATE TABLE IF NOT EXISTS lingxi_core.ai_interaction_session
 (

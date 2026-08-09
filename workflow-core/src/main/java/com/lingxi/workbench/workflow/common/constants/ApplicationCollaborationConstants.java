@@ -8,12 +8,7 @@ package com.lingxi.workbench.workflow.common.constants;
  *
  * <p>各常量说明：</p>
  * <ul>
- *   <li>{@code APPLICATION_SCHEMA_VERSION = 7} —
- *       当前 ApplicationDefinition 协议版本号。V1 只有 Workflow，
- *       V2 新增 collaboration 和 intentBinding，V3 新增上下文策略，
- *       V4 新增默认 ReAct Agent、能力目录和运行策略，V5 将意图树降级为
- *       可选快速路由，V6 将长期记忆拆分为三个独立配置，V7 补充画像更新、
- *       交互保留和摘要双阈值策略</li>
+ *   <li>{@code APPLICATION_SCHEMA_VERSION = 7} — 当前 ApplicationDefinition 协议版本号</li>
  *   <li>{@code MIN_MEMBER_AGENTS = 1} —
  *       启用协作时最少需要的成员 Agent 数量</li>
  *   <li>{@code MAX_MEMBER_AGENTS = 8} —

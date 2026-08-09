@@ -151,7 +151,7 @@ public final class ChatExecutionContext {
     /**
      * 汇总一次非流式中间节点返回的 Token 用量。
      *
-     * <p>问题改写、工具调用后的继续生成等模型请求都必须记录到同一个上下文，
+     * <p>问题上下文化、工具调用后的继续生成等模型请求都必须记录到同一个上下文，
      * 最终才能将完整 Agent 执行成本写回 Assistant 消息。</p>
      *
      * @param usage 本次模型请求返回的 Token 用量

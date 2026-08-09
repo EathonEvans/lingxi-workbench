@@ -19,8 +19,11 @@ import java.util.Objects;
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class MemoryConfig {
 
+    /** 用户画像提取配置。 */
     private UserProfileMemoryConfig profile;
+    /** 交互记录提取与检索配置。 */
     private InteractionRecordMemoryConfig interactionRecord;
+    /** 会话滚动摘要配置。 */
     private ConversationSummaryMemoryConfig summary;
 
     public UserProfileMemoryConfig profile() {

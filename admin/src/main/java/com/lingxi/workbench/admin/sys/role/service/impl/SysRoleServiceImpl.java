@@ -118,7 +118,9 @@ public class SysRoleServiceImpl implements SysRoleService {
         if (sysRoleRepo.countRoleUsers(id) > 0) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "角色仍分配给管理员，不能删除");
         }
-        // 数据库外键会级联删除角色菜单和角色部门关系。
+        // 角色关联使用逻辑外键，必须先清理关联表再删除角色主记录。
+        sysRoleRepo.replaceRoleMenus(id, Set.of());
+        sysRoleRepo.replaceRoleDepartments(id, Set.of());
         sysRoleRepo.delete(id);
     }
 

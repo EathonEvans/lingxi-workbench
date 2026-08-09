@@ -1,9 +1,11 @@
 package com.lingxi.workbench.workflow.engine.langgraph;
 
 import cn.hutool.core.text.CharSequenceUtil;
+import cn.hutool.core.util.IdUtil;
 import com.lingxi.workbench.workflow.exception.WorkflowDefinitionException;
 import com.lingxi.workbench.workflow.exception.WorkflowExecutionException;
 import com.lingxi.workbench.workflow.model.AgentNodeInvocation;
+import com.lingxi.workbench.workflow.model.IntentClassifierNodeInvocation;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowEdgeDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowExecutionRequest;
@@ -13,12 +15,16 @@ import com.lingxi.workbench.workflow.model.WorkflowNodeStatus;
 import com.lingxi.workbench.workflow.model.WorkflowNodeTrace;
 import com.lingxi.workbench.workflow.model.WorkflowNodeType;
 import com.lingxi.workbench.workflow.model.WorkflowRoute;
+import com.lingxi.workbench.workflow.model.WorkflowRunContext;
 import com.lingxi.workbench.workflow.model.config.AgentNodeConfig;
 import com.lingxi.workbench.workflow.model.config.ConditionNodeConfig;
 import com.lingxi.workbench.workflow.model.config.EndNodeConfig;
+import com.lingxi.workbench.workflow.model.config.IntentClassifierNodeConfig;
 import com.lingxi.workbench.workflow.service.AgentNodeInvoker;
+import com.lingxi.workbench.workflow.service.IntentClassifierNodeInvoker;
 import com.lingxi.workbench.workflow.service.WorkflowDefinitionValidator;
 import com.lingxi.workbench.workflow.service.WorkflowExecutor;
+import com.lingxi.workbench.workflow.service.WorkflowRunListener;
 import org.bsc.langgraph4j.CompiledGraph;
 import org.bsc.langgraph4j.GraphStateException;
 import org.bsc.langgraph4j.StateGraph;
@@ -28,9 +34,9 @@ import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static com.lingxi.workbench.workflow.common.constants.WorkflowStateConstants.APPLICATION_VERSION_ID_KEY;
 import static com.lingxi.workbench.workflow.common.constants.WorkflowStateConstants.EXECUTION_ID_KEY;
 import static com.lingxi.workbench.workflow.common.constants.WorkflowStateConstants.TRACES_KEY;
+import static com.lingxi.workbench.workflow.common.constants.WorkflowStateConstants.WORKFLOW_VERSION_ID_KEY;
 import static org.bsc.langgraph4j.StateGraph.END;
 import static org.bsc.langgraph4j.StateGraph.START;
 import static org.bsc.langgraph4j.action.AsyncEdgeAction.edge_async;
@@ -44,6 +50,7 @@ import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
  *   <li><b>编译阶段</b>：将 {@link WorkflowDefinition} 的节点和连线编译为 LangGraph4j StateGraph：
  *     <ul>
  *       <li>START 节点 → 按连线拓扑依次调度后续节点；</li>
+ *       <li>INTENT_CLASSIFIER 节点 → 调用锁定的意图树版本并输出标准识别结果；</li>
  *       <li>AGENT 节点 → 通过 {@link AgentNodeInvoker} 调用对应 Agent 版本执行推理；</li>
  *       <li>CONDITION 节点 → 根据变量值和操作符计算匹配分支，使用 conditional edge 路由；</li>
  *       <li>END 节点 → 按 outputMapping 提取最终输出。</li>
@@ -55,20 +62,28 @@ import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
  *       聚合为 {@link WorkflowNodeTrace} 列表，跟随状态流转。</li>
  * </ol>
  *
- * <p>领域模型、Application 版本和 Agent 版本均不依赖 LangGraph4j，该适配器是唯一的引擎依赖点。</p>
+ * <p>领域模型、Workflow 版本及节点锁定的资源版本均不依赖 LangGraph4j，该适配器是唯一的引擎依赖点。</p>
  */
 public class LangGraphWorkflowExecutor implements WorkflowExecutor {
 
     private final WorkflowDefinitionValidator validator;
     private final AgentNodeInvoker agentNodeInvoker;
+    private final IntentClassifierNodeInvoker intentClassifierNodeInvoker;
+    private final WorkflowRunListener runListener;
 
-    public LangGraphWorkflowExecutor(AgentNodeInvoker agentNodeInvoker) {
-        this(new WorkflowDefinitionValidator(), agentNodeInvoker);
+    public LangGraphWorkflowExecutor(AgentNodeInvoker agentNodeInvoker, IntentClassifierNodeInvoker intentClassifierNodeInvoker) {
+        this(new WorkflowDefinitionValidator(), agentNodeInvoker, intentClassifierNodeInvoker, WorkflowRunListener.noop());
     }
 
-    public LangGraphWorkflowExecutor(WorkflowDefinitionValidator validator, AgentNodeInvoker agentNodeInvoker) {
+    public LangGraphWorkflowExecutor(AgentNodeInvoker agentNodeInvoker, IntentClassifierNodeInvoker intentClassifierNodeInvoker, WorkflowRunListener runListener) {
+        this(new WorkflowDefinitionValidator(), agentNodeInvoker, intentClassifierNodeInvoker, runListener);
+    }
+
+    public LangGraphWorkflowExecutor(WorkflowDefinitionValidator validator, AgentNodeInvoker agentNodeInvoker, IntentClassifierNodeInvoker intentClassifierNodeInvoker, WorkflowRunListener runListener) {
         this.validator = Objects.requireNonNull(validator, "validator");
         this.agentNodeInvoker = Objects.requireNonNull(agentNodeInvoker, "agentNodeInvoker");
+        this.intentClassifierNodeInvoker = Objects.requireNonNull(intentClassifierNodeInvoker, "intentClassifierNodeInvoker");
+        this.runListener = Objects.requireNonNullElseGet(runListener, WorkflowRunListener::noop);
     }
 
     /**
@@ -85,18 +100,18 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
      *   │   │   ├─ 校验节点数量：必须有且仅有一个 START 和一个 END
      *   │   │   ├─ 校验每个节点：ID 非空不重复、类型非空、名称非空、配置非空、类型与配置匹配
      *   │   │   ├─ 校验连线：源/目标节点存在、不连接自身、条件边有 route、非条件边无 route、无重复连线
-     *   │   │   ├─ 校验出入度：START 无入边有1出边、END 有入边无出边、AGENT 有入边有1出边、CONDITION 有入边有2出边
+     *   │   │   ├─ 校验出入度：START 无入边有1出边、END 有入边无出边、执行节点有入边有1出边、CONDITION 有入边有2出边
      *   │   │   └─ 校验可达性与无环：所有节点从 START 可达，节点集合形成 DAG 无环路
      *   │   │
      *   │   └─ validateRequest(request)           -- 校验执行请求参数合法性
      *   │       ├─ executionId 非空非空白
-     *   │       ├─ applicationVersionId 非空非空白
+     *   │       ├─ workflowId / workflowVersionId 非空
      *   │       └─ inputs 的 key 不以下划线开头（保留下划线前缀给系统内部变量）
      *   │
      *   ├─ [2] 构建初始状态
      *   │   ├─ 将 request.inputs() 复制到 initialState（保留用户传入的业务变量）
      *   │   ├─ 注入 _executionId → 当前执行的唯一标识，贯穿全链路
-     *   │   └─ 注入 _applicationVersionId → 锁定本次执行绑定的发布版本
+     *   │   └─ 注入 _workflowVersionId → 锁定本次执行绑定的 Workflow 发布版本
      *   │
      *   ├─ [3] 编译阶段 compile(definition)
      *   │   ├─ 创建 StateGraph，注册 _traces 为 appender 通道（追加模式收集所有节点追踪）
@@ -116,17 +131,19 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
      *   │         ├─ 记录节点开始时间 startedAt = Instant.now()
      *   │         ├─ 调用 nodeInputs(node, state) 提取该节点的输入变量
      *   │         │   ├─ AGENT 节点：按 config.inputMapping 从全局状态中解析输入
+     *   │         │   ├─ INTENT_CLASSIFIER 节点：按 config.queryVariable 提取待识别文本
      *   │         │   ├─ CONDITION 节点：提取观测变量 config.variable 的当前值
      *   │         │   ├─ END 节点：按 config.outputMapping 从全局状态中解析变量
      *   │         │   └─ 其他节点：透传全部非保留变量（key 不以下划线开头）
      *   │         │
      *   │         ├─ 按节点类型分发执行：
      *   │         │   ├─ START / CONDITION / END → 返回空 Map（无业务输出）
+     *   │         │   ├─ INTENT_CLASSIFIER → executeIntentClassifier(node, state, inputs)
      *   │         │   └─ AGENT → executeAgent(node, state, inputs)
      *   │         │       ├─ 从 node.config 中解析 AgentNodeConfig
      *   │         │       ├─ 构建 AgentNodeInvocation 调用上下文
      *   │         │       │   ├─ executionId：当前执行 ID
-     *   │         │       │   ├─ applicationVersionId：发布版本 ID
+     *   │         │       │   ├─ workflowVersionId：Workflow 发布版本 ID
      *   │         │       │   ├─ nodeId：当前节点 ID
      *   │         │       │   ├─ agentId / agentVersionId：从 config 解析为 Long
      *   │         │       │   └─ inputs：节点输入变量
@@ -137,7 +154,7 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
      *   │         │
      *   │         ├─ 构建 WorkflowNodeTrace 记录本次节点执行信息：
      *   │         │   ├─ nodeId / nodeType：节点标识
-     *   │         │   ├─ status：SUCCEEDED（执行失败时异常向上传播，不在此处记录）
+     *   │         │   ├─ status：SUCCEEDED / FAILED
      *   │         │   ├─ startedAt / finishedAt：执行时间窗口
      *   │         │   ├─ inputs：节点接收的输入
      *   │         │   └─ outputs：节点产生的输出
@@ -164,7 +181,7 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
      * </pre>
      *
      * @param definition 不可变的工作流定义快照，包含节点列表和连线列表
-     * @param request    执行请求，包含 executionId、applicationVersionId 和初始输入变量
+     * @param request    执行请求，包含 executionId、workflowId、workflowVersionId 和初始输入变量
      * @return 执行结果，包含执行 ID、最终输出和节点追踪列表
      */
     @Override
@@ -177,22 +194,35 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
         // 系统保留变量以 _ 开头，用于全链路追踪和版本锁定
         Map<String, Object> initialState = new LinkedHashMap<>(request.inputs());
         initialState.put(EXECUTION_ID_KEY, request.executionId());
-        initialState.put(APPLICATION_VERSION_ID_KEY, request.applicationVersionId());
+        initialState.put(WORKFLOW_VERSION_ID_KEY, request.workflowVersionId());
+
+        WorkflowRunContext runContext = WorkflowRunContext.builder()
+                .runId(IdUtil.getSnowflakeNextIdStr())
+                .definition(definition)
+                .request(request)
+                .startedAt(Instant.now())
+                .build();
+        runListener.onRunStarted(runContext);
 
         try {
             // [3] 编译阶段：将灵析工作流定义编译为 LangGraph4j 可执行有向图
-            CompiledGraph<WorkflowGraphState> graph = compile(definition);
+            CompiledGraph<WorkflowGraphState> graph = compile(definition, runContext);
             // [4] 执行阶段 + [5] 结果收集：LangGraph4j 按拓扑顺序调度所有节点
             WorkflowGraphState finalState = graph.invoke(initialState)
                     .orElseThrow(() -> new WorkflowExecutionException("Workflow没有产生最终状态"));
             // [6] 返回结果：聚合执行 ID、最终输出和全部节点追踪
-            return new WorkflowExecutionResult(request.executionId(), resolveWorkflowOutputs(definition, finalState), finalState.traces());
+            WorkflowExecutionResult result = new WorkflowExecutionResult(request.executionId(), resolveWorkflowOutputs(definition, finalState), finalState.traces());
+            runListener.onRunSucceeded(runContext, result);
+            return result;
         } catch (WorkflowDefinitionException | WorkflowExecutionException exception) {
             // 业务异常直接重新抛出，保留原始错误码和上下文
+            notifyRunFailed(runContext, exception);
             throw exception;
         } catch (Exception exception) {
             // 非预期异常（如网络错误、序列化失败）提取根因后包装为统一业务异常
-            throw new WorkflowExecutionException("Workflow执行失败: " + definition.code(), rootCause(exception));
+            WorkflowExecutionException wrapped = new WorkflowExecutionException("Workflow执行失败: " + definition.code(), rootCause(exception));
+            notifyRunFailed(runContext, wrapped);
+            throw wrapped;
         }
     }
 
@@ -214,14 +244,14 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
      * @return 编译后的可执行图
      * @throws GraphStateException 图结构不合法时抛出
      */
-    private CompiledGraph<WorkflowGraphState> compile(WorkflowDefinition definition) throws GraphStateException {
+    private CompiledGraph<WorkflowGraphState> compile(WorkflowDefinition definition, WorkflowRunContext runContext) throws GraphStateException {
         // 创建状态图，TRACES_KEY 使用 appender 通道：各节点追加 trace 而非覆盖
         StateGraph<WorkflowGraphState> graph = new StateGraph<>(Map.of(TRACES_KEY, Channels.appender(ArrayList::new)), WorkflowGraphState::new);
 
         // 注册所有节点：每个节点绑定 node_async(state -> executeNode(node, state))，
         // LangGraph4j 在调度到该节点时执行此函数
         for (WorkflowNodeDefinition node : definition.nodes()) {
-            graph.addNode(node.id(), node_async(state -> executeNode(node, state)));
+            graph.addNode(node.id(), node_async(state -> executeNode(runContext, node, state)));
         }
 
         // 系统入口边：START → 工作流第一个节点（唯一 START 节点的执行入口）
@@ -276,6 +306,7 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
      *   <li>按节点类型分发：
      *     <ul>
      *       <li>START / CONDITION / END → 无业务输出，返回空 Map；</li>
+     *       <li>INTENT_CLASSIFIER → 调用锁定的意图树版本执行识别；</li>
      *       <li>AGENT → 调用 {@link #executeAgent(WorkflowNodeDefinition, WorkflowGraphState, Map)} 执行 Agent 推理。</li>
      *     </ul>
      *   </li>
@@ -287,35 +318,47 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
      * @param state 运行时的全局状态（已包含上游节点输出和系统变量）
      * @return 状态更新 Map，包含本节点的输出变量和追踪记录
      */
-    private Map<String, Object> executeNode(WorkflowNodeDefinition node, WorkflowGraphState state){
+    private Map<String, Object> executeNode(WorkflowRunContext runContext, WorkflowNodeDefinition node, WorkflowGraphState state) {
         // 记录节点开始时间，用于后续计算执行耗时
         Instant startedAt = Instant.now();
+        runListener.onNodeStarted(runContext, node, startedAt);
 
-        // 从全局状态中提取本节点的输入变量
-        Map<String, Object> inputs = nodeInputs(node, state);
+        Map<String, Object> inputs = Map.of();
+        try {
+            // 从全局状态中提取本节点的输入变量
+            inputs = nodeInputs(node, state);
 
-        // 按节点类型分发执行，不同类型产生不同的输出
-        // START / CONDITION / END 节点无业务输出；AGENT 节点调用 Agent 推理获取输出
-        Map<String, Object> outputs = switch (node.type()) {
-            case START, CONDITION, END -> Map.of();
-            case AGENT -> executeAgent(node, state, inputs);
-        };
+            // START / CONDITION / END 节点无业务输出，其他节点调用锁定的运行时能力
+            Map<String, Object> outputs = switch (node.type()) {
+                case START, CONDITION, END -> Map.of();
+                case INTENT_CLASSIFIER -> executeIntentClassifier(node, state, inputs);
+                case AGENT -> executeAgent(node, state, inputs);
+            };
+            WorkflowNodeTrace trace = nodeTrace(node, WorkflowNodeStatus.SUCCEEDED, startedAt, inputs, outputs, null);
+            runListener.onNodeSucceeded(runContext, node, trace);
 
-        // 构建节点执行追踪记录，记录输入、输出和时间窗口
-        WorkflowNodeTrace trace = WorkflowNodeTrace.builder()
+            // 合并节点输出变量，并通过 appender 通道追加节点追踪
+            Map<String, Object> stateUpdates = new LinkedHashMap<>(outputs);
+            stateUpdates.put(TRACES_KEY, List.of(trace));
+            return stateUpdates;
+        } catch (RuntimeException exception) {
+            WorkflowNodeTrace trace = nodeTrace(node, WorkflowNodeStatus.FAILED, startedAt, inputs, Map.of(), rootCause(exception).getMessage());
+            notifyNodeFailed(runContext, node, trace, exception);
+            throw exception;
+        }
+    }
+
+    private static WorkflowNodeTrace nodeTrace(WorkflowNodeDefinition node, WorkflowNodeStatus status, Instant startedAt, Map<String, Object> inputs, Map<String, Object> outputs, String errorMessage) {
+        return WorkflowNodeTrace.builder()
                 .nodeId(node.id())
                 .nodeType(node.type())
-                .status(WorkflowNodeStatus.SUCCEEDED)
+                .status(status)
                 .startedAt(startedAt)
                 .finishedAt(Instant.now())
                 .inputs(inputs)
                 .outputs(outputs)
+                .errorMessage(errorMessage)
                 .build();
-
-        // 构造状态更新 Map：合并节点输出变量 + 追加追踪记录
-        Map<String, Object> stateUpdates = new LinkedHashMap<>(outputs);
-        stateUpdates.put(TRACES_KEY, List.of(trace));
-        return stateUpdates;
     }
 
     /**
@@ -344,7 +387,7 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
         // 构建 Agent 调用上下文，包括执行 ID、版本 ID、节点 ID、Agent ID/版本和输入
         AgentNodeInvocation invocation = AgentNodeInvocation.builder()
                 .executionId(state.executionId())
-                .applicationVersionId(state.applicationVersionId())
+                .workflowVersionId(state.workflowVersionId())
                 .nodeId(node.id())
                 .agentId(config.agentId())
                 .agentVersionId(config.agentVersionId())
@@ -356,12 +399,35 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
 
         // 按 outputMapping 将 Agent 输出映射为工作流变量
         // outputMapping.key = Agent 输出变量名，outputMapping.value = 工作流变量名
+        return mapOutputs("Agent", node.id(), agentOutputs, config.outputMapping());
+    }
+
+    /** 调用锁定的意图树版本并将标准识别结果写入工作流变量。 */
+    private Map<String, Object> executeIntentClassifier(WorkflowNodeDefinition node, WorkflowGraphState state, Map<String, Object> inputs) {
+        IntentClassifierNodeConfig config = (IntentClassifierNodeConfig) node.config();
+        Object queryValue = inputs.get("query");
+        if (!(queryValue instanceof String query) || query.isBlank()) {
+            throw new WorkflowExecutionException("意图识别节点query必须是非空字符串: " + node.id());
+        }
+        IntentClassifierNodeInvocation invocation = IntentClassifierNodeInvocation.builder()
+                .executionId(state.executionId())
+                .nodeId(node.id())
+                .intentTreeId(config.intentTreeId())
+                .intentTreeVersionId(config.intentTreeVersionId())
+                .query(query)
+                .build();
+        Map<String, Object> outputs = intentClassifierNodeInvoker.invoke(invocation);
+        return mapOutputs("意图识别", node.id(), outputs, config.outputMapping());
+    }
+
+    private Map<String, Object> mapOutputs(String nodeType, String nodeId, Map<String, Object> outputs, Map<String, String> mapping) {
         Map<String, Object> workflowOutputs = new LinkedHashMap<>();
-        for (Map.Entry<String, String> mapping : config.outputMapping().entrySet()) {
-            if (!agentOutputs.containsKey(mapping.getKey())) {
-                throw new WorkflowExecutionException(CharSequenceUtil.format("Agent节点缺少声明的输出 {}:{}", mapping.getKey(), mapping.getKey()));
+        for (Map.Entry<String, String> entry : mapping.entrySet()) {
+            if (!outputs.containsKey(entry.getKey())) {
+                throw new WorkflowExecutionException(CharSequenceUtil.format(
+                        "{}节点缺少声明的输出 {}: {}", nodeType, entry.getKey(), nodeId));
             }
-            workflowOutputs.put(mapping.getValue(), agentOutputs.get(mapping.getKey()));
+            workflowOutputs.put(entry.getValue(), outputs.get(entry.getKey()));
         }
         return workflowOutputs;
     }
@@ -387,6 +453,9 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
         if (node.config() instanceof AgentNodeConfig config) {
             // AGENT 节点：按 inputMapping 解析，例如 {"query" → "user_question"} 从状态中取 user_question 的值
             return resolveInputMapping(config.inputMapping(), node.id(), state);
+        }
+        if (node.config() instanceof IntentClassifierNodeConfig config) {
+            return Map.of("query", requireStateValue(state, config.queryVariable(), node.id()));
         }
         if (node.config() instanceof ConditionNodeConfig config) {
             // CONDITION 节点：只需要观测变量的当前值
@@ -451,7 +520,10 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
         };
 
         // 返回路由方向，LangGraph4j 的 conditional edge 据此选择下一节点
-        return matched ? WorkflowRoute.MATCHED : WorkflowRoute.NOT_MATCHED;
+        if (matched) {
+            return WorkflowRoute.MATCHED;
+        }
+        return WorkflowRoute.NOT_MATCHED;
     }
 
     /**
@@ -508,7 +580,7 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
      * <p>校验规则：
      * <ul>
      *   <li>executionId 非空非空白，是本次执行的全链路唯一标识；</li>
-     *   <li>applicationVersionId 非空非空白，锁定执行时使用的发布版本；</li>
+     *   <li>workflowId 和 workflowVersionId 非空，锁定执行时使用的 Workflow 发布版本；</li>
      *   <li>inputs 的 key 不得以下划线 _ 开头，避免与系统保留变量冲突。</li>
      * </ul>
      *
@@ -519,11 +591,27 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
         if (request == null || request.executionId() == null || request.executionId().isBlank()) {
             throw new WorkflowExecutionException("Workflow executionId不能为空");
         }
-        if (request.applicationVersionId() == null || request.applicationVersionId().isBlank()) {
-            throw new WorkflowExecutionException("Workflow applicationVersionId不能为空");
+        if (request.workflowId() == null || request.workflowVersionId() == null) {
+            throw new WorkflowExecutionException("Workflow及其锁定版本不能为空");
         }
         if (request.inputs().keySet().stream().anyMatch(key -> key.startsWith("_"))) {
             throw new WorkflowExecutionException("Workflow输入变量不能以下划线开头");
+        }
+    }
+
+    private void notifyNodeFailed(WorkflowRunContext context, WorkflowNodeDefinition node, WorkflowNodeTrace trace, RuntimeException original) {
+        try {
+            runListener.onNodeFailed(context, node, trace);
+        } catch (RuntimeException listenerError) {
+            original.addSuppressed(listenerError);
+        }
+    }
+
+    private void notifyRunFailed(WorkflowRunContext context, RuntimeException original) {
+        try {
+            runListener.onRunFailed(context, original);
+        } catch (RuntimeException listenerError) {
+            original.addSuppressed(listenerError);
         }
     }
 

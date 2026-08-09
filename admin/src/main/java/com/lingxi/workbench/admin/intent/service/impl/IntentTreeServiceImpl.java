@@ -50,6 +50,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -134,6 +135,21 @@ public class IntentTreeServiceImpl implements IntentTreeService {
     public IntentTreeVersionDetailVO versionDetail(Long id, Long versionId) {
         requireTree(id);
         return converter.toVersionDetailVO(requireVersion(id, versionId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<IntentTreeReference> findReference(Long id) {
+        return intentTreeRepo.findById(id).map(tree -> new IntentTreeReference(
+                tree.getId(), tree.getStatus() == EnableStatus.ACTIVE,
+                tree.getPublishedVersionId(), tree.getName()));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<IntentTreeDefinition> findVersion(Long intentTreeId, Long versionId) {
+        return versionRepo.findByIntentTreeIdAndId(intentTreeId, versionId)
+                .map(IntentTreeVersionEntity::getDefinitionSnapshot);
     }
 
     @Override

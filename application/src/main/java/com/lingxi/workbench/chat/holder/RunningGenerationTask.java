@@ -31,11 +31,17 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
      * 对应数据库中的 Assistant 消息主键。
      */
     private final ChatTurnBO turn;
-    /** 所属用户主键。 */
+    /**
+     * 所属用户主键。
+     */
     private final Long userId;
-    /** 本轮冻结的 ApplicationVersion 主键。 */
+    /**
+     * 本轮冻结的 ApplicationVersion 主键。
+     */
     private final Long applicationVersionId;
-    /** Application 级记忆系统配置。 */
+    /**
+     * Application 级记忆系统配置。
+     */
     private final MemoryConfig memoryConfig;
     /**
      * Redis 增量事件仓库，使浏览器刷新和本机任务释放后仍可恢复工具状态与文本。

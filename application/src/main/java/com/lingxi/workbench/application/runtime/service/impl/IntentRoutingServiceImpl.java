@@ -2,16 +2,20 @@ package com.lingxi.workbench.application.runtime.service.impl;
 
 import cn.hutool.core.text.CharSequenceUtil;
 import com.lingxi.workbench.application.runtime.common.enums.IntentClarificationType;
+import com.lingxi.workbench.application.runtime.common.enums.IntentRecognitionStatus;
 import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingAction;
 import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingSessionStatus;
-import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.IntentClarificationContext;
+import com.lingxi.workbench.application.runtime.model.IntentRecognitionCandidate;
+import com.lingxi.workbench.application.runtime.model.IntentRecognitionRequest;
+import com.lingxi.workbench.application.runtime.model.IntentRecognitionResult;
 import com.lingxi.workbench.application.runtime.model.IntentRoutingResult;
 import com.lingxi.workbench.application.runtime.model.entity.IntentRoutingSessionEntity;
 import com.lingxi.workbench.application.runtime.model.entity.RuntimeIntentTreeVersionEntity;
 import com.lingxi.workbench.application.runtime.repo.IntentRoutingSessionRepo;
 import com.lingxi.workbench.application.runtime.repo.IntentTreeRuntimeRepo;
-import com.lingxi.workbench.application.runtime.repo.IntentVectorRuntimeRepo;
+import com.lingxi.workbench.application.runtime.service.IntentRecognitionService;
 import com.lingxi.workbench.application.runtime.service.IntentRoutingService;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
@@ -20,15 +24,9 @@ import com.lingxi.workbench.chat.model.request.ClarificationResponseRequest;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
-import com.lingxi.workbench.infra.ai.embedding.EmbeddingGateway;
-import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig;
-import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
-import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
-import com.lingxi.workbench.workflow.model.intent.IntentFallbackPolicy;
 import com.lingxi.workbench.workflow.model.intent.IntentNodeDefinition;
-import com.lingxi.workbench.workflow.model.intent.IntentRoutingPolicy;
 import com.lingxi.workbench.workflow.model.intent.IntentSlotDefinition;
 import com.lingxi.workbench.workflow.model.intent.IntentTreeDefinition;
 import lombok.Builder;
@@ -36,7 +34,6 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -58,8 +55,7 @@ import java.util.stream.Collectors;
  *
  * <h2>执行流程</h2>
  * <ol>
- *   <li><b>前置检查</b>：Application 是否启用意图路由？
- *       未启用 → 直通 Workflow（兼容已有 Application）。</li>
+ *   <li><b>前置检查</b>：Application 是否启用快速路由？未启用则交回执行大脑。</li>
  *   <li><b>加载版本快照</b>：读取 ApplicationVersion 中锁定的 IntentTreeVersion，
  *       解析 IntentTreeDefinition 并构建 code→node 索引。</li>
  *   <li><b>检查待处理澄清</b>：同一对话中是否有 PENDING 状态的澄清会话？
@@ -80,7 +76,7 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li><b>快速路由不使用 LLM 分类</b>：只在向量召回形成确定结果时直达锁定能力。</li>
  *   <li><b>澄清会话持久化</b>：存入 PostgreSQL 而非仅依赖 Redis。锁定
- *       applicationVersionId 和 intentTreeVersionId，防止澄清过程中新版本发布造成漂移。</li>
+ *       versionId 和 intentTreeVersionId，防止澄清过程中新版本发布造成漂移。</li>
  *   <li><b>模型兜底</b>：Schema V5 未命中、未映射或不安全歧义均交回 Planner/默认ReAct。</li>
  *   <li><b>分数可解释</b>：intentScore = max(原型相似度, 各正例相似度)，
  *       保持先简单可解释，权重融合待评测数据验证后增加。</li>
@@ -116,30 +112,19 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
      * 意图树版本只读查询
      */
     private final IntentTreeRuntimeRepo intentTreeRepo;
-    /**
-     * 向量余弦相似度召回
-     */
-    private final IntentVectorRuntimeRepo vectorRepo;
+    /** 复用发布意图树的纯向量识别能力。 */
+    private final IntentRecognitionService intentRecognitionService;
     /**
      * 澄清会话持久化
      */
     private final IntentRoutingSessionRepo sessionRepo;
-    /**
-     * 运行时模型配置服务（获取 Embedding 模型连接参数）
-     */
-    private final ModelRuntimeConfigService modelRuntimeConfigService;
-    /**
-     * Embedding 向量化网关
-     */
-    private final EmbeddingGateway embeddingGateway;
 
     /**
      * 意图路由入口。
      *
      * <p>每一条用户消息到达时调用此方法，优先级为：
      * <ol>
-     *   <li>V1-V4 未启用意图路由 → 直通历史 Workflow</li>
-     *   <li>V5 未启用快速路由 → 交回 Planner 或默认 ReAct Agent</li>
+     *   <li>未启用快速路由 → 交回 Planner 或默认 ReAct Agent</li>
      *   <li>存在 PENDING 澄清会话 → 恢复澄清流程</li>
      *   <li>否则 → 新请求全流程识别</li>
      * </ol>
@@ -151,18 +136,13 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
     @Override
     public IntentRoutingResult route(ConversationContext context, ClarificationResponseRequest clarificationResponse) {
 
-        ApplicationRuntimeSnapshot application = context.getApplicationSnapshot();
+        AppRuntimeSnapshot application = context.getApplicationSnapshot();
         LoginUser loginUser = context.getLoginUser();
         ChatTurnBO turn = context.getTurn();
         String originalQuery = context.getOriginalQuery();
-        boolean optionalMode = application.definition().schemaVersion() >= 5;
-        ApplicationIntentBinding binding = optionalMode
-                ? application.definition().optionalFastRoutes()
-                : application.definition().intentBinding();
+        ApplicationIntentBinding binding = application.definition().optionalFastRoutes();
         if (Objects.isNull(binding) || !binding.isEnabled()) {
-            return optionalMode
-                    ? IntentRoutingResult.noMatch(context.routingQuery())
-                    : IntentRoutingResult.workflow(null, context.routingQuery());
+            return IntentRoutingResult.noMatch(context.routingQuery());
         }
         // 加载发布版本中锁定的意图树版本快照
         RuntimeIntentTreeVersionEntity version = intentTreeRepo
@@ -178,7 +158,6 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
                 .version(version)
                 .definition(definition)
                 .nodesByCode(nodesByCode)
-                .optionalMode(optionalMode)
                 .build();
 
         // 步骤 1：检查是否存在待处理的澄清会话
@@ -212,7 +191,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
      * @param response    可选的澄清响应
      * @return 待处理的会话，无 PENDING 会话时为空
      */
-    private Optional<IntentRoutingSessionEntity> findPending(ApplicationRuntimeSnapshot application, ChatTurnBO turn, LoginUser loginUser, ClarificationResponseRequest response) {
+    private Optional<IntentRoutingSessionEntity> findPending(AppRuntimeSnapshot application, ChatTurnBO turn, LoginUser loginUser, ClarificationResponseRequest response) {
         if (Objects.nonNull(response) && CharSequenceUtil.isNotBlank(response.getClarificationId())) {
             long clarificationId;
             try {
@@ -224,7 +203,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
                     .findOwned(clarificationId, turn.conversationId(), loginUser.id())
                     .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "澄清会话不存在"));
             // 防御：澄清会话必须属于当前 ApplicationVersion，防止跨版本串话
-            if (!Objects.equals(session.getApplicationVersionId(), application.applicationVersionId())) {
+            if (!Objects.equals(session.getApplicationVersionId(), application.versionId())) {
                 throw new BusinessException(HttpStatusEnum.CONFLICT, "澄清会话不属于当前Application版本");
             }
             // 状态必须是 PENDING，已结束的会话要求用户重新发起
@@ -234,7 +213,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
             return Optional.of(session);
         }
         // 自动关联：查找同一对话中的最新 PENDING 会话
-        return sessionRepo.findPending(turn.conversationId(), loginUser.id(), application.applicationVersionId());
+        return sessionRepo.findPending(turn.conversationId(), loginUser.id(), application.versionId());
     }
 
     /**
@@ -268,7 +247,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         if (session.getExpiresAt().isBefore(OffsetDateTime.now())) {
             session.setStatus(IntentRoutingSessionStatus.EXPIRED);
             sessionRepo.update(session);
-            return configuration.isOptionalMode() ? IntentRoutingResult.noMatch(query) : null;
+            return IntentRoutingResult.noMatch(query);
         }
         // 提取用户提供的值（优先从结构化响应中取，其次用原始文本）
         String suppliedValue = structuredValue(response, query);
@@ -276,7 +255,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         if (CANCEL_WORDS.contains(suppliedValue.trim())) {
             session.setStatus(IntentRoutingSessionStatus.CANCELLED);
             sessionRepo.update(session);
-            return clarificationFailureResult(configuration, query);
+            return clarificationFailureResult(query);
         }
         if (session.getClarificationType() == IntentClarificationType.INTENT_DISAMBIGUATION) {
             // 歧义消解：尝试从用户回复中识别选择了哪个候选
@@ -321,41 +300,23 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
     private IntentRoutingResult routeFresh(RouteConfiguration configuration, String query,
                                            LoginUser loginUser, ChatTurnBO turn) {
         RuntimeIntentTreeVersionEntity version = configuration.getVersion();
-        // 步骤 1：获取 Embedding 模型配置并向量化用户输入
-        EmbeddingModelRuntimeConfig config = modelRuntimeConfigService
-                .getEmbeddingModelConfig(version.getEmbeddingModelInstanceId());
-        List<float[]> embedded = embeddingGateway.embed(List.of(query), config);
-        if (embedded.size() != 1 || embedded.getFirst() == null || embedded.getFirst().length == 0) {
-            throw new BusinessException(HttpStatusEnum.INTERNAL_SERVER_ERROR, "意图查询向量化失败");
+        IntentRecognitionResult recognition = intentRecognitionService.recognize(new IntentRecognitionRequest(
+                version.getIntentTreeId(), version.getId(), query));
+        if (recognition.status() == IntentRecognitionStatus.NOT_MATCHED) {
+            return fallbackResult(query);
         }
-        // 步骤 2：pgvector 余弦相似度召回 Top-K
-        IntentRoutingPolicy policy = configuration.getDefinition().routingPolicy();
-        List<IntentVectorRuntimeRepo.IntentCandidateRow> candidates = vectorRepo
-                .search(embedded.getFirst(), version.getId(), version.getEmbeddingModelInstanceId(), policy.topK())
-                .stream()
-                // 步骤 3：过滤低于阈值的候选
-                .filter(candidate -> BigDecimal.valueOf(candidate.similarity()).compareTo(policy.recallThreshold()) >= 0)
-                .toList();
-        // 步骤 4：无候选 → 未命中兜底
-        if (candidates.isEmpty()) {
-            return fallbackResult(configuration, query);
-        }
-        IntentVectorRuntimeRepo.IntentCandidateRow topCandidate = candidates.getFirst();
-        if (configuration.isOptionalMode() && !hasMapping(configuration, topCandidate.intentCode())) {
+        IntentRecognitionCandidate topCandidate = recognition.candidates().getFirst();
+        if (!hasMapping(configuration, topCandidate.intentCode())) {
             return IntentRoutingResult.noMatch(query);
         }
-        List<IntentVectorRuntimeRepo.IntentCandidateRow> ambiguousCandidates = candidates.stream()
-                .takeWhile(candidate -> BigDecimal.valueOf(topCandidate.similarity() - candidate.similarity())
-                        .compareTo(policy.ambiguityMargin()) < 0)
-                .toList();
         // 可选模式只对全部候选都可确定执行的歧义提供选项，否则交由模型理解组合需求。
-        if (ambiguousCandidates.size() > 1) {
-            if (configuration.isOptionalMode()
-                    && ambiguousCandidates.stream().anyMatch(candidate -> !hasMapping(configuration, candidate.intentCode()))) {
+        if (recognition.status() == IntentRecognitionStatus.AMBIGUOUS) {
+            if (recognition.candidates().stream().anyMatch(
+                    candidate -> !hasMapping(configuration, candidate.intentCode()))) {
                 return IntentRoutingResult.noMatch(query);
             }
-            List<String> candidateCodes = ambiguousCandidates.stream()
-                    .map(IntentVectorRuntimeRepo.IntentCandidateRow::intentCode)
+            List<String> candidateCodes = recognition.candidates().stream()
+                    .map(IntentRecognitionCandidate::intentCode)
                     .toList();
             IntentClarificationContext clarificationContext = IntentClarificationContext.builder()
                     .originalQuery(query).candidateCodes(candidateCodes).collectedSlots(new LinkedHashMap<>()).build();
@@ -369,10 +330,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         String intentCode = topCandidate.intentCode();
         IntentNodeDefinition node = configuration.getNodesByCode().get(intentCode);
         if (Objects.isNull(node)) {
-            if (configuration.isOptionalMode()) {
-                return IntentRoutingResult.noMatch(query);
-            }
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "意图向量缺少对应的发布节点：" + intentCode);
+            return IntentRoutingResult.noMatch(query);
         }
         // 创建临时会话壳（不持久化，用于槽位检查的上下文传递）
         IntentRoutingSessionEntity transientSession = sessionShell(turn, loginUser, configuration, intentCode, query);
@@ -395,7 +353,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
      */
     private IntentRoutingResult resolveSlotsOrTarget(IntentRoutingSessionEntity session, String query,
                                                      RouteConfiguration configuration, IntentNodeDefinition node) {
-        if (configuration.isOptionalMode() && !hasMapping(configuration, node.getCode())) {
+        if (!hasMapping(configuration, node.getCode())) {
             return IntentRoutingResult.noMatch(query);
         }
         List<String> requiredSlots = requiredSlots(node);
@@ -448,7 +406,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         if (missing.isEmpty()) {
             session.setStatus(IntentRoutingSessionStatus.FAILED);
             sessionRepo.update(session);
-            return clarificationFailureResult(configuration, originalQuery);
+            return clarificationFailureResult(originalQuery);
         }
         // FIFO：取出第一个待收集的槽位
         String slotCode = missing.removeFirst();
@@ -462,7 +420,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
                 // 超轮次 → 失败兜底
                 session.setStatus(IntentRoutingSessionStatus.FAILED);
                 sessionRepo.update(session);
-                return clarificationFailureResult(configuration, originalQuery);
+                return clarificationFailureResult(originalQuery);
             }
             // 轮次 +1，更新过期时间，继续提问下一个槽位
             session.setRoundNo(session.getRoundNo() + 1);
@@ -492,7 +450,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         if (session.getRoundNo() >= MAX_CLARIFICATION_ROUNDS) {
             session.setStatus(IntentRoutingSessionStatus.FAILED);
             sessionRepo.update(session);
-            return clarificationFailureResult(configuration, session.getContext().getOriginalQuery());
+            return clarificationFailureResult(session.getContext().getOriginalQuery());
         }
         session.setRoundNo(session.getRoundNo() + 1);
         session.setExpiresAt(OffsetDateTime.now().plusMinutes(CLARIFICATION_TTL_MINUTES));
@@ -505,7 +463,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
     /**
      * 创建新的澄清会话并持久化。
      *
-     * <p>会话创建时锁定 applicationVersionId 和 intentTreeVersionId，
+     * <p>会话创建时锁定 versionId 和 intentTreeVersionId，
      * 设置 PENDING 状态、过期时间（10 分钟）和初始轮次（1）。</p>
      *
      * @param turn                对话轮次信息
@@ -522,7 +480,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         IntentRoutingSessionEntity session = new IntentRoutingSessionEntity();
         session.setConversationId(turn.conversationId());
         session.setUserId(loginUser.id());
-        session.setApplicationVersionId(configuration.getApplication().applicationVersionId());
+        session.setApplicationVersionId(configuration.getApplication().versionId());
         session.setIntentTreeVersionId(configuration.getVersion().getId());
         session.setStatus(IntentRoutingSessionStatus.PENDING);
         session.setClarificationType(type);
@@ -552,7 +510,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         IntentRoutingSessionEntity session = new IntentRoutingSessionEntity();
         session.setConversationId(turn.conversationId());
         session.setUserId(loginUser.id());
-        session.setApplicationVersionId(configuration.getApplication().applicationVersionId());
+        session.setApplicationVersionId(configuration.getApplication().versionId());
         session.setIntentTreeVersionId(configuration.getVersion().getId());
         session.setContext(IntentClarificationContext.builder()
                 .originalQuery(originalQuery)
@@ -582,7 +540,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         Optional<ApplicationIntentMapping> resolvedMapping = configuration.getBinding().mappings().stream()
                 .filter(item -> Objects.equals(item.getIntentCode(), intentCode))
                 .findFirst();
-        if (resolvedMapping.isEmpty() && configuration.isOptionalMode()) {
+        if (resolvedMapping.isEmpty()) {
             return IntentRoutingResult.noMatch(query);
         }
         ApplicationIntentMapping mapping = resolvedMapping.orElseThrow(() ->
@@ -601,31 +559,12 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
                 .build();
     }
 
-    /**
-     * 构建固定答复结果（兜底文案）。
-     *
-     * @param response 预定义的固定文本
-     * @return FIXED_RESPONSE 动作的路由结果
-     */
-    private static IntentRoutingResult fixed(String response) {
-        return IntentRoutingResult.builder()
-                .action(IntentRoutingAction.FIXED_RESPONSE)
-                .response(response)
-                .build();
+    private static IntentRoutingResult fallbackResult(String query) {
+        return IntentRoutingResult.noMatch(query);
     }
 
-    private static IntentRoutingResult fallbackResult(RouteConfiguration configuration, String query) {
-        if (configuration.isOptionalMode()) {
-            return IntentRoutingResult.noMatch(query);
-        }
-        return fixed(fallback(configuration.getBinding()).unmatchedResponse());
-    }
-
-    private static IntentRoutingResult clarificationFailureResult(RouteConfiguration configuration, String query) {
-        if (configuration.isOptionalMode()) {
-            return IntentRoutingResult.noMatch(query);
-        }
-        return fixed(fallback(configuration.getBinding()).clarificationFailureResponse());
+    private static IntentRoutingResult clarificationFailureResult(String query) {
+        return IntentRoutingResult.noMatch(query);
     }
 
     private static boolean hasMapping(RouteConfiguration configuration, String intentCode) {
@@ -827,27 +766,14 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
                 : fallbackQuery;
     }
 
-    /**
-     * 获取意图绑定的兜底策略，强制非空。
-     *
-     * <p>发布时已校验兜底策略不可为空，运行时抛出 NPE 表示数据异常。</p>
-     *
-     * @param binding 意图绑定配置
-     * @return 非空的兜底策略
-     */
-    private static IntentFallbackPolicy fallback(ApplicationIntentBinding binding) {
-        return Objects.requireNonNull(binding.getFallbackPolicy(), "意图兜底策略不能为空");
-    }
-
     /** 单次路由使用的已发布快照，避免离散参数错位。 */
     @Getter
     @Builder
     private static class RouteConfiguration {
-        private final ApplicationRuntimeSnapshot application;
+        private final AppRuntimeSnapshot application;
         private final ApplicationIntentBinding binding;
         private final RuntimeIntentTreeVersionEntity version;
         private final IntentTreeDefinition definition;
         private final Map<String, IntentNodeDefinition> nodesByCode;
-        private final boolean optionalMode;
     }
 }

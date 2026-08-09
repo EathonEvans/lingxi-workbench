@@ -2,8 +2,10 @@
 
 > 历史设计说明：自 2026-08-07 起，Workflow 已升级为独立管理、独立发布的资源。
 > 新 Application 不再维护内嵌主 Workflow，而是通过意图叶子映射引用已发布
-> WorkflowVersion、AgentVersion 或固定答复。本文件中的内嵌 Workflow 仅用于理解和
-> 兼容迁移前快照，当前实现以 `application-intent-routing-v1.md` 和 Workflow 管理模块为准。
+> WorkflowVersion、AgentVersion 或固定答复。本文件中的内嵌 Workflow 仅用于理解历史设计，
+> 当前运行时不提供兼容读取，以目标架构文档和 Workflow 管理模块为准。
+> 当前 Chat 主链见 [Application 执行大脑 V1 开发计划](application-execution-brain-v1.md) 和
+> [Application 执行大脑 V1 代码设计](application-execution-brain-code-design-v1.md)。
 
 ## 1. 数据边界
 

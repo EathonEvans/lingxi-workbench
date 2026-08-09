@@ -2,7 +2,7 @@ package com.lingxi.workbench.application.runtime.service.impl;
 
 import cn.hutool.core.util.IdUtil;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
-import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionPlanSnapshotCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionRunStartCommand;
@@ -42,7 +42,7 @@ public class ExecutionPersistenceServiceImpl implements ExecutionPersistenceServ
     @Transactional
     public String startRun(ExecutionRunStartCommand command) {
         requireStartCommand(command);
-        ApplicationRuntimeSnapshot application = command.getApplication();
+        AppRuntimeSnapshot application = command.getApplication();
         ChatTurnBO turn = command.getTurn();
         PlannerPolicy policy = command.getPlannerPolicy();
         String runId = IdUtil.getSnowflakeNextIdStr();
@@ -52,7 +52,7 @@ public class ExecutionPersistenceServiceImpl implements ExecutionPersistenceServ
         run.setConversationId(turn.conversationId());
         run.setUserId(command.getUserId());
         run.setApplicationId(application.applicationId());
-        run.setApplicationVersionId(application.applicationVersionId());
+        run.setApplicationVersionId(application.versionId());
         run.setPlannerModelInstanceId(policy.getChatModelInstanceId());
         run.setPlannerPromptVersionId(policy.getPromptVersionId());
         runRepo.insert(run);

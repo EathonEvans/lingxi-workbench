@@ -2,11 +2,9 @@ package com.lingxi.workbench.admin.agent.model.entity;
 
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.lingxi.workbench.admin.agent.model.config.AgentMemoryPolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
-import com.lingxi.workbench.admin.agent.model.config.QueryRewritePolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
 import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
 import com.lingxi.workbench.framework.persistence.model.TimeEntity;
@@ -26,22 +24,16 @@ public class AgentDraftEntity extends TimeEntity {
     private Long baseVersionId;
     private Integer schemaVersion;
     private Long chatModelInstanceId;
-    private Long rewriteModelInstanceId;
     /** 回答阶段 SYSTEM 角色 PromptVersion 主键。 */
     private Long systemPromptVersionId;
     /** 回答阶段 USER 角色 PromptVersion 主键。 */
     private Long userPromptVersionId;
-    private Long rewritePromptVersionId;
     /** 当前草稿允许暴露给模型的本地工具编码。 */
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private List<String> toolCodes;
     /** 工具调用次数和结果大小边界。 */
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private AgentToolPolicy toolPolicy;
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
-    private AgentMemoryPolicy memoryPolicy;
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
-    private QueryRewritePolicy rewritePolicy;
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private RetrievalPolicy retrievalPolicy;
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)

@@ -3,6 +3,7 @@ package com.lingxi.workbench.framework.web.logging;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.alibaba.fastjson2.JSON;
 import jakarta.servlet.AsyncContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,6 +14,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -86,6 +88,28 @@ class ApiRequestLoggingFilterTest {
         assertTrue(message.contains("\"password\":\"******\""));
         assertFalse(message.contains("must-not-leak"));
         assertTrue(message.contains("处理结果：ok"));
+    }
+
+    @Test
+    void shouldRemoveSignedUrlParametersAndTruncateLargeResponse() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/auth/session");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        String signedUrl = "http://storage.local/avatar.png?X-Amz-Signature=secret-signature";
+        String largeValue = "x".repeat(5 * 1024);
+        LinkedHashMap<String, String> responseData = new LinkedHashMap<>();
+        responseData.put("avatarUrl", signedUrl);
+        responseData.put("content", largeValue);
+
+        filter.doFilter(request, response, (wrappedRequest, wrappedResponse) -> {
+            wrappedResponse.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            wrappedResponse.getWriter().write(JSON.toJSONString(responseData));
+        });
+
+        String message = singleLogMessage();
+        assertTrue(message.contains("http://storage.local/avatar.png"));
+        assertFalse(message.contains("X-Amz-Signature"));
+        assertFalse(message.contains("secret-signature"));
+        assertTrue(message.contains("...(已截断)"));
     }
 
     @Test

@@ -5,6 +5,7 @@ import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVersionStatus;
 import com.lingxi.workbench.admin.prompt.model.converter.PromptConverter;
 import com.lingxi.workbench.admin.prompt.model.entity.PromptEntity;
+import com.lingxi.workbench.admin.prompt.model.entity.PromptVariableDefinition;
 import com.lingxi.workbench.admin.prompt.model.entity.PromptVersionEntity;
 import com.lingxi.workbench.admin.prompt.model.request.PreviewPromptRequest;
 import com.lingxi.workbench.admin.prompt.model.request.PromptPageQuery;
@@ -100,11 +101,14 @@ public class PromptServiceImpl implements PromptService {
     public Optional<PromptVersionReference> findPublishedVersion(Long versionId) {
         return versionRepo.findById(versionId)
                 .filter(version -> version.getStatus() == PromptVersionStatus.PUBLISHED)
-                .flatMap(version -> promptRepo.findById(version.getPromptId())
-                        .map(prompt -> new PromptVersionReference(
-                                version.getId(),
-                                prompt.getRole(),
-                                prompt.getStatus() == EnableStatus.ACTIVE)));
+                .flatMap(version -> {
+                    List<PromptVariableDefinition> definitions = Objects.requireNonNullElseGet(version.getVariables(), List::of);
+                    List<PromptVariableReference> variables = definitions.stream()
+                            .map(variable -> new PromptVariableReference(variable.getName(), variable.getType()))
+                            .toList();
+                    return promptRepo.findById(version.getPromptId())
+                            .map(prompt -> new PromptVersionReference(version.getId(), prompt.getRole(), prompt.getStatus() == EnableStatus.ACTIVE, variables));
+                });
     }
 
     @Override

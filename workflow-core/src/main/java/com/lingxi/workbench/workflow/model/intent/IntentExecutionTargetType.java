@@ -8,7 +8,7 @@ package com.lingxi.workbench.workflow.model.intent;
  *   <li><b>WORKFLOW</b> — 目标为独立 Workflow 的已发布版本（WorkflowVersion）。
  *       发布 Application 时解析并锁定 targetId 和 targetVersionId。</li>
  *   <li><b>AGENT</b> — 目标为独立 Agent 的已发布版本（AgentVersion）。
- *       包含普通 RAG_CHAT 类型和 SUPERVISOR 多 Agent 调度类型。
+ *       包含 REACT 和 SUPERVISOR 类型。
  *       发布时解析 Agent 当前生效版本并锁定。</li>
  *   <li><b>FIXED_RESPONSE</b> — 目标为预定义的固定文本。不调用任何模型，
  *       不执行 Tool，不消耗 Token。适用于闲聊兜底、能力说明等场景。</li>

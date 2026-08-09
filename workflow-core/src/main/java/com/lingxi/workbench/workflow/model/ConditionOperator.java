@@ -1,7 +1,7 @@
 package com.lingxi.workbench.workflow.model;
 
 /**
- * POC 阶段支持的条件比较操作。
+ * 条件节点支持的确定性比较操作。
  */
 public enum ConditionOperator {
     /** 等于 */

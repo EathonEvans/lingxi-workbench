@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
 import com.lingxi.workbench.framework.persistence.model.TimeEntity;
+import com.lingxi.workbench.admin.workflow.model.config.WorkflowCanvasState;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -20,6 +21,8 @@ public class WorkflowDraftEntity extends TimeEntity {
     private Integer schemaVersion;
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private WorkflowDefinition definition;
+    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    private WorkflowCanvasState canvasState;
     private Long revision;
     private String changeNote;
     private Long createdBy;

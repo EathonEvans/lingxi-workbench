@@ -7,14 +7,14 @@ import com.lingxi.workbench.workflow.model.WorkflowNodeTrace;
 import java.util.List;
 import java.util.Map;
 
-import static com.lingxi.workbench.workflow.common.constants.WorkflowStateConstants.APPLICATION_VERSION_ID_KEY;
 import static com.lingxi.workbench.workflow.common.constants.WorkflowStateConstants.EXECUTION_ID_KEY;
 import static com.lingxi.workbench.workflow.common.constants.WorkflowStateConstants.TRACES_KEY;
+import static com.lingxi.workbench.workflow.common.constants.WorkflowStateConstants.WORKFLOW_VERSION_ID_KEY;
 
 /**
  * LangGraph4j 状态适配器，封装工作流运行期的全局状态读写。
  *
- * <p>负责从 AgentState 的 Map 通道中安全提取 executionId、applicationVersionId
+ * <p>负责从 AgentState 的 Map 通道中安全提取 executionId、workflowVersionId
  * 和节点追踪列表，对外屏蔽底层 LangGraph4j API。</p>
  */
 final class WorkflowGraphState extends AgentState {
@@ -35,14 +35,14 @@ final class WorkflowGraphState extends AgentState {
     }
 
     /**
-     * 获取本次执行绑定的 Application 发布版本 ID。
+     * 获取本次执行绑定的 Workflow 发布版本 ID。
      *
-     * @return 发布版本 ID 字符串
-     * @throws IllegalStateException 状态中不存在 applicationVersionId 时抛出
+     * @return WorkflowVersion 主键
+     * @throws IllegalStateException 状态中不存在 versionId 时抛出
      */
-    String applicationVersionId() {
-        return this.<String>value(APPLICATION_VERSION_ID_KEY)
-                .orElseThrow(() -> new IllegalStateException("Workflow applicationVersionId不存在"));
+    Long workflowVersionId() {
+        return this.<Long>value(WORKFLOW_VERSION_ID_KEY)
+                .orElseThrow(() -> new IllegalStateException("Workflow workflowVersionId不存在"));
     }
 
     /**

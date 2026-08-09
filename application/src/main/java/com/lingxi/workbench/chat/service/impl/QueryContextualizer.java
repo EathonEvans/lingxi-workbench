@@ -41,15 +41,19 @@ public class QueryContextualizer {
         TokenUsage usage = TokenUsage.empty();
         try {
             List<ChatHistoryMessage> history = toHistory(recentMessages);
-            variables.put(RuntimeVariableAccessors.QUERY_REWRITE_HISTORY, history);
+            variables.put(RuntimeVariableAccessors.CONTEXTUALIZATION_HISTORY, history);
+
             PromptRuntimeSnapshot prompt = promptRuntimeService.resolvePublished(policy.getPromptVersionId());
-            String systemPrompt = promptTemplateRenderer.renderQueryRewritePrompt(prompt, variables).trim();
+            String systemPrompt = promptTemplateRenderer.renderContextualizationPrompt(prompt, variables).trim();
+
             ChatModelRuntimeConfig modelConfig = chatModelResolver.resolve(policy.getChatModelInstanceId());
             modelConfig.setMaxTokens(policy.effectiveMaxOutputTokens());
+
             ChatCompletionCommand command = new ChatCompletionCommand(originalQuery, systemPrompt, history, modelConfig);
-            ChatCompletionResult result = Objects.requireNonNull(
-                    completionGateway.complete(command).block(Duration.ofSeconds(policy.effectiveTimeoutSeconds())),
+            ChatCompletionResult result = Objects
+                    .requireNonNull(completionGateway.complete(command).block(Duration.ofSeconds(policy.effectiveTimeoutSeconds())),
                     "上下文化模型未返回结果");
+
             usage = result.usage();
             return new ContextualizationResult(validateResult(result.content(), policy), usage);
         } catch (RuntimeException exception) {

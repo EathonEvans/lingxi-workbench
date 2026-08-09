@@ -84,7 +84,7 @@ class QueryContextualizerTest {
 
     private void prepareDependencies(ContextualizationPolicy policy) {
         when(promptRuntimeService.resolvePublished(policy.getPromptVersionId()))
-                .thenReturn(new PromptRuntimeSnapshot(policy.getPromptVersionId(), "请结合历史改写当前问题", List.of(), PromptRole.SYSTEM));
+                .thenReturn(new PromptRuntimeSnapshot(policy.getPromptVersionId(), "请结合历史将当前问题上下文化", List.of(), PromptRole.SYSTEM));
         when(modelResolver.resolve(policy.getChatModelInstanceId()))
                 .thenReturn(ChatModelRuntimeConfig.builder().instanceId(policy.getChatModelInstanceId()).maxTokens(2048).build());
     }

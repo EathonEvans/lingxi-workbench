@@ -2,45 +2,29 @@ package com.lingxi.workbench.application.runtime.service.impl.strategy;
 
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
-import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
-import com.lingxi.workbench.application.runtime.service.AgentChatPreparationStrategy;
 import com.lingxi.workbench.application.runtime.service.PromptRuntimeService;
 import com.lingxi.workbench.chat.model.ccontext.ModelChatContext;
 import com.lingxi.workbench.chat.service.impl.ModelRequestFactory;
-import lombok.RequiredArgsConstructor;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
 import org.springframework.stereotype.Component;
 
-import java.util.Objects;
-
-import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.REACT_AGENT_TYPE;
-
-/** ReAct Agent直接消费平台共享上下文，不执行旧问题改写、自动RAG或Prompt节点。 */
+/**
+ * ReAct Agent直接消费平台共享上下文，并按发布快照装配可调用工具。
+ */
 @Component
-@RequiredArgsConstructor
-public class ReactPreparationStrategy implements AgentChatPreparationStrategy {
-    private final PromptRuntimeService promptRuntimeService;
-    private final ModelRequestFactory modelRequestFactory;
+public class ReactPreparationStrategy extends AbstractAgentChatPreparationStrategy {
+
+    public ReactPreparationStrategy(PromptRuntimeService promptRuntimeService, ModelRequestFactory modelRequestFactory) {
+        super(promptRuntimeService, modelRequestFactory);
+    }
 
     @Override
-    public String agentType() {
-        return REACT_AGENT_TYPE;
+    public AgentType supportedAgentType() {
+        return AgentType.REACT;
     }
 
     @Override
     public ModelChatContext prepare(AgentRuntimeDefinition definition, ChatExecutionContext execution) {
-        PromptRuntimeSnapshot userPrompt = Objects.isNull(definition.getUserPromptVersionId())
-                ? null
-                : promptRuntimeService.resolvePublished(definition.getUserPromptVersionId());
-        ModelChatContext context = ModelChatContext.builder()
-                .runtimeVariables(execution.getRuntimeVariables())
-                .conversationContext(execution.getConversationContext())
-                .memoryConfig(execution.getMemoryConfig())
-                .systemPrompt(promptRuntimeService.resolvePublished(definition.resolveSystemPromptVersionId()))
-                .userPrompt(userPrompt)
-                .turn(execution.getTurn())
-                .modelUsageRecorder(execution::recordUsage)
-                .build();
-        context.setPromptPair(modelRequestFactory.createDirectPrompt(context));
-        return context;
+        return prepareDirect(definition, execution);
     }
 }

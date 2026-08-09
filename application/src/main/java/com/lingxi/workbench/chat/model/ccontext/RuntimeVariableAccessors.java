@@ -79,22 +79,12 @@ public final class RuntimeVariableAccessors {
     public static final RuntimeVariableAccessor<String> SESSION_SUMMARY =
             stringAccessor(BuiltInRuntimeVariable.SESSION_SUMMARY);
     /**
-     * 按问题改写策略独立裁剪后的历史消息。
+     * 按问题上下文化策略独立裁剪后的历史消息。
      */
-    public static final RuntimeVariableAccessor<List<ChatHistoryMessage>> QUERY_REWRITE_HISTORY =
-            historyAccessor(BuiltInRuntimeVariable.QUERY_REWRITE_HISTORY);
+    public static final RuntimeVariableAccessor<List<ChatHistoryMessage>> CONTEXTUALIZATION_HISTORY =
+            historyAccessor(BuiltInRuntimeVariable.CONTEXTUALIZATION_HISTORY);
     /**
-     * 问题改写节点产出的实际向量检索问题。
-     */
-    public static final RuntimeVariableAccessor<String> KNOWLEDGE_RETRIEVAL_QUERY =
-            stringAccessor(BuiltInRuntimeVariable.KNOWLEDGE_RETRIEVAL_QUERY);
-    /**
-     * 经过编号和 Token 预算处理后的知识库上下文。
-     */
-    public static final RuntimeVariableAccessor<String> KNOWLEDGE_CONTEXT =
-            stringAccessor(BuiltInRuntimeVariable.KNOWLEDGE_CONTEXT);
-    /**
-     * 长期记忆上下文，由 MemoryInjectionNode 注入。
+     * 长期记忆上下文，在应用执行前的统一上下文准备阶段注入。
      */
     public static final RuntimeVariableAccessor<String> LONG_TERM_MEMORY =
             stringAccessor(BuiltInRuntimeVariable.LONG_TERM_MEMORY);
@@ -137,9 +127,7 @@ public final class RuntimeVariableAccessors {
         register(accessors, SESSION_ID);
         register(accessors, SESSION_HISTORY);
         register(accessors, SESSION_SUMMARY);
-        register(accessors, QUERY_REWRITE_HISTORY);
-        register(accessors, KNOWLEDGE_RETRIEVAL_QUERY);
-        register(accessors, KNOWLEDGE_CONTEXT);
+        register(accessors, CONTEXTUALIZATION_HISTORY);
         register(accessors, LONG_TERM_MEMORY);
         return accessors;
     }

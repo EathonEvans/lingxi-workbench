@@ -1,5 +1,8 @@
 # 意图树独立管理与 Application 路由 V1 开发计划
 
+> 历史设计档案：强制 `intentBinding`、固定兜底和内嵌 Workflow 已删除，当前运行时不兼容本协议。
+> 当前设计见 [Application 执行大脑 V1 开发计划](application-execution-brain-v1.md) 和
+> [Application 执行大脑 V1 代码设计](application-execution-brain-code-design-v1.md)。
 > 状态：M1、M2 与可运行的 M4 主链路已实现；候选 LLM 复判和评测门禁待后续迭代  
 > 更新时间：2026-08-05  
 > 目标：以向量语义召回为候选入口，完成“识别、澄清、兜底、执行、评测”的最小闭环
@@ -240,7 +243,7 @@ clarificationRequest
 
 ## 6. 澄清与兜底
 
-新增 PostgreSQL 持久化的 `intent_routing_session`，Redis 仅可缓存，不作为唯一事实来源。会话同时锁定开始路由时的 `applicationVersionId` 和 `intentTreeVersionId`，避免澄清过程中任一资源发布新版本造成选项或执行目标漂移。
+新增 PostgreSQL 持久化的 `intent_routing_session`，Redis 仅可缓存，不作为唯一事实来源。会话同时锁定开始路由时的 `versionId` 和 `intentTreeVersionId`，避免澄清过程中任一资源发布新版本造成选项或执行目标漂移。
 
 ```text
 PENDING

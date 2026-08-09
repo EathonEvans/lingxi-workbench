@@ -4,7 +4,7 @@ import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionDecisionAction;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.common.enums.StepInputSource;
-import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.CapabilityExecutionResult;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.model.ExecutionDecision;
@@ -29,7 +29,7 @@ import com.lingxi.workbench.application.runtime.service.ExecutionPersistenceServ
 import com.lingxi.workbench.application.runtime.service.InteractionSessionService;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
-import com.lingxi.workbench.chat.model.ccontext.ContextBudget;
+import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
@@ -185,19 +185,19 @@ class PlanExecutionServiceImplTest {
         PlannerPolicy policy = PlannerPolicy.builder().enabled(true).chatModelInstanceId(21L).promptVersionId(22L)
                 .maxSteps(6).maxReplans(1).maxModelCalls(6).maxToolCalls(4).tokenBudget(12000).timeoutSeconds(60).build();
         ApplicationDefinition definition = ApplicationDefinition.builder()
-                .schemaVersion(4)
+                .schemaVersion(com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(new ApplicationAgentReference(1L, 2L, "默认助手", "处理普通任务"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(catalog).build())
                 .plannerPolicy(policy)
                 .build();
         return ConversationContext.builder()
-                .applicationSnapshot(new ApplicationRuntimeSnapshot(1L, "test-app", 2L, definition))
+                .applicationSnapshot(new AppRuntimeSnapshot(1L, "test-app", 2L, definition))
                 .loginUser(user)
                 .turn(turn)
                 .originalQuery("整理资料")
                 .contextualizedQuery("整理资料")
                 .recentMessages(List.of())
-                .budget(ContextBudget.builder().maxHistoryRounds(5).maxSystemPromptTokens(2000).maxCapabilityTokens(2000)
+                .budget(ContextBudgetPolicy.builder().maxHistoryRounds(5).maxSystemPromptTokens(2000).maxCapabilityTokens(2000)
                         .maxHistoryTokens(2000).maxMemoryTokens(2000).maxInputTokens(2000).maxObservationTokens(2000)
                         .reservedOutputTokens(1000).build())
                 .runtimeVariables(variables)
@@ -248,7 +248,7 @@ class PlanExecutionServiceImplTest {
             }
 
             @Override
-            public Optional<PlannerInteractionResolution> resolve(ApplicationRuntimeSnapshot application, ChatTurnBO turn, Long userId, String query, ClarificationResponseRequest response) {
+            public Optional<PlannerInteractionResolution> resolve(AppRuntimeSnapshot application, ChatTurnBO turn, Long userId, String query, ClarificationResponseRequest response) {
                 return Optional.empty();
             }
         };

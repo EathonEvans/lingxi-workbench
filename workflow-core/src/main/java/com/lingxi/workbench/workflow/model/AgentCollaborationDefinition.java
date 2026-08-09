@@ -26,7 +26,7 @@ import java.util.List;
  * <ul>
  *   <li>最少 1 个、最多 8 个成员</li>
  *   <li>Supervisor 不能同时出现在成员列表中</li>
- *   <li>成员 Agent 当前仅支持 RAG_CHAT 类型</li>
+ *   <li>成员 Agent 当前仅支持 REACT 类型</li>
  *   <li>成员必须是已发布状态的 Agent</li>
  * </ul>
  *

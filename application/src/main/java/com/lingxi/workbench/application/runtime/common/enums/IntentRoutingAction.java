@@ -24,6 +24,9 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum IntentRoutingAction {
 
+    /** 当前 Application 未启用快速路由，或正在恢复 Planner 交互。 */
+    SKIPPED("SKIPPED", "跳过快速路由"),
+
     /** 执行叶子映射锁定的 WorkflowVersion */
     EXECUTE_WORKFLOW("EXECUTE_WORKFLOW", "执行Workflow"),
 

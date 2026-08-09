@@ -24,6 +24,7 @@ import com.lingxi.workbench.framework.exceptions.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.concurrent.CancellationException;
 import java.util.Optional;
 import java.util.Set;
 
@@ -68,11 +69,20 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
     @Override
     public PlanExecutionResult execute(PlannerRuntimeRequest request) {
         publishPlanning(request.getRunId(), request.getExecutionContext());
-        PlannerResult plannerResult = plannerService.decide(PlannerRequest.builder()
-                .conversationContext(request.getConversationContext())
-                .planNo(1)
-                .confirmedCapabilityCodes(request.confirmedCapabilityCodes())
-                .build());
+        PlannerResult plannerResult;
+        try {
+            plannerResult = plannerService.decide(PlannerRequest.builder()
+                    .conversationContext(request.getConversationContext())
+                    .planNo(1)
+                    .confirmedCapabilityCodes(request.confirmedCapabilityCodes())
+                    .build());
+        } catch (CancellationException exception) {
+            publishInitialDecisionFailure(request, ExecutionEventType.RUN_CANCELLED, "规划已取消", exception);
+            throw exception;
+        } catch (RuntimeException exception) {
+            publishInitialDecisionFailure(request, ExecutionEventType.RUN_FAILED, "规划失败", exception);
+            throw exception;
+        }
         request.getExecutionContext().recordUsage(plannerResult.tokenUsage());
         return planExecutionService.execute(PlanExecutionRequest.builder()
                 .runId(request.getRunId())
@@ -82,6 +92,24 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
                 .confirmedCapabilityCodes(request.confirmedCapabilityCodes())
                 .startedAt(request.getStartedAt())
                 .build());
+    }
+
+    private void publishInitialDecisionFailure(PlannerRuntimeRequest request, ExecutionEventType type,
+                                               String message, RuntimeException original) {
+        try {
+            persistenceService.appendEvent(ExecutionEventCommand.builder()
+                    .runId(request.getRunId())
+                    .eventType(type)
+                    .message(message)
+                    .build());
+            request.getExecutionContext().getEventPublisher().publishExecution(ChatExecutionTimelineEventBO.builder()
+                    .runId(request.getRunId())
+                    .eventType(type)
+                    .message(message)
+                    .build());
+        } catch (RuntimeException persistenceFailure) {
+            original.addSuppressed(persistenceFailure);
+        }
     }
 
     private void publishPlanning(String runId, ChatExecutionContext executionContext) {

@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.service;
 
-import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.InteractionSessionOpenCommand;
 import com.lingxi.workbench.application.runtime.model.PlannerInteractionResolution;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
@@ -14,6 +14,6 @@ public interface InteractionSessionService {
 
     ChatClarificationEventBO open(InteractionSessionOpenCommand command);
 
-    Optional<PlannerInteractionResolution> resolve(ApplicationRuntimeSnapshot application, ChatTurnBO turn, Long userId,
+    Optional<PlannerInteractionResolution> resolve(AppRuntimeSnapshot application, ChatTurnBO turn, Long userId,
                                                    String query, ClarificationResponseRequest response);
 }

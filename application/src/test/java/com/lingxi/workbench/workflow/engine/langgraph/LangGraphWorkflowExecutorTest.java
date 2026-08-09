@@ -3,6 +3,7 @@ package com.lingxi.workbench.workflow.engine.langgraph;
 import com.lingxi.workbench.workflow.exception.WorkflowDefinitionException;
 import com.lingxi.workbench.workflow.model.AgentNodeInvocation;
 import com.lingxi.workbench.workflow.model.ConditionOperator;
+import com.lingxi.workbench.workflow.model.IntentClassifierNodeInvocation;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowEdgeDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowExecutionRequest;
@@ -14,6 +15,7 @@ import com.lingxi.workbench.workflow.model.WorkflowRoute;
 import com.lingxi.workbench.workflow.model.config.AgentNodeConfig;
 import com.lingxi.workbench.workflow.model.config.ConditionNodeConfig;
 import com.lingxi.workbench.workflow.model.config.EndNodeConfig;
+import com.lingxi.workbench.workflow.model.config.IntentClassifierNodeConfig;
 import com.lingxi.workbench.workflow.model.config.StartNodeConfig;
 import com.lingxi.workbench.workflow.service.AgentNodeInvoker;
 import org.junit.jupiter.api.Test;
@@ -34,19 +36,19 @@ class LangGraphWorkflowExecutorTest {
     @Test
     void shouldExecuteMatchedAgentBranchAndExposeTrace() {
         List<AgentNodeInvocation> invocations = new ArrayList<>();
-        LangGraphWorkflowExecutor executor = new LangGraphWorkflowExecutor(fakeAgentInvoker(invocations));
+        LangGraphWorkflowExecutor executor = new LangGraphWorkflowExecutor(fakeAgentInvoker(invocations), invocation -> Map.of());
 
         WorkflowExecutionResult result = executor.execute(
                 workflowDefinition(),
-                new WorkflowExecutionRequest("run-001", "app-version-1", Map.of("query", "如何配置知识库")));
+                new WorkflowExecutionRequest("run-001", 10L, 11L, Map.of("query", "如何配置知识库")));
 
         assertThat(result.outputs()).containsEntry("response", "知识库回答：如何配置知识库");
         assertThat(invocations)
                 .extracting(AgentNodeInvocation::getAgentVersionId)
                 .containsExactly(CLASSIFIER_VERSION_ID, KNOWLEDGE_VERSION_ID);
         assertThat(invocations)
-                .extracting(AgentNodeInvocation::getApplicationVersionId)
-                .containsOnly("app-version-1");
+                .extracting(AgentNodeInvocation::getWorkflowVersionId)
+                .containsOnly(11L);
         assertThat(result.traces())
                 .extracting(WorkflowNodeTrace::getNodeId)
                 .containsExactly("start", "classifier", "route", "knowledge-agent", "end");
@@ -62,11 +64,11 @@ class LangGraphWorkflowExecutorTest {
     @Test
     void shouldExecuteNotMatchedAgentBranch() {
         List<AgentNodeInvocation> invocations = new ArrayList<>();
-        LangGraphWorkflowExecutor executor = new LangGraphWorkflowExecutor(fakeAgentInvoker(invocations));
+        LangGraphWorkflowExecutor executor = new LangGraphWorkflowExecutor(fakeAgentInvoker(invocations), invocation -> Map.of());
 
         WorkflowExecutionResult result = executor.execute(
                 workflowDefinition(),
-                new WorkflowExecutionRequest("run-002", "app-version-1", Map.of("query", "今天天气怎么样")));
+                new WorkflowExecutionRequest("run-002", 10L, 11L, Map.of("query", "今天天气怎么样")));
 
         assertThat(result.outputs()).containsEntry("response", "通用回答：今天天气怎么样");
         assertThat(invocations)
@@ -95,13 +97,42 @@ class LangGraphWorkflowExecutorTest {
                 .toList();
 
         LangGraphWorkflowExecutor executor =
-                new LangGraphWorkflowExecutor(invocation -> Map.of());
+                new LangGraphWorkflowExecutor(invocation -> Map.of(), invocation -> Map.of());
 
         assertThatThrownBy(() -> executor.execute(
                         new WorkflowDefinition(1, definition.code(), invalidNodes, definition.edges()),
-                        new WorkflowExecutionRequest("run-003", "app-version-1", Map.of("query", "测试"))))
+                        new WorkflowExecutionRequest("run-003", 10L, 11L, Map.of("query", "测试"))))
                 .isInstanceOf(WorkflowDefinitionException.class)
                 .hasMessageContaining("agentVersionId");
+    }
+
+    @Test
+    void shouldExecuteIntentClassifierAndMapStandardOutputs() {
+        List<IntentClassifierNodeInvocation> invocations = new ArrayList<>();
+        LangGraphWorkflowExecutor executor = new LangGraphWorkflowExecutor(
+                invocation -> Map.of("answer", "退款处理完成"),
+                invocation -> {
+                    invocations.add(invocation);
+                    return Map.of(
+                            "status", "MATCHED",
+                            "intentCode", "refund",
+                            "confidence", 0.93D,
+                            "candidateCodes", List.of("refund"));
+                });
+
+        WorkflowExecutionResult result = executor.execute(intentWorkflowDefinition(),
+                new WorkflowExecutionRequest("run-intent", 20L, 21L, Map.of("query", "我要退款")));
+
+        assertThat(invocations).singleElement().satisfies(invocation -> {
+            assertThat(invocation.getIntentTreeId()).isEqualTo(30L);
+            assertThat(invocation.getIntentTreeVersionId()).isEqualTo(31L);
+            assertThat(invocation.getQuery()).isEqualTo("我要退款");
+        });
+        assertThat(result.outputs()).containsEntry("response", "退款处理完成");
+        assertThat(result.traces()).filteredOn(trace -> trace.getNodeId().equals("intent"))
+                .singleElement().satisfies(trace -> assertThat(trace.getOutputs())
+                        .containsEntry("intentCode", "refund")
+                        .containsEntry("intentStatus", "MATCHED"));
     }
 
     private AgentNodeInvoker fakeAgentInvoker(List<AgentNodeInvocation> invocations) {
@@ -172,5 +203,29 @@ class LangGraphWorkflowExecutorTest {
                 WorkflowEdgeDefinition.direct("fallback-agent", "end"));
 
         return new WorkflowDefinition(1, "knowledge-routing", nodes, edges);
+    }
+
+    private WorkflowDefinition intentWorkflowDefinition() {
+        List<WorkflowNodeDefinition> nodes = List.of(
+                new WorkflowNodeDefinition("start", "开始", WorkflowNodeType.START, new StartNodeConfig()),
+                new WorkflowNodeDefinition("intent", "识别意图", WorkflowNodeType.INTENT_CLASSIFIER,
+                        new IntentClassifierNodeConfig(30L, 31L, "query", Map.of(
+                                "status", "intentStatus", "intentCode", "intentCode",
+                                "confidence", "intentConfidence", "candidateCodes", "intentCandidates"))),
+                new WorkflowNodeDefinition("route", "退款分支", WorkflowNodeType.CONDITION,
+                        new ConditionNodeConfig("intentCode", ConditionOperator.EQUALS, "refund")),
+                new WorkflowNodeDefinition("refund-agent", "退款Agent", WorkflowNodeType.AGENT,
+                        new AgentNodeConfig(40L, 41L, Map.of("query", "query"), Map.of("answer", "answer"))),
+                new WorkflowNodeDefinition("fallback-agent", "兜底Agent", WorkflowNodeType.AGENT,
+                        new AgentNodeConfig(42L, 43L, Map.of("query", "query"), Map.of("answer", "answer"))),
+                new WorkflowNodeDefinition("end", "结束", WorkflowNodeType.END, new EndNodeConfig(Map.of("response", "answer"))));
+        List<WorkflowEdgeDefinition> edges = List.of(
+                WorkflowEdgeDefinition.direct("start", "intent"),
+                WorkflowEdgeDefinition.direct("intent", "route"),
+                WorkflowEdgeDefinition.routed("route", "refund-agent", WorkflowRoute.MATCHED),
+                WorkflowEdgeDefinition.routed("route", "fallback-agent", WorkflowRoute.NOT_MATCHED),
+                WorkflowEdgeDefinition.direct("refund-agent", "end"),
+                WorkflowEdgeDefinition.direct("fallback-agent", "end"));
+        return new WorkflowDefinition(1, "intent-routing", nodes, edges);
     }
 }

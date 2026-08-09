@@ -1,19 +1,18 @@
 package com.lingxi.workbench.chat.service.impl;
 
-import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.service.impl.RuntimeVariablesInitializer;
+import com.lingxi.workbench.chat.model.bo.ChatMemoryMessageBO;
 import com.lingxi.workbench.chat.memory.MemoryContextService;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.bo.ConversationMemorySnapshot;
-import com.lingxi.workbench.chat.model.ccontext.ContextBudget;
 import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
 import com.lingxi.workbench.chat.service.ConversationContextService;
 import com.lingxi.workbench.chat.service.ConversationMemoryService;
 import com.lingxi.workbench.framework.context.LoginUser;
-import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
-import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
@@ -22,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 
 import java.util.Objects;
+import java.util.List;
 
 /** 默认的共享对话上下文准备用例。 */
 @Service
@@ -35,33 +35,44 @@ public class ConversationContextServiceImpl implements ConversationContextServic
     private final TokenCountEstimator tokenCountEstimator;
 
     @Override
-    public ConversationContext prepare(ApplicationRuntimeSnapshot application, String query, LoginUser loginUser, ChatTurnBO turn) {
+    public ConversationContext prepare(AppRuntimeSnapshot application, String query, LoginUser loginUser, ChatTurnBO turn) {
+        // ① 从 Application 发布快照读取上下文策略和 Token 预算
         ApplicationContextPolicy contextPolicy = application.definition().contextPolicy();
-        ContextBudget budget = buildBudget(contextPolicy.budget());
-        validateInputBudget(query, budget);
-        MemoryConfig memoryConfig = application.definition().memory();
+        ContextBudgetPolicy budget = contextPolicy.budget();
+
+        // ② 加载窗口记忆：启用摘要时走 ContextMemory（窗口+已有摘要），否则只取近 N 轮
+        MemoryConfig memoryConfig = application.definition().memoryConf();
         ConversationMemorySnapshot memory = loadConversationMemory(memoryConfig, loginUser.id(), turn, budget);
+
+        // ③ 会话摘要：启用时按 maxMemoryTokens 截断（Token 级别二分截断，非简单字符截断）
         String summary = memoryConfig.summary().isEnabled()
                 ? limitTokens(memory.summary(), budget.getMaxMemoryTokens())
                 : "";
+
+        // ④ 长期记忆：扣除摘要 token 后的剩余预算内，加载画像 + 相关交互记录
         int remainingMemoryTokens = Math.max(budget.getMaxMemoryTokens() - tokenCountEstimator.estimate(summary), 0);
         String longTermMemory = loadLongTermMemory(memoryConfig, loginUser.id(), query, remainingMemoryTokens);
+
+        // ⑤ 初始化运行时变量容器，注入会话级变量
         RuntimeVariables runtimeVariables = runtimeVariablesInitializer.initialize(loginUser, query, turn.conversationId());
+        runtimeVariables.put(RuntimeVariableAccessors.SESSION_HISTORY, toHistory(memory.recentMessages()));
         if (!summary.isBlank()) {
             runtimeVariables.put(RuntimeVariableAccessors.SESSION_SUMMARY, summary);
         }
         if (!longTermMemory.isBlank()) {
             runtimeVariables.put(RuntimeVariableAccessors.LONG_TERM_MEMORY, longTermMemory);
         }
-        QueryContextualizer.ContextualizationResult contextualization = queryContextualizer.contextualize(
-                contextPolicy.contextualization(), query, runtimeVariables, memory.recentMessages());
 
+        // ⑥ Query 上下文化：有摘要时用摘要补充语义，无摘要时保持原文
+        QueryContextualizer.ContextualizationResult contextualization = queryContextualizer
+                .contextualize(contextPolicy.contextualization(), query, runtimeVariables, memory.recentMessages());
+
+        // ⑦ 组装不可变 ConversationContext，共享给后续路由和执行
         return ConversationContext.builder()
                 .applicationSnapshot(application)
                 .loginUser(loginUser)
                 .turn(turn)
                 .originalQuery(query)
-                // 原问题用于审计和回答，上下文化问题只用于路由与后续规划。
                 .contextualizedQuery(contextualization.query())
                 .recentMessages(memory.recentMessages())
                 .summary(summary)
@@ -72,7 +83,16 @@ public class ConversationContextServiceImpl implements ConversationContextServic
                 .build();
     }
 
-    private ConversationMemorySnapshot loadConversationMemory(MemoryConfig config, Long userId, ChatTurnBO turn, ContextBudget budget) {
+    private static List<ChatHistoryMessage> toHistory(List<ChatMemoryMessageBO> messages) {
+        return messages.stream()
+                .map(message -> new ChatHistoryMessage(switch (message.role()) {
+                    case USER -> ChatHistoryMessage.Role.USER;
+                    case ASSISTANT -> ChatHistoryMessage.Role.ASSISTANT;
+                }, message.content()))
+                .toList();
+    }
+
+    private ConversationMemorySnapshot loadConversationMemory(MemoryConfig config, Long userId, ChatTurnBO turn, ContextBudgetPolicy budget) {
         if (config.summary().isEnabled()) {
             return conversationMemoryService.loadContextMemory(userId, turn, budget);
         }
@@ -108,25 +128,6 @@ public class ConversationContextServiceImpl implements ConversationContextServic
             end--;
         }
         return normalized.substring(0, end).trim();
-    }
-
-    private void validateInputBudget(String query, ContextBudget budget) {
-        if (tokenCountEstimator.estimate(query) > budget.getMaxInputTokens()) {
-            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "用户输入超过Application允许的Token预算");
-        }
-    }
-
-    private static ContextBudget buildBudget(ContextBudgetPolicy policy) {
-        return ContextBudget.builder()
-                .maxHistoryRounds(policy.getMaxHistoryRounds())
-                .maxSystemPromptTokens(policy.getMaxSystemPromptTokens())
-                .maxCapabilityTokens(policy.getMaxCapabilityTokens())
-                .maxHistoryTokens(policy.getMaxHistoryTokens())
-                .maxMemoryTokens(policy.getMaxMemoryTokens())
-                .maxInputTokens(policy.getMaxInputTokens())
-                .maxObservationTokens(policy.getMaxObservationTokens())
-                .reservedOutputTokens(policy.getReservedOutputTokens())
-                .build();
     }
 
     private static String normalize(String value) {

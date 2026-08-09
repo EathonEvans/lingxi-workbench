@@ -23,6 +23,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
+import java.net.URI;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -45,7 +46,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class ApiRequestLoggingFilter extends OncePerRequestFilter {
 
     private static final int MAX_CACHED_PAYLOAD_BYTES = 64 * 1024;
-    private static final int MAX_LOG_CONTENT_CHARS = 16 * 1024;
+    private static final int MAX_LOG_CONTENT_CHARS = 4 * 1024;
     private static final String MASKED_VALUE = "******";
     private static final Set<String> SENSITIVE_KEY_PARTS = Set.of(
             "password", "passwd", "pwd", "secret", "token", "authorization", "cookie",
@@ -258,7 +259,24 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
             iterable.forEach(item -> sanitized.add(sanitizeJsonValue(item)));
             return sanitized;
         }
+        if (value instanceof String stringValue) {
+            return sanitizeUrl(stringValue);
+        }
         return value;
+    }
+
+    /** URL 日志只保留资源地址，移除用户信息、查询参数和 Fragment，避免泄露临时签名。 */
+    private static String sanitizeUrl(String value) {
+        try {
+            URI uri = URI.create(value);
+            String scheme = uri.getScheme();
+            if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+                return value;
+            }
+            return new URI(scheme, null, uri.getHost(), uri.getPort(), uri.getPath(), null, null).toString();
+        } catch (Exception ignored) {
+            return value;
+        }
     }
 
     /** 通过关键词匹配判断参数键是否属于敏感字段。 */

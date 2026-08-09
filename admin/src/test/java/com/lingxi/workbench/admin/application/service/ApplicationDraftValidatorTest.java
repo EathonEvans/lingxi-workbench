@@ -1,12 +1,13 @@
 package com.lingxi.workbench.admin.application.service;
 
 import com.alibaba.fastjson2.JSONObject;
-import com.lingxi.workbench.admin.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
 import com.lingxi.workbench.admin.application.model.vo.ApplicationValidationIssueVO;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import com.lingxi.workbench.admin.model.model.bo.ModelInstanceReferenceBO;
 import com.lingxi.workbench.admin.model.service.ModelInstanceService;
+import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableType;
 import com.lingxi.workbench.admin.prompt.service.PromptService;
 import com.lingxi.workbench.admin.tool.service.ToolService;
 import com.lingxi.workbench.admin.tool.common.enums.ToolSourceType;
@@ -16,6 +17,7 @@ import com.lingxi.workbench.workflow.model.ApplicationDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
+import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
 import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
 import com.lingxi.workbench.workflow.model.AgentCollaborationLimits;
@@ -30,16 +32,9 @@ import com.lingxi.workbench.workflow.model.PlannerPolicy;
 import com.lingxi.workbench.workflow.model.UserProfileMemoryConfig;
 import com.lingxi.workbench.workflow.model.UserProfileUpdateStrategy;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
-import com.lingxi.workbench.workflow.model.WorkflowEdgeDefinition;
-import com.lingxi.workbench.workflow.model.WorkflowNodeDefinition;
-import com.lingxi.workbench.workflow.model.WorkflowNodeType;
-import com.lingxi.workbench.workflow.model.config.AgentNodeConfig;
-import com.lingxi.workbench.workflow.model.config.EndNodeConfig;
-import com.lingxi.workbench.workflow.model.config.StartNodeConfig;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
 import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
-import com.lingxi.workbench.workflow.model.intent.IntentFallbackPolicy;
 import com.lingxi.workbench.workflow.model.intent.IntentNodeDefinition;
 import com.lingxi.workbench.workflow.model.intent.IntentNodeType;
 import com.lingxi.workbench.workflow.model.intent.IntentRoutingPolicy;
@@ -54,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ApplicationDraftValidatorTest {
@@ -77,58 +73,48 @@ class ApplicationDraftValidatorTest {
                     toolService);
 
     @Test
-    void shouldLockCurrentPublishedAgentVersion() {
-        gateway.addAgent(10L, true, 101L);
-        gateway.addVersion(10L, 101L);
+    void shouldLockCurrentPublishedDefaultAgentVersion() {
+        gateway.addAgent(40L, true, 402L);
+        gateway.addVersion(40L, 402L);
 
-        ApplicationDefinitionResolution result =
-                validator.resolveForPublish(definition(null));
-
-        assertThat(result.valid()).isTrue();
-        AgentNodeConfig resolvedConfig = (AgentNodeConfig)
-                result.definition().workflow().nodes().get(1).config();
-        assertThat(resolvedConfig.agentId()).isEqualTo(10L);
-        assertThat(resolvedConfig.agentVersionId()).isEqualTo(101L);
-    }
-
-    @Test
-    void shouldKeepExplicitHistoricalVersion() {
-        gateway.addAgent(10L, true, 102L);
-        gateway.addVersion(10L, 101L);
-
-        ApplicationDefinitionResolution result =
-                validator.resolveForPublish(definition(101L));
+        ApplicationDefinitionResolution result = validator.resolveForPublish(definition(null));
 
         assertThat(result.valid()).isTrue();
-        AgentNodeConfig resolvedConfig = (AgentNodeConfig)
-                result.definition().workflow().nodes().get(1).config();
-        assertThat(resolvedConfig.agentVersionId()).isEqualTo(101L);
+        assertThat(result.definition().defaultAgent().agentId()).isEqualTo(40L);
+        assertThat(result.definition().defaultAgent().agentVersionId()).isEqualTo(402L);
     }
 
     @Test
-    void shouldRejectDisabledAgent() {
-        gateway.addAgent(10L, false, 101L);
+    void shouldKeepExplicitPublishedDefaultAgentVersion() {
+        gateway.addAgent(40L, true, 402L);
+        gateway.addVersion(40L, 401L);
 
-        ApplicationDefinitionResolution result =
-                validator.resolveForPublish(definition(null));
+        ApplicationDefinitionResolution result = validator.resolveForPublish(definition(401L));
 
-        assertThat(result.valid()).isFalse();
-        assertThat(result.issues())
-                .extracting(issue -> issue.code())
-                .containsExactly("AGENT_DISABLED");
+        assertThat(result.valid()).isTrue();
+        assertThat(result.definition().defaultAgent().agentVersionId()).isEqualTo(401L);
     }
 
     @Test
-    void shouldRejectVersionOwnedByAnotherAgent() {
-        gateway.addAgent(10L, true, 101L);
+    void shouldRejectDisabledDefaultAgent() {
+        gateway.addAgent(40L, false, 401L);
 
-        ApplicationDefinitionResolution result =
-                validator.resolveForPublish(definition(999L));
+        ApplicationDefinitionResolution result = validator.resolveForPublish(definition(null));
 
         assertThat(result.valid()).isFalse();
-        assertThat(result.issues())
-                .extracting(issue -> issue.code())
-                .containsExactly("AGENT_VERSION_NOT_FOUND");
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .contains("DEFAULT_AGENT_UNAVAILABLE", "EXECUTION_ENTRY_REQUIRED");
+    }
+
+    @Test
+    void shouldRejectUnavailableDefaultAgentVersion() {
+        gateway.addAgent(40L, true, 401L);
+
+        ApplicationDefinitionResolution result = validator.resolveForPublish(definition(999L));
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .contains("DEFAULT_AGENT_VERSION_UNAVAILABLE", "EXECUTION_ENTRY_REQUIRED");
     }
 
     @Test
@@ -140,7 +126,7 @@ class ApplicationDraftValidatorTest {
         AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true, new ApplicationAgentReference(10L, null, null, null), List.of(new ApplicationAgentReference(20L, null, null, null)), new AgentCollaborationLimits(3, 1));
 
         ApplicationDefinitionResolution result = validator.resolveForPublish(ApplicationDefinition.builder()
-                .schemaVersion(2).workflow(definition(null).workflow()).collaboration(collaboration)
+                .schemaVersion(APPLICATION_SCHEMA_VERSION).collaboration(collaboration)
                 .defaultAgent(new ApplicationAgentReference(40L, null, null, null)).build());
 
         assertThat(result.valid()).isTrue();
@@ -156,7 +142,7 @@ class ApplicationDraftValidatorTest {
         AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true, new ApplicationAgentReference(10L, null, null, null), List.of(new ApplicationAgentReference(10L, null, null, null)), new AgentCollaborationLimits(3, 1));
 
         ApplicationDefinitionResolution result = validator.resolveForPublish(ApplicationDefinition.builder()
-                .schemaVersion(2).workflow(definition(null).workflow()).collaboration(collaboration)
+                .schemaVersion(APPLICATION_SCHEMA_VERSION).collaboration(collaboration)
                 .defaultAgent(new ApplicationAgentReference(40L, null, null, null)).build());
 
         assertThat(result.valid()).isFalse();
@@ -164,15 +150,15 @@ class ApplicationDraftValidatorTest {
     }
 
     @Test
-    void shouldRejectRagAgentUsedAsSupervisor() {
-        gateway.addAgent(10L, true, 101L, AgentType.RAG_CHAT);
+    void shouldRejectReactAgentUsedAsSupervisor() {
+        gateway.addAgent(10L, true, 101L, AgentType.REACT);
         gateway.addVersion(10L, 101L);
-        gateway.addAgent(20L, true, 201L, AgentType.RAG_CHAT);
+        gateway.addAgent(20L, true, 201L, AgentType.REACT);
         gateway.addVersion(20L, 201L);
         AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true, new ApplicationAgentReference(10L, null, null, null), List.of(new ApplicationAgentReference(20L, null, null, null)), new AgentCollaborationLimits(3, 1));
 
         ApplicationDefinitionResolution result = validator.resolveForPublish(ApplicationDefinition.builder()
-                .schemaVersion(2).workflow(definition(null).workflow()).collaboration(collaboration)
+                .schemaVersion(APPLICATION_SCHEMA_VERSION).collaboration(collaboration)
                 .defaultAgent(new ApplicationAgentReference(40L, null, null, null)).build());
 
         assertThat(result.valid()).isFalse();
@@ -211,11 +197,10 @@ class ApplicationDraftValidatorTest {
                 promptService,
                 toolService);
         workflows.put(30L, new WorkflowService.WorkflowReference(30L, true, 300L, "退款流程"));
-        workflowVersions.put(key(30L, 300L), definition(null).workflow());
+        workflowVersions.put(key(30L, 300L), workflowDefinition());
         ApplicationIntentBinding binding = ApplicationIntentBinding.builder()
                 .enabled(true)
                 .intentTreeId(2L)
-                .fallbackPolicy(new IntentFallbackPolicy("未识别", "澄清失败"))
                 .mappings(List.of(ApplicationIntentMapping.builder()
                         .intentCode("refund")
                         .targetType(IntentExecutionTargetType.WORKFLOW)
@@ -225,7 +210,7 @@ class ApplicationDraftValidatorTest {
 
         ApplicationDefinitionResolution result = intentValidator.resolveForPublish(
                 ApplicationDefinition.builder()
-                        .schemaVersion(5)
+                        .schemaVersion(APPLICATION_SCHEMA_VERSION)
                         .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
                         .capabilityCatalog(CapabilityCatalogSnapshot.builder()
                                 .capabilities(List.of(ApplicationCapabilityDefinition.builder()
@@ -238,23 +223,31 @@ class ApplicationDraftValidatorTest {
                         .build());
 
         assertThat(result.valid()).isTrue();
-        assertThat(result.definition().intentBinding()).isNull();
         assertThat(result.definition().optionalFastRoutes().getIntentTreeVersionId()).isEqualTo(200L);
         assertThat(result.definition().optionalFastRoutes().mappings()).singleElement()
                 .satisfies(mapping -> {
                     assertThat(mapping.getCapabilityCode()).isEqualTo("refund_workflow");
                     assertThat(mapping.getTargetVersionId()).isEqualTo(300L);
                 });
-        assertThat(result.definition().workflow()).isNull();
     }
 
     @Test
     void shouldRejectApplicationWithoutExecutionEntry() {
         ApplicationDefinitionResolution result = validator.resolveForPublish(
-                ApplicationDefinition.builder().schemaVersion(2).build());
+                ApplicationDefinition.builder().schemaVersion(APPLICATION_SCHEMA_VERSION).build());
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(issue -> issue.code()).containsExactly("EXECUTION_ENTRY_REQUIRED");
+    }
+
+    @Test
+    void shouldRejectLegacyApplicationSchema() {
+        ApplicationDefinitionResolution result = validator.resolveForPublish(
+                ApplicationDefinition.builder().schemaVersion(APPLICATION_SCHEMA_VERSION - 1).build());
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .containsExactly("SCHEMA_VERSION_UNSUPPORTED");
     }
 
     @Test
@@ -262,7 +255,7 @@ class ApplicationDraftValidatorTest {
         gateway.addAgent(40L, true, 401L, AgentType.REACT);
         gateway.addVersion(40L, 401L);
         ApplicationDefinition draft = ApplicationDefinition.builder()
-                .schemaVersion(4)
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
                 .build();
 
@@ -270,7 +263,6 @@ class ApplicationDraftValidatorTest {
 
         assertThat(result.valid()).isTrue();
         assertThat(result.definition().schemaVersion()).isEqualTo(7);
-        assertThat(result.definition().intentBinding()).isNull();
         assertThat(result.definition().optionalFastRoutes()).isNull();
         assertThat(result.definition().defaultAgent().agentVersionId()).isEqualTo(401L);
         assertThat(result.definition().capabilityCatalog().capabilities())
@@ -282,11 +274,123 @@ class ApplicationDraftValidatorTest {
     }
 
     @Test
+    void shouldPreserveDefaultAgentCapabilityPolicy() {
+        gateway.addAgent(40L, true, 401L, AgentType.REACT);
+        gateway.addVersion(40L, 401L);
+        ApplicationCapabilityDefinition defaultCapability = ApplicationCapabilityDefinition.builder()
+                .code("default_agent")
+                .type(ApplicationCapabilityType.REACT_AGENT)
+                .targetId(40L)
+                .description("处理需要综合判断的请求")
+                .riskLevel(CapabilityRiskLevel.WRITE)
+                .timeoutSeconds(240)
+                .maxCalls(3)
+                .resultTokenBudget(12000)
+                .build();
+        ApplicationDefinition draft = ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
+                .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(defaultCapability)).build())
+                .build();
+
+        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.definition().capabilityCatalog().capabilities()).singleElement().satisfies(capability -> {
+            assertThat(capability.getDescription()).isEqualTo("处理需要综合判断的请求");
+            assertThat(capability.getRiskLevel()).isEqualTo(CapabilityRiskLevel.WRITE);
+            assertThat(capability.getTimeoutSeconds()).isEqualTo(240);
+            assertThat(capability.getMaxCalls()).isEqualTo(3);
+            assertThat(capability.getResultTokenBudget()).isEqualTo(12000);
+        });
+    }
+
+    @Test
+    void shouldRejectDefaultCapabilityTargetDifferentFromEntry() {
+        gateway.addAgent(40L, true, 401L, AgentType.REACT);
+        gateway.addVersion(40L, 401L);
+        ApplicationCapabilityDefinition defaultCapability = ApplicationCapabilityDefinition.builder()
+                .code("default_agent")
+                .type(ApplicationCapabilityType.REACT_AGENT)
+                .targetId(41L)
+                .build();
+        ApplicationDefinition draft = ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
+                .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(defaultCapability)).build())
+                .build();
+
+        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .contains("DEFAULT_AGENT_CAPABILITY_TARGET_INVALID");
+    }
+
+    @Test
+    void shouldRejectCapabilityDescriptionOverLimit() {
+        gateway.addAgent(40L, true, 401L, AgentType.REACT);
+        gateway.addVersion(40L, 401L);
+        ApplicationCapabilityDefinition defaultCapability = ApplicationCapabilityDefinition.builder()
+                .code("default_agent")
+                .type(ApplicationCapabilityType.REACT_AGENT)
+                .targetId(40L)
+                .description("x".repeat(501))
+                .build();
+        ApplicationDefinition draft = ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
+                .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(defaultCapability)).build())
+                .build();
+
+        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .contains("CAPABILITY_DESCRIPTION_TOO_LONG");
+    }
+
+    @Test
+    void shouldPreserveReactAgentCapabilityPolicy() {
+        gateway.addAgent(40L, true, 401L, AgentType.REACT);
+        gateway.addVersion(40L, 401L);
+        gateway.addAgent(41L, true, 411L, AgentType.REACT);
+        gateway.addVersion(41L, 411L);
+        ApplicationCapabilityDefinition agentCapability = ApplicationCapabilityDefinition.builder()
+                .code("order_agent")
+                .type(ApplicationCapabilityType.REACT_AGENT)
+                .targetId(41L)
+                .riskLevel(CapabilityRiskLevel.HIGH_RISK)
+                .timeoutSeconds(180)
+                .maxCalls(2)
+                .resultTokenBudget(6000)
+                .build();
+        ApplicationDefinition draft = ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
+                .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(agentCapability)).build())
+                .build();
+
+        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.definition().capabilityCatalog().capabilities())
+                .filteredOn(capability -> "order_agent".equals(capability.getCode()))
+                .singleElement()
+                .satisfies(capability -> {
+                    assertThat(capability.getRiskLevel()).isEqualTo(CapabilityRiskLevel.HIGH_RISK);
+                    assertThat(capability.getTimeoutSeconds()).isEqualTo(180);
+                    assertThat(capability.getMaxCalls()).isEqualTo(2);
+                    assertThat(capability.getResultTokenBudget()).isEqualTo(6000);
+                });
+    }
+
+    @Test
     void shouldFreezeWorkflowAndToolCapabilities() {
         gateway.addAgent(40L, true, 401L, AgentType.REACT);
         gateway.addVersion(40L, 401L);
         workflows.put(30L, new WorkflowService.WorkflowReference(30L, true, 300L, "退款流程"));
-        workflowVersions.put(key(30L, 300L), definition(null).workflow());
+        workflowVersions.put(key(30L, 300L), workflowDefinition());
         tools.put(50L, ToolReferenceBO.builder()
                 .id(50L)
                 .name("订单查询")
@@ -310,7 +414,7 @@ class ApplicationDraftValidatorTest {
                                 .build()))
                 .build();
         ApplicationDefinition draft = ApplicationDefinition.builder()
-                .schemaVersion(4)
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
                 .capabilityCatalog(catalog)
                 .build();
@@ -337,7 +441,7 @@ class ApplicationDraftValidatorTest {
         gateway.addAgent(40L, true, 401L, AgentType.REACT);
         gateway.addVersion(40L, 401L);
         models.put(601L, new ModelInstanceReferenceBO(601L, ModelType.CHAT, EnableStatus.ACTIVE));
-        prompts.put(701L, new PromptService.PromptVersionReference(701L, PromptRole.SYSTEM, true));
+        prompts.put(701L, new PromptService.PromptVersionReference(701L, PromptRole.SYSTEM, true, List.of()));
         PlannerPolicy planner = PlannerPolicy.builder()
                 .enabled(true)
                 .chatModelInstanceId(601L)
@@ -350,7 +454,7 @@ class ApplicationDraftValidatorTest {
                 .timeoutSeconds(180)
                 .build();
         ApplicationDefinition draft = ApplicationDefinition.builder()
-                .schemaVersion(4)
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
                 .plannerPolicy(planner)
                 .runtimePolicy(ApplicationRuntimePolicy.defaults())
@@ -376,7 +480,7 @@ class ApplicationDraftValidatorTest {
                 .timeoutSeconds(301)
                 .build();
         ApplicationDefinition draft = ApplicationDefinition.builder()
-                .schemaVersion(4)
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
                 .plannerPolicy(planner)
                 .runtimePolicy(ApplicationRuntimePolicy.defaults())
@@ -397,11 +501,11 @@ class ApplicationDraftValidatorTest {
         ApplicationDefinitionResolution result = resolveMemoryWithIntentTree(null);
 
         assertThat(result.valid()).isTrue();
-        assertThat(result.definition().memory().interactionRecord().getEmbeddingModelInstanceId()).isEqualTo(88L);
-        assertThat(result.definition().memory().summary().getPromptVersionId()).isEqualTo(501L);
-        assertThat(result.definition().memory().profile().getUpdateStrategy()).isEqualTo(UserProfileUpdateStrategy.MERGE);
-        assertThat(result.definition().memory().interactionRecord().getRetentionDays()).isEqualTo(365);
-        assertThat(result.definition().memory().summary().getMinTokens()).isEqualTo(4000);
+        assertThat(result.definition().memoryConf().interactionRecord().getEmbeddingModelInstanceId()).isEqualTo(88L);
+        assertThat(result.definition().memoryConf().summary().getPromptVersionId()).isEqualTo(501L);
+        assertThat(result.definition().memoryConf().profile().getUpdateStrategy()).isEqualTo(UserProfileUpdateStrategy.MERGE);
+        assertThat(result.definition().memoryConf().interactionRecord().getRetentionDays()).isEqualTo(365);
+        assertThat(result.definition().memoryConf().summary().getMinTokens()).isEqualTo(4000);
     }
 
     @Test
@@ -412,9 +516,9 @@ class ApplicationDraftValidatorTest {
         memory.getSummary().setMinTokens(255);
 
         ApplicationDefinitionResolution result = validator.resolveForPublish(ApplicationDefinition.builder()
-                .schemaVersion(7)
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
-                .memory(memory)
+                .memoryConf(memory)
                 .build());
 
         assertThat(result.valid()).isFalse();
@@ -435,13 +539,13 @@ class ApplicationDraftValidatorTest {
     void shouldAllowIndependentMemoryEmbeddingWithoutIntentTree() {
         addMemoryReferences();
         ApplicationDefinitionResolution result = validator.resolveForPublish(ApplicationDefinition.builder()
-                .schemaVersion(6)
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
-                .memory(memoryConfig(401L))
+                .memoryConf(memoryConfig(401L))
                 .build());
 
         assertThat(result.valid()).isTrue();
-        assertThat(result.definition().memory().interactionRecord().getEmbeddingModelInstanceId()).isEqualTo(401L);
+        assertThat(result.definition().memoryConf().interactionRecord().getEmbeddingModelInstanceId()).isEqualTo(401L);
     }
 
     @Test
@@ -451,15 +555,15 @@ class ApplicationDraftValidatorTest {
         memory.setInteractionRecord(InteractionRecordMemoryConfig.disabled());
 
         ApplicationDefinitionResolution result = validator.resolveForPublish(ApplicationDefinition.builder()
-                .schemaVersion(6)
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
-                .memory(memory)
+                .memoryConf(memory)
                 .build());
 
         assertThat(result.valid()).isTrue();
-        assertThat(result.definition().memory().profile().isEnabled()).isTrue();
-        assertThat(result.definition().memory().summary().isEnabled()).isTrue();
-        assertThat(result.definition().memory().interactionRecord().isEnabled()).isFalse();
+        assertThat(result.definition().memoryConf().profile().isEnabled()).isTrue();
+        assertThat(result.definition().memoryConf().summary().isEnabled()).isTrue();
+        assertThat(result.definition().memoryConf().interactionRecord().isEnabled()).isFalse();
     }
 
     private ApplicationDefinitionResolution resolveMemoryWithIntentTree(Long memoryEmbeddingInstanceId) {
@@ -489,7 +593,6 @@ class ApplicationDraftValidatorTest {
         ApplicationIntentBinding binding = ApplicationIntentBinding.builder()
                 .enabled(true)
                 .intentTreeId(2L)
-                .fallbackPolicy(new IntentFallbackPolicy("未识别", "澄清失败"))
                 .mappings(List.of(ApplicationIntentMapping.builder()
                         .intentCode("chat")
                         .targetType(IntentExecutionTargetType.FIXED_RESPONSE)
@@ -497,19 +600,19 @@ class ApplicationDraftValidatorTest {
                         .build()))
                 .build();
         return memoryValidator.resolveForPublish(ApplicationDefinition.builder()
-                .schemaVersion(6)
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
                 .optionalFastRoutes(binding)
-                .memory(memoryConfig(memoryEmbeddingInstanceId))
+                .memoryConf(memoryConfig(memoryEmbeddingInstanceId))
                 .build());
     }
 
     private void addMemoryReferences() {
         models.put(401L, new ModelInstanceReferenceBO(401L, ModelType.EMBEDDING, EnableStatus.ACTIVE));
         models.put(402L, new ModelInstanceReferenceBO(402L, ModelType.CHAT, EnableStatus.ACTIVE));
-        prompts.put(501L, new PromptService.PromptVersionReference(501L, PromptRole.SYSTEM, true));
-        prompts.put(502L, new PromptService.PromptVersionReference(502L, PromptRole.SYSTEM, true));
-        prompts.put(503L, new PromptService.PromptVersionReference(503L, PromptRole.SYSTEM, true));
+        prompts.put(501L, new PromptService.PromptVersionReference(501L, PromptRole.SYSTEM, true, List.of()));
+        prompts.put(502L, new PromptService.PromptVersionReference(502L, PromptRole.SYSTEM, true, List.of()));
+        prompts.put(503L, new PromptService.PromptVersionReference(503L, PromptRole.SYSTEM, true, List.of()));
     }
 
     private static MemoryConfig memoryConfig(Long embeddingInstanceId) {
@@ -540,7 +643,7 @@ class ApplicationDraftValidatorTest {
         gateway.addAgent(10L, true, 101L);
         gateway.addVersion(10L, 101L);
         models.put(601L, new ModelInstanceReferenceBO(601L, ModelType.CHAT, EnableStatus.ACTIVE));
-        prompts.put(701L, new PromptService.PromptVersionReference(701L, PromptRole.SYSTEM, true));
+        prompts.put(701L, new PromptService.PromptVersionReference(701L, PromptRole.SYSTEM, true, List.of()));
         ContextualizationPolicy contextualization = ContextualizationPolicy.builder()
                 .enabled(true)
                 .chatModelInstanceId(601L)
@@ -551,8 +654,7 @@ class ApplicationDraftValidatorTest {
                 .timeoutSeconds(20)
                 .build();
         ApplicationDefinition draft = ApplicationDefinition.builder()
-                .schemaVersion(3)
-                .workflow(definition(101L).workflow())
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
                 .contextPolicy(ApplicationContextPolicy.builder()
                         .contextualization(contextualization)
@@ -576,8 +678,7 @@ class ApplicationDraftValidatorTest {
         ContextBudgetPolicy invalidBudget = ContextBudgetPolicy.defaults();
         invalidBudget.setMaxInputTokens(0);
         ApplicationDefinition draft = ApplicationDefinition.builder()
-                .schemaVersion(3)
-                .workflow(definition(101L).workflow())
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
                 .contextPolicy(ApplicationContextPolicy.builder()
                         .contextualization(ContextualizationPolicy.builder().enabled(true).build())
@@ -592,35 +693,43 @@ class ApplicationDraftValidatorTest {
                 .contains("CONTEXTUALIZATION_MODEL_REQUIRED", "CONTEXTUALIZATION_PROMPT_REQUIRED", "CONTEXT_BUDGET_INVALID");
     }
 
-    private static ApplicationDefinition definition(Long versionId) {
-        WorkflowDefinition workflow = new WorkflowDefinition(
-                1,
-                "main",
-                List.of(
-                        new WorkflowNodeDefinition(
-                                "start", "开始", WorkflowNodeType.START, new StartNodeConfig()),
-                        new WorkflowNodeDefinition(
-                                "agent",
-                                "问答Agent",
-                                WorkflowNodeType.AGENT,
-                                new AgentNodeConfig(
-                                        10L,
-                                        versionId,
-                                        Map.of("query", "query"),
-                                        Map.of("answer", "answer"))),
-                        new WorkflowNodeDefinition(
-                                "end",
-                                "结束",
-                                WorkflowNodeType.END,
-                                new EndNodeConfig(Map.of("response", "answer")))),
-                List.of(
-                        WorkflowEdgeDefinition.direct("start", "agent"),
-                        WorkflowEdgeDefinition.direct("agent", "end")));
-        return ApplicationDefinition.builder()
-                .schemaVersion(1)
-                .workflow(workflow)
+    @Test
+    void shouldRejectRemovedVariableInContextualizationPrompt() {
+        gateway.addAgent(10L, true, 101L);
+        gateway.addVersion(10L, 101L);
+        models.put(601L, new ModelInstanceReferenceBO(601L, ModelType.CHAT, EnableStatus.ACTIVE));
+        List<PromptService.PromptVariableReference> variables = List.of(
+                new PromptService.PromptVariableReference("query.rewrite_history", PromptVariableType.MESSAGE_LIST));
+        prompts.put(701L, new PromptService.PromptVersionReference(701L, PromptRole.SYSTEM, true, variables));
+        ApplicationDefinition draft = ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
+                .contextPolicy(ApplicationContextPolicy.builder()
+                        .contextualization(ContextualizationPolicy.builder()
+                                .enabled(true)
+                                .chatModelInstanceId(601L)
+                                .promptVersionId(701L)
+                                .build())
+                        .budget(ContextBudgetPolicy.defaults())
+                        .build())
                 .build();
+
+        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .contains("CONTEXTUALIZATION_PROMPT_VARIABLE_UNSUPPORTED");
+    }
+
+    private static ApplicationDefinition definition(Long versionId) {
+        return ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .defaultAgent(new ApplicationAgentReference(40L, versionId, null, null))
+                .build();
+    }
+
+    private static WorkflowDefinition workflowDefinition() {
+        return new WorkflowDefinition(1, "refund", List.of(), List.of());
     }
 
     private WorkflowService workflowService() {
@@ -685,7 +794,7 @@ class ApplicationDraftValidatorTest {
         }
 
         void addAgent(Long id, boolean active, Long publishedVersionId) {
-            addAgent(id, active, publishedVersionId, AgentType.RAG_CHAT);
+            addAgent(id, active, publishedVersionId, AgentType.REACT);
         }
 
         void addAgent(Long id, boolean active, Long publishedVersionId, AgentType agentType) {

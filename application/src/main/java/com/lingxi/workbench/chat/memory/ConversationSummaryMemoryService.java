@@ -23,6 +23,10 @@ public class ConversationSummaryMemoryService {
     private final MemoryCompletionService completionService;
     private final ConversationSummaryPersistenceService persistenceService;
 
+    /**
+     * 在上一份摘要基础上生成滚动摘要。
+     * 若本轮新增轮次不满足触发阈值则跳过，否则通过 MemoryCompletionService 生成摘要并持久化。
+     */
     public void generate(AssistantCompletedEvent event, ConversationSummaryMemoryConfig config) {
         ConversationSummaryTrigger trigger = new ConversationSummaryTrigger(
                 config.effectiveMinRounds(), config.effectiveMinTokens(), SUMMARY_INPUT_TOKEN_BUDGET);

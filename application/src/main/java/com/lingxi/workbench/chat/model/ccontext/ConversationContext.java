@@ -1,10 +1,11 @@
 package com.lingxi.workbench.chat.model.ccontext;
 
-import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.chat.model.bo.ChatMemoryMessageBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
+import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -21,7 +22,7 @@ import java.util.Objects;
 @Getter
 public final class ConversationContext {
 
-    private final ApplicationRuntimeSnapshot applicationSnapshot;
+    private final AppRuntimeSnapshot applicationSnapshot;
     private final LoginUser loginUser;
     private final ChatTurnBO turn;
     private final String originalQuery;
@@ -29,12 +30,12 @@ public final class ConversationContext {
     private final List<ChatMemoryMessageBO> recentMessages;
     private final String summary;
     private final String longTermMemory;
-    private final ContextBudget budget;
+    private final ContextBudgetPolicy budget;
     private final RuntimeVariables runtimeVariables;
     private final TokenUsage preparationTokenUsage;
 
     @Builder
-    private ConversationContext(ApplicationRuntimeSnapshot applicationSnapshot, LoginUser loginUser, ChatTurnBO turn, String originalQuery, String contextualizedQuery, List<ChatMemoryMessageBO> recentMessages, String summary, String longTermMemory, ContextBudget budget, RuntimeVariables runtimeVariables, TokenUsage preparationTokenUsage) {
+    private ConversationContext(AppRuntimeSnapshot applicationSnapshot, LoginUser loginUser, ChatTurnBO turn, String originalQuery, String contextualizedQuery, List<ChatMemoryMessageBO> recentMessages, String summary, String longTermMemory, ContextBudgetPolicy budget, RuntimeVariables runtimeVariables, TokenUsage preparationTokenUsage) {
         this.applicationSnapshot = Objects.requireNonNull(applicationSnapshot, "Application运行快照不能为空");
         this.loginUser = Objects.requireNonNull(loginUser, "登录用户不能为空");
         this.turn = Objects.requireNonNull(turn, "对话轮次不能为空");

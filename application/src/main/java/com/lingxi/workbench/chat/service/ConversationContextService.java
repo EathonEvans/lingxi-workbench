@@ -1,6 +1,6 @@
 package com.lingxi.workbench.chat.service;
 
-import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.framework.context.LoginUser;
@@ -10,5 +10,5 @@ import com.lingxi.workbench.framework.context.LoginUser;
  */
 public interface ConversationContextService {
 
-    ConversationContext prepare(ApplicationRuntimeSnapshot application, String query, LoginUser loginUser, ChatTurnBO turn);
+    ConversationContext prepare(AppRuntimeSnapshot application, String query, LoginUser loginUser, ChatTurnBO turn);
 }

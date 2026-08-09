@@ -2,11 +2,15 @@ package com.lingxi.workbench.admin.workflow.controller;
 
 import com.lingxi.workbench.admin.workflow.model.request.CreateWorkflowRequest;
 import com.lingxi.workbench.admin.workflow.model.request.PublishWorkflowRequest;
+import com.lingxi.workbench.admin.workflow.model.request.RestoreWorkflowDraftRequest;
 import com.lingxi.workbench.admin.workflow.model.request.SaveWorkflowDraftRequest;
 import com.lingxi.workbench.admin.workflow.model.request.UpdateWorkflowRequest;
+import com.lingxi.workbench.admin.workflow.model.request.ValidateWorkflowRequest;
 import com.lingxi.workbench.admin.workflow.model.request.WorkflowPageQuery;
 import com.lingxi.workbench.admin.workflow.model.vo.WorkflowDetailVO;
 import com.lingxi.workbench.admin.workflow.model.vo.WorkflowVO;
+import com.lingxi.workbench.admin.workflow.model.vo.WorkflowValidationResultVO;
+import com.lingxi.workbench.admin.workflow.model.vo.WorkflowVersionVO;
 import com.lingxi.workbench.admin.workflow.service.WorkflowService;
 import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.framework.convention.ApiResponse;
@@ -59,9 +63,34 @@ public class WorkflowController {
         return ApiResponse.success(workflowService.saveDraft(id, request, UserContext.userId()));
     }
 
+    /** 校验 Workflow 草稿。 */
+    @PostMapping("/{id}/validate")
+    public ApiResponse<WorkflowValidationResultVO> validate(@PathVariable Long id, @Valid @RequestBody ValidateWorkflowRequest request) {
+        return ApiResponse.success(workflowService.validate(id, request));
+    }
+
     /** 发布 Workflow 版本。 */
     @PostMapping("/{id}/publish")
     public ApiResponse<WorkflowDetailVO> publish(@PathVariable Long id, @Valid @RequestBody PublishWorkflowRequest request) {
         return ApiResponse.success(workflowService.publish(id, request, UserContext.userId()));
+    }
+
+    /** 查询 Workflow 历史版本完整快照。 */
+    @GetMapping("/{id}/versions/{versionId}")
+    public ApiResponse<WorkflowVersionVO> versionDetail(@PathVariable Long id, @PathVariable Long versionId) {
+        return ApiResponse.success(workflowService.versionDetail(id, versionId));
+    }
+
+    /** 切换 Workflow 生效版本。 */
+    @PostMapping("/{id}/versions/{versionId}/activate")
+    public ApiResponse<Void> activateVersion(@PathVariable Long id, @PathVariable Long versionId) {
+        workflowService.activateVersion(id, versionId, UserContext.userId());
+        return ApiResponse.success();
+    }
+
+    /** 将历史版本恢复为新的草稿。 */
+    @PostMapping("/{id}/versions/{versionId}/restore-draft")
+    public ApiResponse<WorkflowDetailVO> restoreDraft(@PathVariable Long id, @PathVariable Long versionId, @Valid @RequestBody RestoreWorkflowDraftRequest request) {
+        return ApiResponse.success(workflowService.restoreDraft(id, versionId, request, UserContext.userId()));
     }
 }

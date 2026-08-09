@@ -9,6 +9,10 @@ public enum WorkflowNodeType {
      */
     START,
     /**
+     * 意图识别节点
+     */
+    INTENT_CLASSIFIER,
+    /**
      * Agent 节点
      */
     AGENT,

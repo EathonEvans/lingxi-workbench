@@ -1,13 +1,13 @@
 package com.lingxi.workbench.application.runtime.service.impl;
 
 import com.alibaba.fastjson2.JSONObject;
-import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.PlannerRequest;
 import com.lingxi.workbench.application.runtime.model.PlannerResult;
 import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.service.PromptRuntimeService;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
-import com.lingxi.workbench.chat.model.ccontext.ContextBudget;
+import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
@@ -117,19 +117,19 @@ class PlannerServiceImplTest {
                 .maxSteps(6).maxReplans(1).maxModelCalls(6).maxToolCalls(4)
                 .tokenBudget(plannerTokenBudget).timeoutSeconds(60).build();
         ApplicationDefinition definition = ApplicationDefinition.builder()
-                .schemaVersion(4)
+                .schemaVersion(com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(new ApplicationAgentReference(1L, 2L, "默认助手", "处理普通请求"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(capabilities).build())
                 .plannerPolicy(planner)
                 .build();
         return ConversationContext.builder()
-                .applicationSnapshot(new ApplicationRuntimeSnapshot(1L, "planner-app", 2L, definition))
+                .applicationSnapshot(new AppRuntimeSnapshot(1L, "planner-app", 2L, definition))
                 .loginUser(user)
                 .turn(turn)
                 .originalQuery("处理售后问题")
                 .contextualizedQuery("处理售后问题")
                 .recentMessages(List.of())
-                .budget(ContextBudget.builder().maxHistoryRounds(5).maxSystemPromptTokens(4000).maxCapabilityTokens(4000)
+                .budget(ContextBudgetPolicy.builder().maxHistoryRounds(5).maxSystemPromptTokens(4000).maxCapabilityTokens(4000)
                         .maxHistoryTokens(4000).maxMemoryTokens(4000).maxInputTokens(4000).maxObservationTokens(4000)
                         .reservedOutputTokens(500).build())
                 .runtimeVariables(variables)

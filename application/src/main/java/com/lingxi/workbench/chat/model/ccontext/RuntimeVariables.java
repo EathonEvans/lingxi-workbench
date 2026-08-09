@@ -81,9 +81,8 @@ public final class RuntimeVariables {
     /**
      * 为受委派 Agent 创建独立的变量容器。
      *
-     * <p>只复制请求入口已经冻结的用户、会话和时间变量，并将 user.query 替换为
-     * Supervisor 下发的明确任务。历史、改写结果和知识上下文必须由子 Agent 自己的
-     *处理链重新产生，不能复用父 Agent 的派生变量。</p>
+     * <p>复制请求入口事实和已经统一准备的共享上下文，并将 user.query 替换为
+     * Supervisor 下发的明确任务。工具结果等执行期派生变量不会被复制。</p>
      */
     public synchronized RuntimeVariables forkForAgentTask(String task) {
         return forkForQuery(task);
@@ -92,18 +91,25 @@ public final class RuntimeVariables {
     /**
      * 为路由结果创建新的执行变量，只替换当前任务问题。
      *
-     * <p>共享历史、摘要和长期记忆由 ConversationContext 在 Agent 准备阶段重新投影，
-     * 这里仅复制请求入口冻结的身份和时间事实，避免携带旧问题派生结果。</p>
+     * <p>共享历史、摘要和长期记忆已经在 ConversationContext 构建阶段准备完成，
+     * 路由分叉时必须保留；执行器内部产生的临时变量不允许继承。</p>
      */
     public synchronized RuntimeVariables forkForQuery(String query) {
         Objects.requireNonNull(query, "执行问题不能为空");
         RuntimeVariables child = new RuntimeVariables();
         values.forEach((variable, value) -> {
-            if (variable.getProducer() == RuntimeVariableProducer.REQUEST_INITIALIZATION && variable != BuiltInRuntimeVariable.USER_QUERY) {
+            if (shouldCopyToExecution(variable) && variable != BuiltInRuntimeVariable.USER_QUERY) {
                 child.values.put(variable, value);
             }
         });
         child.put(RuntimeVariableAccessors.USER_QUERY, query);
         return child;
+    }
+
+    private static boolean shouldCopyToExecution(BuiltInRuntimeVariable variable) {
+        return variable.getProducer() == RuntimeVariableProducer.REQUEST_INITIALIZATION
+                || variable == BuiltInRuntimeVariable.SESSION_HISTORY
+                || variable == BuiltInRuntimeVariable.SESSION_SUMMARY
+                || variable == BuiltInRuntimeVariable.LONG_TERM_MEMORY;
     }
 }

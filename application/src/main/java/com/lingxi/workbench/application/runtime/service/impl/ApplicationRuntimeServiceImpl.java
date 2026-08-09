@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.impl;
 
-import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.entity.RuntimeApplicationEntity;
 import com.lingxi.workbench.application.runtime.model.entity.RuntimeApplicationVersionEntity;
 import com.lingxi.workbench.application.runtime.model.vo.AvailableApplicationVO;
@@ -43,21 +43,23 @@ public class ApplicationRuntimeServiceImpl implements ApplicationRuntimeService 
      */
     @Override
     @Transactional(readOnly = true)
-    public ApplicationRuntimeSnapshot resolvePublished(String applicationCode) {
-        String normalizedCode = applicationCode.trim().toLowerCase();
-        RuntimeApplicationEntity application = repo.findActiveByCode(normalizedCode)
+    public AppRuntimeSnapshot loadRuntimeAppConfig(String applicationCode) {
+        // 查询当前应用的激活版本
+        RuntimeApplicationEntity application = repo.findActiveByCode(applicationCode)
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "AI应用不存在或已停用"));
+
         if (Objects.isNull(application.getPublishedVersionId())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "AI应用尚未发布");
         }
+        // 版本快照
         RuntimeApplicationVersionEntity version = repo.findVersion(application.getId(), application.getPublishedVersionId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "AI应用生效版本不存在"));
+
         if (Objects.isNull(version.getDefinitionSnapshot())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "AI应用生效版本缺少定义快照");
         }
         try {
-            return new ApplicationRuntimeSnapshot(
-                    application.getId(), application.getCode(), version.getId(), version.getDefinitionSnapshot());
+            return new AppRuntimeSnapshot(application.getId(), application.getCode(), version.getId(), version.getDefinitionSnapshot());
         } catch (IllegalArgumentException exception) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "AI应用生效版本不可执行：" + exception.getMessage());
         }

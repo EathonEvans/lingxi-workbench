@@ -1,7 +1,8 @@
 package com.lingxi.workbench.chat.service.impl;
 
-import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.service.ApplicationRuntimeService;
 import com.lingxi.workbench.application.runtime.service.ApplicationChatExecutionService;
 import com.lingxi.workbench.application.runtime.service.ChatExecutionEventPublisher;
@@ -22,10 +23,14 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
+import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
+import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
-import com.lingxi.workbench.workflow.model.WorkflowDefinition;
+import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.tokenizer.TokenCountEstimator;
 
 import java.time.Duration;
 import java.util.List;
@@ -45,24 +50,15 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
 
 class ChatStreamServiceImplTest {
 
     private static final LoginUser LOGIN_USER =
             new LoginUser(7L, "tester", "测试用户", null);
 
-    private static final ApplicationRuntimeSnapshot APPLICATION_SNAPSHOT =
-            new ApplicationRuntimeSnapshot(
-                    20L,
-                    "support",
-                    30L,
-                    new ApplicationDefinition(
-                            1,
-                            new WorkflowDefinition(
-                                    1,
-                                    "main",
-                                    List.of(),
-                                    List.of())));
+    private static final AppRuntimeSnapshot APPLICATION_SNAPSHOT =
+            new AppRuntimeSnapshot(20L, "support", 30L, applicationDefinition());
 
     private final ConversationService conversationService = mock(ConversationService.class);
     private final ConversationMessageRepo messageRepo = mock(ConversationMessageRepo.class);
@@ -71,12 +67,28 @@ class ChatStreamServiceImplTest {
             mock(ApplicationRuntimeService.class);
     private final ApplicationChatExecutionService applicationChatExecutionService =
             mock(ApplicationChatExecutionService.class);
+    private final TokenCountEstimator tokenCountEstimator = mock(TokenCountEstimator.class);
 
     private ChatStreamServiceImpl service;
 
+    private static ApplicationDefinition applicationDefinition() {
+        ApplicationAgentReference defaultAgent = new ApplicationAgentReference(40L, 41L, "默认助手", "处理通用请求");
+        ApplicationCapabilityDefinition capability = ApplicationCapabilityDefinition.builder()
+                .code("default_agent")
+                .type(ApplicationCapabilityType.REACT_AGENT)
+                .targetId(40L)
+                .targetVersionId(41L)
+                .build();
+        return ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .defaultAgent(defaultAgent)
+                .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(capability)).build())
+                .build();
+    }
+
     @BeforeEach
     void setUp() {
-        when(applicationRuntimeService.resolvePublished("support"))
+        when(applicationRuntimeService.loadRuntimeAppConfig("support"))
                 .thenReturn(APPLICATION_SNAPSHOT);
         when(conversationService.startTurn(
                         7L, 10L, "client-001", "你好", null, 20L, 30L))
@@ -85,7 +97,8 @@ class ChatStreamServiceImplTest {
                 .thenReturn(Optional.of(assistant(MessageStatus.GENERATING, "")));
         when(generationEventRepo.findAfter(any(), anyLong())).thenReturn(List.of());
 
-        service = new ChatStreamServiceImpl(conversationService, messageRepo, generationEventRepo, applicationRuntimeService, applicationChatExecutionService, event -> { });
+        service = new ChatStreamServiceImpl(conversationService, messageRepo, generationEventRepo,
+                applicationRuntimeService, applicationChatExecutionService, event -> { }, tokenCountEstimator);
     }
 
     @Test
@@ -95,7 +108,7 @@ class ChatStreamServiceImplTest {
         service.start(createChatRequest(), LOGIN_USER);
         gate.awaitStarted();
 
-        verify(applicationRuntimeService).resolvePublished("support");
+        verify(applicationRuntimeService).loadRuntimeAppConfig("support");
         verify(conversationService).startTurn(
                 7L, 10L, "client-001", "你好", null, 20L, 30L);
 
@@ -104,7 +117,7 @@ class ChatStreamServiceImplTest {
 
     @Test
     void shouldNotCreateMessageWhenApplicationCannotBeResolved() {
-        when(applicationRuntimeService.resolvePublished("support"))
+        when(applicationRuntimeService.loadRuntimeAppConfig("support"))
                 .thenThrow(new BusinessException(
                         HttpStatusEnum.NOT_FOUND,
                         "AI应用不存在或已停用"));
@@ -115,6 +128,18 @@ class ChatStreamServiceImplTest {
 
         verify(conversationService, never()).startTurn(
                 any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldRejectOversizedQueryBeforeCreatingTurn() {
+        when(tokenCountEstimator.estimate("你好")).thenReturn(4001);
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.start(createChatRequest(), LOGIN_USER));
+
+        assertEquals(HttpStatusEnum.BAD_REQUEST, exception.getHttpStatus());
+        assertEquals("当前输入约4001 Token，超过应用上限4000 Token，请缩短后重试", exception.getMessage());
+        verify(conversationService, never()).startTurn(any(), any(), any(), any(), any(), any(), any());
+        verify(applicationChatExecutionService, never()).execute(any());
     }
 
     @Test
@@ -215,18 +240,17 @@ class ChatStreamServiceImplTest {
     private ApplicationExecutionGate prepareApplicationExecution(String answer) {
         ApplicationExecutionGate gate = new ApplicationExecutionGate();
         doAnswer(invocation -> {
+            ApplicationChatExecutionRequest request = invocation.getArgument(0);
+            assertEquals(APPLICATION_SNAPSHOT, request.getApplication());
+            assertEquals("你好", request.getQuery());
+            assertEquals(LOGIN_USER, request.getLoginUser());
+            assertEquals(new ChatTurnBO(10L, 11L, 12L, 3), request.getTurn());
             gate.markStarted();
             gate.awaitRelease();
-            ChatExecutionEventPublisher eventPublisher = invocation.getArgument(5);
+            ChatExecutionEventPublisher eventPublisher = request.getEventPublisher();
             eventPublisher.publishText(new ChatStreamChunk(answer, TokenUsage.of(12, 4, 16)));
             return new ApplicationChatResult(answer, TokenUsage.of(12, 4, 16), List.of(), 99L);
-        }).when(applicationChatExecutionService).execute(
-                eq(APPLICATION_SNAPSHOT),
-                eq("你好"),
-                eq(LOGIN_USER),
-                eq(new ChatTurnBO(10L, 11L, 12L, 3)),
-                any(),
-                any(ChatExecutionEventPublisher.class));
+        }).when(applicationChatExecutionService).execute(any(ApplicationChatExecutionRequest.class));
         return gate;
     }
 

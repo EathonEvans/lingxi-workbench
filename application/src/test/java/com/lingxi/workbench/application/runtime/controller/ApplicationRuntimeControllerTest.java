@@ -1,7 +1,7 @@
 package com.lingxi.workbench.application.runtime.controller;
 
 import com.lingxi.workbench.application.runtime.model.vo.AvailableApplicationVO;
-import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.service.ApplicationRuntimeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -61,7 +61,7 @@ class ApplicationRuntimeControllerTest {
         }
 
         @Override
-        public ApplicationRuntimeSnapshot resolvePublished(String applicationCode) {
+        public AppRuntimeSnapshot loadRuntimeAppConfig(String applicationCode) {
             throw new UnsupportedOperationException("当前测试不覆盖应用版本解析");
         }
     }

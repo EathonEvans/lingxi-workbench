@@ -29,6 +29,16 @@ public class MemoryCompletionService {
     private final MemoryChatModelResolver chatModelResolver;
     private final ChatCompletionGateway completionGateway;
 
+    /**
+     * 解析已发布 PromptVersion、替换变量、调用 Chat 模型获取提取结果。
+     *
+     * @param promptVersionId   已发布 PromptVersion 主键
+     * @param chatModelInstanceId Chat 模型实例主键
+     * @param variables         变量名到值的映射，键不含 {@code {{}} 包裹}
+     * @return 模型返回的提取结果（非空）
+     * @throws BusinessException Prompt 角色非 SYSTEM 或存在未解析变量
+     * @throws IllegalStateException 模型返回空内容
+     */
     public String complete(Long promptVersionId, Long chatModelInstanceId, Map<String, String> variables) {
         PromptRuntimeSnapshot snapshot = promptRuntimeService.resolvePublished(promptVersionId);
         if (snapshot.role() != PromptRole.SYSTEM) {

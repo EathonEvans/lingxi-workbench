@@ -70,7 +70,7 @@ class ChatAgentNodeInvokerTest {
     private static AgentNodeInvocation invocation(String query) {
         return AgentNodeInvocation.builder()
                 .executionId("run-1")
-                .applicationVersionId("30")
+                .workflowVersionId(30L)
                 .nodeId("agent-node")
                 .agentId(10L)
                 .agentVersionId(20L)

@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.prompt.service;
 
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
+import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableType;
 import com.lingxi.workbench.admin.prompt.model.request.PreviewPromptRequest;
 import com.lingxi.workbench.admin.prompt.model.request.PromptPageQuery;
 import com.lingxi.workbench.admin.prompt.model.request.SavePromptRequest;
@@ -14,6 +15,7 @@ import com.lingxi.workbench.framework.convention.PageResult;
 import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -73,7 +75,19 @@ public interface PromptService {
      * @param versionId PromptVersion 主键
      * @param role Prompt 角色
      * @param active Prompt 主记录是否启用
+     * @param variables Prompt版本冻结的变量声明
      */
-    record PromptVersionReference(Long versionId, PromptRole role, boolean active) {
+    record PromptVersionReference(Long versionId, PromptRole role, boolean active, List<PromptVariableReference> variables) {
+
+        public PromptVersionReference {
+            variables = List.copyOf(Objects.requireNonNullElse(variables, List.of()));
+        }
+    }
+
+    /**
+     * @param name 变量名称
+     * @param type 变量类型
+     */
+    record PromptVariableReference(String name, PromptVariableType type) {
     }
 }

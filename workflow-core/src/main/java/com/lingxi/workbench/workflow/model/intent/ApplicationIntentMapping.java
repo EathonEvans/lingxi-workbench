@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
  * <ul>
  *   <li><b>WORKFLOW</b> — 交给独立管理的 Workflow 正式版本执行。
  *       草稿保存 Workflow 主键，Application 发布时锁定 WorkflowVersion。</li>
- *   <li><b>AGENT</b> — 交给指定的 Agent 执行，包括普通 RAG_CHAT 和 SUPERVISOR 类型。
+ *   <li><b>AGENT</b> — 交给指定的 ReAct Agent 或 Supervisor 执行。
  *       草稿中 {@code targetId} 保存 Agent 稳定主键，发布时解析并锁定为
  *       {@code targetVersionId}。</li>
  *   <li><b>FIXED_RESPONSE</b> — 直接返回预定义的固定文本，不调用任何模型。

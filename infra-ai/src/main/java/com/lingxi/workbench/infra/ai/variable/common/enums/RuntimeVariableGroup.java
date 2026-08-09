@@ -18,8 +18,7 @@ public enum RuntimeVariableGroup {
     QUERY("query", "问题处理", 70),
     WORKFLOW("workflow", "工作流变量", 80),
     NODE("node", "节点变量", 90),
-    TOOLS("tools", "工具变量", 100),
-    KNOWLEDGE("knowledge", "知识检索", 110);
+    TOOLS("tools", "工具变量", 100);
 
     /** 稳定分组编码，也是变量完整编码的第一段。 */
     private final String code;

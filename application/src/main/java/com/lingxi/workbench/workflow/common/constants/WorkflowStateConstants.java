@@ -11,8 +11,8 @@ public interface WorkflowStateConstants {
     /** 本次 Workflow 执行的唯一标识。 */
     String EXECUTION_ID_KEY = "_executionId";
 
-    /** 本次执行锁定的 ApplicationVersion 标识。 */
-    String APPLICATION_VERSION_ID_KEY = "_applicationVersionId";
+    /** 本次执行锁定的 WorkflowVersion 标识。 */
+    String WORKFLOW_VERSION_ID_KEY = "_workflowVersionId";
 
     /** LangGraph4j 累加节点执行追踪记录使用的状态通道键。 */
     String TRACES_KEY = "_traces";

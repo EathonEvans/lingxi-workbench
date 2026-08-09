@@ -83,7 +83,7 @@ class RuntimeVariablesTest {
     }
 
     @Test
-    void shouldForkOnlyRequestVariablesForDelegatedAgent() {
+    void shouldForkPreparedSharedContextForDelegatedAgent() {
         RuntimeVariables variables = new RuntimeVariables();
         variables.put(RuntimeVariableAccessors.USER_ID, 7L);
         variables.put(RuntimeVariableAccessors.USER_NAME, "测试用户");
@@ -91,14 +91,12 @@ class RuntimeVariablesTest {
         variables.put(RuntimeVariableAccessors.SESSION_ID, 10L);
         variables.put(RuntimeVariableAccessors.COLLABORATION_MAX_DELEGATIONS, 3);
         variables.put(RuntimeVariableAccessors.SESSION_HISTORY, List.of(new ChatHistoryMessage(ChatHistoryMessage.Role.USER, "父Agent历史")));
-        variables.put(RuntimeVariableAccessors.KNOWLEDGE_RETRIEVAL_QUERY, "父Agent检索问题");
 
         RuntimeVariables child = variables.forkForAgentTask("独立子任务");
 
         assertEquals(7L, child.require(RuntimeVariableAccessors.USER_ID));
         assertEquals("独立子任务", child.require(RuntimeVariableAccessors.USER_QUERY));
-        assertTrue(child.find(RuntimeVariableAccessors.SESSION_HISTORY).isEmpty());
-        assertTrue(child.find(RuntimeVariableAccessors.KNOWLEDGE_RETRIEVAL_QUERY).isEmpty());
+        assertEquals("父Agent历史", child.require(RuntimeVariableAccessors.SESSION_HISTORY).getFirst().content());
         assertTrue(child.find(RuntimeVariableAccessors.COLLABORATION_MAX_DELEGATIONS).isEmpty());
     }
 }

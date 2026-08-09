@@ -5,27 +5,37 @@ import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
+import com.lingxi.workbench.admin.workflow.model.config.WorkflowCanvasState;
 import com.lingxi.workbench.admin.workflow.model.converter.WorkflowConverter;
 import com.lingxi.workbench.admin.workflow.model.entity.WorkflowDraftEntity;
 import com.lingxi.workbench.admin.workflow.model.entity.WorkflowEntity;
 import com.lingxi.workbench.admin.workflow.model.entity.WorkflowVersionEntity;
 import com.lingxi.workbench.admin.workflow.model.request.CreateWorkflowRequest;
 import com.lingxi.workbench.admin.workflow.model.request.PublishWorkflowRequest;
+import com.lingxi.workbench.admin.workflow.model.request.RestoreWorkflowDraftRequest;
 import com.lingxi.workbench.admin.workflow.model.request.SaveWorkflowDraftRequest;
 import com.lingxi.workbench.admin.workflow.model.request.UpdateWorkflowRequest;
+import com.lingxi.workbench.admin.workflow.model.request.ValidateWorkflowRequest;
 import com.lingxi.workbench.admin.workflow.model.request.WorkflowPageQuery;
 import com.lingxi.workbench.admin.workflow.model.vo.WorkflowDetailVO;
+import com.lingxi.workbench.admin.workflow.model.vo.WorkflowValidationIssueVO;
+import com.lingxi.workbench.admin.workflow.model.vo.WorkflowValidationResultVO;
 import com.lingxi.workbench.admin.workflow.model.vo.WorkflowVO;
 import com.lingxi.workbench.admin.workflow.model.vo.WorkflowVersionVO;
 import com.lingxi.workbench.admin.workflow.repo.WorkflowDraftRepo;
 import com.lingxi.workbench.admin.workflow.repo.WorkflowRepo;
 import com.lingxi.workbench.admin.workflow.repo.WorkflowVersionRepo;
-import com.lingxi.workbench.admin.workflow.service.WorkflowService;
 import com.lingxi.workbench.admin.workflow.service.WorkflowDraftResolver;
+import com.lingxi.workbench.admin.workflow.service.WorkflowService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageResult;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
+import com.lingxi.workbench.workflow.model.WorkflowEdgeDefinition;
+import com.lingxi.workbench.workflow.model.WorkflowNodeDefinition;
+import com.lingxi.workbench.workflow.model.WorkflowNodeType;
+import com.lingxi.workbench.workflow.model.config.EndNodeConfig;
+import com.lingxi.workbench.workflow.model.config.StartNodeConfig;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +45,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -49,6 +60,8 @@ public class WorkflowServiceImpl implements WorkflowService {
     private static final String DRAFT_NOT_EXIST_MSG = "草稿不存在，请先保存";
     private static final String CONFLICT_MSG = "草稿已被其他操作修改，请刷新后重试";
     private static final String SAME_CHECKSUM_MSG = "当前草稿与已发布版本完全相同，无需重复发布";
+    private static final String START_NODE_ID = "start";
+    private static final String END_NODE_ID = "end";
 
     private final WorkflowRepo workflowRepo;
     private final WorkflowDraftRepo draftRepo;
@@ -100,6 +113,7 @@ public class WorkflowServiceImpl implements WorkflowService {
         draft.setSchemaVersion(SCHEMA_VERSION);
         // 初始空 Workflow：仅含 START → END
         draft.setDefinition(emptyDraft(request.getCode()));
+        draft.setCanvasState(initialCanvasState());
         draft.setRevision(0L);
         draft.setCreatedBy(userId);
         draft.setUpdatedBy(userId);
@@ -122,17 +136,42 @@ public class WorkflowServiceImpl implements WorkflowService {
     @Override
     @Transactional
     public WorkflowDetailVO saveDraft(Long id, SaveWorkflowDraftRequest request, Long userId) {
-        requireWorkflow(id);
+        WorkflowEntity workflow = requireWorkflow(id);
         WorkflowDraftEntity draft = requireDraft(id);
-        if (Objects.nonNull(request.getExpectedRevision()) && !Objects.equals(draft.getRevision(), request.getExpectedRevision())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, CONFLICT_MSG);
+        if (!Objects.equals(workflow.getCode(), request.getDefinition().code())) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "Workflow定义编码与主记录不一致");
         }
         draft.setDefinition(request.getDefinition());
+        draft.setCanvasState(request.getCanvasState());
         draft.setChangeNote(request.getChangeNote());
-        draft.setRevision(draft.getRevision() + 1);
         draft.setUpdatedBy(userId);
-        draftRepo.save(draft);
+        if (!draftRepo.updateWithRevision(draft, request.getExpectedRevision())) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, CONFLICT_MSG);
+        }
         return detail(id);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public WorkflowValidationResultVO validate(Long id, ValidateWorkflowRequest request) {
+        WorkflowEntity workflow = requireWorkflow(id);
+        WorkflowDefinition definition = request.getDefinition();
+        if (!Objects.equals(workflow.getCode(), definition.code())) {
+            return new WorkflowValidationResultVO(false, List.of(new WorkflowValidationIssueVO(
+                    "WORKFLOW_CODE_MISMATCH", null, "Workflow定义编码与主记录不一致")));
+        }
+        try {
+            draftResolver.resolveForPublish(definition);
+            return new WorkflowValidationResultVO(true, List.of());
+        } catch (BusinessException exception) {
+            String nodeId = definition.nodes().stream()
+                    .map(node -> node.id())
+                    .filter(exception.getMessage()::contains)
+                    .findFirst()
+                    .orElse(null);
+            return new WorkflowValidationResultVO(false, List.of(
+                    new WorkflowValidationIssueVO("WORKFLOW_INVALID", nodeId, exception.getMessage())));
+        }
     }
 
     @Override
@@ -140,8 +179,12 @@ public class WorkflowServiceImpl implements WorkflowService {
     public WorkflowDetailVO publish(Long id, PublishWorkflowRequest request, Long userId) {
         WorkflowEntity entity = workflowRepo.findByIdForUpdate(id)
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, NOT_EXIST_MSG));
-        WorkflowDraftEntity draft = requireDraft(id);
-        if (Objects.nonNull(request.getExpectedDraftRevision()) && !Objects.equals(draft.getRevision(), request.getExpectedDraftRevision())) {
+        if (entity.getStatus() != EnableStatus.ACTIVE) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "停用的Workflow不能发布");
+        }
+        WorkflowDraftEntity draft = draftRepo.findByWorkflowIdForUpdate(id)
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, DRAFT_NOT_EXIST_MSG));
+        if (!Objects.equals(draft.getRevision(), request.getExpectedDraftRevision())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, CONFLICT_MSG);
         }
 
@@ -159,8 +202,13 @@ public class WorkflowServiceImpl implements WorkflowService {
         version.setVersionName(Objects.toString(request.getVersionName(), "V" + versionNo));
         version.setSchemaVersion(SCHEMA_VERSION);
         version.setDefinitionSnapshot(snapshot);
+        version.setCanvasSnapshot(draft.getCanvasState());
         version.setSnapshotChecksum(checksum);
-        version.setChangeNote(draft.getChangeNote());
+        String changeNote = Optional.ofNullable(request.getChangeNote())
+                .filter(note -> !note.isBlank())
+                .map(String::trim)
+                .orElse(draft.getChangeNote());
+        version.setChangeNote(changeNote);
         version.setPublishedBy(userId);
         version.setPublishedAt(OffsetDateTime.now());
         versionRepo.save(version);
@@ -168,7 +216,46 @@ public class WorkflowServiceImpl implements WorkflowService {
         entity.setPublishedVersionId(version.getId());
         entity.setUpdatedBy(userId);
         workflowRepo.save(entity);
+        draftRepo.updatePublicationBase(draft.getId(), version.getId(), userId, request.getExpectedDraftRevision());
 
+        return detail(id);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public WorkflowVersionVO versionDetail(Long id, Long versionId) {
+        requireWorkflow(id);
+        return converter.toVersionVO(requireVersion(id, versionId));
+    }
+
+    @Override
+    @Transactional
+    public void activateVersion(Long id, Long versionId, Long userId) {
+        WorkflowEntity workflow = workflowRepo.findByIdForUpdate(id)
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, NOT_EXIST_MSG));
+        if (workflow.getStatus() != EnableStatus.ACTIVE) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "停用的Workflow不能切换版本");
+        }
+        requireVersion(id, versionId);
+        workflow.setPublishedVersionId(versionId);
+        workflow.setUpdatedBy(userId);
+        workflowRepo.save(workflow);
+    }
+
+    @Override
+    @Transactional
+    public WorkflowDetailVO restoreDraft(Long id, Long versionId, RestoreWorkflowDraftRequest request, Long userId) {
+        requireWorkflow(id);
+        WorkflowVersionEntity version = requireVersion(id, versionId);
+        WorkflowDraftEntity draft = requireDraft(id);
+        draft.setBaseVersionId(versionId);
+        draft.setDefinition(version.getDefinitionSnapshot());
+        draft.setCanvasState(version.getCanvasSnapshot());
+        draft.setChangeNote("基于" + version.getVersionName() + "恢复草稿");
+        draft.setUpdatedBy(userId);
+        if (!draftRepo.updateWithRevision(draft, request.getExpectedRevision())) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, CONFLICT_MSG);
+        }
         return detail(id);
     }
 
@@ -208,14 +295,19 @@ public class WorkflowServiceImpl implements WorkflowService {
 
     /** 初始化空 Workflow 草稿：仅含 START → END。 */
     private WorkflowDefinition emptyDraft(String code) {
-        com.lingxi.workbench.workflow.model.WorkflowNodeDefinition start =
-                new com.lingxi.workbench.workflow.model.WorkflowNodeDefinition("__start__", "开始", com.lingxi.workbench.workflow.model.WorkflowNodeType.START, new com.lingxi.workbench.workflow.model.config.StartNodeConfig());
-        com.lingxi.workbench.workflow.model.WorkflowNodeDefinition end =
-                new com.lingxi.workbench.workflow.model.WorkflowNodeDefinition("__end__", "结束", com.lingxi.workbench.workflow.model.WorkflowNodeType.END, new com.lingxi.workbench.workflow.model.config.EndNodeConfig(java.util.Map.of("response", "query")));
-        List<com.lingxi.workbench.workflow.model.WorkflowNodeDefinition> nodes = List.of(start, end);
-        List<com.lingxi.workbench.workflow.model.WorkflowEdgeDefinition> edges = List.of(
-                new com.lingxi.workbench.workflow.model.WorkflowEdgeDefinition("__start__", "__end__", null));
+        WorkflowNodeDefinition start = new WorkflowNodeDefinition(START_NODE_ID, "开始", WorkflowNodeType.START, new StartNodeConfig());
+        WorkflowNodeDefinition end = new WorkflowNodeDefinition(END_NODE_ID, "结束", WorkflowNodeType.END, new EndNodeConfig(Map.of("response", "query")));
+        List<WorkflowNodeDefinition> nodes = List.of(start, end);
+        List<WorkflowEdgeDefinition> edges = List.of(new WorkflowEdgeDefinition(START_NODE_ID, END_NODE_ID, null));
         return new WorkflowDefinition(SCHEMA_VERSION, code, nodes, edges);
+    }
+
+    private WorkflowCanvasState initialCanvasState() {
+        return new WorkflowCanvasState(
+                Map.of(
+                        START_NODE_ID, new WorkflowCanvasState.NodePosition(80, 180),
+                        END_NODE_ID, new WorkflowCanvasState.NodePosition(520, 180)),
+                new WorkflowCanvasState.Viewport(0, 0, 1));
     }
 
     private WorkflowEntity requireWorkflow(Long id) {
@@ -226,5 +318,10 @@ public class WorkflowServiceImpl implements WorkflowService {
     private WorkflowDraftEntity requireDraft(Long workflowId) {
         return draftRepo.findByWorkflowId(workflowId)
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, DRAFT_NOT_EXIST_MSG));
+    }
+
+    private WorkflowVersionEntity requireVersion(Long workflowId, Long versionId) {
+        return versionRepo.findByWorkflowIdAndId(workflowId, versionId)
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "Workflow发布版本不存在"));
     }
 }

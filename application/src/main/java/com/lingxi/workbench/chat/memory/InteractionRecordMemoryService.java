@@ -23,6 +23,13 @@ public class InteractionRecordMemoryService {
     private final EmbeddingGateway embeddingGateway;
     private final InteractionMemoryStoreService storeService;
 
+    /**
+     * 提取关键交互记录并向量化存储。
+     * 同一 Assistant 消息只会提取一次（防重），提取结果含 summary 和 entities，
+     * summary 向量化后写入 pgvector，供后续对话做语义检索。
+     *
+     * @return 写入后的记录主键
+     */
     public Long extract(AssistantCompletedEvent event, String history, InteractionRecordMemoryConfig config) {
         java.util.Optional<Long> existingRecordId = storeService.findExistingRecordId(event.turn().assistantMessageId());
         if (existingRecordId.isPresent()) {

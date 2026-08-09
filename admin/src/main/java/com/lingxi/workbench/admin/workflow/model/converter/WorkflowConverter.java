@@ -52,6 +52,7 @@ public class WorkflowConverter {
                 .baseVersionId(stringId(draft.getBaseVersionId()))
                 .schemaVersion(draft.getSchemaVersion())
                 .definition(draft.getDefinition())
+                .canvasState(draft.getCanvasState())
                 .revision(draft.getRevision())
                 .changeNote(draft.getChangeNote())
                 .build();
@@ -66,6 +67,7 @@ public class WorkflowConverter {
                 .versionName(version.getVersionName())
                 .schemaVersion(version.getSchemaVersion())
                 .definitionSnapshot(version.getDefinitionSnapshot())
+                .canvasSnapshot(version.getCanvasSnapshot())
                 .snapshotChecksum(version.getSnapshotChecksum())
                 .changeNote(version.getChangeNote())
                 .publishedAt(version.getPublishedAt())

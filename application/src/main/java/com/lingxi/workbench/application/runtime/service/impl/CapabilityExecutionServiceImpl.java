@@ -37,8 +37,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.TimeoutException;
 
-/** 锁定能力的目标解析、完整性校验和执行实现。 */
+/**
+ * 锁定能力的目标解析、完整性校验和执行实现。
+ */
 @Service
 @RequiredArgsConstructor
 public class CapabilityExecutionServiceImpl implements CapabilityExecutionService {
@@ -58,14 +62,24 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
     public CapabilityExecutionResult execute(CapabilityExecutionRequest request) {
         requireRequest(request);
         CapabilityExecutionResult result = switch (request.capability().getType()) {
-            case REACT_AGENT -> executeAgent(request);
-            case WORKFLOW -> executeWorkflow(request);
+            case REACT_AGENT -> executeWithinTimeout(request, () -> executeAgent(request));
+            case WORKFLOW -> executeWithinTimeout(request, () -> executeWorkflow(request));
             case TOOL -> executeTool(request);
         };
         if (tokenCountEstimator.estimate(result.content()) > request.capability().getResultTokenBudget()) {
             throw invalid("能力结果超过Application发布快照Token预算");
         }
         return result;
+    }
+
+    private CapabilityExecutionResult executeWithinTimeout(CapabilityExecutionRequest request,
+                                                           Callable<CapabilityExecutionResult> execution) {
+        return Mono.fromCallable(execution)
+                .subscribeOn(Schedulers.boundedElastic())
+                .timeout(Duration.ofSeconds(request.capability().getTimeoutSeconds()))
+                .onErrorMap(TimeoutException.class, exception ->
+                        invalid("能力执行超时：" + request.capability().getCode()))
+                .block();
     }
 
     private CapabilityExecutionResult executeAgent(CapabilityExecutionRequest request) {
@@ -91,8 +105,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
         WorkflowDefinition definition = Objects.requireNonNull(version.getDefinitionSnapshot(), "WorkflowVersion定义不能为空");
         requireChecksum(capability, checksum.calculate(definition));
         WorkflowExecutionRequest workflowRequest = new WorkflowExecutionRequest(
-                request.context().getExecutionId(), String.valueOf(capability.getTargetVersionId()),
-                Map.of("query", requireQuery(request.inputs())));
+                request.context().getExecutionId(), capability.getTargetId(), capability.getTargetVersionId(), Map.of("query", requireQuery(request.inputs())));
         WorkflowExecutionResult result = workflowExecutor.execute(definition, workflowRequest);
         String answer = resolveAnswer(result).orElseThrow(() -> invalid("WorkflowVersion必须输出非空response"));
         Long modelInstanceId = definition.nodes().stream()
@@ -202,10 +215,10 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
     /**
      * 对外发布的安全Tool状态，不包含调用参数和原始结果。
      *
-     * @param invocationId  调用标识
-     * @param status        执行状态
+     * @param invocationId   调用标识
+     * @param status         执行状态
      * @param durationMillis 执行耗时
-     * @param errorCode     失败编码
+     * @param errorCode      失败编码
      */
     private record ToolEventState(String invocationId, AgentToolExecutionStatus status,
                                   Long durationMillis, String errorCode) {

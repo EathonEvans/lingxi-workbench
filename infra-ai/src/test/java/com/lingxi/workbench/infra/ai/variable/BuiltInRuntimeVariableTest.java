@@ -42,12 +42,12 @@ class BuiltInRuntimeVariableTest {
     }
 
     @Test
-    void shouldScopeQueryRewriteVariablesToDedicatedChannel() {
+    void shouldScopeContextualizationVariablesToDedicatedChannel() {
         assertThat(BuiltInRuntimeVariable.USER_QUERY.supportsChannel(
-                RuntimeVariableChannel.QUERY_REWRITE_PROMPT))
+                RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT))
                 .isTrue();
-        assertThat(BuiltInRuntimeVariable.QUERY_REWRITE_HISTORY.supportsChannel(
-                RuntimeVariableChannel.QUERY_REWRITE_PROMPT))
+        assertThat(BuiltInRuntimeVariable.CONTEXTUALIZATION_HISTORY.supportsChannel(
+                RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT))
                 .isTrue();
         assertThat(BuiltInRuntimeVariable.USER_QUERY.supportsChannel(
                 RuntimeVariableChannel.SYSTEM_PROMPT))
@@ -64,6 +64,6 @@ class BuiltInRuntimeVariableTest {
         assertThat(variable.getType().getCode()).isEqualTo("INTEGER");
         assertThat(variable.supportsChannel(RuntimeVariableChannel.SYSTEM_PROMPT)).isTrue();
         assertThat(variable.supportsChannel(RuntimeVariableChannel.USER_PROMPT)).isTrue();
-        assertThat(variable.supportsChannel(RuntimeVariableChannel.QUERY_REWRITE_PROMPT)).isFalse();
+        assertThat(variable.supportsChannel(RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT)).isFalse();
     }
 }

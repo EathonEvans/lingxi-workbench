@@ -20,6 +20,10 @@ public class UserProfileMemoryService {
     private final MemoryCompletionService completionService;
     private final UserProfileRepo profileRepo;
 
+    /**
+     * 从完整会话历史中提取用户画像并持久化。
+     * 先加载既有画像，再调用 LLM 提取更新，根据策略 MERGE 或 REPLACE 后写入。
+     */
     public void extract(AssistantCompletedEvent event, String history, UserProfileMemoryConfig config) {
         Map<String, Object> existing = profileRepo.findByUserId(event.userId())
                 .map(UserProfileEntity::getProfile)

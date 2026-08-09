@@ -28,11 +28,7 @@ import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageResult;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
-import com.lingxi.workbench.workflow.exception.WorkflowDefinitionException;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
-import com.lingxi.workbench.workflow.model.WorkflowDefinition;
-import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
-import com.lingxi.workbench.workflow.service.WorkflowDefinitionValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -59,8 +55,6 @@ public class ApplicationServiceImpl implements ApplicationService {
     private final ApplicationSnapshotChecksum snapshotChecksum;
     private final ApplicationConverter converter;
     private final AuditService auditService;
-    private final WorkflowDefinitionValidator workflowValidator =
-            new WorkflowDefinitionValidator();
 
     @Override
     @Transactional(readOnly = true)
@@ -182,16 +176,6 @@ public class ApplicationServiceImpl implements ApplicationService {
     public ApplicationDetailVO saveDraft(
             Long id, SaveApplicationDraftRequest request, Long operatorId) {
         requireApplication(id);
-        if (Objects.nonNull(request.getWorkflow())) {
-            try {
-                workflowValidator.validateDraft(request.getWorkflow());
-            } catch (WorkflowDefinitionException exception) {
-                throw new BusinessException(
-                        HttpStatusEnum.BAD_REQUEST,
-                        "历史Workflow草稿结构无效：" + exception.getMessage());
-            }
-        }
-
         AiApplicationDraftEntity draft = draftRepo.findByApplicationIdForUpdate(id)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.CONFLICT, "Application草稿不存在"));
@@ -200,17 +184,12 @@ public class ApplicationServiceImpl implements ApplicationService {
                     HttpStatusEnum.CONFLICT,
                     "Application草稿已被其他操作修改，请刷新后重试");
         }
-        ApplicationIntentBinding optionalFastRoutes =
-                Objects.nonNull(request.getOptionalFastRoutes())
-                        ? request.getOptionalFastRoutes()
-                        : request.getIntentBinding();
         draft.setSchemaVersion(APPLICATION_SCHEMA_VERSION);
         draft.setDefinition(ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
-                .workflow(request.getWorkflow())
                 .collaboration(request.getCollaboration())
-                .optionalFastRoutes(optionalFastRoutes)
-                .memory(Objects.requireNonNullElseGet(request.getMemory(), com.lingxi.workbench.workflow.model.MemoryConfig::disabled))
+                .optionalFastRoutes(request.getOptionalFastRoutes())
+                .memoryConf(Objects.requireNonNullElseGet(request.getMemory(), com.lingxi.workbench.workflow.model.MemoryConfig::disabled))
                 .contextPolicy(Objects.requireNonNullElseGet(request.getContextPolicy(), com.lingxi.workbench.workflow.model.ApplicationContextPolicy::defaults))
                 .defaultAgent(request.getDefaultAgent())
                 .plannerPolicy(Objects.requireNonNullElseGet(request.getPlannerPolicy(), com.lingxi.workbench.workflow.model.PlannerPolicy::disabled))
@@ -380,7 +359,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     private static ApplicationDefinition defaultDefinition() {
         return ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
-                .memory(com.lingxi.workbench.workflow.model.MemoryConfig.disabled())
+                .memoryConf(com.lingxi.workbench.workflow.model.MemoryConfig.disabled())
                 .contextPolicy(com.lingxi.workbench.workflow.model.ApplicationContextPolicy.defaults())
                 .plannerPolicy(com.lingxi.workbench.workflow.model.PlannerPolicy.disabled())
                 .capabilityCatalog(com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot.empty())

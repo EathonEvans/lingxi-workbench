@@ -3,7 +3,7 @@ package com.lingxi.workbench.application.runtime.service.impl;
 import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionStatus;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
-import com.lingxi.workbench.application.runtime.model.ApplicationRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.InteractionSessionContext;
 import com.lingxi.workbench.application.runtime.model.InteractionSessionOpenCommand;
 import com.lingxi.workbench.application.runtime.model.PlannerClarification;
@@ -88,7 +88,7 @@ class InteractionSessionServiceImplTest {
         assertEquals(InteractionSessionStatus.CANCELLED, repo.session().getStatus());
     }
 
-    private static InteractionSessionOpenCommand openCommand(ApplicationRuntimeSnapshot application, ChatTurnBO turn, Long userId) {
+    private static InteractionSessionOpenCommand openCommand(AppRuntimeSnapshot application, ChatTurnBO turn, Long userId) {
         PlannerClarification clarification = PlannerClarification.builder()
                 .question("确认执行退款操作吗？")
                 .options(List.of("确认执行", "取消"))
@@ -114,7 +114,7 @@ class InteractionSessionServiceImplTest {
         return response;
     }
 
-    private static ApplicationRuntimeSnapshot application(Long versionId) {
+    private static AppRuntimeSnapshot application(Long versionId) {
         ApplicationCapabilityDefinition defaultAgent = ApplicationCapabilityDefinition.builder()
                 .code("default_agent")
                 .name("默认助手")
@@ -129,11 +129,11 @@ class InteractionSessionServiceImplTest {
                 .resultTokenBudget(1000)
                 .build();
         ApplicationDefinition definition = ApplicationDefinition.builder()
-                .schemaVersion(4)
+                .schemaVersion(com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(new ApplicationAgentReference(1L, 2L, "默认助手", "处理普通请求"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(defaultAgent)).build())
                 .build();
-        return new ApplicationRuntimeSnapshot(1L, "risk-app", versionId, definition);
+        return new AppRuntimeSnapshot(1L, "risk-app", versionId, definition);
     }
 
     private static final class InMemoryInteractionSessionRepo extends InteractionSessionRepo {

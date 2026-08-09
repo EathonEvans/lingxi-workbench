@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.workflow.model.vo;
 
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
+import com.lingxi.workbench.admin.workflow.model.config.WorkflowCanvasState;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -19,6 +20,7 @@ public class WorkflowVersionVO {
     private final String versionName;
     private final Integer schemaVersion;
     private final WorkflowDefinition definitionSnapshot;
+    private final WorkflowCanvasState canvasSnapshot;
     private final String snapshotChecksum;
     private final String changeNote;
     private final OffsetDateTime publishedAt;
