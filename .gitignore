@@ -26,6 +26,9 @@
 .idea/
 *.pem
 
+# 非业务代码产物（QA 截图、验收记录、临时证据等），统一放 attachments/ 且不入库
+/attachments/
+
 # legacy local development data (not used by the Next.js frontend)
 /.data/
 
