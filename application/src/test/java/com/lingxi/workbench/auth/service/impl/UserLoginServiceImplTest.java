@@ -7,6 +7,7 @@ import com.lingxi.workbench.auth.model.converter.UserConverter;
 import com.lingxi.workbench.auth.model.request.UserLoginRequest;
 import com.lingxi.workbench.auth.model.vo.UserLoginVO;
 import com.lingxi.workbench.auth.repo.UserRepo;
+import com.lingxi.workbench.auth.service.UserAvatarUrlService;
 import com.lingxi.workbench.framework.exceptions.AuthException;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
 import com.lingxi.workbench.framework.auth.password.BCryptPasswordHasher;
@@ -41,6 +42,9 @@ class UserLoginServiceImplTest {
     private StpLogicDefinition stpLogicDefinition;
 
     @Mock
+    private UserAvatarUrlService userAvatarUrlService;
+
+    @Mock
     private SaTokenInfo tokenInfo;
 
     private UserLoginServiceImpl userLoginService;
@@ -51,22 +55,27 @@ class UserLoginServiceImplTest {
                 userRepo,
                 userConverter,
                 passwordHasher,
-                stpLogicDefinition
+                stpLogicDefinition,
+                userAvatarUrlService
         );
     }
 
     @Test
     void shouldLoginActiveUserAndIssueSession() {
-        UserBO user = user(UserStatus.ACTIVE);
+        UserBO user = user(UserStatus.ACTIVE, "avatars/1/avatar.png");
         UserLoginVO.UserProfileVO profile = UserLoginVO.UserProfileVO.builder()
-                .id(1L).username("alice").displayName("Alice").build();
+                .id(1L).username("alice").displayName("Alice")
+                .avatarUrl("https://storage.example/avatar.png").build();
         when(userRepo.findByUsername("alice")).thenReturn(Optional.of(user));
         when(passwordHasher.matches("correct-password", user.getPasswordHash())).thenReturn(true);
         when(stpLogicDefinition.login(1L)).thenReturn(tokenInfo);
         when(tokenInfo.getTokenName()).thenReturn("Authorization");
         when(tokenInfo.getTokenValue()).thenReturn("user-token");
         when(tokenInfo.getTokenTimeout()).thenReturn(7200L);
-        when(userConverter.toProfileVO(user)).thenReturn(profile);
+        when(userAvatarUrlService.resolve("avatars/1/avatar.png"))
+                .thenReturn("https://storage.example/avatar.png");
+        when(userConverter.toProfileVO(user, "https://storage.example/avatar.png"))
+                .thenReturn(profile);
 
         UserLoginVO result = userLoginService.login(
                 new UserLoginRequest(" Alice ", "correct-password")
@@ -75,6 +84,7 @@ class UserLoginServiceImplTest {
         assertEquals("user-token", result.tokenValue());
         assertEquals(1L, result.user().getId());
         assertEquals("alice", result.user().getUsername());
+        assertEquals("https://storage.example/avatar.png", result.user().getAvatarUrl());
     }
 
 
@@ -93,7 +103,7 @@ class UserLoginServiceImplTest {
 
     @Test
     void shouldRejectInvalidPassword() {
-        UserBO user = user(UserStatus.ACTIVE);
+        UserBO user = user(UserStatus.ACTIVE, null);
         when(userRepo.findByUsername("alice")).thenReturn(Optional.of(user));
         when(passwordHasher.matches("wrong-password", user.getPasswordHash())).thenReturn(false);
 
@@ -107,7 +117,7 @@ class UserLoginServiceImplTest {
 
     @Test
     void shouldRejectDisabledUserAfterPasswordVerification() {
-        UserBO user = user(UserStatus.DISABLED);
+        UserBO user = user(UserStatus.DISABLED, null);
         when(userRepo.findByUsername("alice")).thenReturn(Optional.of(user));
         when(passwordHasher.matches("correct-password", user.getPasswordHash())).thenReturn(true);
 
@@ -136,12 +146,13 @@ class UserLoginServiceImplTest {
         verify(stpLogicDefinition, never()).login(org.mockito.ArgumentMatchers.anyLong());
     }
 
-    private static UserBO user(UserStatus status) {
+    private static UserBO user(UserStatus status, String avatarUrl) {
         return UserBO.builder()
                 .id(1L)
                 .username("alice")
                 .passwordHash("$2a$12$password-hash")
                 .displayName("Alice")
+                .avatarUrl(avatarUrl)
                 .status(status)
                 .applicationAccessEnabled(true)
                 .build();

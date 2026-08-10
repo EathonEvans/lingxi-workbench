@@ -21,6 +21,7 @@ import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
+import com.lingxi.workbench.infra.ai.tool.AgentLoopLimitException;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
@@ -38,6 +39,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -166,6 +168,67 @@ class ChatStreamServiceImplTest {
                 "完整回答",
                 TokenUsage.of(12, 4, 16),
                 99L);
+    }
+
+    @Test
+    void shouldPublishAgentLoopLimitAsActionableFailure() {
+        ApplicationExecutionGate gate = new ApplicationExecutionGate();
+        doAnswer(invocation -> {
+            gate.markStarted();
+            gate.awaitRelease();
+            throw new RuntimeException(new AgentLoopLimitException(
+                    "AGENT_TOOL_CALL_LIMIT", "工具调用次数已达到上限，现有信息不足以继续处理", "测试运行边界"));
+        }).when(applicationChatExecutionService).execute(any(ApplicationChatExecutionRequest.class));
+
+        service.start(createChatRequest(), LOGIN_USER);
+        gate.awaitStarted();
+        CompletableFuture<List<ChatGenerationEventBO>> eventsFuture = service.resume(12L, 0, 7L).collectList().toFuture();
+        gate.release();
+
+        List<ChatGenerationEventBO> events = eventsFuture
+                .orTimeout(Duration.ofSeconds(2).toMillis(), TimeUnit.MILLISECONDS)
+                .join();
+
+        assertEquals(List.of(ChatGenerationEventBO.failed(
+                "AGENT_TOOL_CALL_LIMIT", "工具调用次数已达到上限，现有信息不足以继续处理")), events);
+        verify(conversationService).failAssistant(12L, "", "AGENT_TOOL_CALL_LIMIT",
+                "工具调用次数已达到上限，现有信息不足以继续处理", TokenUsage.empty());
+    }
+
+    @Test
+    void shouldPublishModelTimeoutAsRetryableFailure() {
+        ApplicationExecutionGate gate = new ApplicationExecutionGate();
+        doAnswer(invocation -> {
+            gate.markStarted();
+            gate.awaitRelease();
+            throw new IllegalStateException(new TimeoutException("model timeout"));
+        }).when(applicationChatExecutionService).execute(any(ApplicationChatExecutionRequest.class));
+
+        service.start(createChatRequest(), LOGIN_USER);
+        gate.awaitStarted();
+        CompletableFuture<List<ChatGenerationEventBO>> eventsFuture = service.resume(12L, 0, 7L).collectList().toFuture();
+        gate.release();
+
+        List<ChatGenerationEventBO> events = eventsFuture
+                .orTimeout(Duration.ofSeconds(2).toMillis(), TimeUnit.MILLISECONDS)
+                .join();
+
+        assertEquals(List.of(ChatGenerationEventBO.failed("AI_MODEL_TIMEOUT", "模型响应超时，请重试")), events);
+        verify(conversationService).failAssistant(
+                12L, "", "AI_MODEL_TIMEOUT", "模型响应超时", TokenUsage.empty());
+    }
+
+    @Test
+    void shouldRestorePersistedAgentLoopLimit() {
+        ConversationMessageEntity failed = assistant(MessageStatus.FAILED, "");
+        failed.setErrorCode("AGENT_TOOL_CALL_LIMIT");
+        failed.setErrorMessage("工具调用次数已达到上限，现有信息不足以继续处理");
+        when(messageRepo.findOwnedAssistantMessage(12L, 7L)).thenReturn(Optional.of(failed));
+
+        List<ChatGenerationEventBO> events = service.resume(12L, 0, 7L).collectList().block();
+
+        assertEquals(List.of(ChatGenerationEventBO.failed(
+                "AGENT_TOOL_CALL_LIMIT", "工具调用次数已达到上限，现有信息不足以继续处理")), events);
     }
 
     @Test

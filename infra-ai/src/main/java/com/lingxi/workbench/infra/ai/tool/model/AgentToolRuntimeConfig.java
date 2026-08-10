@@ -33,6 +33,14 @@ public class AgentToolRuntimeConfig {
      */
     private final int maxModelCalls;
     /**
+     * Agent 多轮模型调用累计输入 Token 上限；小于等于零表示不在此层限制。
+     */
+    private final int maxInputTokens;
+    /**
+     * Agent 多轮模型调用累计输出 Token 上限；小于等于零表示不在此层限制。
+     */
+    private final int maxOutputTokens;
+    /**
      * 单次工具结果允许回传模型的最大字符数。
      */
     private final int maxResultCharacters;
@@ -42,11 +50,13 @@ public class AgentToolRuntimeConfig {
     private final AgentToolEventPublisher eventPublisher;
 
     @Builder
-    private AgentToolRuntimeConfig(List<AgentTool> tools, AgentToolExecutionContext executionContext, int maxToolCalls, int maxModelCalls, int maxResultCharacters, AgentToolEventPublisher eventPublisher) {
+    private AgentToolRuntimeConfig(List<AgentTool> tools, AgentToolExecutionContext executionContext, int maxToolCalls, int maxModelCalls, int maxInputTokens, int maxOutputTokens, int maxResultCharacters, AgentToolEventPublisher eventPublisher) {
         this.tools = List.copyOf(Objects.requireNonNull(tools, "运行时工具列表不能为空"));
         this.executionContext = Objects.requireNonNull(executionContext, "工具执行上下文不能为空");
         this.maxToolCalls = maxToolCalls;
         this.maxModelCalls = maxModelCalls;
+        this.maxInputTokens = maxInputTokens;
+        this.maxOutputTokens = maxOutputTokens;
         this.maxResultCharacters = maxResultCharacters;
         this.eventPublisher = eventPublisher;
     }

@@ -4,8 +4,10 @@ import org.springframework.ai.tokenizer.JTokkitTokenCountEstimator;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableAsync;
 
 /** 会话记忆依赖配置。 */
+@EnableAsync
 @Configuration
 public class ChatMemoryConfiguration {
 

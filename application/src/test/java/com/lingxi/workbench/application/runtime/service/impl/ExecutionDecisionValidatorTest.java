@@ -1,11 +1,13 @@
 package com.lingxi.workbench.application.runtime.service.impl;
 
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionDecisionAction;
+import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
 import com.lingxi.workbench.application.runtime.common.enums.StepInputSource;
 import com.lingxi.workbench.application.runtime.model.ExecutionDecision;
 import com.lingxi.workbench.application.runtime.model.ExecutionDecisionValidationContext;
 import com.lingxi.workbench.application.runtime.model.ExecutionPlan;
 import com.lingxi.workbench.application.runtime.model.PlanStep;
+import com.lingxi.workbench.application.runtime.model.PlannerClarification;
 import com.lingxi.workbench.application.runtime.model.StepInputReference;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
@@ -53,6 +55,21 @@ class ExecutionDecisionValidatorTest {
         ExecutionDecision decision = ExecutionDecision.builder()
                 .action(ExecutionDecisionAction.EXECUTE_WORKFLOW)
                 .capabilityCode("support_agent")
+                .build();
+
+        assertThrows(BusinessException.class, () -> validator.validate(decision, context(Set.of())));
+    }
+
+    @Test
+    void shouldRejectCapabilityCodesInOrdinaryClarification() {
+        ExecutionDecision decision = ExecutionDecision.builder()
+                .action(ExecutionDecisionAction.CLARIFY)
+                .clarification(PlannerClarification.builder()
+                        .question("请补充目标岗位")
+                        .options(List.of("Java后端"))
+                        .interactionType(InteractionSessionType.PLANNER_CLARIFICATION)
+                        .capabilityCodes(List.of("support_agent"))
+                        .build())
                 .build();
 
         assertThrows(BusinessException.class, () -> validator.validate(decision, context(Set.of())));

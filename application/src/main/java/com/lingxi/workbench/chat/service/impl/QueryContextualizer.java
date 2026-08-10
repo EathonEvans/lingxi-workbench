@@ -54,9 +54,14 @@ public class QueryContextualizer {
                     .requireNonNull(completionGateway.complete(command).block(Duration.ofSeconds(policy.effectiveTimeoutSeconds())),
                     "上下文化模型未返回结果");
 
+            log.info("问题重写结果：{}", result.content());
             usage = result.usage();
             return new ContextualizationResult(validateResult(result.content(), policy), usage);
         } catch (RuntimeException exception) {
+            if (hasInterruptedCause(exception)) {
+                // 用户取消或应用关闭的线程中断不是上下文化失败，不允许回退后继续执行。
+                throw exception;
+            }
             if (!policy.isFallbackToOriginal()) {
                 BusinessException failure = new BusinessException(HttpStatusEnum.INTERNAL_SERVER_ERROR, "问题上下文化失败，请稍后重试");
                 failure.initCause(exception);
@@ -66,6 +71,17 @@ public class QueryContextualizer {
                     policy.getChatModelInstanceId(), policy.getPromptVersionId(), exception);
             return new ContextualizationResult(originalQuery, usage);
         }
+    }
+
+    private static boolean hasInterruptedCause(Throwable exception) {
+        Throwable current = exception;
+        while (Objects.nonNull(current)) {
+            if (current instanceof InterruptedException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private static String validateResult(String content, ContextualizationPolicy policy) {

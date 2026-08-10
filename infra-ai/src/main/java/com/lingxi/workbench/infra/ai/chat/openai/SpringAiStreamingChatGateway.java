@@ -6,7 +6,6 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatStreamCommand;
 import com.lingxi.workbench.infra.ai.chat.StreamingChatGateway;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
-import com.lingxi.workbench.infra.ai.tool.AgentToolException;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolRuntimeConfig;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.messages.Message;
@@ -57,8 +56,15 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
 
         return command.toolRuntimeConfig()
                 .filter(AgentToolRuntimeConfig::enabled)
-                .map(runtimeConfig -> streamAnswer(chatModel, new Prompt(messages, buildToolOptions(chatModel, runtimeConfig)), runtimeConfig, 0, 0))
+                .map(runtimeConfig -> streamToolAnswer(chatModel, messages, runtimeConfig))
                 .orElseGet(() -> streamAnswer(chatModel, new Prompt(messages)));
+    }
+
+    /** 为一次工具增强回答创建独立循环状态，禁止跨请求共享执行记忆。 */
+    private Flux<ChatStreamChunk> streamToolAnswer(OpenAiChatModel chatModel, List<Message> messages, AgentToolRuntimeConfig runtimeConfig) {
+        AgentLoopState loopState = new AgentLoopState(runtimeConfig);
+        Prompt prompt = new Prompt(messages, buildToolOptions(chatModel, runtimeConfig, loopState));
+        return streamAnswer(chatModel, prompt, runtimeConfig, loopState);
     }
 
     /**
@@ -97,11 +103,11 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
     /**
      * 构造本次工具对话使用的模型选项。
      */
-    private OpenAiChatOptions buildToolOptions(OpenAiChatModel chatModel, AgentToolRuntimeConfig runtimeConfig) {
+    private OpenAiChatOptions buildToolOptions(OpenAiChatModel chatModel, AgentToolRuntimeConfig runtimeConfig, AgentLoopState loopState) {
         int maxResultCharacters = runtimeConfig.getMaxResultCharacters();
         List<ToolCallback> callbacks = runtimeConfig.getTools()
                 .stream()
-                .map(tool -> boundedCallback(tool, runtimeConfig, maxResultCharacters))
+                .map(tool -> boundedCallback(tool, runtimeConfig, maxResultCharacters, loopState))
                 .map(ToolCallback.class::cast)
                 .toList();
         return chatModel.getOptions()
@@ -122,41 +128,56 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
      * 得到新的消息历史后通过 flatMapMany 再次进入本方法；没有 tool_calls 时，
      * 当前模型流就是最终 Assistant 回答。</p>
      */
-    private Flux<ChatStreamChunk> streamAnswer(OpenAiChatModel chatModel, Prompt prompt, AgentToolRuntimeConfig runtimeConfig, int completedModelCalls, int completedToolCalls) {
+    private Flux<ChatStreamChunk> streamAnswer(OpenAiChatModel chatModel, Prompt prompt, AgentToolRuntimeConfig runtimeConfig, AgentLoopState loopState) {
         return Flux.defer(() -> {
-            if (completedModelCalls >= runtimeConfig.getMaxModelCalls()) {
-                return Flux.error(new AgentToolException("工具调用循环超过模型调用次数限制，limit=" + runtimeConfig.getMaxModelCalls()));
-            }
+            loopState.beginModelCall();
 
             AtomicReference<ChatResponse> aggregatedResponse = new AtomicReference<>();
             Flux<ChatResponse> responseStream = messageAggregator.aggregate(chatModel.stream(prompt), aggregatedResponse::set);
 
             Flux<ChatStreamChunk> currentAnswer = streamAnswer(responseStream);
-            return currentAnswer.concatWith(Flux.defer(() -> continueAfterModelRound(chatModel, prompt, runtimeConfig, aggregatedResponse.get(), completedModelCalls + 1, completedToolCalls)));
+            return currentAnswer.concatWith(Flux.defer(() -> continueAfterModelRound(chatModel, prompt, runtimeConfig, loopState, aggregatedResponse.get())));
         });
     }
 
     /**
      * 模型流结束后处理完整 tool_calls；没有工具调用时，本次流已经完成最终回答。
      */
-    private Flux<ChatStreamChunk> continueAfterModelRound(OpenAiChatModel chatModel, Prompt prompt, AgentToolRuntimeConfig runtimeConfig, ChatResponse response, int completedModelCalls, int completedToolCalls) {
+    private Flux<ChatStreamChunk> continueAfterModelRound(OpenAiChatModel chatModel, Prompt prompt, AgentToolRuntimeConfig runtimeConfig, AgentLoopState loopState,
+                                                          ChatResponse response) {
         ChatResponse completedResponse = Objects.requireNonNull(response, "模型流结束后未生成完整响应");
+        loopState.recordUsage(TokenUsageConverter.convertActual(completedResponse.getMetadata().getUsage()));
         if (!completedResponse.hasToolCalls()) {
             return Flux.empty();
         }
 
         int requestedToolCalls = Objects.requireNonNull(completedResponse.getResult()).getOutput().getToolCalls().size();
-        int totalToolCalls = completedToolCalls + requestedToolCalls;
-        if (totalToolCalls > runtimeConfig.getMaxToolCalls()) {
-            return Flux.error(new AgentToolException("模型请求的工具调用次数超过Agent限制，limit=" + runtimeConfig.getMaxToolCalls()));
-        }
+        loopState.recordToolCalls(requestedToolCalls);
 
         return executeToolCalling(prompt, completedResponse)
                 .flatMapMany(result -> {
                     Prompt answerPrompt = new Prompt(result.conversationHistory(), prompt.getOptions());
-                    // 重新递归
-                    return streamAnswer(chatModel, answerPrompt, runtimeConfig, completedModelCalls, totalToolCalls);
+                    if (loopState.shouldFinalize()) {
+                        return streamFinalAnswer(chatModel, answerPrompt, loopState);
+                    }
+                    return streamAnswer(chatModel, answerPrompt, runtimeConfig, loopState);
                 });
+    }
+
+    /**
+     * 预算接近上限或命中重复调用时，保留一次禁用工具的模型调用用于整理已有证据。
+     */
+    private Flux<ChatStreamChunk> streamFinalAnswer(OpenAiChatModel chatModel, Prompt prompt, AgentLoopState loopState) {
+        return Flux.defer(() -> {
+            loopState.beginModelCall();
+            List<Message> messages = new ArrayList<>(prompt.getInstructions());
+            messages.add(new SystemMessage("运行预算已接近边界或工具结果已经重复。请停止调用任何工具，基于已有信息直接回答；信息不足时明确说明缺少什么。"));
+            OpenAiChatOptions options = ((OpenAiChatOptions) prompt.getOptions()).mutate()
+                    .toolCallbacks(List.of())
+                    .toolChoice("none")
+                    .build();
+            return streamAnswer(chatModel, new Prompt(messages, options));
+        });
     }
 
     /**
@@ -195,8 +216,9 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
         return !chunk.content().isEmpty() || chunk.hasUsage();
     }
 
-    private static BoundedToolCallback boundedCallback(AgentTool tool, AgentToolRuntimeConfig runtimeConfig, int maxResultCharacters) {
-        return new BoundedToolCallback(tool, runtimeConfig.getExecutionContext(), maxResultCharacters, runtimeConfig.resolveEventPublisher());
+    private static BoundedToolCallback boundedCallback(AgentTool tool, AgentToolRuntimeConfig runtimeConfig, int maxResultCharacters,
+                                                       AgentLoopState loopState) {
+        return new BoundedToolCallback(tool, runtimeConfig.getExecutionContext(), maxResultCharacters, runtimeConfig.resolveEventPublisher(), loopState);
     }
 
 }

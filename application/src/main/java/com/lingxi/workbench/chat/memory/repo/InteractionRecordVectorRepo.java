@@ -1,8 +1,6 @@
 package com.lingxi.workbench.chat.memory.repo;
 
 import com.lingxi.workbench.chat.memory.model.entity.InteractionRecordEntity;
-import com.lingxi.workbench.chat.memory.model.entity.InteractionRecordVectorEntity;
-import com.lingxi.workbench.chat.memory.repo.mapper.InteractionRecordVectorMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -13,17 +11,17 @@ import java.util.List;
 @Repository
 @RequiredArgsConstructor
 public class InteractionRecordVectorRepo {
-    private final InteractionRecordVectorMapper mapper;
+    private static final String INSERT_SQL = """
+            INSERT INTO lingxi_vector.interaction_record_vector
+                (record_id, embedding_model_instance_id, embedding_dimension, embedding)
+            VALUES (?, ?, ?, ?::vector)
+            """;
+
     private final JdbcTemplate jdbcTemplate;
 
     /** 插入向量。 */
     public void insert(Long recordId, Long embeddingModelInstanceId, float[] embedding) {
-        InteractionRecordVectorEntity entity = new InteractionRecordVectorEntity();
-        entity.setRecordId(recordId);
-        entity.setEmbeddingModelInstanceId(embeddingModelInstanceId);
-        entity.setEmbeddingDimension(embedding.length);
-        entity.setEmbedding(embedding);
-        mapper.insert(entity);
+        jdbcTemplate.update(INSERT_SQL, recordId, embeddingModelInstanceId, embedding.length, vectorToString(embedding));
     }
 
     /**

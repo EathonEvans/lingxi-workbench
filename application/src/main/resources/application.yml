@@ -29,6 +29,20 @@ sa-token:
       - /error
 
 lingxi:
+  file:
+    url-expire-hours: ${LINGXI_FILE_URL_EXPIRE_HOURS:1}
+  storage:
+    type: ${LINGXI_STORAGE_TYPE:minio}
+    minio:
+      endpoint: ${LINGXI_STORAGE_MINIO_ENDPOINT:http://192.168.86.2:9000}
+      access-key: ${LINGXI_STORAGE_MINIO_ACCESS_KEY:lingxi}
+      secret-key: ${LINGXI_STORAGE_MINIO_SECRET_KEY:lingxi-minio-dev}
+      bucket: ${LINGXI_STORAGE_MINIO_BUCKET:lingxi-knowledge}
+    oss:
+      endpoint: ${LINGXI_STORAGE_OSS_ENDPOINT:}
+      access-key-id: ${LINGXI_STORAGE_OSS_ACCESS_KEY_ID:}
+      access-key-secret: ${LINGXI_STORAGE_OSS_ACCESS_KEY_SECRET:}
+      bucket: ${LINGXI_STORAGE_OSS_BUCKET:}
   chat:
     memory:
       max-rounds: 10
@@ -42,3 +56,8 @@ lingxi:
     security:
       # 私网和本机地址默认拒绝；开发环境只显式开放本机 MCP Server。
       allowed-private-hosts: ${LINGXI_MCP_ALLOWED_PRIVATE_HOSTS:localhost,127.0.0.1,::1}
+
+rocketmq:
+  name-server: ${LINGXI_ROCKETMQ_NAMESRV:192.168.86.2:9876}
+  producer:
+    group: lingxi-admin-producer

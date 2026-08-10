@@ -2,6 +2,7 @@ package com.lingxi.workbench.chat.controller.router;
 
 import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
+import com.lingxi.workbench.chat.model.bo.ChatErrorBO;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.vo.ChatChunkVO;
 import com.lingxi.workbench.chat.model.vo.ChatErrorVO;
@@ -42,7 +43,7 @@ public final class ChatGenerationSseEventRouter {
             case PLANNING, PLAN, STEP, REPLANNING -> timelineEvent(event);
             case SNAPSHOT -> snapshotEvent(event.content());
             case COMPLETED -> doneEvent();
-            case FAILED -> errorEvent();
+            case FAILED -> errorEvent(event);
             case CANCELLED -> cancelledEvent();
         };
     }
@@ -178,10 +179,11 @@ public final class ChatGenerationSseEventRouter {
     /**
      * 构建模型调用失败事件。
      */
-    private static ServerSentEvent<ChatErrorVO> errorEvent() {
+    private static ServerSentEvent<ChatErrorVO> errorEvent(ChatGenerationEventBO event) {
+        ChatErrorBO error = Objects.requireNonNullElseGet(event.error(), () -> new ChatErrorBO(MODEL_ERROR_CODE, MODEL_ERROR_CLIENT_MESSAGE));
         return ServerSentEvent.<ChatErrorVO>builder()
                 .event("error")
-                .data(new ChatErrorVO(MODEL_ERROR_CODE, MODEL_ERROR_CLIENT_MESSAGE))
+                .data(new ChatErrorVO(error.code(), error.message()))
                 .build();
     }
 

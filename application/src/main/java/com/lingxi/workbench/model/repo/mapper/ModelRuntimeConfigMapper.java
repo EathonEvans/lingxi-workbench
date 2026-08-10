@@ -18,7 +18,7 @@ public interface ModelRuntimeConfigMapper extends BaseMapper<ModelRuntimeConfigE
      * 查询结果仍是加密密钥，解密操作由 Service 在事务查询完成后执行。</p>
      */
     @Select("""
-            SELECT instance.id                AS instance_id,
+            SELECT instance.id                AS id,
                    provider.protocol          AS protocol,
                    provider.base_url          AS base_url,
                    credential.secret_ciphertext AS secret_ciphertext,
@@ -51,7 +51,7 @@ public interface ModelRuntimeConfigMapper extends BaseMapper<ModelRuntimeConfigE
 
     /** 按 AgentVersion 锁定的实例 ID 查询可用对话模型。 */
     @Select("""
-            SELECT instance.id                  AS instance_id,
+            SELECT instance.id                  AS id,
                    provider.protocol            AS protocol,
                    provider.base_url            AS base_url,
                    credential.secret_ciphertext AS secret_ciphertext,
@@ -85,7 +85,7 @@ public interface ModelRuntimeConfigMapper extends BaseMapper<ModelRuntimeConfigE
      * 查询库中最新创建的可用 Embedding 模型配置。
      */
     @Select("""
-            SELECT instance.id                  AS instance_id,
+            SELECT instance.id                  AS id,
                    provider.protocol           AS protocol,
                    provider.base_url           AS base_url,
                    credential.secret_ciphertext AS secret_ciphertext,

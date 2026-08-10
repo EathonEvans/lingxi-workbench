@@ -208,14 +208,27 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                     result.traces().size(), Duration.between(startedAt, Instant.now()).toMillis());
             return result;
         } catch (RuntimeException exception) {
-            log.warn("Application目标执行失败，applicationCode={}，versionId={}，executionId={}，durationMs={}",
-                    snapshot.applicationCode(), snapshot.versionId(), executionId,
-                    Duration.between(startedAt, Instant.now()).toMillis(), exception);
+            if (!hasInterruptedCause(exception)) {
+                log.warn("Application目标执行失败，applicationCode={}，versionId={}，executionId={}，durationMs={}",
+                        snapshot.applicationCode(), snapshot.versionId(), executionId,
+                        Duration.between(startedAt, Instant.now()).toMillis(), exception);
+            }
             throw exception;
         } finally {
             // ⑥ 成功和失败都必须清理，避免用户会话数据滞留在进程内存中
             executionContextRegistry.remove(executionId);
         }
+    }
+
+    private static boolean hasInterruptedCause(Throwable exception) {
+        Throwable current = exception;
+        while (Objects.nonNull(current)) {
+            if (current instanceof InterruptedException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private static ChatExecutionContext createExecutionContext(ApplicationChatExecutionRequest request, ConversationContext conversationContext, String executionId, String executionQuery) {

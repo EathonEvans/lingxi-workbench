@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionMode.DETERMINISTIC_READ_ONLY;
 
 /** knowledge.search 的服务端锁定参数与结果预算测试。 */
 @ExtendWith(MockitoExtension.class)
@@ -50,6 +51,7 @@ class KnowledgeSearchAgentToolFactoryTest {
         assertThat(tool.callback().getToolDefinition().inputSchema())
                 .contains("query")
                 .doesNotContain("knowledgeBaseId", "knowledgeIndexVersionId", "embeddingModelInstanceId");
+        assertThat(tool.definition().getExecutionMode()).isEqualTo(DETERMINISTIC_READ_ONLY);
         assertThat(output).contains("支持七天退款", "产品手册", "第3页");
         verify(knowledgeSearchService).searchVersion("退款条件", 1L, 81L, embeddingConfig(), 5, 0.65D);
     }
@@ -77,6 +79,39 @@ class KnowledgeSearchAgentToolFactoryTest {
 
         assertThat(output).contains("\"content\":\"abc\"", "\"truncated\":true");
         assertThat(output).doesNotContain("abcdef", "second");
+    }
+
+    @Test
+    void shouldReportSaturatedWhenDifferentQueriesReturnNoNewEvidence() {
+        prepareTokenEstimator();
+        when(modelRuntimeConfigService.getEmbeddingModelConfig(7L)).thenReturn(embeddingConfig());
+        when(knowledgeSearchService.searchVersion(anyString(), org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(81L), org.mockito.ArgumentMatchers.eq(embeddingConfig()),
+                org.mockito.ArgumentMatchers.eq(5), org.mockito.ArgumentMatchers.eq(0.65D)))
+                .thenReturn(List.of(result("同一条知识")));
+
+        AgentTool tool = factory.create(capability());
+        String first = tool.callback().call("{\"query\":\"退款条件\"}");
+        String second = tool.callback().call("{\"query\":\"退款政策\"}");
+
+        assertThat(first).contains("\"status\":\"FOUND\"", "\"newEvidenceCount\":1");
+        assertThat(second).contains("\"status\":\"SATURATED\"", "\"newEvidenceCount\":0", "停止调用知识搜索");
+    }
+
+    @Test
+    void shouldAllowOneEmptyQueryRewriteBeforeReportingSaturated() {
+        when(modelRuntimeConfigService.getEmbeddingModelConfig(7L)).thenReturn(embeddingConfig());
+        when(knowledgeSearchService.searchVersion(anyString(), org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq(81L), org.mockito.ArgumentMatchers.eq(embeddingConfig()),
+                org.mockito.ArgumentMatchers.eq(5), org.mockito.ArgumentMatchers.eq(0.65D)))
+                .thenReturn(List.of());
+
+        AgentTool tool = factory.create(capability());
+        String first = tool.callback().call("{\"query\":\"不存在的信息\"}");
+        String second = tool.callback().call("{\"query\":\"换一种说法\"}");
+
+        assertThat(first).contains("\"status\":\"EMPTY\"");
+        assertThat(second).contains("\"status\":\"SATURATED\"", "停止调用知识搜索");
     }
 
     private void prepareTokenEstimator() {

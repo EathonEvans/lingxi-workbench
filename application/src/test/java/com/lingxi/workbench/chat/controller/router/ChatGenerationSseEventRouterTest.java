@@ -6,6 +6,7 @@ import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatPlanStepBO;
 import com.lingxi.workbench.chat.model.vo.ChatExecutionTimelineVO;
+import com.lingxi.workbench.chat.model.vo.ChatErrorVO;
 import com.lingxi.workbench.chat.model.vo.ChatSubAgentEventVO;
 import com.lingxi.workbench.chat.model.vo.ChatToolEventVO;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
@@ -98,5 +99,16 @@ class ChatGenerationSseEventRouterTest {
         assertEquals("run-1", payload.getRunId());
         assertEquals("PLAN_CREATED", payload.getEventType());
         assertEquals("refund_agent", payload.getSteps().getFirst().capabilityCode());
+    }
+
+    @Test
+    void shouldRouteAgentLoopLimitWithSafeMessage() {
+        ServerSentEvent<?> routed = ChatGenerationSseEventRouter.rout(ChatGenerationEventBO.failed(
+                "AGENT_TOOL_CALL_LIMIT", "工具调用次数已达到上限，现有信息不足以继续处理"));
+
+        assertEquals("error", routed.event());
+        ChatErrorVO payload = assertInstanceOf(ChatErrorVO.class, routed.data());
+        assertEquals("AGENT_TOOL_CALL_LIMIT", payload.code());
+        assertEquals("工具调用次数已达到上限，现有信息不足以继续处理", payload.message());
     }
 }

@@ -21,6 +21,7 @@ import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.chat.model.request.ClarificationResponseRequest;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.workflow.model.PlannerPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -71,10 +72,12 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
         publishPlanning(request.getRunId(), request.getExecutionContext());
         PlannerResult plannerResult;
         try {
+            PlannerPolicy policy = request.getConversationContext().getApplicationSnapshot().definition().plannerPolicy();
             plannerResult = plannerService.decide(PlannerRequest.builder()
                     .conversationContext(request.getConversationContext())
                     .planNo(1)
                     .confirmedCapabilityCodes(request.confirmedCapabilityCodes())
+                    .availableModelCalls(policy.getMaxModelCalls())
                     .build());
         } catch (CancellationException exception) {
             publishInitialDecisionFailure(request, ExecutionEventType.RUN_CANCELLED, "规划已取消", exception);
@@ -91,6 +94,7 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
                 .executionContext(request.getExecutionContext())
                 .confirmedCapabilityCodes(request.confirmedCapabilityCodes())
                 .startedAt(request.getStartedAt())
+                .initialPlannerModelCalls(plannerResult.modelCalls())
                 .build());
     }
 

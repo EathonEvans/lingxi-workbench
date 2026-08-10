@@ -34,7 +34,7 @@ public record UserLoginVO(
         private String username;
         /** 显示名称。 */
         private String displayName;
-        /** 头像地址。 */
+        /** 头像地址（历史外链或带签名的临时访问URL）。 */
         private String avatarUrl;
         /** 邮箱地址。 */
         private String email;

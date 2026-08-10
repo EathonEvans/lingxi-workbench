@@ -1,6 +1,7 @@
 package com.lingxi.workbench.application.runtime.service.impl;
 
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
 import com.lingxi.workbench.application.runtime.model.PlannerRuntimeRequest;
@@ -15,6 +16,8 @@ import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
+import com.lingxi.workbench.workflow.model.ApplicationDefinition;
+import com.lingxi.workbench.workflow.model.PlannerPolicy;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -44,9 +47,16 @@ class PlannerRuntimeCoordinatorImplTest {
                 new BusinessException(HttpStatusEnum.CONFLICT, "Planner输出无效"));
         PlannerRuntimeCoordinatorImpl coordinator = new PlannerRuntimeCoordinatorImpl(
                 mock(InteractionSessionService.class), persistenceService, plannerService, planExecutionService);
+        ConversationContext context = mock(ConversationContext.class);
+        PlannerPolicy policy = PlannerPolicy.builder().enabled(true).maxModelCalls(6).build();
+        ApplicationDefinition definition = mock(ApplicationDefinition.class);
+        when(definition.plannerPolicy()).thenReturn(policy);
+        AppRuntimeSnapshot snapshot = mock(AppRuntimeSnapshot.class);
+        when(snapshot.definition()).thenReturn(definition);
+        when(context.getApplicationSnapshot()).thenReturn(snapshot);
         PlannerRuntimeRequest request = PlannerRuntimeRequest.builder()
                 .runId("run-1")
-                .conversationContext(mock(ConversationContext.class))
+                .conversationContext(context)
                 .executionContext(executionContext)
                 .startedAt(Instant.now())
                 .build();

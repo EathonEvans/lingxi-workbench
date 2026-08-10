@@ -26,6 +26,7 @@ import static com.lingxi.workbench.infra.ai.tool.common.constants.SystemCalculat
 import static com.lingxi.workbench.infra.ai.tool.common.constants.SystemCalculatorToolConstants.OPERATOR_SUBTRACT;
 import static com.lingxi.workbench.infra.ai.tool.common.constants.SystemCalculatorToolConstants.TOOL_CODE;
 import static com.lingxi.workbench.infra.ai.tool.common.constants.SystemCalculatorToolConstants.TOOL_DESCRIPTION;
+import static com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionMode.DETERMINISTIC_READ_ONLY;
 
 /**
  * 执行两个十进制数之间基础四则运算的只读内置工具。
@@ -42,6 +43,7 @@ public class SystemCalculatorAgentTool implements AgentTool {
                 .code(TOOL_CODE)
                 .displayName("基础计算器")
                 .description(TOOL_DESCRIPTION)
+                .executionMode(DETERMINISTIC_READ_ONLY)
                 .build();
     }
 

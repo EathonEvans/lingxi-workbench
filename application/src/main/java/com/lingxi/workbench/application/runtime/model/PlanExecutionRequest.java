@@ -18,6 +18,7 @@ public class PlanExecutionRequest {
     private ChatExecutionContext executionContext;
     private Set<String> confirmedCapabilityCodes;
     private Instant startedAt;
+    private Integer initialPlannerModelCalls;
 
     public Set<String> confirmedCapabilityCodes() {
         return confirmedCapabilityCodes == null ? Set.of() : Set.copyOf(confirmedCapabilityCodes);

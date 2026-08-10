@@ -19,4 +19,12 @@ public interface ChatCompletionGateway {
      * @return 完整文本与 Token 用量
      */
     Mono<ChatCompletionResult> complete(ChatCompletionCommand command);
+
+    /**
+     * 以供应商通用 JSON Object 模式完成一次非流式模型调用。
+     *
+     * @param command 系统指令、历史消息、当前输入和模型运行配置
+     * @return JSON Object 响应文本与 Token 用量
+     */
+    Mono<ChatCompletionResult> completeJson(ChatCompletionCommand command);
 }

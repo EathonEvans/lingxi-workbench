@@ -17,6 +17,8 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Objects;
 
+import static com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionMode.DETERMINISTIC_READ_ONLY;
+
 /**
  * 查询指定时区当前时间的只读内置工具。
  *
@@ -35,6 +37,7 @@ public class GetCurrentUserInfoTool implements AgentTool {
                 .code("get_current_user_info")
                 .displayName("获取当前用户信息")
                 .description("根据当前对话用户ID查询用户基本信息")
+                .executionMode(DETERMINISTIC_READ_ONLY)
                 .build();
     }
 

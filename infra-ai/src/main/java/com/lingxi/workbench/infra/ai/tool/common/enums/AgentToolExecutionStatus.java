@@ -12,6 +12,7 @@ public enum AgentToolExecutionStatus {
 
     RUNNING("RUNNING", "执行中"),
     SUCCEEDED("SUCCEEDED", "执行成功"),
+    REUSED("REUSED", "复用已有结果"),
     FAILED("FAILED", "执行失败");
 
     /** 稳定编码。 */

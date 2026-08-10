@@ -22,6 +22,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -82,6 +83,19 @@ class QueryContextualizerTest {
                 policy, "原问题", new RuntimeVariables(), List.of()));
     }
 
+    @Test
+    void shouldPropagateCancellationInterruptionInsteadOfFallingBack() {
+        ContextualizationPolicy policy = policy(true);
+        prepareDependencies(policy);
+        when(completionGateway.complete(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(Mono.error(new InterruptedException("cancelled")));
+
+        RuntimeException exception = assertThrows(RuntimeException.class, () -> contextualizer.contextualize(
+                policy, "原问题", new RuntimeVariables(), List.of()));
+
+        assertTrue(hasInterruptedCause(exception));
+    }
+
     private void prepareDependencies(ContextualizationPolicy policy) {
         when(promptRuntimeService.resolvePublished(policy.getPromptVersionId()))
                 .thenReturn(new PromptRuntimeSnapshot(policy.getPromptVersionId(), "请结合历史将当前问题上下文化", List.of(), PromptRole.SYSTEM));
@@ -99,5 +113,16 @@ class QueryContextualizerTest {
                 .maxOutputCharacters(1000)
                 .timeoutSeconds(15)
                 .build();
+    }
+
+    private static boolean hasInterruptedCause(Throwable exception) {
+        Throwable current = exception;
+        while (current != null) {
+            if (current instanceof InterruptedException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }

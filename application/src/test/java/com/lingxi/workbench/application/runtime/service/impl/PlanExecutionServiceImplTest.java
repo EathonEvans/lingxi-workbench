@@ -105,7 +105,9 @@ class PlanExecutionServiceImplTest {
             throw new IllegalStateException("下游暂不可用");
         }, request -> {
             replans.incrementAndGet();
-            return new PlannerResult(plan(step("write-again", "write", List.of(), userQuery())), TokenUsage.of(2, 1, 3));
+            assertEquals(5, request.getAvailableModelCalls());
+            return new PlannerResult(
+                    plan(step("write-again", "write", List.of(), userQuery())), TokenUsage.of(2, 1, 3), 1);
         }, request -> {
             throw new AssertionError("失败计划不应进入最终综合");
         }, persistence, interactionService());
@@ -170,6 +172,7 @@ class PlanExecutionServiceImplTest {
                 .executionContext(execution)
                 .confirmedCapabilityCodes(confirmed)
                 .startedAt(Instant.now())
+                .initialPlannerModelCalls(1)
                 .build();
     }
 

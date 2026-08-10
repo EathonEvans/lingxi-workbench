@@ -88,7 +88,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
         Map<String, ApplicationCapabilityDefinition> capabilities = capabilityIndex(request);
         ExecutionDecision decision = request.getInitialDecision();
         int planNo = 1;
-        int modelCalls = 1;
+        int modelCalls = request.getInitialPlannerModelCalls();
         int toolCalls = 0;
         int replans = 0;
         Map<String, Integer> capabilityCalls = new HashMap<>();
@@ -158,7 +158,8 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
                 }
                 replans++;
                 planNo++;
-                if (++modelCalls > policy.getMaxModelCalls()) {
+                int availableModelCalls = policy.getMaxModelCalls() - modelCalls;
+                if (availableModelCalls < 1) {
                     throw invalid("Planner模型调用次数超过发布上限");
                 }
                 publish(request, event(request, ExecutionEventType.REPLANNING)
@@ -168,7 +169,12 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
                         .planNo(planNo)
                         .failureObservation(failure.observation())
                         .confirmedCapabilityCodes(request.confirmedCapabilityCodes())
+                        .availableModelCalls(availableModelCalls)
                         .build());
+                if (replanned.modelCalls() < 1 || replanned.modelCalls() > availableModelCalls) {
+                    throw invalid("Planner返回的模型调用次数无效");
+                }
+                modelCalls += replanned.modelCalls();
                 request.getExecutionContext().recordUsage(replanned.tokenUsage());
                 decision = replanned.decision();
             }
@@ -368,7 +374,8 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
     private static void requireRequest(PlanExecutionRequest request) {
         if (request == null || request.getRunId() == null || request.getRunId().isBlank()
                 || request.getInitialDecision() == null || request.getConversationContext() == null
-                || request.getExecutionContext() == null || request.getStartedAt() == null) {
+                || request.getExecutionContext() == null || request.getStartedAt() == null
+                || request.getInitialPlannerModelCalls() == null || request.getInitialPlannerModelCalls() < 1) {
             throw invalid("计划执行请求不完整");
         }
     }

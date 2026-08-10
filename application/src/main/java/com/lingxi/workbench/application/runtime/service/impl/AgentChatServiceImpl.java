@@ -231,6 +231,8 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .executionContext(toolExecutionContext)
                 .maxToolCalls(maxToolCalls)
                 .maxModelCalls(generationModelCalls)
+                .maxInputTokens(Objects.requireNonNullElse(runtimePolicy.maxInputTokens(), 0))
+                .maxOutputTokens(Objects.requireNonNullElse(runtimePolicy.maxOutputTokens(), 0))
                 .maxResultCharacters(maxResultCharacters)
                 .eventPublisher(execution.getEventPublisher()::publishTool)
                 .build();

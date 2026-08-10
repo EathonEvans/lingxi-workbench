@@ -13,6 +13,7 @@ import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.tool.metadata.ToolMetadata;
 
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -30,12 +31,15 @@ final class BoundedToolCallback implements ToolCallback {
     private final AgentToolExecutionContext executionContext;
     private final int maxResultCharacters;
     private final AgentToolEventPublisher eventPublisher;
+    private final AgentLoopState loopState;
 
-    BoundedToolCallback(AgentTool tool, AgentToolExecutionContext executionContext, int maxResultCharacters, AgentToolEventPublisher eventPublisher) {
+    BoundedToolCallback(AgentTool tool, AgentToolExecutionContext executionContext, int maxResultCharacters, AgentToolEventPublisher eventPublisher,
+                        AgentLoopState loopState) {
         this.tool = tool;
         this.executionContext = executionContext;
         this.maxResultCharacters = maxResultCharacters;
         this.eventPublisher = eventPublisher;
+        this.loopState = loopState;
     }
 
     @Override
@@ -50,16 +54,23 @@ final class BoundedToolCallback implements ToolCallback {
 
     @Override
     public String call(String toolInput) {
-        return execute(() -> tool.callback().call(toolInput));
+        return execute(toolInput, () -> tool.callback().call(toolInput));
     }
 
     @Override
     public String call(String toolInput, ToolContext toolContext) {
-        return execute(() -> tool.callback().call(toolInput, toolContext));
+        return execute(toolInput, () -> tool.callback().call(toolInput, toolContext));
     }
 
-    private String execute(Supplier<String> invocation) {
+    private String execute(String toolInput, Supplier<String> invocation) {
         String invocationId = UUID.randomUUID().toString();
+        Optional<String> reusableResult = loopState.toolLedger().findReusableResult(tool.definition(), toolInput);
+        if (reusableResult.isPresent()) {
+            loopState.requestFinalResponse();
+            publishToolEvent(invocationId, AgentToolExecutionStatus.REUSED, 0L, null);
+            log.info("Agent工具复用已有结果，executionId={}，toolCode={}", executionContext.getExecutionId(), getToolDefinition().name());
+            return loopState.toolLedger().reuseResponse();
+        }
         long startedAt = System.nanoTime();
         publishToolEvent(invocationId, AgentToolExecutionStatus.RUNNING, null, null);
         try {
@@ -70,6 +81,7 @@ final class BoundedToolCallback implements ToolCallback {
             if (result.length() > maxResultCharacters) {
                 throw new AgentToolException("工具返回结果超过字符上限：" + getToolDefinition().name() + "，limit=" + maxResultCharacters);
             }
+            loopState.toolLedger().recordSuccessfulResult(tool.definition(), toolInput, result);
             long durationMillis = elapsedMillis(startedAt);
             publishToolEvent(invocationId, AgentToolExecutionStatus.SUCCEEDED, durationMillis, null);
             log.info("Agent工具执行完成，executionId={}，toolCode={}，resultCharacters={}，durationMs={}", executionContext.getExecutionId(), getToolDefinition().name(), result.length(), durationMillis);

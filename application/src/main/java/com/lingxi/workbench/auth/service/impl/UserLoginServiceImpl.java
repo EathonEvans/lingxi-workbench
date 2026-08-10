@@ -6,6 +6,7 @@ import com.lingxi.workbench.auth.model.converter.UserConverter;
 import com.lingxi.workbench.auth.model.request.UserLoginRequest;
 import com.lingxi.workbench.auth.model.vo.UserLoginVO;
 import com.lingxi.workbench.auth.repo.UserRepo;
+import com.lingxi.workbench.auth.service.UserAvatarUrlService;
 import com.lingxi.workbench.auth.service.UserLoginService;
 import com.lingxi.workbench.framework.exceptions.AuthException;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
@@ -28,6 +29,7 @@ public class UserLoginServiceImpl implements UserLoginService {
     private final UserConverter userConverter;
     private final BCryptPasswordHasher passwordHasher;
     private final StpLogicDefinition stpLogicDefinition;
+    private final UserAvatarUrlService userAvatarUrlService;
 
     /**
      * 执行登录流程：
@@ -67,13 +69,15 @@ public class UserLoginServiceImpl implements UserLoginService {
             throw AuthException.userDisabled("账号未开通应用端访问权限，请联系管理员");
         }
 
-        // 登录成功后签发 Sa-Token
+        // 登录成功后签发 Sa-Token，并将头像对象Key转换为浏览器可访问的临时地址
         SaTokenInfo tokenInfo = stpLogicDefinition.login(user.getId());
+        UserLoginVO.UserProfileVO profile = userConverter.toProfileVO(
+                user, userAvatarUrlService.resolve(user.getAvatarUrl()));
         return new UserLoginVO(
                 tokenInfo.getTokenName(),
                 tokenInfo.getTokenValue(),
                 tokenInfo.getTokenTimeout(),
-                userConverter.toProfileVO(user)
+                profile
         );
     }
 

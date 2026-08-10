@@ -1,6 +1,8 @@
 package com.lingxi.workbench.application.runtime.service.impl;
 
 import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.application.runtime.common.enums.ExecutionDecisionAction;
+import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.PlannerRequest;
 import com.lingxi.workbench.application.runtime.model.PlannerResult;
@@ -36,7 +38,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -47,13 +49,14 @@ class PlannerServiceImplTest {
 
     @Test
     void shouldExposeOnlySafeCapabilityDescriptorsAndClampModelPolicy() {
-        AtomicReference<ChatCompletionCommand> captured = new AtomicReference<>();
-        PlannerServiceImpl service = service(captured, TokenUsage.of(10, 5, 15));
+        List<ChatCompletionCommand> captured = new ArrayList<>();
+        PlannerServiceImpl service = service(captured, List.of(completion(validDecision(), TokenUsage.of(10, 5, 15))));
 
-        PlannerResult result = service.decide(PlannerRequest.builder().conversationContext(context(2000)).planNo(1).build());
+        PlannerResult result = service.decide(request(2000));
 
-        ChatCompletionCommand command = captured.get();
+        ChatCompletionCommand command = captured.getFirst();
         assertEquals("support", result.decision().getCapabilityCode());
+        assertEquals(1, result.modelCalls());
         assertTrue(command.systemPrompt().contains("support"));
         assertFalse(command.systemPrompt().contains("987654321"));
         assertFalse(command.systemPrompt().contains("876543210"));
@@ -63,24 +66,104 @@ class PlannerServiceImplTest {
     }
 
     @Test
-    void shouldRejectActualPlannerUsageAbovePublishedBudget() {
-        PlannerServiceImpl service = service(new AtomicReference<>(), TokenUsage.of(1500, 700, 2200));
+    void shouldRepairInvalidDecisionOnceAndAccumulateUsage() {
+        List<ChatCompletionCommand> captured = new ArrayList<>();
+        PlannerServiceImpl service = service(captured, List.of(
+                completion(invalidClarification(), TokenUsage.of(10, 5, 15)),
+                completion(validDecision(), TokenUsage.of(12, 6, 18))));
 
-        assertThrows(BusinessException.class, () -> service.decide(
-                PlannerRequest.builder().conversationContext(context(2000)).planNo(1).build()));
+        PlannerResult result = service.decide(request(2000));
+
+        assertEquals(ExecutionDecisionAction.EXECUTE_REACT, result.decision().getAction());
+        assertEquals(2, result.modelCalls());
+        assertEquals(TokenUsage.of(22, 11, 33), result.tokenUsage());
+        assertEquals(2, captured.size());
+        assertTrue(captured.getLast().prompt().contains("上一次JSON决策未通过平台协议或业务校验"));
     }
 
-    private static PlannerServiceImpl service(AtomicReference<ChatCompletionCommand> captured, TokenUsage usage) {
-        ChatCompletionGateway gateway = command -> {
-            captured.set(command);
-            return Mono.just(new ChatCompletionResult(
-                    "{\"action\":\"EXECUTE_REACT\",\"capabilityCode\":\"support\"}", usage));
+    @Test
+    void shouldReturnSafeClarificationAfterBoundedRepairFails() {
+        PlannerServiceImpl service = service(new ArrayList<>(), List.of(
+                completion(invalidClarification(), TokenUsage.of(10, 5, 15)),
+                completion(invalidClarification(), TokenUsage.of(10, 5, 15))));
+
+        PlannerResult result = service.decide(request(2000));
+
+        assertEquals(ExecutionDecisionAction.CLARIFY, result.decision().getAction());
+        assertEquals(InteractionSessionType.PLANNER_CLARIFICATION,
+                result.decision().getClarification().getInteractionType());
+        assertTrue(result.decision().getClarification().capabilityCodes().isEmpty());
+        assertEquals(2, result.modelCalls());
+    }
+
+    @Test
+    void shouldNotRepairWhenOnlyOneModelCallRemains() {
+        List<ChatCompletionCommand> captured = new ArrayList<>();
+        PlannerServiceImpl service = service(captured, List.of(
+                completion(invalidClarification(), TokenUsage.of(10, 5, 15))));
+
+        PlannerResult result = service.decide(request(2000, 1));
+
+        assertEquals(ExecutionDecisionAction.CLARIFY, result.decision().getAction());
+        assertEquals(1, result.modelCalls());
+        assertEquals(1, captured.size());
+    }
+
+    @Test
+    void shouldRejectActualPlannerUsageAbovePublishedBudget() {
+        PlannerServiceImpl service = service(new ArrayList<>(), List.of(
+                completion(validDecision(), TokenUsage.of(1500, 700, 2200))));
+
+        assertThrows(BusinessException.class, () -> service.decide(request(2000)));
+    }
+
+    private static PlannerServiceImpl service(List<ChatCompletionCommand> captured,
+                                              List<ChatCompletionResult> completions) {
+        AtomicInteger responseIndex = new AtomicInteger();
+        ChatCompletionGateway gateway = new ChatCompletionGateway() {
+            @Override
+            public Mono<ChatCompletionResult> complete(ChatCompletionCommand command) {
+                throw new AssertionError("Planner必须使用JSON Object模型调用");
+            }
+
+            @Override
+            public Mono<ChatCompletionResult> completeJson(ChatCompletionCommand command) {
+                captured.add(command);
+                return Mono.just(completions.get(responseIndex.getAndIncrement()));
+            }
         };
         PromptRuntimeService promptService = promptVersionId ->
                 new PromptRuntimeSnapshot(promptVersionId, "你负责规划任务。", List.of(), PromptRole.SYSTEM);
         TokenCountEstimator estimator = new DeterministicTokenEstimator();
         return new PlannerServiceImpl(gateway, modelService(), promptService, new PromptTemplateRenderer(), estimator,
                 new ExecutionDecisionParser(), new ExecutionDecisionValidator());
+    }
+
+    private static PlannerRequest request(int plannerTokenBudget) {
+        return request(plannerTokenBudget, 6);
+    }
+
+    private static PlannerRequest request(int plannerTokenBudget, int availableModelCalls) {
+        return PlannerRequest.builder()
+                .conversationContext(context(plannerTokenBudget))
+                .planNo(1)
+                .availableModelCalls(availableModelCalls)
+                .build();
+    }
+
+    private static ChatCompletionResult completion(String content, TokenUsage usage) {
+        return new ChatCompletionResult(content, usage);
+    }
+
+    private static String validDecision() {
+        return "{\"action\":\"EXECUTE_REACT\",\"capabilityCode\":\"support\"}";
+    }
+
+    private static String invalidClarification() {
+        return """
+                {"action":"CLARIFY","clarification":{"question":"请选择任务","options":[],
+                "interactionType":"PLANNER_CLARIFICATION","capabilityCodes":["support"]}}
+                """;
     }
 
     private static ModelRuntimeConfigService modelService() {

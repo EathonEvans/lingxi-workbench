@@ -12,6 +12,7 @@ import com.lingxi.workbench.infra.ai.mcp.McpSyncClientFactory;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.AgentToolException;
 import com.lingxi.workbench.infra.ai.tool.AgentToolRegistry;
+import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionMode;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.model.ToolContext;
@@ -116,16 +117,26 @@ public class ToolRuntimeServiceImpl implements ToolRuntimeService {
     }
 
     private static AgentTool managedTool(RuntimeToolEntity definition, AgentTool executor) {
-        AgentToolDefinition runtimeDefinition = runtimeDefinition(definition);
+        AgentToolDefinition runtimeDefinition = runtimeDefinition(definition, executor.definition());
         ToolCallback callback = new ManagedToolCallback(definition, executor.callback());
         return new ManagedAgentTool(runtimeDefinition, callback);
     }
 
     private static AgentToolDefinition runtimeDefinition(RuntimeToolEntity definition) {
+        return runtimeDefinition(definition, null);
+    }
+
+    /** 本地执行器保留其只读与副作用语义，MCP Tool 未声明时按副作用工具处理。 */
+    private static AgentToolDefinition runtimeDefinition(RuntimeToolEntity definition, AgentToolDefinition executorDefinition) {
+        AgentToolExecutionMode executionMode = AgentToolExecutionMode.SIDE_EFFECT;
+        if (Objects.nonNull(executorDefinition)) {
+            executionMode = executorDefinition.getExecutionMode();
+        }
         return AgentToolDefinition.builder()
                 .code(definition.getCode())
                 .displayName(definition.getName())
                 .description(definition.getDescription())
+                .executionMode(executionMode)
                 .build();
     }
 

@@ -2,6 +2,7 @@ package com.lingxi.workbench.model.model.entity;
 
 import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
 import lombok.Data;
@@ -20,6 +21,7 @@ import java.util.List;
 @TableName(value = "lingxi_core.ai_model_instance", autoResultMap = true)
 public class ModelRuntimeConfigEntity {
     /** 模型实例主键。 */
+    @TableId("id")
     private Long instanceId;
     /** 协议类型。 */
     private String protocol;

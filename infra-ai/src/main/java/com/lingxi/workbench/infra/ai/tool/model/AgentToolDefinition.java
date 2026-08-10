@@ -1,5 +1,6 @@
 package com.lingxi.workbench.infra.ai.tool.model;
 
+import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionMode;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -28,12 +29,17 @@ public final class AgentToolDefinition {
      * 提供给模型判断调用时机的工具描述。
      */
     private final String description;
+    /**
+     * 工具执行语义；未声明时按存在副作用处理，禁止自动复用结果。
+     */
+    private final AgentToolExecutionMode executionMode;
 
     @Builder
-    private AgentToolDefinition(String code, String displayName, String description) {
+    private AgentToolDefinition(String code, String displayName, String description, AgentToolExecutionMode executionMode) {
         this.code = requireText(code, "工具编码");
         this.displayName = requireText(displayName, "工具展示名称");
         this.description = requireText(description, "工具描述");
+        this.executionMode = Objects.requireNonNullElse(executionMode, AgentToolExecutionMode.SIDE_EFFECT);
     }
 
     private static String requireText(String value, String fieldName) {

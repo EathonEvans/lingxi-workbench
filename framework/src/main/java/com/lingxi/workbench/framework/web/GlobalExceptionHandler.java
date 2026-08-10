@@ -13,6 +13,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 /**
  * 所有启动模块共用的全局异常处理器。
@@ -64,6 +65,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({NotPermissionException.class, NotRoleException.class})
     public ResponseEntity<ApiResponse<Void>> handleForbiddenException() {
         return failure(HttpStatusEnum.FORBIDDEN, "无权访问该资源");
+    }
+
+    /**
+     * SSE 客户端断开后响应已不可写，只记录调试日志且不再构造 JSON 响应。
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleAsyncRequestNotUsableException(AsyncRequestNotUsableException exception) {
+        LOGGER.debug("异步响应连接已不可用，客户端可能已断开：{}", exception.getMessage());
     }
 
     /**

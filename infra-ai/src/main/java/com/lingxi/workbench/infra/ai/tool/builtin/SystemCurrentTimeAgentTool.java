@@ -14,6 +14,8 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Objects;
 
+import static com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionMode.DYNAMIC_READ_ONLY;
+
 /**
  * 查询指定时区当前时间的只读内置工具。
  *
@@ -30,6 +32,7 @@ public class SystemCurrentTimeAgentTool implements AgentTool {
                 .code("system_current_time")
                 .displayName("查询当前时间")
                 .description("查询指定 IANA 时区的当前日期、时间和时区；用户询问当前时间或日期时使用。")
+                .executionMode(DYNAMIC_READ_ONLY)
                 .build();
     }
 

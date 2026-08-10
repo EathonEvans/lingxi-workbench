@@ -6,6 +6,7 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatCompletionCommand;
 import lombok.RequiredArgsConstructor;
+import org.springframework.ai.chat.messages.AbstractMessage;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -15,6 +16,7 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -36,10 +38,17 @@ public class SpringAiChatCompletionGateway implements ChatCompletionGateway {
      */
     @Override
     public Mono<ChatCompletionResult> complete(ChatCompletionCommand command) {
-        return Mono.fromCallable(() -> call(command)).subscribeOn(Schedulers.boundedElastic());
+        return Mono.fromCallable(() -> call(command, null)).subscribeOn(Schedulers.boundedElastic());
     }
 
-    private ChatCompletionResult call(ChatCompletionCommand command) {
+    /** Planner 等受控任务使用兼容范围更广的 JSON Object 响应模式。 */
+    @Override
+    public Mono<ChatCompletionResult> completeJson(ChatCompletionCommand command) {
+        return Mono.fromCallable(() -> call(command, OpenAiChatModel.ResponseFormat.Type.JSON_OBJECT))
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private ChatCompletionResult call(ChatCompletionCommand command, OpenAiChatModel.ResponseFormat.Type responseType) {
         OpenAiChatModel chatModel = chatModelFactory.create(command.modelConfig());
         List<Message> messages = new ArrayList<>();
         if (!command.systemPrompt().isBlank()) {
@@ -49,7 +58,22 @@ public class SpringAiChatCompletionGateway implements ChatCompletionGateway {
                 .map(SpringAiChatCompletionGateway::toOpenAiMessage)
                 .forEach(messages::add);
         messages.add(new UserMessage(command.prompt()));
-        return toResult(chatModel.call(new Prompt(messages)));
+        Prompt prompt = Optional.ofNullable(responseType)
+                .map(type -> jsonPrompt(messages, chatModel.getOptions(), type))
+                .orElseGet(() -> new Prompt(messages));
+        return toResult(chatModel.call(prompt));
+    }
+
+    private static Prompt jsonPrompt(List<Message> messages, OpenAiChatOptions modelOptions,
+                                     OpenAiChatModel.ResponseFormat.Type responseType) {
+        OpenAiChatModel.ResponseFormat responseFormat = OpenAiChatModel.ResponseFormat.builder()
+                .type(responseType)
+                .build();
+        // Prompt级 options 不会自动继承 ChatModel 默认值，必须复制后再追加响应格式。
+        OpenAiChatOptions options = modelOptions.mutate()
+                .responseFormat(responseFormat)
+                .build();
+        return new Prompt(messages, options);
     }
 
     private static Message toOpenAiMessage(ChatHistoryMessage message) {
@@ -65,7 +89,7 @@ public class SpringAiChatCompletionGateway implements ChatCompletionGateway {
         }
         String content = Optional.ofNullable(response.getResult())
                 .map(Generation::getOutput)
-                .map(output -> output.getText())
+                .map(AbstractMessage::getText)
                 .orElse("");
         Usage usage = response.getMetadata().getUsage();
         return new ChatCompletionResult(content, TokenUsageConverter.convert(usage));

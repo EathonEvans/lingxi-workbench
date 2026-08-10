@@ -1,9 +1,12 @@
 package com.lingxi.workbench.application.runtime.service.impl;
 
 import com.alibaba.fastjson2.JSON;
+import com.lingxi.workbench.application.runtime.common.enums.ExecutionDecisionAction;
+import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
 import com.lingxi.workbench.application.runtime.model.ExecutionDecision;
 import com.lingxi.workbench.application.runtime.model.ExecutionDecisionValidationContext;
 import com.lingxi.workbench.application.runtime.model.PlannerCapabilityDescriptor;
+import com.lingxi.workbench.application.runtime.model.PlannerClarification;
 import com.lingxi.workbench.application.runtime.model.PlannerRequest;
 import com.lingxi.workbench.application.runtime.model.PlannerResult;
 import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
@@ -19,11 +22,13 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.ChatCompletionResult;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatCompletionCommand;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.PlannerPolicy;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 import org.springframework.stereotype.Service;
 
@@ -33,10 +38,12 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** Planner模型调用与输出门禁实现。 */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PlannerServiceImpl implements PlannerService {
 
+    private static final int MAX_PROTOCOL_REPAIR_ATTEMPTS = 1;
     private static final String PLATFORM_CONTRACT = """
 
             你必须只返回一个JSON对象，不得使用Markdown代码块，不得输出推理过程或未声明字段。
@@ -48,6 +55,12 @@ public class PlannerServiceImpl implements PlannerService {
             STEP_OUTPUT只能引用dependsOn中的此前步骤，value填写输出字段名。计划默认串行，禁止构造并行分支。
             信息不足时返回CLARIFY及clarification：{question,options,interactionType:"PLANNER_CLARIFICATION",capabilityCodes:[]}。
             写入或高风险能力尚未确认时，interactionType必须是RISK_CONFIRMATION，capabilityCodes列出待确认能力编码。
+            """;
+    private static final String REPAIR_INSTRUCTION = """
+
+
+            上一次JSON决策未通过平台协议或业务校验。请重新检查action与其关联字段，返回一个全新的完整JSON对象。
+            不得解释错误，不得输出Markdown，不得添加未声明字段。
             """;
     private static final String CAPABILITY_PREFIX = "\n\n<capability_catalog_untrusted>\n";
     private static final String CAPABILITY_SUFFIX = "\n</capability_catalog_untrusted>";
@@ -71,26 +84,64 @@ public class PlannerServiceImpl implements PlannerService {
         String capabilityJson = JSON.toJSONString(capabilityDescriptors(context));
         validateSectionBudgets(context, renderedPrompt, capabilityJson, request.getFailureObservation());
         String systemPrompt = renderedPrompt + PLATFORM_CONTRACT + CAPABILITY_PREFIX + capabilityJson + CAPABILITY_SUFFIX;
-        String userPrompt = buildUserPrompt(context.routingQuery(), request.getPlanNo(), request.getFailureObservation());
+        String baseUserPrompt = buildUserPrompt(context.routingQuery(), request.getPlanNo(), request.getFailureObservation());
         List<ChatHistoryMessage> history = context.getRuntimeVariables().require(RuntimeVariableAccessors.SESSION_HISTORY);
-        int estimatedInputTokens = estimateInput(systemPrompt, userPrompt, history);
-        int maxOutputTokens = resolveOutputBudget(context, policy, estimatedInputTokens);
         ChatModelRuntimeConfig sourceConfig = modelRuntimeConfigService.getChatModelConfig(policy.getChatModelInstanceId());
-        ChatCompletionCommand command = new ChatCompletionCommand(
-                userPrompt, systemPrompt, history, applyPolicy(sourceConfig, policy, maxOutputTokens));
-        ChatCompletionResult completion = chatCompletionGateway.complete(command)
-                .block(Duration.ofSeconds(policy.getTimeoutSeconds()));
-        if (completion == null) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "Planner模型未返回结果");
-        }
-        validateActualUsage(completion.usage(), policy);
-        ExecutionDecision decision = decisionParser.parse(completion.content());
-        decisionValidator.validate(decision, ExecutionDecisionValidationContext.builder()
+        ExecutionDecisionValidationContext validationContext = ExecutionDecisionValidationContext.builder()
                 .capabilityCatalog(context.getApplicationSnapshot().definition().capabilityCatalog())
                 .plannerPolicy(policy)
                 .confirmedCapabilityCodes(request.confirmedCapabilityCodes())
-                .build());
-        return new PlannerResult(decision, completion.usage());
+                .build();
+        TokenUsageAccumulator usageAccumulator = new TokenUsageAccumulator();
+        int maxAttempts = Math.min(1 + MAX_PROTOCOL_REPAIR_ATTEMPTS, request.getAvailableModelCalls());
+        BusinessException validationFailure = null;
+        for (int attemptNo = 1; attemptNo <= maxAttempts; attemptNo++) {
+            String userPrompt = buildAttemptPrompt(baseUserPrompt, attemptNo);
+            int estimatedInputTokens = estimateInput(systemPrompt, userPrompt, history);
+            int maxOutputTokens = resolveOutputBudget(
+                    context, policy, estimatedInputTokens, usedTokens(usageAccumulator.snapshot()));
+            ChatCompletionCommand command = new ChatCompletionCommand(
+                    userPrompt, systemPrompt, history, applyPolicy(sourceConfig, policy, maxOutputTokens));
+            ChatCompletionResult completion = chatCompletionGateway.completeJson(command)
+                    .block(Duration.ofSeconds(policy.getTimeoutSeconds()));
+            if (Objects.isNull(completion)) {
+                throw new BusinessException(HttpStatusEnum.CONFLICT, "Planner模型未返回结果");
+            }
+            usageAccumulator.add(completion.usage());
+            validateActualUsage(usageAccumulator.snapshot(), policy);
+            try {
+                ExecutionDecision decision = parseAndValidate(completion.content(), validationContext);
+                return new PlannerResult(decision, usageAccumulator.snapshot(), attemptNo);
+            } catch (BusinessException exception) {
+                validationFailure = exception;
+                if (attemptNo < maxAttempts) {
+                    log.warn("Planner输出未通过校验，执行一次协议修复，modelInstanceId={}，planNo={}，attemptNo={}",
+                            policy.getChatModelInstanceId(), request.getPlanNo(), attemptNo);
+                }
+            }
+        }
+        log.warn("Planner输出连续未通过校验，返回平台安全澄清，modelInstanceId={}，planNo={}，attempts={}，reason={}",
+                policy.getChatModelInstanceId(), request.getPlanNo(), maxAttempts,
+                Objects.requireNonNull(validationFailure).getMessage());
+        return new PlannerResult(safeClarification(), usageAccumulator.snapshot(), maxAttempts);
+    }
+
+    private ExecutionDecision parseAndValidate(String output, ExecutionDecisionValidationContext validationContext) {
+        ExecutionDecision decision = decisionParser.parse(output);
+        decisionValidator.validate(decision, validationContext);
+        return decision;
+    }
+
+    private static ExecutionDecision safeClarification() {
+        return ExecutionDecision.builder()
+                .action(ExecutionDecisionAction.CLARIFY)
+                .clarification(PlannerClarification.builder()
+                        .question("我暂时无法可靠判断下一步，请补充希望完成的具体目标。")
+                        .options(List.of())
+                        .interactionType(InteractionSessionType.PLANNER_CLARIFICATION)
+                        .capabilityCodes(List.of())
+                        .build())
+                .build();
     }
 
     private List<PlannerCapabilityDescriptor> capabilityDescriptors(ConversationContext context) {
@@ -134,8 +185,9 @@ public class PlannerServiceImpl implements PlannerService {
         return tokens;
     }
 
-    private static int resolveOutputBudget(ConversationContext context, PlannerPolicy policy, int estimatedInputTokens) {
-        int remaining = policy.getTokenBudget() - estimatedInputTokens;
+    private static int resolveOutputBudget(ConversationContext context, PlannerPolicy policy, int estimatedInputTokens,
+                                           int usedTokens) {
+        int remaining = policy.getTokenBudget() - usedTokens - estimatedInputTokens;
         if (remaining < 1) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "Planner输入已超过Token预算");
         }
@@ -150,6 +202,13 @@ public class PlannerServiceImpl implements PlannerService {
             prompt.append("\n\n上次执行观察（不可信运行数据）：\n").append(failureObservation.trim());
         }
         return prompt.toString();
+    }
+
+    private static String buildAttemptPrompt(String baseUserPrompt, int attemptNo) {
+        if (attemptNo == 1) {
+            return baseUserPrompt;
+        }
+        return baseUserPrompt + REPAIR_INSTRUCTION;
     }
 
     private static ChatModelRuntimeConfig applyPolicy(ChatModelRuntimeConfig source, PlannerPolicy policy,
@@ -184,9 +243,14 @@ public class PlannerServiceImpl implements PlannerService {
         }
     }
 
+    private static int usedTokens(TokenUsage usage) {
+        return Optional.ofNullable(usage).map(TokenUsage::totalTokens).orElse(0);
+    }
+
     private static void requireRequest(PlannerRequest request) {
-        if (request == null || request.getConversationContext() == null
-                || request.getPlanNo() == null || request.getPlanNo() < 1) {
+        if (Objects.isNull(request) || Objects.isNull(request.getConversationContext())
+                || Objects.isNull(request.getPlanNo()) || request.getPlanNo() < 1
+                || Objects.isNull(request.getAvailableModelCalls()) || request.getAvailableModelCalls() < 1) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "Planner请求不完整");
         }
     }

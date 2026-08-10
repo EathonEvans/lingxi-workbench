@@ -211,6 +211,11 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
         return true;
     }
 
+    /** 判断任务是否已被完成、失败、取消或中断中的某一终态抢占。 */
+    public synchronized boolean isTerminal() {
+        return terminal;
+    }
+
     /**
      * 获取当前已经累计的完整或部分回答快照。
      */

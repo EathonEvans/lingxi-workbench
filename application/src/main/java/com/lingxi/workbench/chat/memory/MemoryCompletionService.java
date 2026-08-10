@@ -17,6 +17,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** 使用发布 PromptVersion 和指定 Chat 模型执行记忆提取任务。 */
 @Service
@@ -24,6 +26,9 @@ import java.util.Objects;
 public class MemoryCompletionService {
 
     private static final Duration COMPLETION_TIMEOUT = Duration.ofSeconds(30);
+    /** 记忆模板保留自己的任务变量，例如 conversation_history 和 existing_profile。 */
+    private static final Pattern VARIABLE_PATTERN = Pattern.compile(
+            "\\{\\{\\s*([a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)*)\\s*}}");
 
     private final PromptRuntimeService promptRuntimeService;
     private final MemoryChatModelResolver chatModelResolver;
@@ -44,13 +49,7 @@ public class MemoryCompletionService {
         if (snapshot.role() != PromptRole.SYSTEM) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "记忆提取Prompt必须为SYSTEM角色");
         }
-        String prompt = snapshot.content();
-        for (Map.Entry<String, String> variable : variables.entrySet()) {
-            prompt = prompt.replace("{{" + variable.getKey() + "}}", variable.getValue());
-        }
-        if (prompt.contains("{{") || prompt.contains("}}")) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "记忆提取Prompt存在未解析变量");
-        }
+        String prompt = renderPrompt(snapshot.content(), variables);
         ChatModelRuntimeConfig chatConfig = chatModelResolver.resolve(chatModelInstanceId);
         ChatCompletionCommand command = new ChatCompletionCommand(prompt, "", List.of(), chatConfig);
         ChatCompletionResult result = Objects.requireNonNull(
@@ -60,5 +59,23 @@ public class MemoryCompletionService {
             throw new IllegalStateException("记忆提取模型返回空内容");
         }
         return result.content().trim();
+    }
+
+    /**
+     * 只解析模板正文原有的变量，避免把用户对话中包含的双花括号误判成未解析变量。
+     */
+    private String renderPrompt(String template, Map<String, String> variables) {
+        Matcher matcher = VARIABLE_PATTERN.matcher(template);
+        StringBuilder rendered = new StringBuilder(template.length());
+        while (matcher.find()) {
+            String variableName = matcher.group(1);
+            if (!variables.containsKey(variableName)) {
+                throw new BusinessException(HttpStatusEnum.CONFLICT, "记忆提取Prompt存在未解析变量：" + variableName);
+            }
+            String replacement = Objects.requireNonNullElse(variables.get(variableName), "");
+            matcher.appendReplacement(rendered, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(rendered);
+        return rendered.toString();
     }
 }

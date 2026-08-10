@@ -15,6 +15,7 @@ public class PlannerRequest {
     private Integer planNo;
     private String failureObservation;
     private Set<String> confirmedCapabilityCodes;
+    private Integer availableModelCalls;
 
     public Set<String> confirmedCapabilityCodes() {
         return confirmedCapabilityCodes == null ? Set.of() : Set.copyOf(confirmedCapabilityCodes);
