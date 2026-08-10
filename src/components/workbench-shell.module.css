@@ -90,8 +90,7 @@
 .brandText,
 .modelPicker span,
 .profile span,
-.conversation span,
-.suggestionCard > span:nth-child(2) {
+.conversation span {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -120,9 +119,15 @@
   margin-bottom: 0;
   border-color: #2e72ed !important;
   border-radius: 10px !important;
+  color: #fff !important;
   background: var(--conversation-blue) !important;
   font-weight: 600;
   box-shadow: 0 7px 18px rgba(45, 101, 225, 0.2) !important;
+}
+
+.newChat > span,
+.newChat > svg {
+  color: #fff !important;
 }
 
 .sidebarFooter {
@@ -172,11 +177,16 @@
 }
 
 .pinnedConversationList {
-  min-height: 35px;
+  display: flex;
+  min-height: 32px;
+  max-height: 132px;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
 }
 
 .pinnedConversationList .conversationEmpty {
-  min-height: 35px;
+  min-height: 32px;
 }
 
 .recentHistoryHeader {
@@ -187,7 +197,7 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 3px;
+  gap: 1px;
   overflow-y: auto;
 }
 
@@ -195,11 +205,11 @@
   display: grid;
   align-items: center;
   width: 100%;
-  min-height: 52px;
-  padding: 4px;
-  grid-template-columns: minmax(0, 1fr) 28px;
-  gap: 2px;
-  border-radius: 10px;
+  min-height: 44px;
+  padding: 2px 3px;
+  grid-template-columns: minmax(0, 1fr) 26px;
+  gap: 1px;
+  border-radius: 9px;
   color: #626873;
   background: transparent;
   transition: 160ms ease;
@@ -215,10 +225,10 @@
   display: grid;
   align-items: center;
   min-width: 0;
-  min-height: 44px;
-  padding: 5px 4px 5px 7px;
+  min-height: 40px;
+  padding: 3px 3px 3px 6px;
   grid-template-columns: 18px minmax(0, 1fr);
-  gap: 8px;
+  gap: 7px;
   border: 0;
   color: inherit;
   background: transparent;
@@ -238,15 +248,15 @@
 .conversation small,
 .profile small,
 .modelPicker small {
-  margin-top: 3px;
+  margin-top: 1px;
   color: #a1a6af;
   font-size: 10px;
 }
 
 .conversationMore {
   display: grid;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
   border-radius: 7px;
@@ -255,6 +265,10 @@
   cursor: pointer;
   opacity: 0;
   place-items: center;
+}
+
+.pinnedConversationList .conversationSelect > svg {
+  color: #3573e8;
 }
 
 .conversation:hover .conversationMore,
@@ -433,6 +447,30 @@
   overflow-y: auto;
 }
 
+.newConversationContent {
+  display: grid;
+  grid-template-rows: auto auto;
+  align-content: center;
+  justify-items: center;
+  gap: clamp(28px, 4.5vh, 44px);
+  padding: clamp(28px, 5vh, 54px) 0;
+  overflow-x: hidden;
+}
+
+.newConversationContent .hero {
+  width: min(820px, calc(100% - 48px));
+  flex: none;
+  padding: 0;
+}
+
+.newConversationContent .subtitle {
+  margin-bottom: 0;
+}
+
+.newConversationComposer {
+  padding-bottom: 0;
+}
+
 .hero {
   position: relative;
   display: flex;
@@ -498,72 +536,6 @@
   font-size: 14px;
 }
 
-.suggestionGrid {
-  position: relative;
-  display: grid;
-  width: 100%;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 11px;
-}
-
-.suggestionCard {
-  display: grid;
-  align-items: center;
-  min-height: 74px;
-  padding: 13px 14px;
-  grid-template-columns: 38px 1fr 20px;
-  gap: 12px;
-  border: 1px solid #e9ebef;
-  border-radius: 15px;
-  color: #2e333b;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 5px 18px rgba(31, 35, 41, 0.035);
-  cursor: pointer;
-  text-align: left;
-  transition: 180ms ease;
-}
-
-.suggestionCard:hover {
-  transform: translateY(-2px);
-  border-color: #cddcff;
-  background: #fff;
-  box-shadow: 0 12px 26px rgba(42, 91, 194, 0.09);
-}
-
-.suggestionIcon {
-  display: grid !important;
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
-  color: #316cdb;
-  background: #f0f5ff;
-  place-items: center;
-}
-
-.suggestionCard strong {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.suggestionCard small {
-  margin-top: 4px;
-  overflow: hidden;
-  color: #9297a0;
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.suggestionArrow {
-  color: #b5bac2;
-  transition: 180ms ease;
-}
-
-.suggestionCard:hover .suggestionArrow {
-  transform: rotate(90deg);
-  color: #3972da;
-}
-
 .messageStage {
   display: flex;
   width: 100%;
@@ -626,11 +598,15 @@
   width: 34px;
   height: 34px;
   flex: 0 0 34px;
-  border-radius: 11px;
-  color: #fff;
-  background: linear-gradient(145deg, #1768ff, #7057f5);
-  box-shadow: 0 7px 18px rgba(43, 103, 246, 0.18);
   place-items: center;
+}
+
+.assistantAvatarLogo {
+  width: 34px;
+  height: auto;
+  max-height: 34px;
+  object-fit: contain;
+  filter: drop-shadow(0 5px 9px rgba(43, 103, 246, 0.2));
 }
 
 .messageBody {
@@ -654,187 +630,6 @@
   white-space: normal;
 }
 
-.toolList {
-  display: grid;
-  margin: 0 0 10px;
-  gap: 6px;
-}
-
-.subAgentList {
-  display: grid;
-  margin: 0 0 10px;
-  gap: 6px;
-}
-
-.executionItem {
-  display: flex;
-  align-items: center;
-  width: fit-content;
-  min-height: 30px;
-  padding: 5px 9px;
-  border: 1px solid #e2e7ef;
-  border-radius: 7px;
-  color: #596476;
-  background: #f8fafc;
-  gap: 6px;
-  font-size: 12px;
-}
-
-.executionRunning {
-  border-color: #d9e3f8;
-  color: #49648f;
-  background: #f6f8fd;
-}
-
-.executionFailed {
-  border-color: #efd9d9;
-  color: #a34848;
-  background: #fdf8f8;
-}
-
-.executionDone {
-  color: #697383;
-}
-
-.executionSpinner {
-  flex: 0 0 auto;
-  animation: tool-spin 1s linear infinite;
-}
-
-.executionLabel {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.executionDuration {
-  color: #929aa8;
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-}
-
-.timeline {
-  width: min(520px, 100%);
-  margin: 0 0 12px;
-  border: 1px solid #e1e6ee;
-  border-radius: 8px;
-  background: #fafbfd;
-  overflow: hidden;
-}
-
-.timelineSummary {
-  display: flex;
-  align-items: center;
-  width: min(520px, 100%);
-  min-height: 36px;
-  padding: 7px 10px;
-  border: 1px solid #e1e6ee;
-  border-radius: 8px;
-  color: #586476;
-  background: #fafbfd;
-  gap: 8px;
-  font-size: 12px;
-  list-style: none;
-}
-
-.timeline > .timelineSummary {
-  width: 100%;
-  margin: 0;
-  border: 0;
-  border-radius: 0;
-  cursor: pointer;
-}
-
-.timelineSummary::-webkit-details-marker {
-  display: none;
-}
-
-.timelineSummary > svg:first-child {
-  flex: 0 0 auto;
-}
-
-.timelineSummary > span {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.timelinerunning > svg:first-child,
-.timelineStepRUNNING .timelineStepIcon {
-  color: #4775d0;
-  animation: tool-spin 1s linear infinite;
-}
-
-.timelinecompleted > svg:first-child {
-  color: #24946d;
-}
-
-.timelinefailed > svg:first-child {
-  color: #bd5050;
-}
-
-.timelineChevron {
-  color: #929aa7;
-  transition: transform 160ms ease;
-}
-
-.timeline[open] .timelineChevron {
-  transform: rotate(180deg);
-}
-
-.timelineSteps {
-  display: grid;
-  padding: 2px 10px 9px 31px;
-  margin: 0;
-  border-top: 1px solid #edf0f4;
-  list-style: none;
-}
-
-.timelineStep {
-  position: relative;
-  display: flex;
-  align-items: center;
-  min-height: 32px;
-  color: #687385;
-  gap: 8px;
-  font-size: 12px;
-}
-
-.timelineStep + .timelineStep::before {
-  position: absolute;
-  top: -9px;
-  left: 6px;
-  width: 1px;
-  height: 18px;
-  background: #dfe4ec;
-  content: "";
-}
-
-.timelineStepIcon {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  color: #a0a8b5;
-  background: #fafbfd;
-}
-
-.timelineStepCOMPLETED .timelineStepIcon {
-  color: #24946d;
-}
-
-.timelineStepFAILED .timelineStepIcon {
-  color: #bd5050;
-}
-
-@keyframes tool-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .userMessage {
   justify-content: flex-end;
 }
@@ -855,33 +650,57 @@
   white-space: pre-wrap;
 }
 
-.thinking {
-  display: inline-flex;
-  align-items: center;
-  height: 24px;
-  gap: 4px;
+.messageFlyIn.userMessage .messageBody {
+  transform-origin: right bottom;
+  animation: message-send-flight 460ms cubic-bezier(0.22, 0.78, 0.26, 1) both;
 }
 
-.thinking i {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #7d91bb;
-  animation: thinking-pulse 1.2s ease-in-out infinite;
+.conversationEntering .messageStage {
+  animation: conversation-stage-enter 320ms ease-out both;
 }
 
-.thinking i:nth-child(2) {
-  animation-delay: 160ms;
+.conversationEntering .composerWrap {
+  animation: composer-dock 440ms cubic-bezier(0.22, 0.78, 0.26, 1) both;
 }
 
-.thinking i:nth-child(3) {
-  animation-delay: 320ms;
+@keyframes message-send-flight {
+  0% {
+    opacity: 0;
+    transform: translate3d(-30px, 72px, 0) scale(0.92);
+    filter: blur(2px);
+  }
+
+  68% {
+    opacity: 1;
+    transform: translate3d(3px, -2px, 0) scale(1.01);
+    filter: blur(0);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
 }
 
-@keyframes thinking-pulse {
-  50% {
-    opacity: 0.35;
-    transform: translateY(-3px);
+@keyframes conversation-stage-enter {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes composer-dock {
+  from {
+    opacity: 0.72;
+    transform: translateY(-18vh) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -1191,8 +1010,7 @@
   background: rgba(255, 255, 255, 0.055);
 }
 
-.shell[data-theme="dark"] .modelIcon,
-.shell[data-theme="dark"] .suggestionIcon {
+.shell[data-theme="dark"] .modelIcon {
   border-color: rgba(105, 150, 255, 0.18);
   color: #82aaff;
   background: rgba(54, 99, 195, 0.16);
@@ -1214,28 +1032,9 @@
   color: #9299a6;
 }
 
-.shell[data-theme="dark"] .suggestionCard {
-  border-color: rgba(255, 255, 255, 0.08);
-  color: #e1e5eb;
-  background: rgba(24, 28, 36, 0.72);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
-}
-
-.shell[data-theme="dark"] .suggestionCard:hover {
-  border-color: rgba(104, 148, 246, 0.42);
-  background: #191e27;
-  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.28);
-}
-
-.shell[data-theme="dark"] .suggestionCard small,
-.shell[data-theme="dark"] .suggestionArrow,
 .shell[data-theme="dark"] .composerToolbar,
 .shell[data-theme="dark"] .disclaimer {
   color: #747c88;
-}
-
-.shell[data-theme="dark"] .suggestionCard:hover .suggestionArrow {
-  color: #82aaff;
 }
 
 .shell[data-theme="dark"] .messageAuthor,
@@ -1337,42 +1136,6 @@
   border-color: #47648f;
 }
 
-.shell[data-theme="dark"] .executionItem,
-.shell[data-theme="dark"] .timeline,
-.shell[data-theme="dark"] .timelineSummary {
-  border-color: rgba(255, 255, 255, 0.1);
-  color: #aeb8c8;
-  background: #1a1f28;
-}
-
-.shell[data-theme="dark"] .executionRunning {
-  border-color: #334767;
-  color: #b4c8e9;
-  background: #1a2638;
-}
-
-.shell[data-theme="dark"] .executionFailed {
-  border-color: #57383d;
-  color: #e09a9a;
-  background: #2a1d21;
-}
-
-.shell[data-theme="dark"] .timelineSteps {
-  border-color: rgba(255, 255, 255, 0.07);
-}
-
-.shell[data-theme="dark"] .timelineStep {
-  color: #98a3b3;
-}
-
-.shell[data-theme="dark"] .timelineStepIcon {
-  background: #1a1f28;
-}
-
-.shell[data-theme="dark"] .timelineStep + .timelineStep::before {
-  background: #39414d;
-}
-
 :global(html[data-theme="dark"]) .historyDrawer :global(.ant-drawer-content),
 :global(html[data-theme="dark"]) .historyDrawer :global(.ant-drawer-header) {
   border-color: rgba(255, 255, 255, 0.08);
@@ -1453,6 +1216,10 @@
     width: min(680px, calc(100% - 28px));
   }
 
+  .newConversationContent .hero {
+    width: min(680px, calc(100% - 28px));
+  }
+
   .headerActions > span:first-child {
     display: none;
   }
@@ -1469,6 +1236,16 @@
     padding-top: 54px;
   }
 
+  .newConversationContent {
+    gap: 28px;
+    padding: 32px 0;
+  }
+
+  .newConversationContent .hero {
+    justify-content: center;
+    padding: 0;
+  }
+
   .heroIcon {
     width: 58px;
     height: 52px;
@@ -1483,19 +1260,6 @@
     max-width: 310px;
     margin-bottom: 26px;
     line-height: 1.6;
-  }
-
-  .suggestionGrid {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-
-  .suggestionCard {
-    min-height: 64px;
-  }
-
-  .suggestionGrid .suggestionCard:nth-child(n + 4) {
-    display: none;
   }
 
   .composerActions > span {
@@ -1525,16 +1289,11 @@
 
 @media (prefers-reduced-motion: reduce) {
   .authLoadingMark,
-  .executionSpinner,
-  .thinking i,
   .streamCaret,
-  .timelinerunning > svg:first-child,
-  .timelineStepRUNNING .timelineStepIcon {
+  .messageFlyIn.userMessage .messageBody,
+  .conversationEntering .messageStage,
+  .conversationEntering .composerWrap {
     animation: none;
-  }
-
-  .timelineChevron {
-    transition: none;
   }
 
   .messageStage {

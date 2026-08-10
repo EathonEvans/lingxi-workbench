@@ -55,9 +55,9 @@ type UseConversationReturn = {
   loadOlderMessages: () => Promise<void>;
   beginRename: (conv: Conversation) => void;
   cancelRename: () => void;
-  submitRename: (conv: Conversation) => Promise<void>;
-  archiveSelectedConversation: (conv: Conversation) => Promise<void>;
-  deleteSelectedConversation: (conv: Conversation) => Promise<void>;
+  submitRename: (conv: Conversation) => Promise<string | undefined>;
+  archiveSelectedConversation: (conv: Conversation) => Promise<boolean>;
+  deleteSelectedConversation: (conv: Conversation) => Promise<boolean>;
 };
 
 function toChatMessage(msg: ConversationMessage): ChatMessage | undefined {
@@ -215,7 +215,7 @@ export function useConversation({
     async (conversation: Conversation) => {
       const title = renamingTitle.trim();
       setRenamingId(undefined);
-      if (!title || title === conversation.title) return;
+      if (!title || title === conversation.title) return undefined;
       try {
         const s = requireSession();
         await renameConversation(conversation.id, title, s);
@@ -229,8 +229,10 @@ export function useConversation({
             c.id === conversation.id ? { ...c, title } : c,
           ),
         );
+        return title;
       } catch (error) {
         onRequestError(error, "修改标题失败");
+        return undefined;
       }
     },
     [renamingTitle, requireSession, onRequestError],
@@ -248,8 +250,10 @@ export function useConversation({
           setConversationStatus("ARCHIVED");
           setConversationId(null);
         }
+        return true;
       } catch (error) {
         onRequestError(error, "归档会话失败");
+        return false;
       }
     },
     [conversationId, requireSession, onRequestError],
@@ -267,8 +271,10 @@ export function useConversation({
           items.filter((c) => c.id !== conversation.id),
         );
         if (conversationId === conversation.id) setConversationId(null);
+        return true;
       } catch (error) {
         onRequestError(error, "删除会话失败");
+        return false;
       }
     },
     [conversationId, requireSession, onRequestError],

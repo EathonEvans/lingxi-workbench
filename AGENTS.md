@@ -8,6 +8,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 - This repository is the Lingxi Workbench user-facing application; admin features belong in `lingxi-workbench-admin`.
 - Use React 19, TypeScript, Next.js App Router, and LobeUI. Prefer LobeUI components and tokens before introducing another component library.
+- The user-facing Workbench is built on the open-source LobeUI component system. Treat the installed LobeUI types and component contracts as the source of truth for values, events, loading states, keyboard behavior, and composition; inspect them before adding adapters or custom replacements.
 - Keep model-provider secrets and Sa-Token authentication decisions on the backend. Browser code must only call the Lingxi backend.
 - Add feature-oriented layers only when real business logic needs them. Avoid speculative abstractions.
 - Before committing, run `pnpm lint` and `pnpm build`.

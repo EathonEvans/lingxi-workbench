@@ -17,7 +17,7 @@ export type ChatToolEvent = {
   errorCode?: string;
   invocationId: string;
   sequence: number;
-  status: "FAILED" | "RUNNING" | "SUCCEEDED";
+  status: "FAILED" | "REUSED" | "RUNNING" | "SUCCEEDED";
   toolCode: string;
 };
 
@@ -403,8 +403,15 @@ export async function streamChat(options: StreamChatOptions): Promise<void> {
   if (!startRequestCache.has(key)) {
     startRequestCache.set(key, initiateChat(options));
   }
-  const start = await startRequestCache.get(key)!;
-  startRequestCache.delete(key);
+  const startRequest = startRequestCache.get(key)!;
+  let start: ChatStart;
+  try {
+    start = await startRequest;
+  } finally {
+    if (startRequestCache.get(key) === startRequest) {
+      startRequestCache.delete(key);
+    }
+  }
 
   if (signal?.aborted) return;
   options.onStart?.(start);

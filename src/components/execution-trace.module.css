@@ -1,0 +1,200 @@
+.trace {
+  width: min(560px, 100%);
+  margin: 0 0 12px;
+  border: 1px solid #dde5f0;
+  border-radius: 10px;
+  background: #f8fafd;
+  overflow: hidden;
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  width: min(560px, 100%);
+  min-height: 38px;
+  padding: 8px 11px;
+  border: 1px solid #dde5f0;
+  border-radius: 10px;
+  color: #536278;
+  background: #f8fafd;
+  gap: 8px;
+  font-size: 12px;
+  list-style: none;
+}
+
+.trace > .summary {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.summary > svg:first-child {
+  flex: 0 0 auto;
+}
+
+.summary > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.running > svg:first-child,
+.planIcon[data-status="RUNNING"] svg {
+  color: #3f70ce;
+  animation: trace-spin 1s linear infinite;
+}
+
+.completed > svg:first-child,
+.planIcon[data-status="COMPLETED"] {
+  color: #218c67;
+}
+
+.reused > svg:first-child {
+  color: #7258c9;
+}
+
+.failed > svg:first-child,
+.planIcon[data-status="FAILED"] {
+  color: #b74d55;
+}
+
+.chevron {
+  color: #8995a6;
+  transition: transform 160ms ease;
+}
+
+.trace[open] .chevron {
+  transform: rotate(180deg);
+}
+
+.details {
+  display: grid;
+  padding: 2px 11px 10px 31px;
+  border-top: 1px solid #e9eef5;
+  gap: 10px;
+}
+
+.section {
+  min-width: 0;
+}
+
+.sectionLabel {
+  display: block;
+  margin: 8px 0 4px;
+  color: #929cac;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.operations,
+.plan {
+  display: grid;
+  padding: 0;
+  margin: 0;
+  gap: 2px;
+  list-style: none;
+}
+
+.operations li,
+.plan li {
+  display: flex;
+  min-width: 0;
+  min-height: 29px;
+  align-items: center;
+  color: #5e6b7d;
+  gap: 7px;
+  font-size: 12px;
+}
+
+.operationIcon,
+.planIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: #8f99a8;
+}
+
+.operationName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 999px;
+  color: #637086;
+  background: #e9eef6;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.operationMeta {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #929cab;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes trace-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+:global([data-theme="dark"]) .trace,
+:global([data-theme="dark"]) .summary {
+  border-color: #303b4c;
+  color: #a9b5c8;
+  background: #202a38;
+}
+
+:global([data-theme="dark"]) .details {
+  border-color: #303b4c;
+}
+
+:global([data-theme="dark"]) .operations li,
+:global([data-theme="dark"]) .plan li {
+  color: #a9b5c8;
+}
+
+:global([data-theme="dark"]) .count {
+  color: #b7c2d3;
+  background: #303b4c;
+}
+
+@media (max-width: 640px) {
+  .details {
+    padding-left: 14px;
+  }
+
+  .operations li {
+    flex-wrap: wrap;
+  }
+
+  .operationMeta {
+    width: 100%;
+    margin: -3px 0 3px 21px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .running > svg:first-child,
+  .planIcon[data-status="RUNNING"] svg {
+    animation: none;
+  }
+
+  .chevron {
+    transition: none;
+  }
+}

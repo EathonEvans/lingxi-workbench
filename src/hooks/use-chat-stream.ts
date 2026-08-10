@@ -20,6 +20,7 @@ import {
 import { normalizeMarkdownTables } from "@/lib/markdown";
 
 export type ChatMessage = {
+  animateOnMount?: boolean;
   content: string;
   errorMessage?: string;
   id: string;
@@ -69,11 +70,12 @@ type UseChatStreamReturn = {
     option: { code: string; label: string },
   ) => void;
   clearError: () => void;
+  discardPendingGeneration: () => void;
   messages: ChatMessage[];
   pendingClarification: ChatClarificationEvent | undefined;
   resumeAvailable: boolean;
   retryLastPrompt: () => void;
-  sendPrompt: (text: string) => Promise<void>;
+  sendPrompt: (text: string) => Promise<boolean>;
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   stopStreaming: () => Promise<void>;
   streamError: string | undefined;
@@ -82,6 +84,14 @@ type UseChatStreamReturn = {
 
 const PENDING_GENERATION_KEY = "lingxi-pending-generation";
 const MODEL_ERROR_CODE = "AI_MODEL_ERROR";
+const NON_RESUMABLE_ERROR_CODES = new Set([
+  MODEL_ERROR_CODE,
+  "AI_MODEL_TIMEOUT",
+  "AGENT_INPUT_TOKEN_LIMIT",
+  "AGENT_MODEL_CALL_LIMIT",
+  "AGENT_OUTPUT_TOKEN_LIMIT",
+  "AGENT_TOOL_CALL_LIMIT",
+]);
 
 function readPendingGeneration(): PendingGeneration | undefined {
   try {
@@ -140,6 +150,7 @@ export function useChatStream({
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingGenerationRef = useRef<PendingGeneration | undefined>(undefined);
+  const submittingRef = useRef(false);
   const conversationIdRef = useRef(externalConversationId);
 
   useEffect(() => {
@@ -269,7 +280,7 @@ export function useChatStream({
         return;
       }
       const resumable = !(error instanceof ChatStreamError)
-        || (error.code !== MODEL_ERROR_CODE && error.status !== 404);
+        || (!NON_RESUMABLE_ERROR_CODES.has(error.code ?? "") && error.status !== 404);
       setResumeAvailable(resumable);
     },
     [onLogout, updateAssistant],
@@ -372,45 +383,65 @@ export function useChatStream({
 
   const sendPrompt = useCallback(
     async (text: string) => {
-      if (!session || !selectedApplicationCode || streaming || !text.trim()) return;
+      if (!session || !selectedApplicationCode || streaming || submittingRef.current || !text.trim()) return false;
       if (pendingGenerationRef.current) {
-        setStreamError("请先完成当前确认，再提交新问题");
-        return;
+        setStreamError(pendingGenerationRef.current.clarification
+          ? "请先完成当前确认，再提交新问题"
+          : "上一次生成尚未恢复，请重试或新建对话");
+        return false;
       }
-      let conversationId = conversationIdRef.current;
-      if (!conversationId) {
-        try {
+      submittingRef.current = true;
+      try {
+        let conversationId = conversationIdRef.current;
+        if (!conversationId) {
           const conversation = await createConversation(session);
           conversationId = conversation.id;
           conversationIdRef.current = conversation.id;
           onConversationCreated?.(conversation.id);
-        } catch (error) {
-          setStreamError(error instanceof ChatStreamError ? error.message : "创建会话失败");
-          return;
         }
+        const prompt = text.trim();
+        const pending: PendingGeneration = {
+          answer: "",
+          assistantMessageId: generateMessageId(),
+          conversationId,
+          lastSequence: 0,
+          prompt,
+          subAgents: [],
+          timeline: [],
+          tools: [],
+          userMessageId: generateMessageId(),
+        };
+        setPendingClarification(undefined);
+        setMessages((current) => [
+          ...current,
+          {
+            animateOnMount: true,
+            content: prompt,
+            id: pending.userMessageId,
+            role: "user",
+            status: "done",
+          },
+          { content: "", id: pending.assistantMessageId, role: "assistant", status: "streaming" },
+        ]);
+        void startGeneration(pending);
+        return true;
+      } catch (error) {
+        setStreamError(error instanceof ChatStreamError ? error.message : "创建会话失败");
+        return false;
+      } finally {
+        submittingRef.current = false;
       }
-      const prompt = text.trim();
-      const pending: PendingGeneration = {
-        answer: "",
-        assistantMessageId: generateMessageId(),
-        conversationId,
-        lastSequence: 0,
-        prompt,
-        subAgents: [],
-        timeline: [],
-        tools: [],
-        userMessageId: generateMessageId(),
-      };
-      setPendingClarification(undefined);
-      setMessages((current) => [
-        ...current,
-        { content: prompt, id: pending.userMessageId, role: "user", status: "done" },
-        { content: "", id: pending.assistantMessageId, role: "assistant", status: "streaming" },
-      ]);
-      await startGeneration(pending);
     },
     [onConversationCreated, selectedApplicationCode, session, startGeneration, streaming],
   );
+
+  /** 用户显式切换对话上下文时，丢弃仅用于当前页面续传的本地状态。 */
+  const discardPendingGeneration = useCallback(() => {
+    clearPendingGeneration();
+    pendingGenerationRef.current = undefined;
+    setPendingClarification(undefined);
+    setResumeAvailable(false);
+  }, []);
 
   const stopStreaming = useCallback(async () => {
     const pending = pendingGenerationRef.current;
@@ -481,6 +512,7 @@ export function useChatStream({
   return {
     answerClarification,
     clearError,
+    discardPendingGeneration,
     messages,
     pendingClarification,
     resumeAvailable,

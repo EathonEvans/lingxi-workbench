@@ -3,27 +3,24 @@
 import { ActionIcon, Avatar, Button, Markdown, Tag } from "@lobehub/ui";
 import { ChatInputArea } from "@lobehub/ui/chat";
 import { Drawer, Dropdown, Empty, Input, Spin } from "antd";
+import type { MenuProps } from "antd";
 import {
   Archive,
   ArrowUp,
   Bot,
   Boxes,
-  ChevronDown,
   ChevronsUpDown,
-  Circle,
-  CircleCheck,
-  CircleX,
-  FileSearch,
-  FolderKanban,
   History,
   ListTodo,
-  LoaderCircle,
   LogOut,
   Menu,
   MessageSquareText,
   Moon,
   MoreHorizontal,
   Paperclip,
+  Pencil,
+  Pin,
+  PinOff,
   Plus,
   RotateCcw,
   Search,
@@ -32,17 +29,12 @@ import {
   Square,
   Sun,
   Trash2,
-  WandSparkles,
-  Wrench,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type AvailableApplication,
-  type ChatExecutionTimelineEvent,
-  type ChatSubAgentEvent,
-  type ChatToolEvent,
   type Conversation,
   ChatStreamError,
   listAvailableApplications,
@@ -52,167 +44,11 @@ import { useAuth } from "./auth-provider";
 import { useThemeMode } from "./app-provider";
 import { type ChatMessage, useChatStream } from "@/hooks/use-chat-stream";
 import { useConversation } from "@/hooks/use-conversation";
+import { usePinnedConversations } from "@/hooks/use-pinned-conversations";
+import ExecutionTrace from "./execution-trace";
 import styles from "./workbench-shell.module.css";
 
-// ─── 建议卡片 ─────────────────────────────────────────────────
-
-const suggestions = [
-  {
-    description: "从知识库中提炼重点，并给出结论依据",
-    icon: FileSearch,
-    title: "总结企业知识",
-  },
-  {
-    description: "把目标拆成可执行任务与关键里程碑",
-    icon: FolderKanban,
-    title: "规划复杂项目",
-  },
-  {
-    description: "基于数据发现趋势、异常与改进机会",
-    icon: Sparkles,
-    title: "洞察业务数据",
-  },
-  {
-    description: "快速起草、润色和重构专业内容",
-    icon: WandSparkles,
-    title: "协作内容创作",
-  },
-];
-
 // ─── 子组件 ───────────────────────────────────────────────────
-
-function SubAgentExecutionList({
-  subAgents,
-}: {
-  subAgents: ChatSubAgentEvent[];
-}) {
-  return (
-    <div className={styles.subAgentList}>
-      {subAgents.map((agent) => (
-        <div
-          className={`${styles.executionItem} ${
-            agent.status === "RUNNING"
-              ? styles.executionRunning
-              : agent.status === "FAILED"
-                ? styles.executionFailed
-                : styles.executionDone
-          }`}
-          key={agent.delegationId}
-        >
-          {agent.status === "RUNNING" ? (
-            <LoaderCircle className={styles.executionSpinner} size={13} />
-          ) : agent.status === "FAILED" ? (
-            <Wrench size={13} />
-          ) : null}
-          <span className={styles.executionLabel}>委派：{agent.agentName}</span>
-          {agent.durationMillis ? (
-            <span className={styles.executionDuration}>
-              {agent.durationMillis >= 1000
-                ? `${(agent.durationMillis / 1000).toFixed(1)}s`
-                : `${agent.durationMillis}ms`}
-            </span>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ToolExecutionList({ tools }: { tools: ChatToolEvent[] }) {
-  return (
-    <div className={styles.toolList}>
-      {tools.map((tool) => (
-        <div
-          className={`${styles.executionItem} ${
-            tool.status === "RUNNING"
-              ? styles.executionRunning
-              : tool.status === "FAILED"
-                ? styles.executionFailed
-                : styles.executionDone
-          }`}
-          key={tool.invocationId}
-        >
-          {tool.status === "RUNNING" ? (
-            <LoaderCircle className={styles.executionSpinner} size={13} />
-          ) : tool.status === "FAILED" ? (
-            <Wrench size={13} />
-          ) : null}
-          <span className={styles.executionLabel}>{tool.displayName}</span>
-          {tool.durationMillis ? (
-            <span className={styles.executionDuration}>
-              {tool.durationMillis >= 1000
-                ? `${(tool.durationMillis / 1000).toFixed(1)}s`
-                : `${tool.durationMillis}ms`}
-            </span>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ExecutionTimeline({ events }: { events: ChatExecutionTimelineEvent[] }) {
-  const latest = events.at(-1);
-  const plan = events.findLast((event) => event.steps.length > 0);
-  const stepEvents = events.filter((event) => event.stepId);
-  const steps = plan?.steps ?? [];
-  const statusByStep = new Map(
-    stepEvents.map((event) => [event.stepId, event.stepStatus] as const),
-  );
-  const completedSteps = [...statusByStep.values()].filter(
-    (status) => status === "COMPLETED",
-  ).length;
-
-  const summary = (() => {
-    if (!latest) return "正在准备";
-    if (latest.eventType === "PLANNING") return "正在规划任务";
-    if (latest.eventType === "REPLANNING") return "正在调整执行计划";
-    if (latest.eventType === "RUN_COMPLETED") return `已完成 ${completedSteps} 个步骤`;
-    if (latest.eventType === "RUN_FAILED") return "执行未完成";
-    if (latest.eventType === "RUN_CANCELLED") return "执行已停止";
-    if (latest.stepStatus === "RUNNING") return `正在处理：${latest.displayName || "当前步骤"}`;
-    if (steps.length > 0) return `执行计划 · ${completedSteps}/${steps.length}`;
-    return latest.message || "正在执行任务";
-  })();
-
-  const summaryStatus = latest?.eventType === "RUN_FAILED" || latest?.stepStatus === "FAILED"
-    ? "failed"
-    : latest?.eventType === "RUN_COMPLETED"
-      ? "completed"
-      : "running";
-
-  if (steps.length === 0) {
-    return (
-      <div className={`${styles.timelineSummary} ${styles[`timeline${summaryStatus}`]}`} role="status">
-        {summaryStatus === "running" ? <LoaderCircle size={14} /> : summaryStatus === "failed" ? <CircleX size={14} /> : <CircleCheck size={14} />}
-        <span>{summary}</span>
-      </div>
-    );
-  }
-
-  return (
-    <details className={styles.timeline} data-testid="execution-timeline">
-      <summary className={`${styles.timelineSummary} ${styles[`timeline${summaryStatus}`]}`}>
-        {summaryStatus === "running" ? <LoaderCircle size={14} /> : summaryStatus === "failed" ? <CircleX size={14} /> : <CircleCheck size={14} />}
-        <span>{summary}</span>
-        <ChevronDown className={styles.timelineChevron} size={14} />
-      </summary>
-      <ol className={styles.timelineSteps} aria-label="执行步骤">
-        {steps.map((step) => {
-          const status = statusByStep.get(step.stepId);
-          return (
-            <li className={`${styles.timelineStep} ${styles[`timelineStep${status ?? "PENDING"}`]}`} key={step.stepId}>
-              <span className={styles.timelineStepIcon} aria-hidden="true">
-                {status === "COMPLETED" ? <CircleCheck size={14} /> : status === "FAILED" ? <CircleX size={14} /> : status === "RUNNING" ? <LoaderCircle size={14} /> : <Circle size={14} />}
-              </span>
-              <span>{step.name}</span>
-            </li>
-          );
-        })}
-      </ol>
-    </details>
-  );
-}
 
 // ─── 工具函数 ─────────────────────────────────────────────────
 
@@ -314,6 +150,39 @@ export default function WorkbenchShell() {
     deleteSelectedConversation,
   } = useConversation({ session, onRequestError: handleRequestError });
 
+  const {
+    isPinned,
+    pinnedConversations,
+    removePinned,
+    togglePinned,
+    updatePinned,
+  } = usePinnedConversations(session?.user.id);
+
+  const loadedConversations = useMemo(
+    () =>
+      new Map(
+        [...recentConversations, ...historyConversations].map(
+          (conversation) => [conversation.id, conversation],
+        ),
+      ),
+    [historyConversations, recentConversations],
+  );
+  const visiblePinnedConversations = useMemo(
+    () =>
+      pinnedConversations.map(
+        (conversation) =>
+          loadedConversations.get(conversation.id) || conversation,
+      ),
+    [loadedConversations, pinnedConversations],
+  );
+  const unpinnedRecentConversations = useMemo(
+    () =>
+      recentConversations.filter(
+        (conversation) => !isPinned(conversation.id),
+      ),
+    [isPinned, recentConversations],
+  );
+
   // ─── 对话流 Hook ───────────────────────────────────────────
 
   const handleLogout = useCallback(() => {
@@ -338,6 +207,7 @@ export default function WorkbenchShell() {
     retryLastPrompt,
     answerClarification,
     clearError,
+    discardPendingGeneration,
   } = useChatStream({
     session,
     selectedApplicationCode,
@@ -385,6 +255,9 @@ export default function WorkbenchShell() {
     if ((streaming || pendingClarification) && conversation.id !== currentConversationId) {
       clearError();
       return;
+    }
+    if (conversation.id !== currentConversationId) {
+      discardPendingGeneration();
     }
     setConversationId(conversation.id);
     setConversationStatus(conversation.status);
@@ -436,14 +309,17 @@ export default function WorkbenchShell() {
     }
   };
 
-  // ─── 快捷操作 ──────────────────────────────────────────────
-
-  const startTask = (prefix: string) => {
-    setInput(prefix);
+  const handleSend = async () => {
+    const submittedInput = input;
+    const accepted = await sendPrompt(submittedInput);
+    if (accepted) {
+      setInput((current) => (current === submittedInput ? "" : current));
+    }
   };
 
   const startNewChat = () => {
     if (streaming) return;
+    discardPendingGeneration();
     setConversationId(null);
     setConversationStatus(undefined);
     setMessages([]);
@@ -482,97 +358,141 @@ export default function WorkbenchShell() {
     ),
   }));
 
+  const isNewConversation = messages.length === 0 && !messageLoading;
+  const conversationEntering =
+    messages.length <= 2 && messages.some((message) => message.animateOnMount);
+
   // ─── 渲染会话项 ───────────────────────────────────────────
+
+  const handleRename = async (conversation: Conversation) => {
+    const title = await submitRename(conversation);
+    if (title) updatePinned({ ...conversation, title });
+  };
+
+  const handleArchive = async (conversation: Conversation) => {
+    if (await archiveSelectedConversation(conversation)) {
+      removePinned(conversation.id);
+    }
+  };
+
+  const handleDelete = async (conversation: Conversation) => {
+    if (await deleteSelectedConversation(conversation)) {
+      removePinned(conversation.id);
+    }
+  };
 
   const renderConversation = (
     conversation: Conversation,
     showStatus = false,
+    pinnedOverride?: boolean,
   ) => {
     const selected = conversation.id === currentConversationId;
-    const menuItems = [
-      { key: "rename", label: "重命名" },
-      ...(conversation.status === "ACTIVE"
-        ? [{ icon: <Archive size={14} />, key: "archive", label: "归档" }]
-        : []),
-      { danger: true, icon: <Trash2 size={14} />, key: "delete", label: "删除" },
-    ];
+    const pinned = pinnedOverride ?? isPinned(conversation.id);
+    const menu: MenuProps = {
+      items: [
+        { icon: <Pencil size={14} />, key: "rename", label: "重命名" },
+        ...(conversation.status === "ACTIVE" || pinned
+          ? [
+              {
+                icon: pinned ? <PinOff size={14} /> : <Pin size={14} />,
+                key: "pin",
+                label: pinned ? "取消置顶" : "置顶",
+              },
+            ]
+          : []),
+        ...(conversation.status === "ACTIVE"
+          ? [
+              {
+                icon: <Archive size={14} />,
+                key: "archive",
+                label: "归档",
+              },
+            ]
+          : []),
+        {
+          danger: true,
+          icon: <Trash2 size={14} />,
+          key: "delete",
+          label: "删除",
+        },
+      ],
+      onClick: ({ domEvent, key }) => {
+        domEvent.stopPropagation();
+        if (key === "rename") beginRename(conversation);
+        if (key === "pin") togglePinned(conversation);
+        if (key === "archive") void handleArchive(conversation);
+        if (key === "delete") void handleDelete(conversation);
+      },
+    };
     return (
-      <div
-        className={`${styles.conversation} ${selected ? styles.conversationActive : ""}`}
+      <Dropdown
         key={conversation.id}
+        menu={menu}
+        placement="bottomLeft"
+        trigger={["contextMenu"]}
       >
-        {renamingId === conversation.id ? (
-          <div className={styles.conversationSelect}>
-            <MessageSquareText size={16} />
-            <span>
-              <input
-                autoFocus
-                className={styles.conversationRename}
-                maxLength={100}
-                onBlur={() => void submitRename(conversation)}
-                onChange={(event) => setRenamingTitle(event.target.value)}
-                onClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") event.currentTarget.blur();
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    cancelRename();
-                  }
-                }}
-                value={renamingTitle}
-              />
-              <small>
-                {formatConversationTime(
-                  conversation.lastMessageAt || conversation.updatedAt,
-                )}
-              </small>
-            </span>
-          </div>
-        ) : (
-          <button
-            className={styles.conversationSelect}
-            onClick={() => void selectConversation(conversation)}
-            type="button"
-          >
-            <MessageSquareText size={16} />
-            <span>
-              <strong>{conversation.title}</strong>
-              <small>
-                {showStatus && conversation.status === "ARCHIVED"
-                  ? "已归档 · "
-                  : ""}
-                {formatConversationTime(
-                  conversation.lastMessageAt || conversation.updatedAt,
-                )}
-              </small>
-            </span>
-          </button>
-        )}
-        <Dropdown
-          menu={{
-            items: menuItems,
-            onClick: ({ domEvent, key }) => {
-              domEvent.stopPropagation();
-              if (key === "rename") beginRename(conversation);
-              if (key === "archive")
-                void archiveSelectedConversation(conversation);
-              if (key === "delete")
-                void deleteSelectedConversation(conversation);
-            },
-          }}
-          placement="bottomRight"
-          trigger={["click"]}
+        <div
+          className={`${styles.conversation} ${selected ? styles.conversationActive : ""}`}
         >
-          <button
-            aria-label={`管理会话：${conversation.title}`}
-            className={styles.conversationMore}
-            onClick={(event) => event.stopPropagation()}
-            type="button"
-          >
-            <MoreHorizontal size={15} />
-          </button>
-        </Dropdown>
-      </div>
+          {renamingId === conversation.id ? (
+            <div className={styles.conversationSelect}>
+              {pinned ? <Pin size={15} /> : <MessageSquareText size={16} />}
+              <span>
+                <input
+                  autoFocus
+                  className={styles.conversationRename}
+                  maxLength={100}
+                  onBlur={() => void handleRename(conversation)}
+                  onChange={(event) => setRenamingTitle(event.target.value)}
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      cancelRename();
+                    }
+                  }}
+                  value={renamingTitle}
+                />
+                <small>
+                  {formatConversationTime(
+                    conversation.lastMessageAt || conversation.updatedAt,
+                  )}
+                </small>
+              </span>
+            </div>
+          ) : (
+            <button
+              className={styles.conversationSelect}
+              onClick={() => void selectConversation(conversation)}
+              type="button"
+            >
+              {pinned ? <Pin size={15} /> : <MessageSquareText size={16} />}
+              <span>
+                <strong>{conversation.title}</strong>
+                <small>
+                  {showStatus && conversation.status === "ARCHIVED"
+                    ? "已归档 · "
+                    : ""}
+                  {formatConversationTime(
+                    conversation.lastMessageAt || conversation.updatedAt,
+                  )}
+                </small>
+              </span>
+            </button>
+          )}
+          <Dropdown menu={menu} placement="bottomRight" trigger={["click"]}>
+            <button
+              aria-label={`管理会话：${conversation.title}`}
+              className={styles.conversationMore}
+              onClick={(event) => event.stopPropagation()}
+              type="button"
+            >
+              <MoreHorizontal size={15} />
+            </button>
+          </Dropdown>
+        </div>
+      </Dropdown>
     );
   };
 
@@ -589,11 +509,10 @@ export default function WorkbenchShell() {
             <Image
               alt=""
               className={styles.brandLogo}
-              height={32}
+              height={581}
               priority
               src="/lingxi-logo.png"
-              style={{ height: "auto" }}
-              width={36}
+              width={640}
             />
           </div>
           <div className={styles.brandText}>
@@ -622,7 +541,13 @@ export default function WorkbenchShell() {
           <span>置顶对话</span>
         </div>
         <div className={styles.pinnedConversationList}>
-          <span className={styles.conversationEmpty}>暂无置顶对话</span>
+          {visiblePinnedConversations.length > 0 ? (
+            visiblePinnedConversations.map((conversation) =>
+              renderConversation(conversation, false, true),
+            )
+          ) : (
+            <span className={styles.conversationEmpty}>暂无置顶对话</span>
+          )}
         </div>
 
         <div
@@ -641,8 +566,8 @@ export default function WorkbenchShell() {
             <div className={styles.conversationState}>
               <Spin size="small" />
             </div>
-          ) : recentConversations.length > 0 ? (
-            recentConversations.map((conv) => renderConversation(conv))
+          ) : unpinnedRecentConversations.length > 0 ? (
+            unpinnedRecentConversations.map((conv) => renderConversation(conv))
           ) : (
             <span className={styles.conversationEmpty}>暂无会话记录</span>
           )}
@@ -663,12 +588,10 @@ export default function WorkbenchShell() {
           </button>
           <div className={styles.profile}>
             <Avatar
-              avatar={
-                session.user.avatarUrl ||
-                session.user.displayName.slice(0, 1)
-              }
+              avatar={session.user.avatarUrl}
               background={appearance === "dark" ? "#25324a" : "#e8f1ff"}
               size={34}
+              title={session.user.displayName}
             />
             <span>
               <strong>{session.user.displayName}</strong>
@@ -821,8 +744,12 @@ export default function WorkbenchShell() {
           </div>
         </header>
 
-        <div className={styles.content}>
-          {messages.length === 0 && !messageLoading ? (
+        <div
+          className={`${styles.content} ${
+            isNewConversation ? styles.newConversationContent : ""
+          } ${conversationEntering ? styles.conversationEntering : ""}`}
+        >
+          {isNewConversation ? (
             <section className={styles.hero}>
               <div className={styles.heroGlow} />
               <div className={styles.heroIcon}>
@@ -841,28 +768,6 @@ export default function WorkbenchShell() {
               <p className={styles.subtitle}>
                 连接知识、数据与工具，把复杂工作变成清晰可靠的结果。
               </p>
-
-              <div className={styles.suggestionGrid}>
-                {suggestions.map(
-                  ({ description, icon: SuggestionIcon, title }) => (
-                    <button
-                      className={styles.suggestionCard}
-                      key={title}
-                      onClick={() => startTask(`${title}：`)}
-                      type="button"
-                    >
-                      <span className={styles.suggestionIcon}>
-                        <SuggestionIcon size={18} />
-                      </span>
-                      <span>
-                        <strong>{title}</strong>
-                        <small>{description}</small>
-                      </span>
-                      <Plus className={styles.suggestionArrow} size={16} />
-                    </button>
-                  ),
-                )}
-              </div>
             </section>
           ) : (
             <section className={styles.messageStage} aria-label="对话内容">
@@ -888,7 +793,7 @@ export default function WorkbenchShell() {
                       message.role === "user"
                         ? styles.userMessage
                         : styles.assistantMessage
-                    }`}
+                    } ${message.animateOnMount ? styles.messageFlyIn : ""}`}
                     key={message.id}
                   >
                     {message.role === "assistant" && (
@@ -896,7 +801,13 @@ export default function WorkbenchShell() {
                         className={styles.assistantAvatar}
                         aria-hidden="true"
                       >
-                        <Sparkles size={17} />
+                        <Image
+                          alt=""
+                          className={styles.assistantAvatarLogo}
+                          height={578}
+                          src="/lingxi-logo-glass.png"
+                          width={640}
+                        />
                       </span>
                     )}
                     <div className={styles.messageBody}>
@@ -904,18 +815,17 @@ export default function WorkbenchShell() {
                         {message.role === "user" ? "你" : "灵犀通用助手"}
                       </span>
                       {message.role === "assistant" &&
-                      message.timeline?.length ? (
-                        <ExecutionTimeline events={message.timeline} />
-                      ) : null}
-                      {message.role === "assistant" &&
-                      message.subAgents?.length ? (
-                        <SubAgentExecutionList
+                      (message.status === "streaming" ||
+                        message.timeline?.length ||
+                        message.subAgents?.length ||
+                        message.tools?.length) ? (
+                        <ExecutionTrace
+                          key={message.status === "streaming" ? "running" : "settled"}
+                          streaming={message.status === "streaming"}
                           subAgents={message.subAgents}
+                          timeline={message.timeline}
+                          tools={message.tools}
                         />
-                      ) : null}
-                      {message.role === "assistant" &&
-                      message.tools?.length ? (
-                        <ToolExecutionList tools={message.tools} />
                       ) : null}
                       <div
                         aria-live={
@@ -942,14 +852,7 @@ export default function WorkbenchShell() {
                             message.content
                           )
                         ) : message.status === "streaming" ? (
-                          <span
-                            className={styles.thinking}
-                            aria-label="正在生成回答"
-                          >
-                            <i />
-                            <i />
-                            <i />
-                          </span>
+                          null
                         ) : (
                           "暂未生成内容"
                         )}
@@ -988,7 +891,11 @@ export default function WorkbenchShell() {
           )}
 
           {/* 输入区 */}
-          <div className={styles.composerWrap}>
+          <div
+            className={`${styles.composerWrap} ${
+              isNewConversation ? styles.newConversationComposer : ""
+            }`}
+          >
             {pendingClarification && (
               <div
                 className={styles.clarificationCard}
@@ -1046,8 +953,9 @@ export default function WorkbenchShell() {
                   applicationLoading ||
                   !selectedApplicationCode
                 }
-                onChange={(event) => setInput(event.target.value)}
-                onSend={() => void sendPrompt(input)}
+                loading={streaming}
+                onInput={setInput}
+                onSend={() => void handleSend()}
                 placeholder={
                   conversationStatus === "ARCHIVED"
                     ? "该会话已归档"
@@ -1092,7 +1000,7 @@ export default function WorkbenchShell() {
                         applicationLoading ||
                         !selectedApplicationCode
                       }
-                      onClick={() => void sendPrompt(input)}
+                      onClick={() => void handleSend()}
                       title="发送消息"
                       type="button"
                     >
