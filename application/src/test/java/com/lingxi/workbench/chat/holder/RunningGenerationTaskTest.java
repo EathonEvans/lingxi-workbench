@@ -7,6 +7,7 @@ import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
+import com.lingxi.workbench.observability.service.AiTraceRun;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
 import org.junit.jupiter.api.Test;
 
@@ -20,8 +21,14 @@ class RunningGenerationTaskTest {
 
     @Test
     void shouldSequenceAndResumeTextAndToolEventsInOneTimeline() {
-        RunningGenerationTask task = new RunningGenerationTask(
-                new ChatTurnBO(10L, 11L, 12L, 1), 7L, 30L, MemoryConfig.disabled(), mock(ChatGenerationEventRepo.class));
+        RunningGenerationTask task = RunningGenerationTask.builder()
+                .turn(new ChatTurnBO(10L, 11L, 12L, 1))
+                .userId(7L)
+                .applicationVersionId(30L)
+                .memoryConfig(MemoryConfig.disabled())
+                .eventRepo(mock(ChatGenerationEventRepo.class))
+                .traceRun(mock(AiTraceRun.class))
+                .build();
         task.publishTool(toolEvent(AgentToolExecutionStatus.RUNNING, null));
         task.publishText(new ChatStreamChunk("回答"));
         task.publishTool(toolEvent(AgentToolExecutionStatus.SUCCEEDED, 25L));

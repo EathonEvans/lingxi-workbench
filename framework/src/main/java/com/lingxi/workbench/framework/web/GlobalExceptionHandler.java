@@ -6,6 +6,7 @@ import cn.dev33.satoken.exception.NotRoleException;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.ApiResponse;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -38,7 +39,7 @@ public class GlobalExceptionHandler {
     /**
      * 处理 JSR-303 参数校验失败，返回 400 通用提示。
      */
-    @ExceptionHandler(MethodArgumentNotValidException.class)
+    @ExceptionHandler({MethodArgumentNotValidException.class, ConstraintViolationException.class})
     public ResponseEntity<ApiResponse<Void>> handleValidationException() {
         return failure(HttpStatusEnum.BAD_REQUEST, "请求参数不合法");
     }

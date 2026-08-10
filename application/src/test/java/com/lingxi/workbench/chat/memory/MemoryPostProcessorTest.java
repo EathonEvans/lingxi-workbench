@@ -10,6 +10,8 @@ import com.lingxi.workbench.workflow.model.InteractionRecordMemoryConfig;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
 import com.lingxi.workbench.workflow.model.UserProfileMemoryConfig;
 import org.junit.jupiter.api.Test;
+import io.micrometer.observation.ObservationRegistry;
+import com.lingxi.workbench.observability.service.AiStageObserver;
 
 import java.util.List;
 
@@ -31,7 +33,8 @@ class MemoryPostProcessorTest {
     private final UserProfileMemoryService profileService = mock(UserProfileMemoryService.class);
     private final InteractionRecordMemoryService interactionService = mock(InteractionRecordMemoryService.class);
     private final MemoryPostProcessor processor = new MemoryPostProcessor(
-            memoryService, summaryService, profileService, interactionService);
+            memoryService, summaryService, profileService, interactionService,
+            new AiStageObserver(ObservationRegistry.NOOP));
 
     @Test
     void shouldIsolateEachMemoryOperationFailure() {

@@ -50,11 +50,11 @@ SET parent_id  = NULL,
     visible    = TRUE,
     status     = 'ACTIVE';
 
--- 导航页沿用原仪表盘的快捷入口样式，主键同样由数据库自增生成。
+-- 应用监控承载执行健康和内部链路排障，前端不直接访问底层观测平台。
 INSERT INTO lingxi_core.sys_menu
     (parent_id, name, code, menu_type, route_path, component, icon, sort_order, visible, status)
-SELECT workbench.id, '导航页', 'NAVIGATION', 'MENU', '/dashboard/navigation',
-       'dashboard/navigation/index', 'ri:compass-3-line', 10, TRUE, 'ACTIVE'
+SELECT workbench.id, '应用监控', 'APPLICATION_MONITOR', 'MENU', '/dashboard/monitor',
+       'dashboard/monitor/index', 'ri:pulse-line', 20, TRUE, 'ACTIVE'
 FROM lingxi_core.sys_menu workbench
 WHERE workbench.code = 'WORKBENCH'
 ON CONFLICT (code) DO UPDATE
@@ -73,7 +73,7 @@ SET parent_id  = EXCLUDED.parent_id,
 INSERT INTO lingxi_core.sys_menu
     (parent_id, name, code, menu_type, route_path, component, icon, sort_order, visible, status)
 SELECT workbench.id, '仪表盘', 'DASHBOARD', 'MENU', '/dashboard/console',
-       'dashboard/console/index', 'ri:pie-chart-line', 20, TRUE, 'ACTIVE'
+       'dashboard/console/index', 'ri:pie-chart-line', 10, TRUE, 'ACTIVE'
 FROM lingxi_core.sys_menu workbench
 WHERE workbench.code = 'WORKBENCH'
 ON CONFLICT (code) DO UPDATE

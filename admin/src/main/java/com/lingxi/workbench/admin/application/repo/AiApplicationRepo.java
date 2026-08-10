@@ -10,6 +10,7 @@ import com.lingxi.workbench.framework.convention.PageResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -38,6 +39,14 @@ public class AiApplicationRepo {
     /** 按主键查询 Application。 */
     public Optional<AiApplicationEntity> findById(Long id) {
         return Optional.ofNullable(mapper.selectById(id));
+    }
+
+    /** 查询监控筛选器所需的 Application，限制数量避免无界加载。 */
+    public List<AiApplicationEntity> findMonitorOptions() {
+        return mapper.selectList(Wrappers.<AiApplicationEntity>lambdaQuery()
+                .orderByAsc(AiApplicationEntity::getName)
+                .orderByAsc(AiApplicationEntity::getId)
+                .last("LIMIT 500"));
     }
 
     /** 带行锁按主键查询 Application，用于发布等写操作。 */

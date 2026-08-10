@@ -40,6 +40,8 @@ import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
 import com.lingxi.workbench.workflow.model.PlannerPolicy;
 import com.lingxi.workbench.workflow.model.WorkflowNodeTrace;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -68,10 +70,18 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
     private final FinalSynthesisService finalSynthesisService;
     private final ExecutionPersistenceService persistenceService;
     private final InteractionSessionService interactionSessionService;
+    private final ObservationRegistry observationRegistry;
 
     @Override
     public PlanExecutionResult execute(PlanExecutionRequest request) {
         requireRequest(request);
+        Observation observation = Observation.createNotStarted("lingxi.ai.plan", observationRegistry)
+                .contextualName("plan-and-execute")
+                .highCardinalityKeyValue("lingxi.run.id", request.getRunId());
+        return observation.observe(() -> executeObserved(request));
+    }
+
+    private PlanExecutionResult executeObserved(PlanExecutionRequest request) {
         try {
             return executePlan(request);
         } catch (CancellationException exception) {
@@ -233,6 +243,19 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
     private CapabilityExecutionResult executeStep(PlanExecutionRequest request, int planNo, PlanStep step,
                                                   ApplicationCapabilityDefinition capability,
                                                   List<PlanStepResult> completedResults) {
+        Observation observation = Observation.createNotStarted("lingxi.ai.plan.step", observationRegistry)
+                .contextualName("plan-step")
+                .lowCardinalityKeyValue("lingxi.capability.type", capability.getType().name())
+                .highCardinalityKeyValue("lingxi.run.id", request.getRunId())
+                .highCardinalityKeyValue("lingxi.plan.no", String.valueOf(planNo))
+                .highCardinalityKeyValue("lingxi.step.id", step.getId())
+                .highCardinalityKeyValue("lingxi.capability.code", capability.getCode());
+        return observation.observe(() -> executeObservedStep(request, planNo, step, capability, completedResults));
+    }
+
+    private CapabilityExecutionResult executeObservedStep(PlanExecutionRequest request, int planNo, PlanStep step,
+                                                           ApplicationCapabilityDefinition capability,
+                                                           List<PlanStepResult> completedResults) {
         OffsetDateTime startedAt = OffsetDateTime.now();
         publish(request, event(request, ExecutionEventType.STEP_STARTED)
                 .planNo(planNo).stepId(step.getId()).displayName(step.getName())

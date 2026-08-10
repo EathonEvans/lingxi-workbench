@@ -11,7 +11,9 @@ import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
+import com.lingxi.workbench.observability.service.AiTraceRun;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
+import lombok.Builder;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
@@ -47,6 +49,8 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
      * Redis 增量事件仓库，使浏览器刷新和本机任务释放后仍可恢复工具状态与文本。
      */
     private final ChatGenerationEventRepo eventRepo;
+    /** 后台生成任务拥有的根 Trace 生命周期。 */
+    private final AiTraceRun traceRun;
     /**
      * 按到达顺序累积模型文本增量，终态时一次性保存完整或部分回答。
      */
@@ -73,12 +77,15 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
      */
     private TokenUsage tokenUsage = TokenUsage.empty();
 
-    public RunningGenerationTask(ChatTurnBO turn, Long userId, Long applicationVersionId, MemoryConfig memoryConfig, ChatGenerationEventRepo eventRepo) {
+    @Builder
+    private RunningGenerationTask(ChatTurnBO turn, Long userId, Long applicationVersionId, MemoryConfig memoryConfig,
+                                  ChatGenerationEventRepo eventRepo, AiTraceRun traceRun) {
         this.turn = Objects.requireNonNull(turn, "对话轮次不能为空");
         this.userId = userId;
         this.applicationVersionId = Objects.requireNonNull(applicationVersionId, "ApplicationVersion不能为空");
         this.memoryConfig = Objects.requireNonNullElseGet(memoryConfig, MemoryConfig::disabled);
         this.eventRepo = eventRepo;
+        this.traceRun = Objects.requireNonNull(traceRun, "Agent根Trace不能为空");
     }
 
     public Long id() {
@@ -99,6 +106,10 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
 
     public MemoryConfig memoryConfig() {
         return memoryConfig;
+    }
+
+    public AiTraceRun traceRun() {
+        return traceRun;
     }
 
     /**

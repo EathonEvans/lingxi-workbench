@@ -5,6 +5,8 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.ChatCompletionResult;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatCompletionCommand;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.messages.AbstractMessage;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -32,20 +34,34 @@ import java.util.Optional;
 public class SpringAiChatCompletionGateway implements ChatCompletionGateway {
 
     private final OpenAiCompatibleChatModelFactory chatModelFactory;
+    private final ObservationRegistry observationRegistry;
 
     /**
      * 中间任务使用自身的 System Prompt，不追加面向最终回答的 Markdown 输出约束。
      */
     @Override
     public Mono<ChatCompletionResult> complete(ChatCompletionCommand command) {
-        return Mono.fromCallable(() -> call(command, null)).subscribeOn(Schedulers.boundedElastic());
+        Observation parent = observationRegistry.getCurrentObservation();
+        return Mono.fromCallable(() -> callWithParent(command, null, parent)).subscribeOn(Schedulers.boundedElastic());
     }
 
     /** Planner 等受控任务使用兼容范围更广的 JSON Object 响应模式。 */
     @Override
     public Mono<ChatCompletionResult> completeJson(ChatCompletionCommand command) {
-        return Mono.fromCallable(() -> call(command, OpenAiChatModel.ResponseFormat.Type.JSON_OBJECT))
+        Observation parent = observationRegistry.getCurrentObservation();
+        return Mono.fromCallable(() -> callWithParent(command, OpenAiChatModel.ResponseFormat.Type.JSON_OBJECT, parent))
                 .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /** 在实际模型线程恢复调用方 Observation，使 Spring AI 模型 span 正确挂到业务链路下。 */
+    private ChatCompletionResult callWithParent(ChatCompletionCommand command, OpenAiChatModel.ResponseFormat.Type responseType,
+                                                Observation parent) {
+        if (Objects.isNull(parent)) {
+            return call(command, responseType);
+        }
+        try (Observation.Scope ignored = parent.openScope()) {
+            return call(command, responseType);
+        }
     }
 
     private ChatCompletionResult call(ChatCompletionCommand command, OpenAiChatModel.ResponseFormat.Type responseType) {

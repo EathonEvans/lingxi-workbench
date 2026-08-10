@@ -23,6 +23,10 @@ import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.tool.AgentLoopLimitException;
+import com.lingxi.workbench.observability.common.enums.AiObservationStage;
+import com.lingxi.workbench.observability.service.AiStageObserver;
+import com.lingxi.workbench.observability.service.AiTraceRun;
+import com.lingxi.workbench.observability.service.AiTracingService;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -72,6 +76,8 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     private final ApplicationChatExecutionService applicationChatExecutionService;
     private final ApplicationEventPublisher eventPublisher;
     private final TokenCountEstimator tokenCountEstimator;
+    private final AiTracingService aiTracingService;
+    private final AiStageObserver aiStageObserver;
 
     /**
      * 创建并启动一次流式模型生成任务。
@@ -101,11 +107,20 @@ public class ChatStreamServiceImpl implements ChatStreamService {
          * 已完成的 User 消息，以及等待后台任务填充的 GENERATING Assistant 消息。
          * 消息先落库、模型后启动，才能为启动失败、取消和服务重启保留统一的持久化任务标识。
          */
-        ChatTurnBO turn = conversationService.startTurn(userId, Long.valueOf(request.getConversationId()), request.getClientMessageId(), query, null, applicationSnapshot.applicationId(), applicationSnapshot.versionId());
+        ChatTurnBO turn = aiStageObserver.observe(AiObservationStage.MESSAGE_PERSIST,
+                () -> conversationService.startTurn(userId, Long.valueOf(request.getConversationId()),
+                        request.getClientMessageId(), query, null, applicationSnapshot.applicationId(), applicationSnapshot.versionId()));
 
         // Assistant 消息主键同时作为生成任务主键，便于 SSE 续接、取消和数据库终态恢复使用同一标识。
-        RunningGenerationTask task = new RunningGenerationTask(turn, userId, applicationSnapshot.versionId(),
-                applicationSnapshot.definition().memoryConf(), generationEventRepo);
+        AiTraceRun traceRun = aiTracingService.start(applicationSnapshot, turn, userId);
+        RunningGenerationTask task = RunningGenerationTask.builder()
+                .turn(turn)
+                .userId(userId)
+                .applicationVersionId(applicationSnapshot.versionId())
+                .memoryConfig(applicationSnapshot.definition().memoryConf())
+                .eventRepo(generationEventRepo)
+                .traceRun(traceRun)
+                .build();
         try {
             /*
              * Application 是所有对话的运行入口，后台任务必须先按发布快照识别意图，
@@ -218,7 +233,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      */
     private ApplicationChatResult executeApplication(RunningGenerationTask task, ApplicationChatExecutionRequest executionRequest) {
         try {
-            return applicationChatExecutionService.execute(executionRequest);
+            return task.traceRun().scoped(() -> applicationChatExecutionService.execute(executionRequest));
         } catch (RuntimeException exception) {
             if (task.isTerminal() && hasCause(exception, InterruptedException.class)) {
                 return null;
@@ -241,15 +256,18 @@ public class ChatStreamServiceImpl implements ChatStreamService {
             return;
         }
         try {
-            conversationService.completeAssistant(
-                    task.id(), task.answer(), task.tokenUsage(), modelInstanceId);
-            task.publishTerminal(ChatGenerationEventBO.completed());
-            // 发布领域事件，触发记忆后处理（摘要、画像、交互记录）
-            eventPublisher.publishEvent(new AssistantCompletedEvent(
-                    task.userId(), task.turn(), task.applicationVersionId(), task.memoryConfig()));
+            task.traceRun().scoped(() -> aiStageObserver.observe(AiObservationStage.TERMINAL, () -> {
+                conversationService.completeAssistant(task.id(), task.answer(), task.tokenUsage(), modelInstanceId);
+                task.publishTerminal(ChatGenerationEventBO.completed());
+                // 在根Trace作用域中发布领域事件，让异步记忆后处理能够继承同一链路。
+                eventPublisher.publishEvent(new AssistantCompletedEvent(
+                        task.userId(), task.turn(), task.applicationVersionId(), task.memoryConfig()));
+            }));
+            task.traceRun().complete(task.tokenUsage(), modelInstanceId);
         } catch (Exception exception) {
             log.error("模型回答完成后持久化失败，assistantMessageId={}", task.id(), exception);
             task.publishTerminal(ChatGenerationEventBO.failed());
+            task.traceRun().fail(exception);
         } finally {
             runningTasks.remove(task.id(), task);
         }
@@ -270,6 +288,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         } finally {
             task.publishTerminal(ChatGenerationEventBO.failed(failure.code(), failure.clientMessage()));
             runningTasks.remove(task.id(), task);
+            task.traceRun().fail(exception);
             log.error("模型流式对话调用失败，assistantMessageId={}", task.id(), exception);
         }
     }
@@ -319,6 +338,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         } finally {
             task.publishTerminal(ChatGenerationEventBO.cancelled());
             runningTasks.remove(task.id(), task);
+            task.traceRun().cancel("USER_CANCELLED");
         }
     }
 
@@ -335,6 +355,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         } finally {
             task.publishTerminal(ChatGenerationEventBO.failed());
             runningTasks.remove(task.id(), task);
+            task.traceRun().cancel("APPLICATION_SHUTDOWN");
         }
     }
 

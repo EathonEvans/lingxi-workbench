@@ -18,6 +18,7 @@ import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
+import io.micrometer.observation.ObservationRegistry;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -116,7 +117,8 @@ class CapabilityExecutionServiceImplTest {
                 mock(ToolRuntimeRepo.class),
                 mock(ToolRuntimeService.class),
                 checksum,
-                estimator);
+                estimator,
+                ObservationRegistry.NOOP);
     }
 
     private static ApplicationCapabilityDefinition agentCapability(String checksum, int timeoutSeconds) {

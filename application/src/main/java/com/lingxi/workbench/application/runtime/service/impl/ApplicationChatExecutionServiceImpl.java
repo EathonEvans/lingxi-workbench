@@ -27,6 +27,8 @@ import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
+import com.lingxi.workbench.observability.common.enums.AiObservationStage;
+import com.lingxi.workbench.observability.service.AiStageObserver;
 import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
@@ -97,6 +99,8 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
      * Planner 编排协调器：plan → executeSteps → synthesize。
      */
     private final PlannerRuntimeCoordinator plannerRuntimeCoordinator;
+    /** 将主流程稳定阶段写入 OpenTelemetry，内部模型 span 自动继承当前阶段。 */
+    private final AiStageObserver aiStageObserver;
 
     /**
      * 先准备共享上下文，再尝试可选快速路由，其他请求由Planner或默认ReAct Agent处理。
@@ -112,8 +116,8 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         AppRuntimeSnapshot snapshot = request.getApplication();
 
         // ② 一次性准备窗口记忆、摘要、长期记忆和运行时变量，后续路由与执行共享同一上下文
-        ConversationContext preparedContext = conversationContextService.prepare(
-                snapshot, request.getQuery(), request.getLoginUser(), request.getTurn());
+        ConversationContext preparedContext = aiStageObserver.observe(AiObservationStage.CONTEXT_PREPARE,
+                () -> conversationContextService.prepare(snapshot, request.getQuery(), request.getLoginUser(), request.getTurn()));
 
         // ③ 恢复上一轮Planner澄清或确认结果，并生成本轮真正参与路由的问题
         PlannerContextResolution plannerResolution = plannerRuntimeCoordinator.resolveInteraction(
@@ -122,17 +126,18 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         ConversationContext context = plannerResolution.context();
 
         // ④ Planner恢复中跳过快速路由；其他请求按Application配置执行可选快速路由
-        IntentRoutingResult routing = resolveFastRoute(request, context, plannerResolution);
+        IntentRoutingResult routing = aiStageObserver.observe(AiObservationStage.INTENT_ROUTE,
+                () -> resolveFastRoute(request, context, plannerResolution));
 
-        // ⑤ 合并快速路由结果、Planner策略和默认Agent，形成唯一且完整的最终调度决策
-        ChatDispatch dispatch = this.dispatch(snapshot, context, plannerResolution, routing);
-
-        // ⑥ 固定回复和澄清直接结束；Planner与Capability进入统一的运行上下文生命周期
-        return switch (dispatch) {
-            case ChatDispatch.Fixed fixed -> directResult(fixed.response(), context);
-            case ChatDispatch.Clarify clarify -> clarificationResult(request, clarify, context);
-            case ChatDispatch.Executable executable -> executeExecutable(request, context, executable, startedAt);
-        };
+        // ⑤ 调度合并和目标执行统一归入EXECUTION阶段，固定回复与澄清也保留完整链路。
+        return aiStageObserver.observe(AiObservationStage.EXECUTION, () -> {
+            ChatDispatch dispatch = this.dispatch(snapshot, context, plannerResolution, routing);
+            return switch (dispatch) {
+                case ChatDispatch.Fixed fixed -> directResult(fixed.response(), context);
+                case ChatDispatch.Clarify clarify -> clarificationResult(request, clarify, context);
+                case ChatDispatch.Executable executable -> executeExecutable(request, context, executable, startedAt);
+            };
+        });
     }
 
     /**
@@ -190,17 +195,17 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
 
         try {
             // ④ sealed分支保证这里只存在Planner编排和已锁定Capability执行两种合法状态
-            ApplicationChatResult result = switch (dispatch) {
-                case ChatDispatch.Planner planner -> executePlanner(PlannerRuntimeRequest.builder()
-                        .runId(executionId)
-                        .conversationContext(conversationContext)
-                        .executionContext(executionContext)
-                        .confirmedCapabilityCodes(planner.confirmedCapabilityCodes())
-                        .startedAt(startedAt)
-                        .build());
-                case ChatDispatch.Capability capability -> executeCapability(
-                        capability.capability(), capability.query(), executionContext);
-            };
+            ApplicationChatResult result = aiStageObserver.observeExecution(executionId, executionMode(dispatch), () -> switch (dispatch) {
+                    case ChatDispatch.Planner planner -> executePlanner(PlannerRuntimeRequest.builder()
+                            .runId(executionId)
+                            .conversationContext(conversationContext)
+                            .executionContext(executionContext)
+                            .confirmedCapabilityCodes(planner.confirmedCapabilityCodes())
+                            .startedAt(startedAt)
+                            .build());
+                    case ChatDispatch.Capability capability -> executeCapability(
+                            capability.capability(), capability.query(), executionContext);
+                });
 
             // ⑤ 统一记录最终执行类型、轨迹数量和完整链路耗时
             log.info("Application目标执行完成，applicationCode={}，versionId={}，executionId={}，targetType={}，traceCount={}，durationMs={}",
@@ -291,6 +296,20 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         return switch (dispatch) {
             case ChatDispatch.Planner ignored -> "PLANNER";
             case ChatDispatch.Capability capability -> capability.capability().getType().name();
+        };
+    }
+
+    /**
+     * 监控读模型使用的稳定执行模式，避免前端根据能力类型反向推断。
+     */
+    private static String executionMode(ChatDispatch.Executable dispatch) {
+        return switch (dispatch) {
+            case ChatDispatch.Planner ignored -> "PLAN_EXECUTE";
+            case ChatDispatch.Capability capability -> switch (capability.capability().getType()) {
+                case REACT_AGENT -> "REACT";
+                case WORKFLOW -> "WORKFLOW";
+                case TOOL -> throw new BusinessException(HttpStatusEnum.CONFLICT, "Application不支持直接调度Tool能力");
+            };
         };
     }
 

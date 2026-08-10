@@ -1,6 +1,7 @@
 package com.lingxi.workbench.infra.ai.chat.openai;
 
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
+import io.micrometer.observation.ObservationRegistry;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Component;
@@ -12,6 +13,12 @@ import java.util.Objects;
 /** 根据数据库运行配置创建 OpenAI 兼容协议 ChatModel。 */
 @Component
 public class OpenAiCompatibleChatModelFactory {
+
+    private final ObservationRegistry observationRegistry;
+
+    public OpenAiCompatibleChatModelFactory(ObservationRegistry observationRegistry) {
+        this.observationRegistry = observationRegistry;
+    }
 
     /**
      * 为单次对话创建模型客户端。
@@ -52,6 +59,8 @@ public class OpenAiCompatibleChatModelFactory {
         // ChatModel 只服务当前调用，不缓存包含明文 API Key 的客户端对象。
         return OpenAiChatModel.builder()
                 .options(options.build())
+                // 必须显式使用应用级 ObservationRegistry，否则手动创建的 ChatModel 只会上报 NOOP 观测。
+                .observationRegistry(observationRegistry)
                 .build();
     }
 }

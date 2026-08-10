@@ -25,6 +25,8 @@ import com.lingxi.workbench.workflow.model.WorkflowExecutionRequest;
 import com.lingxi.workbench.workflow.model.WorkflowExecutionResult;
 import com.lingxi.workbench.workflow.model.config.AgentNodeConfig;
 import com.lingxi.workbench.workflow.service.WorkflowExecutor;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 import org.springframework.stereotype.Service;
@@ -57,10 +59,20 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
     private final ToolRuntimeService toolRuntimeService;
     private final ApplicationCapabilityChecksum checksum;
     private final TokenCountEstimator tokenCountEstimator;
+    private final ObservationRegistry observationRegistry;
 
     @Override
     public CapabilityExecutionResult execute(CapabilityExecutionRequest request) {
         requireRequest(request);
+        ApplicationCapabilityDefinition capability = request.capability();
+        Observation observation = Observation.createNotStarted("lingxi.ai.capability", observationRegistry)
+                .contextualName("capability-" + capability.getType().name().toLowerCase())
+                .lowCardinalityKeyValue("lingxi.capability.type", capability.getType().name())
+                .highCardinalityKeyValue("lingxi.capability.code", capability.getCode());
+        return observation.observe(() -> executeCapability(request));
+    }
+
+    private CapabilityExecutionResult executeCapability(CapabilityExecutionRequest request) {
         CapabilityExecutionResult result = switch (request.capability().getType()) {
             case REACT_AGENT -> executeWithinTimeout(request, () -> executeAgent(request));
             case WORKFLOW -> executeWithinTimeout(request, () -> executeWorkflow(request));
@@ -74,12 +86,22 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
 
     private CapabilityExecutionResult executeWithinTimeout(CapabilityExecutionRequest request,
                                                            Callable<CapabilityExecutionResult> execution) {
-        return Mono.fromCallable(execution)
+        Observation parent = observationRegistry.getCurrentObservation();
+        return Mono.fromCallable(() -> callWithParent(execution, parent))
                 .subscribeOn(Schedulers.boundedElastic())
                 .timeout(Duration.ofSeconds(request.capability().getTimeoutSeconds()))
                 .onErrorMap(TimeoutException.class, exception ->
                         invalid("能力执行超时：" + request.capability().getCode()))
                 .block();
+    }
+
+    private static CapabilityExecutionResult callWithParent(Callable<CapabilityExecutionResult> execution, Observation parent) throws Exception {
+        if (Objects.isNull(parent)) {
+            return execution.call();
+        }
+        try (Observation.Scope ignored = parent.openScope()) {
+            return execution.call();
+        }
     }
 
     private CapabilityExecutionResult executeAgent(CapabilityExecutionRequest request) {
@@ -129,7 +151,8 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
         publishTool(request.context(), tool,
                 new ToolEventState(invocationId, AgentToolExecutionStatus.RUNNING, null, null));
         try {
-            String result = Mono.fromCallable(() -> tool.callback().call(JSON.toJSONString(request.inputs())))
+            Observation parent = observationRegistry.getCurrentObservation();
+            String result = Mono.fromCallable(() -> callToolWithParent(tool, request.inputs(), parent))
                     .subscribeOn(Schedulers.boundedElastic())
                     .block(Duration.ofSeconds(capability.getTimeoutSeconds()));
             if (result == null || result.isBlank()) {
@@ -143,6 +166,15 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
                     invocationId, AgentToolExecutionStatus.FAILED,
                     elapsedMillis(startedAt), TOOL_EXECUTION_FAILED_CODE));
             throw exception;
+        }
+    }
+
+    private static String callToolWithParent(AgentTool tool, JSONObject inputs, Observation parent) {
+        if (Objects.isNull(parent)) {
+            return tool.callback().call(JSON.toJSONString(inputs));
+        }
+        try (Observation.Scope ignored = parent.openScope()) {
+            return tool.callback().call(JSON.toJSONString(inputs));
         }
     }
 

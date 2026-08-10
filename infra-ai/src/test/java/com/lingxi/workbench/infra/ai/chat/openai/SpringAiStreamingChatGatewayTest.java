@@ -26,6 +26,7 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.function.FunctionToolCallback;
+import io.micrometer.observation.ObservationRegistry;
 import reactor.core.publisher.Flux;
 
 import java.util.ArrayList;
@@ -57,7 +58,7 @@ class SpringAiStreamingChatGatewayTest {
         OpenAiCompatibleChatModelFactory factory = mock(OpenAiCompatibleChatModelFactory.class);
         when(factory.create(config)).thenReturn(chatModel);
         SpringAiStreamingChatGateway gateway =
-                new SpringAiStreamingChatGateway(factory);
+                new SpringAiStreamingChatGateway(factory, ObservationRegistry.NOOP);
 
         List<ChatStreamChunk> chunks = gateway.stream(new ChatStreamCommand(
                         "你好",
@@ -131,7 +132,7 @@ class SpringAiStreamingChatGatewayTest {
                         .eventPublisher(toolEvents::add)
                         .build();
         SpringAiStreamingChatGateway gateway =
-                new SpringAiStreamingChatGateway(factory);
+                new SpringAiStreamingChatGateway(factory, ObservationRegistry.NOOP);
 
         Flux<ChatStreamChunk> answer = gateway.stream(
                 ChatStreamCommand.builder()
@@ -217,7 +218,7 @@ class SpringAiStreamingChatGatewayTest {
                 .maxResultCharacters(1000)
                 .eventPublisher(toolEvents::add)
                 .build();
-        SpringAiStreamingChatGateway gateway = new SpringAiStreamingChatGateway(factory);
+        SpringAiStreamingChatGateway gateway = new SpringAiStreamingChatGateway(factory, ObservationRegistry.NOOP);
 
         List<ChatStreamChunk> chunks = gateway.stream(ChatStreamCommand.builder()
                         .prompt("查询时间")

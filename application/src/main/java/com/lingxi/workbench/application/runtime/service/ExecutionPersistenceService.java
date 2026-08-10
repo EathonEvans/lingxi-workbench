@@ -10,7 +10,9 @@ import com.lingxi.workbench.application.runtime.model.entity.ExecutionStepAttemp
 
 import java.util.List;
 
-/** Plan-and-Execute运行数据的事务写入与恢复边界。 */
+/**
+ * Plan-and-Execute运行数据的事务写入与恢复边界。
+ */
 public interface ExecutionPersistenceService {
 
     String startRun(ExecutionRunStartCommand command);

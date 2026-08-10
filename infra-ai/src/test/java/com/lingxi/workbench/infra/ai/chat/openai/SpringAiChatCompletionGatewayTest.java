@@ -12,6 +12,7 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import io.micrometer.observation.ObservationRegistry;
 
 import java.util.List;
 
@@ -37,7 +38,7 @@ class SpringAiChatCompletionGatewayTest {
                 .build());
         OpenAiCompatibleChatModelFactory factory = mock(OpenAiCompatibleChatModelFactory.class);
         when(factory.create(config)).thenReturn(chatModel);
-        SpringAiChatCompletionGateway gateway = new SpringAiChatCompletionGateway(factory);
+        SpringAiChatCompletionGateway gateway = new SpringAiChatCompletionGateway(factory, ObservationRegistry.NOOP);
         ChatCompletionCommand command = new ChatCompletionCommand("任务", "系统指令", List.of(), config);
 
         gateway.complete(command).block();

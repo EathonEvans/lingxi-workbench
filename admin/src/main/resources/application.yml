@@ -17,6 +17,7 @@ spring:
     multipart:
       max-file-size: 20MB
       max-request-size: 21MB
+
 sa-token:
   token-name: Authorization
   timeout: 7200
@@ -33,6 +34,12 @@ sa-token:
       - /error
 
 lingxi:
+  langfuse:
+    api-enabled: ${LINGXI_LANGFUSE_API_ENABLED:false}
+    base-url: ${LINGXI_LANGFUSE_BASE_URL:}
+    public-key: ${LINGXI_LANGFUSE_PUBLIC_KEY:}
+    secret-key: ${LINGXI_LANGFUSE_SECRET_KEY:}
+    timeout: ${LINGXI_LANGFUSE_TIMEOUT:5s}
   knowledge:
     parsing:
       max-file-size: 20971520

@@ -1,0 +1,72 @@
+package com.lingxi.workbench.observability.config;
+
+import com.lingxi.workbench.observability.common.enums.AiObservationEventType;
+import com.lingxi.workbench.observability.model.entity.AiObservationEventEntity;
+import com.lingxi.workbench.observability.service.AiObservationEventWriter;
+import io.micrometer.common.KeyValue;
+import io.micrometer.observation.Observation;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.TraceContext;
+import io.micrometer.tracing.handler.TracingObservationHandler;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class AiRuntimeObservationHandlerTest {
+
+    @Test
+    void shouldPersistToolNameWithoutArgumentsOrResult() {
+        AiObservationEventWriter writer = mock(AiObservationEventWriter.class);
+        AiRuntimeObservationHandler handler = new AiRuntimeObservationHandler(writer);
+        Observation.Context context = tracedContext("spring.ai.tool");
+        context.addHighCardinalityKeyValue(KeyValue.of("lingxi.application.id", "20"));
+        context.addHighCardinalityKeyValue(KeyValue.of("spring.ai.tool.call.arguments", "private"));
+        context.addLowCardinalityKeyValue(KeyValue.of("spring.ai.tool.definition.name", "knowledge_search"));
+
+        handler.onStart(context);
+        handler.onStop(context);
+
+        ArgumentCaptor<AiObservationEventEntity> captor = ArgumentCaptor.forClass(AiObservationEventEntity.class);
+        verify(writer).append(captor.capture());
+        AiObservationEventEntity event = captor.getValue();
+        assertThat(event.getEventType()).isEqualTo(AiObservationEventType.TOOL_CALL);
+        assertThat(event.getApplicationId()).isEqualTo(20L);
+        assertThat(event.getMetadata().getString("toolName")).isEqualTo("knowledge_search");
+        assertThat(event.getMetadata()).doesNotContainKeys("arguments", "result");
+    }
+
+    @Test
+    void shouldPersistExecutionMode() {
+        AiObservationEventWriter writer = mock(AiObservationEventWriter.class);
+        AiRuntimeObservationHandler handler = new AiRuntimeObservationHandler(writer);
+        Observation.Context context = tracedContext("lingxi.ai.execution");
+        context.addLowCardinalityKeyValue(KeyValue.of("lingxi.execution.mode", "PLAN_EXECUTE"));
+
+        handler.onStart(context);
+        handler.onStop(context);
+
+        ArgumentCaptor<AiObservationEventEntity> captor = ArgumentCaptor.forClass(AiObservationEventEntity.class);
+        verify(writer).append(captor.capture());
+        assertThat(captor.getValue().getEventType()).isEqualTo(AiObservationEventType.EXECUTION_COMPLETED);
+        assertThat(captor.getValue().getMetadata().getString("executionMode")).isEqualTo("PLAN_EXECUTE");
+    }
+
+    private static Observation.Context tracedContext(String name) {
+        Observation.Context context = new Observation.Context();
+        context.setName(name);
+        Span span = mock(Span.class);
+        TraceContext traceContext = mock(TraceContext.class);
+        when(span.context()).thenReturn(traceContext);
+        when(traceContext.traceId()).thenReturn("trace-1");
+        when(traceContext.spanId()).thenReturn("span-1");
+        when(traceContext.parentId()).thenReturn("parent-1");
+        TracingObservationHandler.TracingContext tracing = new TracingObservationHandler.TracingContext();
+        tracing.setSpan(span);
+        context.put(TracingObservationHandler.TracingContext.class, tracing);
+        return context;
+    }
+}

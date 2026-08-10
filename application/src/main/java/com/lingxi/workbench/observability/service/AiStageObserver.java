@@ -1,0 +1,40 @@
+package com.lingxi.workbench.observability.service;
+
+import com.lingxi.workbench.observability.common.enums.AiObservationStage;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+
+import java.util.function.Supplier;
+
+/** 在当前 Trace 下创建稳定的 Application Chat 阶段 span。 */
+@Component
+@RequiredArgsConstructor
+public class AiStageObserver {
+
+    private final ObservationRegistry observationRegistry;
+
+    public <T> T observe(AiObservationStage stage, Supplier<T> action) {
+        Observation observation = Observation.createNotStarted("lingxi.ai.stage", observationRegistry)
+                .contextualName(stage.getCode().toLowerCase())
+                .lowCardinalityKeyValue("lingxi.stage", stage.getCode());
+        return observation.observe(action);
+    }
+
+    public void observe(AiObservationStage stage, Runnable action) {
+        observe(stage, () -> {
+            action.run();
+            return null;
+        });
+    }
+
+    /** 为最终调度目标建立带 executionId/runId 的子链路。 */
+    public <T> T observeExecution(String executionId, String executionMode, Supplier<T> action) {
+        Observation observation = Observation.createNotStarted("lingxi.ai.execution", observationRegistry)
+                .contextualName("application-execution")
+                .highCardinalityKeyValue("lingxi.run.id", executionId)
+                .lowCardinalityKeyValue("lingxi.execution.mode", executionMode);
+        return observation.observe(action);
+    }
+}

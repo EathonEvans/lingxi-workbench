@@ -10,8 +10,41 @@ spring:
       host: ${LINGXI_REDIS_HOST:192.168.86.2}
       port: ${LINGXI_REDIS_PORT:6379}
       password: ${LINGXI_REDIS_PASSWORD:EthRedis@123}
+  ai:
+    chat:
+      observations:
+        # Prompt、补全和工具参数可能包含用户隐私，默认禁止写入观测后端。
+        log-prompt: false
+        log-completion: false
+        include-error-logging: false
 server:
   port: 8080
+
+management:
+  tracing:
+    sampling:
+      probability: ${LINGXI_TRACING_SAMPLE_PROBABILITY:1.0}
+    export:
+      otlp:
+        enabled: ${LINGXI_TRACING_OTLP_ENABLED:false}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          # Langfuse 使用 HTTP OTLP traces 端点；认证信息只允许通过环境变量注入。
+          endpoint: ${LINGXI_TRACING_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+          headers:
+            Authorization: ${LINGXI_TRACING_OTLP_AUTHORIZATION:}
+            x-langfuse-ingestion-version: ${LINGXI_LANGFUSE_INGESTION_VERSION:4}
+          transport: http
+      limits:
+        max-attributes: 64
+        max-attribute-value-length: 256
+  otlp:
+    metrics:
+      export:
+        # Langfuse只接收Trace，关闭Starter默认的OTLP Metrics导出。
+        enabled: false
 
 sa-token:
   token-name: Authorization

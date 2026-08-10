@@ -4,6 +4,8 @@ import com.lingxi.workbench.chat.memory.event.AssistantCompletedEvent;
 import com.lingxi.workbench.chat.model.bo.ChatMemoryMessageBO;
 import com.lingxi.workbench.chat.service.ConversationMemoryService;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
+import com.lingxi.workbench.observability.common.enums.AiObservationStage;
+import com.lingxi.workbench.observability.service.AiStageObserver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
@@ -25,10 +27,16 @@ public class MemoryPostProcessor {
     private final ConversationSummaryMemoryService summaryService;
     private final UserProfileMemoryService profileService;
     private final InteractionRecordMemoryService interactionService;
+    private final AiStageObserver aiStageObserver;
 
     @Async
     @EventListener
     public void onAssistantCompleted(AssistantCompletedEvent event) {
+        aiStageObserver.observe(AiObservationStage.MEMORY_POST, () -> process(event));
+    }
+
+    /** 三条记忆管线共享同一个MEMORY_POST父span，单条失败仍按既有隔离策略处理。 */
+    private void process(AssistantCompletedEvent event) {
         MemoryConfig config = event.memoryConfig();
         if (config.summary().isEnabled()) {
             run("会话摘要", event, () -> summaryService.generate(event, config.summary()));

@@ -38,6 +38,8 @@ import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
 import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
 import org.junit.jupiter.api.Test;
+import io.micrometer.observation.ObservationRegistry;
+import com.lingxi.workbench.observability.service.AiStageObserver;
 
 import java.util.List;
 import java.util.Set;
@@ -273,7 +275,8 @@ class ApplicationChatExecutionServiceImplTest {
                                                                IntentRoutingService routingService,
                                                                PlannerRuntimeCoordinator coordinator) {
         return new ApplicationChatExecutionServiceImpl(
-                capabilityService, registry, contextService, routingService, coordinator);
+                capabilityService, registry, contextService, routingService, coordinator,
+                new AiStageObserver(ObservationRegistry.NOOP));
     }
 
     private static CapabilityExecutionService unexpectedCapabilityService() {

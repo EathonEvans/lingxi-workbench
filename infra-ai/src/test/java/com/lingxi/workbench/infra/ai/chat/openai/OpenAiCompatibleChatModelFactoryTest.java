@@ -5,6 +5,7 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import io.micrometer.observation.ObservationRegistry;
 
 import java.time.Duration;
 import java.util.List;
@@ -33,7 +34,7 @@ class OpenAiCompatibleChatModelFactoryTest {
                 .maxRetries(2)
                 .build();
 
-        OpenAiChatModel model = new OpenAiCompatibleChatModelFactory().create(config);
+        OpenAiChatModel model = new OpenAiCompatibleChatModelFactory(ObservationRegistry.NOOP).create(config);
         OpenAiChatOptions options = model.getOptions();
 
         assertEquals("https://api.deepseek.com", options.getBaseUrl());

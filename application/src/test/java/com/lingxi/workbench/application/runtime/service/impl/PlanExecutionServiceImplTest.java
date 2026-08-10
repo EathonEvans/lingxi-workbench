@@ -45,6 +45,7 @@ import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
 import com.lingxi.workbench.workflow.model.PlannerPolicy;
 import org.junit.jupiter.api.Test;
+import io.micrometer.observation.ObservationRegistry;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -78,7 +79,7 @@ class PlanExecutionServiceImplTest {
         }, request -> {
             assertEquals(List.of("collect", "submit"), request.stepResults().stream().map(result -> result.getCapabilityCode()).toList());
             return new FinalSynthesisResult("任务完成", TokenUsage.of(3, 2, 5));
-        }, persistence, interactionService());
+        }, persistence, interactionService(), ObservationRegistry.NOOP);
 
         PlanExecutionResult result = service.execute(request(plan(step("collect", "collect", List.of(), userQuery()),
                 step("submit", "submit", List.of("collect"), stepOutput("collect", "ticket"))), List.of(collect, submit), Set.of(), ChatExecutionEventPublisher.noop()));
@@ -110,7 +111,7 @@ class PlanExecutionServiceImplTest {
                     plan(step("write-again", "write", List.of(), userQuery())), TokenUsage.of(2, 1, 3), 1);
         }, request -> {
             throw new AssertionError("失败计划不应进入最终综合");
-        }, persistence, interactionService());
+        }, persistence, interactionService(), ObservationRegistry.NOOP);
 
         assertThrows(RuntimeException.class, () -> service.execute(request(
                 plan(step("write-once", "write", List.of(), userQuery()), step("unstable", "unstable", List.of("write-once"), userQuery())),
@@ -146,7 +147,7 @@ class PlanExecutionServiceImplTest {
             throw new AssertionError("取消后不得重规划");
         }, request -> {
             throw new AssertionError("取消后不得最终综合");
-        }, persistence, interactionService());
+        }, persistence, interactionService(), ObservationRegistry.NOOP);
 
         assertThrows(CancellationException.class, () -> service.execute(request(
                 plan(step("collect", "collect", List.of(), userQuery())), List.of(capability), Set.of(), cancelledPublisher)));

@@ -7,7 +7,9 @@ import com.lingxi.workbench.infra.ai.chat.model.command.ChatStreamCommand;
 import com.lingxi.workbench.infra.ai.chat.StreamingChatGateway;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolRuntimeConfig;
-import lombok.RequiredArgsConstructor;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
+import io.micrometer.observation.contextpropagation.ObservationThreadLocalAccessor;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -23,6 +25,7 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import reactor.util.context.ContextView;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,12 +38,20 @@ import java.util.concurrent.atomic.AtomicReference;
  * 基于 Spring AI 的 OpenAI 兼容协议流式对话实现。
  */
 @Component
-@RequiredArgsConstructor
 public class SpringAiStreamingChatGateway implements StreamingChatGateway {
 
     private final OpenAiCompatibleChatModelFactory chatModelFactory;
-    private final ToolCallingManager toolCallingManager = ToolCallingManager.builder().build();
+    private final ObservationRegistry observationRegistry;
+    private final ToolCallingManager toolCallingManager;
     private final MessageAggregator messageAggregator = new MessageAggregator();
+
+    public SpringAiStreamingChatGateway(OpenAiCompatibleChatModelFactory chatModelFactory, ObservationRegistry observationRegistry) {
+        this.chatModelFactory = chatModelFactory;
+        this.observationRegistry = observationRegistry;
+        this.toolCallingManager = ToolCallingManager.builder()
+                .observationRegistry(observationRegistry)
+                .build();
+    }
 
     /**
      * 将业务层对话命令转换为 Spring AI Prompt 并发起流式模型调用。
@@ -50,14 +61,20 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
      */
     @Override
     public Flux<ChatStreamChunk> stream(ChatStreamCommand command) {
+        Observation parent = observationRegistry.getCurrentObservation();
         // 每次调用根据运行配置创建 ChatModel，确保管理端修改模型或密钥后无需重启 application。
         OpenAiChatModel chatModel = chatModelFactory.create(command.modelConfig());
         List<Message> messages = buildMessages(command);
 
-        return command.toolRuntimeConfig()
+        Flux<ChatStreamChunk> stream = command.toolRuntimeConfig()
                 .filter(AgentToolRuntimeConfig::enabled)
                 .map(runtimeConfig -> streamToolAnswer(chatModel, messages, runtimeConfig))
                 .orElseGet(() -> streamAnswer(chatModel, new Prompt(messages)));
+        if (Objects.isNull(parent)) {
+            return stream;
+        }
+        // Spring AI 流式观测从 Reactor Context 读取父 Observation，不能依赖发起线程的 ThreadLocal。
+        return stream.contextWrite(context -> context.put(ObservationThreadLocalAccessor.KEY, parent));
     }
 
     /** 为一次工具增强回答创建独立循环状态，禁止跨请求共享执行记忆。 */
@@ -186,8 +203,23 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
      * <p>MCP 和本地工具当前均为同步调用，统一放入 boundedElastic，避免阻塞模型流订阅线程。</p>
      */
     private Mono<ToolExecutionResult> executeToolCalling(Prompt prompt, ChatResponse response) {
-        return Mono.fromCallable(() -> toolCallingManager.executeToolCalls(prompt, response))
-                .subscribeOn(Schedulers.boundedElastic());
+        return Mono.deferContextual(context -> Mono
+                .fromCallable(() -> executeToolCallingWithParent(prompt, response, observationFrom(context)))
+                .subscribeOn(Schedulers.boundedElastic()));
+    }
+
+    /** 工具执行切换到 boundedElastic 后恢复父 Observation，确保 Tool span 与模型链路相关联。 */
+    private ToolExecutionResult executeToolCallingWithParent(Prompt prompt, ChatResponse response, Observation parent) {
+        if (Objects.isNull(parent)) {
+            return toolCallingManager.executeToolCalls(prompt, response);
+        }
+        try (Observation.Scope ignored = parent.openScope()) {
+            return toolCallingManager.executeToolCalls(prompt, response);
+        }
+    }
+
+    private static Observation observationFrom(ContextView context) {
+        return context.getOrDefault(ObservationThreadLocalAccessor.KEY, null);
     }
 
     private static String finalContent(ChatResponse response) {

@@ -24,6 +24,10 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.tool.AgentLoopLimitException;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
+import com.lingxi.workbench.observability.service.AiStageObserver;
+import com.lingxi.workbench.observability.service.AiTraceRun;
+import com.lingxi.workbench.observability.service.AiTracingService;
+import io.micrometer.observation.ObservationRegistry;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
@@ -40,6 +44,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -70,6 +75,9 @@ class ChatStreamServiceImplTest {
     private final ApplicationChatExecutionService applicationChatExecutionService =
             mock(ApplicationChatExecutionService.class);
     private final TokenCountEstimator tokenCountEstimator = mock(TokenCountEstimator.class);
+    private final AiTracingService aiTracingService = mock(AiTracingService.class);
+    private final AiTraceRun traceRun = mock(AiTraceRun.class);
+    private final AiStageObserver aiStageObserver = new AiStageObserver(ObservationRegistry.NOOP);
 
     private ChatStreamServiceImpl service;
 
@@ -98,9 +106,17 @@ class ChatStreamServiceImplTest {
         when(messageRepo.findOwnedAssistantMessage(12L, 7L))
                 .thenReturn(Optional.of(assistant(MessageStatus.GENERATING, "")));
         when(generationEventRepo.findAfter(any(), anyLong())).thenReturn(List.of());
+        when(aiTracingService.start(any(), any(), any())).thenReturn(traceRun);
+        doAnswer(invocation -> ((Supplier<?>) invocation.getArgument(0)).get())
+                .when(traceRun).scoped(org.mockito.ArgumentMatchers.<Supplier<?>>any());
+        doAnswer(invocation -> {
+            ((Runnable) invocation.getArgument(0)).run();
+            return null;
+        }).when(traceRun).scoped(org.mockito.ArgumentMatchers.<Runnable>any());
 
         service = new ChatStreamServiceImpl(conversationService, messageRepo, generationEventRepo,
-                applicationRuntimeService, applicationChatExecutionService, event -> { }, tokenCountEstimator);
+                applicationRuntimeService, applicationChatExecutionService, event -> { }, tokenCountEstimator,
+                aiTracingService, aiStageObserver);
     }
 
     @Test
