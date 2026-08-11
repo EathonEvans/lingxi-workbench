@@ -99,10 +99,6 @@ class ExecutionPersistenceServiceImplTest {
                 .promptVersionId(32L)
                 .maxSteps(4)
                 .maxReplans(1)
-                .maxModelCalls(6)
-                .maxToolCalls(4)
-                .tokenBudget(8000)
-                .timeoutSeconds(60)
                 .build();
     }
 }

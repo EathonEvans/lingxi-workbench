@@ -41,6 +41,14 @@ public class AgentToolRuntimeConfig {
      */
     private final int maxOutputTokens;
     /**
+     * Agent正常探索阶段累计输入与输出Token软上限；小于等于零表示不在此层限制。
+     */
+    private final int maxTotalTokens;
+    /**
+     * 禁用工具后的最终回答累计Token硬上限；小于等于零表示不在此层限制。
+     */
+    private final int maxFinalizationTokens;
+    /**
      * 单次工具结果允许回传模型的最大字符数。
      */
     private final int maxResultCharacters;
@@ -48,17 +56,22 @@ public class AgentToolRuntimeConfig {
      * 工具执行状态发布器；未提供时使用空实现，不影响工具主流程。
      */
     private final AgentToolEventPublisher eventPublisher;
+    /** 跨Planner、Workflow和成员Agent共享的Application调用预算。 */
+    private final AgentExecutionBudget executionBudget;
 
     @Builder
-    private AgentToolRuntimeConfig(List<AgentTool> tools, AgentToolExecutionContext executionContext, int maxToolCalls, int maxModelCalls, int maxInputTokens, int maxOutputTokens, int maxResultCharacters, AgentToolEventPublisher eventPublisher) {
+    private AgentToolRuntimeConfig(List<AgentTool> tools, AgentToolExecutionContext executionContext, int maxToolCalls, int maxModelCalls, int maxInputTokens, int maxOutputTokens, int maxTotalTokens, int maxFinalizationTokens, int maxResultCharacters, AgentToolEventPublisher eventPublisher, AgentExecutionBudget executionBudget) {
         this.tools = List.copyOf(Objects.requireNonNull(tools, "运行时工具列表不能为空"));
         this.executionContext = Objects.requireNonNull(executionContext, "工具执行上下文不能为空");
         this.maxToolCalls = maxToolCalls;
         this.maxModelCalls = maxModelCalls;
         this.maxInputTokens = maxInputTokens;
         this.maxOutputTokens = maxOutputTokens;
+        this.maxTotalTokens = maxTotalTokens;
+        this.maxFinalizationTokens = maxFinalizationTokens;
         this.maxResultCharacters = maxResultCharacters;
         this.eventPublisher = eventPublisher;
+        this.executionBudget = Objects.requireNonNullElseGet(executionBudget, AgentExecutionBudget::noop);
     }
 
     /**

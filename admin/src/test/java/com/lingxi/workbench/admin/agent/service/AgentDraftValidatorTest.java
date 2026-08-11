@@ -1,7 +1,6 @@
 package com.lingxi.workbench.admin.agent.service;
 
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
-import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
@@ -376,7 +375,6 @@ class AgentDraftValidatorTest {
         draft.setUserPromptVersionId(USER_VERSION_ID);
         draft.setRetrievalPolicy(RetrievalPolicy.defaults());
         draft.setGenerationPolicy(GenerationPolicy.defaults());
-        draft.setRuntimePolicy(AgentRuntimePolicy.defaults());
         draft.setToolCodes(List.of());
         draft.setToolPolicy(AgentToolPolicy.defaults());
         return draft;

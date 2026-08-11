@@ -18,6 +18,7 @@ import com.lingxi.workbench.application.runtime.model.InteractionSessionOpenComm
 import com.lingxi.workbench.application.runtime.model.PlanExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.PlanExecutionResult;
 import com.lingxi.workbench.application.runtime.model.PlanStep;
+import com.lingxi.workbench.application.runtime.model.PlanStepResult;
 import com.lingxi.workbench.application.runtime.model.PlannerInteractionResolution;
 import com.lingxi.workbench.application.runtime.model.PlannerResult;
 import com.lingxi.workbench.application.runtime.model.StepInputReference;
@@ -26,9 +27,11 @@ import com.lingxi.workbench.application.runtime.model.entity.ExecutionPlanSnapsh
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionStepAttemptEntity;
 import com.lingxi.workbench.application.runtime.service.ChatExecutionEventPublisher;
 import com.lingxi.workbench.application.runtime.service.ExecutionPersistenceService;
+import com.lingxi.workbench.application.runtime.service.ExecutionFailureClassifier;
 import com.lingxi.workbench.application.runtime.service.InteractionSessionService;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
+import com.lingxi.workbench.chat.model.bo.ChatStepOutputEventBO;
 import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;
@@ -36,6 +39,7 @@ import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
 import com.lingxi.workbench.chat.model.request.ClarificationResponseRequest;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
+import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
@@ -47,16 +51,17 @@ import com.lingxi.workbench.workflow.model.PlannerPolicy;
 import org.junit.jupiter.api.Test;
 import io.micrometer.observation.ObservationRegistry;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PlanExecutionServiceImplTest {
 
@@ -66,33 +71,72 @@ class PlanExecutionServiceImplTest {
         ApplicationCapabilityDefinition submit = capability("submit", ApplicationCapabilityType.REACT_AGENT, CapabilityRiskLevel.READ_ONLY, 2);
         List<String> executionOrder = new ArrayList<>();
         RecordingPersistence persistence = new RecordingPersistence();
+        RecordingPublisher publisher = new RecordingPublisher();
         PlanExecutionServiceImpl service = new PlanExecutionServiceImpl(request -> {
             executionOrder.add(request.capability().getCode());
+            request.context().getEventPublisher().publishText(new ChatStreamChunk("步骤增量"));
             if ("collect".equals(request.capability().getCode())) {
                 assertEquals("整理资料", request.inputs().getString("query"));
+                assertEquals("整理资料", request.context().getRuntimeVariables()
+                        .require(RuntimeVariableAccessors.USER_QUERY));
                 return new CapabilityExecutionResult("{\"ticket\":\"T-1\"}", 11L, List.of());
             }
-            assertEquals("T-1", request.inputs().getString("ticket"));
+            assertTrue(request.inputs().getString("query").contains("整理资料"));
+            assertTrue(request.inputs().getString("query").contains("{\"ticket\":\"T-1\"}"));
+            assertEquals(request.inputs().getString("query"), request.context().getRuntimeVariables()
+                    .require(RuntimeVariableAccessors.USER_QUERY));
             return new CapabilityExecutionResult("已提交", 12L, List.of());
         }, request -> {
             throw new AssertionError("成功计划不应触发重规划");
         }, request -> {
             assertEquals(List.of("collect", "submit"), request.stepResults().stream().map(result -> result.getCapabilityCode()).toList());
             return new FinalSynthesisResult("任务完成", TokenUsage.of(3, 2, 5));
-        }, persistence, interactionService(), ObservationRegistry.NOOP);
+        }, persistence, interactionService(), new PlanInputCompiler(), new ExecutionFailureClassifier(),
+                ObservationRegistry.NOOP);
 
-        PlanExecutionResult result = service.execute(request(plan(step("collect", "collect", List.of(), userQuery()),
-                step("submit", "submit", List.of("collect"), stepOutput("collect", "ticket"))), List.of(collect, submit), Set.of(), ChatExecutionEventPublisher.noop()));
+        PlanExecutionResult result = service.execute(request(plan(step("collect", "collect", List.of()),
+                step("submit", "submit", List.of("collect"))), List.of(collect, submit), Set.of(), publisher));
 
         assertEquals("任务完成", result.content());
         assertEquals(12L, result.modelInstanceId());
         assertEquals(List.of("collect", "submit"), executionOrder);
         assertEquals(2, persistence.attempts.size());
         assertEquals(ExecutionEventType.RUN_COMPLETED, persistence.events.getLast().getEventType());
+        assertEquals(0, publisher.rootChunks.size());
+        assertEquals(List.of("collect", "submit"),
+                publisher.stepOutputs.stream().map(ChatStepOutputEventBO::stepId).toList());
+        assertTrue(publisher.stepOutputs.stream().allMatch(output -> "run-1".equals(output.runId())));
     }
 
     @Test
-    void shouldBoundReplanAndNeverRepeatCompletedWriteCapability() {
+    void shouldKeepDirectCapabilityTextInAssistantAnswerStream() {
+        ApplicationCapabilityDefinition collect = capability(
+                "collect", ApplicationCapabilityType.REACT_AGENT, CapabilityRiskLevel.READ_ONLY, 1);
+        RecordingPublisher publisher = new RecordingPublisher();
+        PlanExecutionServiceImpl service = new PlanExecutionServiceImpl(request -> {
+            request.context().getEventPublisher().publishText(new ChatStreamChunk("直接回答"));
+            return new CapabilityExecutionResult("直接回答", 11L, List.of());
+        }, request -> {
+            throw new AssertionError("直接能力不应触发重规划");
+        }, request -> {
+            throw new AssertionError("直接能力不应进入最终综合");
+        }, new RecordingPersistence(), interactionService(), new PlanInputCompiler(),
+                new ExecutionFailureClassifier(), ObservationRegistry.NOOP);
+        ExecutionDecision decision = ExecutionDecision.builder()
+                .action(ExecutionDecisionAction.EXECUTE_REACT)
+                .capabilityCode("collect")
+                .build();
+
+        PlanExecutionResult result = service.execute(request(
+                decision, List.of(collect), Set.of(), publisher));
+
+        assertEquals("直接回答", result.content());
+        assertEquals(List.of("直接回答"), publisher.rootChunks);
+        assertEquals(0, publisher.stepOutputs.size());
+    }
+
+    @Test
+    void shouldFinalizeCompletedResultsWhenReplanLimitIsReached() {
         ApplicationCapabilityDefinition write = capability("write", ApplicationCapabilityType.TOOL, CapabilityRiskLevel.WRITE, 3);
         ApplicationCapabilityDefinition unstable = capability("unstable", ApplicationCapabilityType.REACT_AGENT, CapabilityRiskLevel.READ_ONLY, 3);
         AtomicInteger writeCalls = new AtomicInteger();
@@ -106,21 +150,105 @@ class PlanExecutionServiceImplTest {
             throw new IllegalStateException("下游暂不可用");
         }, request -> {
             replans.incrementAndGet();
-            assertEquals(5, request.getAvailableModelCalls());
             return new PlannerResult(
-                    plan(step("write-again", "write", List.of(), userQuery())), TokenUsage.of(2, 1, 3), 1);
+                    plan(step("unstable-again", "unstable", List.of(), userQuery())), TokenUsage.of(2, 1, 3), 1);
         }, request -> {
-            throw new AssertionError("失败计划不应进入最终综合");
-        }, persistence, interactionService(), ObservationRegistry.NOOP);
+            assertEquals(List.of("write"), request.stepResults().stream()
+                    .map(PlanStepResult::getCapabilityCode).toList());
+            assertTrue(request.isLimited());
+            return new FinalSynthesisResult("已基于写入结果完成收口", TokenUsage.of(2, 1, 3));
+        }, persistence, interactionService(), new PlanInputCompiler(), new ExecutionFailureClassifier(),
+                ObservationRegistry.NOOP);
 
-        assertThrows(RuntimeException.class, () -> service.execute(request(
-                plan(step("write-once", "write", List.of(), userQuery()), step("unstable", "unstable", List.of("write-once"), userQuery())),
-                List.of(write, unstable), Set.of("write"), ChatExecutionEventPublisher.noop())));
+        PlanExecutionResult result = service.execute(request(
+                plan(step("write-once", "write", List.of(), userQuery()), step("unstable", "unstable", List.of("write-once"))),
+                List.of(write, unstable), Set.of("write"), ChatExecutionEventPublisher.noop()));
 
+        assertEquals("已基于写入结果完成收口", result.content());
         assertEquals(1, writeCalls.get());
         assertEquals(1, replans.get());
         assertEquals(2, persistence.plans.size());
-        assertEquals(ExecutionEventType.RUN_FAILED, persistence.events.getLast().getEventType());
+        assertEquals(ExecutionEventType.RUN_COMPLETED, persistence.events.getLast().getEventType());
+        assertTrue(persistence.events.stream().anyMatch(event -> event.getEventType() == ExecutionEventType.FINALIZING));
+        assertTrue(persistence.events.stream()
+                .filter(event -> event.getEventType() == ExecutionEventType.STEP_FAILED)
+                .anyMatch(event -> "能力执行失败".equals(event.getMessage())));
+    }
+
+    @Test
+    void shouldClarifyWhenHardTokenBoundaryIsReachedWithoutCompletedResult() {
+        ApplicationCapabilityDefinition unstable = capability(
+                "unstable", ApplicationCapabilityType.REACT_AGENT, CapabilityRiskLevel.READ_ONLY, 2);
+        AtomicReference<InteractionSessionOpenCommand> openedSession = new AtomicReference<>();
+        InteractionSessionService interactionService = new InteractionSessionService() {
+            @Override
+            public ChatClarificationEventBO open(InteractionSessionOpenCommand command) {
+                openedSession.set(command);
+                return ChatClarificationEventBO.builder()
+                        .clarificationId("clarification-1")
+                        .interactionType(command.getInteractionType().name())
+                        .question(command.getContext().getClarification().getQuestion())
+                        .options(List.of())
+                        .round(1)
+                        .build();
+            }
+
+            @Override
+            public Optional<PlannerInteractionResolution> resolve(AppRuntimeSnapshot application, ChatTurnBO turn,
+                                                                  Long userId, String query,
+                                                                  ClarificationResponseRequest response) {
+                return Optional.empty();
+            }
+        };
+        RecordingPersistence persistence = new RecordingPersistence();
+        PlanExecutionServiceImpl service = new PlanExecutionServiceImpl(request -> {
+            throw new IllegalStateException("下游暂不可用");
+        }, request -> {
+            throw new AssertionError("预算边界命中后不得继续重规划");
+        }, request -> {
+            throw new AssertionError("没有完整步骤结果时不得调用最终综合模型");
+        }, persistence, interactionService, new PlanInputCompiler(), new ExecutionFailureClassifier(),
+                ObservationRegistry.NOOP);
+        PlanExecutionRequest request = request(
+                plan(step("unstable", "unstable", List.of())), List.of(unstable), Set.of(),
+                ChatExecutionEventPublisher.noop());
+        request.getExecutionContext().recordUsage(TokenUsage.of(7_000, 7_000, 14_000));
+
+        PlanExecutionResult result = service.execute(request);
+
+        assertTrue(result.content().contains("请补充"));
+        assertEquals("run-1", openedSession.get().getRunId());
+        assertEquals(ExecutionEventType.CLARIFICATION_REQUIRED, persistence.events.getLast().getEventType());
+        assertTrue(persistence.events.stream().anyMatch(event -> event.getEventType() == ExecutionEventType.FINALIZING));
+    }
+
+    @Test
+    void shouldReserveTokenGraceForFinalizationBeforeFirstPlanStep() {
+        ApplicationCapabilityDefinition collect = capability(
+                "collect", ApplicationCapabilityType.REACT_AGENT, CapabilityRiskLevel.READ_ONLY, 2);
+        AtomicReference<InteractionSessionOpenCommand> openedSession = new AtomicReference<>();
+        InteractionSessionService interactionService = capturingInteractionService(openedSession);
+        RecordingPersistence persistence = new RecordingPersistence();
+        PlanExecutionServiceImpl service = new PlanExecutionServiceImpl(request -> {
+            throw new AssertionError("普通工作Token用尽后不得再执行首个计划步骤");
+        }, request -> {
+            throw new AssertionError("普通工作Token用尽后不得继续重规划");
+        }, request -> {
+            throw new AssertionError("没有完整步骤结果时不得调用最终综合模型");
+        }, persistence, interactionService, new PlanInputCompiler(), new ExecutionFailureClassifier(),
+                ObservationRegistry.NOOP);
+        PlanExecutionRequest request = request(
+                plan(step("collect", "collect", List.of())), List.of(collect), Set.of(),
+                ChatExecutionEventPublisher.noop());
+        request.getExecutionContext().recordUsage(TokenUsage.of(8_000, 4_000, 12_000));
+
+        PlanExecutionResult result = service.execute(request);
+
+        assertTrue(result.content().contains("请补充"));
+        assertEquals("run-1", openedSession.get().getRunId());
+        assertTrue(persistence.events.stream().anyMatch(event -> event.getEventType() == ExecutionEventType.PLAN_CREATED));
+        assertTrue(persistence.events.stream().anyMatch(event -> event.getEventType() == ExecutionEventType.FINALIZING));
+        assertEquals(ExecutionEventType.CLARIFICATION_REQUIRED, persistence.events.getLast().getEventType());
     }
 
     @Test
@@ -147,10 +275,11 @@ class PlanExecutionServiceImplTest {
             throw new AssertionError("取消后不得重规划");
         }, request -> {
             throw new AssertionError("取消后不得最终综合");
-        }, persistence, interactionService(), ObservationRegistry.NOOP);
+        }, persistence, interactionService(), new PlanInputCompiler(), new ExecutionFailureClassifier(),
+                ObservationRegistry.NOOP);
 
         assertThrows(CancellationException.class, () -> service.execute(request(
-                plan(step("collect", "collect", List.of(), userQuery())), List.of(capability), Set.of(), cancelledPublisher)));
+                plan(step("collect", "collect", List.of())), List.of(capability), Set.of(), cancelledPublisher)));
 
         assertEquals(0, persistence.plans.size());
         assertEquals(0, persistence.attempts.size());
@@ -165,6 +294,7 @@ class PlanExecutionServiceImplTest {
                 .turn(conversation.getTurn())
                 .eventPublisher(publisher)
                 .conversationContext(conversation)
+                .runtimePolicy(conversation.getApplicationSnapshot().definition().runtimePolicy())
                 .build();
         return PlanExecutionRequest.builder()
                 .runId("run-1")
@@ -172,8 +302,6 @@ class PlanExecutionServiceImplTest {
                 .conversationContext(conversation)
                 .executionContext(execution)
                 .confirmedCapabilityCodes(confirmed)
-                .startedAt(Instant.now())
-                .initialPlannerModelCalls(1)
                 .build();
     }
 
@@ -187,12 +315,19 @@ class PlanExecutionServiceImplTest {
         catalog.add(defaultAgent);
         catalog.addAll(capabilities);
         PlannerPolicy policy = PlannerPolicy.builder().enabled(true).chatModelInstanceId(21L).promptVersionId(22L)
-                .maxSteps(6).maxReplans(1).maxModelCalls(6).maxToolCalls(4).tokenBudget(12000).timeoutSeconds(60).build();
+                .maxSteps(6).maxReplans(1).build();
         ApplicationDefinition definition = ApplicationDefinition.builder()
                 .schemaVersion(com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(new ApplicationAgentReference(1L, 2L, "默认助手", "处理普通任务"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(catalog).build())
                 .plannerPolicy(policy)
+                .runtimePolicy(com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy.builder()
+                        .maxModelCalls(6)
+                        .maxToolCalls(4)
+                        .maxDelegations(0)
+                        .totalTokenBudget(12000)
+                        .timeoutSeconds(60)
+                        .build())
                 .build();
         return ConversationContext.builder()
                 .applicationSnapshot(new AppRuntimeSnapshot(1L, "test-app", 2L, definition))
@@ -236,6 +371,11 @@ class PlanExecutionServiceImplTest {
                 .dependsOn(dependencies).inputs(List.of(input)).build();
     }
 
+    private static PlanStep step(String id, String capabilityCode, List<String> dependencies) {
+        return PlanStep.builder().id(id).name(id).capabilityCode(capabilityCode)
+                .dependsOn(dependencies).inputs(List.of()).build();
+    }
+
     private static StepInputReference userQuery() {
         return StepInputReference.builder().name("query").source(StepInputSource.USER_QUERY).build();
     }
@@ -253,6 +393,30 @@ class PlanExecutionServiceImplTest {
 
             @Override
             public Optional<PlannerInteractionResolution> resolve(AppRuntimeSnapshot application, ChatTurnBO turn, Long userId, String query, ClarificationResponseRequest response) {
+                return Optional.empty();
+            }
+        };
+    }
+
+    private static InteractionSessionService capturingInteractionService(
+            AtomicReference<InteractionSessionOpenCommand> openedSession) {
+        return new InteractionSessionService() {
+            @Override
+            public ChatClarificationEventBO open(InteractionSessionOpenCommand command) {
+                openedSession.set(command);
+                return ChatClarificationEventBO.builder()
+                        .clarificationId("clarification-1")
+                        .interactionType(command.getInteractionType().name())
+                        .question(command.getContext().getClarification().getQuestion())
+                        .options(List.of())
+                        .round(1)
+                        .build();
+            }
+
+            @Override
+            public Optional<PlannerInteractionResolution> resolve(AppRuntimeSnapshot application, ChatTurnBO turn,
+                                                                  Long userId, String query,
+                                                                  ClarificationResponseRequest response) {
                 return Optional.empty();
             }
         };
@@ -299,6 +463,25 @@ class PlanExecutionServiceImplTest {
         @Override
         public List<ExecutionEventEntity> findEventsAfter(String runId, long afterSequence) {
             return List.of();
+        }
+    }
+
+    private static final class RecordingPublisher implements ChatExecutionEventPublisher {
+        private final List<String> rootChunks = new ArrayList<>();
+        private final List<ChatStepOutputEventBO> stepOutputs = new ArrayList<>();
+
+        @Override
+        public void publishText(ChatStreamChunk chunk) {
+            rootChunks.add(chunk.content());
+        }
+
+        @Override
+        public void publishTool(AgentToolExecutionEvent event) {
+        }
+
+        @Override
+        public void publishStepOutput(ChatStepOutputEventBO event) {
+            stepOutputs.add(event);
         }
     }
 }

@@ -36,9 +36,10 @@ public class QueryContextualizer {
 
     public ContextualizationResult contextualize(ContextualizationPolicy policy, String originalQuery, RuntimeVariables variables, List<ChatMemoryMessageBO> recentMessages) {
         if (!policy.isEnabled()) {
-            return new ContextualizationResult(originalQuery, TokenUsage.empty());
+            return new ContextualizationResult(originalQuery, TokenUsage.empty(), 0);
         }
         TokenUsage usage = TokenUsage.empty();
+        int modelCalls = 0;
         try {
             List<ChatHistoryMessage> history = toHistory(recentMessages);
             variables.put(RuntimeVariableAccessors.CONTEXTUALIZATION_HISTORY, history);
@@ -50,26 +51,31 @@ public class QueryContextualizer {
             modelConfig.setMaxTokens(policy.effectiveMaxOutputTokens());
 
             ChatCompletionCommand command = new ChatCompletionCommand(originalQuery, systemPrompt, history, modelConfig);
-            ChatCompletionResult result = Objects
+            modelCalls = 1;
+            ChatCompletionResult<String> result = Objects
                     .requireNonNull(completionGateway.complete(command).block(Duration.ofSeconds(policy.effectiveTimeoutSeconds())),
                     "上下文化模型未返回结果");
 
-            log.info("问题重写结果：{}", result.content());
             usage = result.usage();
-            return new ContextualizationResult(validateResult(result.content(), policy), usage);
+            return new ContextualizationResult(validateResult(result.content(), policy), usage, modelCalls);
+        } catch (InvalidOutputException exception) {
+            if (!policy.isFallbackToOriginal()) {
+                throw contextualizationFailure(exception);
+            }
+            log.warn("问题上下文化输出未通过校验，按ApplicationVersion策略回退原问题。modelInstanceId={}, promptVersionId={}, reason={}",
+                    policy.getChatModelInstanceId(), policy.getPromptVersionId(), exception.getMessage());
+            return new ContextualizationResult(originalQuery, usage, modelCalls);
         } catch (RuntimeException exception) {
             if (hasInterruptedCause(exception)) {
                 // 用户取消或应用关闭的线程中断不是上下文化失败，不允许回退后继续执行。
                 throw exception;
             }
             if (!policy.isFallbackToOriginal()) {
-                BusinessException failure = new BusinessException(HttpStatusEnum.INTERNAL_SERVER_ERROR, "问题上下文化失败，请稍后重试");
-                failure.initCause(exception);
-                throw failure;
+                throw contextualizationFailure(exception);
             }
             log.warn("问题上下文化失败，按ApplicationVersion策略回退原问题。modelInstanceId={}, promptVersionId={}",
                     policy.getChatModelInstanceId(), policy.getPromptVersionId(), exception);
-            return new ContextualizationResult(originalQuery, usage);
+            return new ContextualizationResult(originalQuery, usage, modelCalls);
         }
     }
 
@@ -87,15 +93,21 @@ public class QueryContextualizer {
     private static String validateResult(String content, ContextualizationPolicy policy) {
         String contextualized = Objects.requireNonNullElse(content, "").replaceAll("\\s+", " ").trim();
         if (contextualized.isBlank()) {
-            throw new IllegalStateException("上下文化结果为空");
+            throw new InvalidOutputException("上下文化结果为空");
         }
         if (contextualized.length() > policy.effectiveMaxOutputCharacters()) {
-            throw new IllegalStateException("上下文化结果超过字符上限");
+            throw new InvalidOutputException("上下文化结果超过字符上限");
         }
         if (contextualized.contains("```")) {
-            throw new IllegalStateException("上下文化结果包含代码围栏");
+            throw new InvalidOutputException("上下文化结果包含代码围栏");
         }
         return contextualized;
+    }
+
+    private static BusinessException contextualizationFailure(RuntimeException cause) {
+        BusinessException failure = new BusinessException(HttpStatusEnum.INTERNAL_SERVER_ERROR, "问题上下文化失败，请稍后重试");
+        failure.initCause(cause);
+        return failure;
     }
 
     private static List<ChatHistoryMessage> toHistory(List<ChatMemoryMessageBO> messages) {
@@ -110,7 +122,16 @@ public class QueryContextualizer {
     /**
      * @param query 模型校验后的独立问题，失败回退时为原问题
      * @param usage 本次上下文化模型调用的 Token 用量
+     * @param modelCalls 已实际发起的模型调用次数
      */
-    public record ContextualizationResult(String query, TokenUsage usage) {
+    public record ContextualizationResult(String query, TokenUsage usage, int modelCalls) {
+    }
+
+    /** 标记模型已响应但正文不符合上下文化输出约束。 */
+    private static final class InvalidOutputException extends RuntimeException {
+
+        private InvalidOutputException(String message) {
+            super(message);
+        }
     }
 }

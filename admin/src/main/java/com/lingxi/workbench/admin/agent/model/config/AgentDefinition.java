@@ -29,6 +29,4 @@ public class AgentDefinition {
     /** Schema V4 ReAct知识搜索能力；资源与索引版本均在发布时冻结。 */
     private KnowledgeSearchCapabilitySnapshot knowledgeSearch;
     private GenerationPolicy generationPolicy;
-    private AgentRuntimePolicy runtimePolicy;
-
 }

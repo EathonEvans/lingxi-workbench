@@ -2,7 +2,6 @@ package com.lingxi.workbench.admin.agent.service;
 
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
 import com.lingxi.workbench.admin.agent.model.config.AgentDefinition;
-import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.KnowledgeSearchCapabilitySnapshot;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
@@ -34,13 +33,12 @@ class AgentSnapshotChecksumTest {
             Validator validator = factory.getValidator();
             assertThat(validator.validate(RetrievalPolicy.defaults())).isEmpty();
             assertThat(validator.validate(GenerationPolicy.defaults())).isEmpty();
-            assertThat(validator.validate(AgentRuntimePolicy.defaults())).isEmpty();
         }
     }
 
     private static AgentDefinition definition(int topK) {
         return AgentDefinition.builder()
-                .schemaVersion(4)
+                .schemaVersion(5)
                 .agentType(AgentType.REACT)
                 .chatModelInstanceId(10L)
                 .systemPromptVersionId(20L)
@@ -53,7 +51,6 @@ class AgentSnapshotChecksumTest {
                         .maxResultTokens(4000)
                         .build())
                 .generationPolicy(GenerationPolicy.defaults())
-                .runtimePolicy(AgentRuntimePolicy.defaults())
                 .build();
     }
 }

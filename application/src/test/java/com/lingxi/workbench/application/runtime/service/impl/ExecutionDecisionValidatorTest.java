@@ -29,7 +29,7 @@ class ExecutionDecisionValidatorTest {
 
     @Test
     void shouldAcceptSerialPlanWithPublishedCapabilities() {
-        PlanStep collect = step("collect", "support_agent", List.of(), List.of(userQuery()));
+        PlanStep collect = step("collect", "support_agent", List.of(), List.of());
         PlanStep submit = step("submit", "submit_tool", List.of("collect"), List.of(stepOutput("collect")));
         ExecutionDecision decision = ExecutionDecision.builder()
                 .action(ExecutionDecisionAction.EXECUTE_PLAN)
@@ -56,6 +56,13 @@ class ExecutionDecisionValidatorTest {
                 .action(ExecutionDecisionAction.EXECUTE_WORKFLOW)
                 .capabilityCode("support_agent")
                 .build();
+
+        assertThrows(BusinessException.class, () -> validator.validate(decision, context(Set.of())));
+    }
+
+    @Test
+    void shouldRejectModelManagedInputsForAgentPlanStep() {
+        ExecutionDecision decision = plan(step("agent", "support_agent", List.of(), List.of(userQuery())));
 
         assertThrows(BusinessException.class, () -> validator.validate(decision, context(Set.of())));
     }

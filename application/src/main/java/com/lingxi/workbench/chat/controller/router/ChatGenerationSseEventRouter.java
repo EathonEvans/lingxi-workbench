@@ -4,10 +4,12 @@ import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatErrorBO;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
+import com.lingxi.workbench.chat.model.bo.ChatStepOutputEventBO;
 import com.lingxi.workbench.chat.model.vo.ChatChunkVO;
 import com.lingxi.workbench.chat.model.vo.ChatErrorVO;
 import com.lingxi.workbench.chat.model.vo.ChatExecutionTimelineVO;
 import com.lingxi.workbench.chat.model.vo.ChatSnapshotVO;
+import com.lingxi.workbench.chat.model.vo.ChatStepOutputVO;
 import com.lingxi.workbench.chat.model.vo.ChatSubAgentEventVO;
 import com.lingxi.workbench.chat.model.vo.ChatToolEventVO;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
@@ -41,6 +43,7 @@ public final class ChatGenerationSseEventRouter {
             case TOOL -> executionEvent(event);
             case CLARIFICATION -> clarificationEvent(event);
             case PLANNING, PLAN, STEP, REPLANNING -> timelineEvent(event);
+            case STEP_OUTPUT -> stepOutputEvent(event);
             case SNAPSHOT -> snapshotEvent(event.content());
             case COMPLETED -> doneEvent();
             case FAILED -> errorEvent(event);
@@ -79,6 +82,23 @@ public final class ChatGenerationSseEventRouter {
             case REPLANNING -> "replanning";
             default -> throw new IllegalArgumentException("不是执行时间线事件：" + type);
         };
+    }
+
+    private static ServerSentEvent<ChatStepOutputVO> stepOutputEvent(ChatGenerationEventBO event) {
+        ChatStepOutputEventBO stepOutput = Objects.requireNonNull(
+                event.stepOutput(), "步骤输出内容不能为空");
+        ChatStepOutputVO payload = ChatStepOutputVO.builder()
+                .sequence(event.sequence())
+                .runId(stepOutput.runId())
+                .planNo(stepOutput.planNo())
+                .stepId(stepOutput.stepId())
+                .content(stepOutput.content())
+                .build();
+        return ServerSentEvent.<ChatStepOutputVO>builder()
+                .id(String.valueOf(event.sequence()))
+                .event("step_output")
+                .data(payload)
+                .build();
     }
 
     private static ServerSentEvent<ChatClarificationEventBO> clarificationEvent(ChatGenerationEventBO event) {

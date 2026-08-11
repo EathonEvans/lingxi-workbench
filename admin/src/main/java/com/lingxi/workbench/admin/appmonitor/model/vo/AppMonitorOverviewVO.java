@@ -11,6 +11,7 @@ import java.util.List;
 @Builder
 public class AppMonitorOverviewVO {
     private AppMonitorSummaryVO summary;
+    private List<AppHealthVO> applications;
     private List<AppStageMetricVO> stages;
     private List<AppTrendPointVO> trend;
     private List<AppIssueVO> issues;

@@ -1,5 +1,7 @@
 package com.lingxi.workbench.infra.ai.chat.openai;
 
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.infra.ai.chat.ChatCompletionGateway;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatCompletionResult;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
@@ -28,7 +30,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-/** 基于 Spring AI 的 OpenAI 兼容协议非流式调用实现。 */
+/**
+ * 基于 Spring AI 的 OpenAI 兼容协议非流式调用实现。
+ */
 @Component
 @RequiredArgsConstructor
 public class SpringAiChatCompletionGateway implements ChatCompletionGateway {
@@ -40,22 +44,28 @@ public class SpringAiChatCompletionGateway implements ChatCompletionGateway {
      * 中间任务使用自身的 System Prompt，不追加面向最终回答的 Markdown 输出约束。
      */
     @Override
-    public Mono<ChatCompletionResult> complete(ChatCompletionCommand command) {
+    public Mono<ChatCompletionResult<String>> complete(ChatCompletionCommand command) {
         Observation parent = observationRegistry.getCurrentObservation();
         return Mono.fromCallable(() -> callWithParent(command, null, parent)).subscribeOn(Schedulers.boundedElastic());
     }
 
-    /** Planner 等受控任务使用兼容范围更广的 JSON Object 响应模式。 */
+    /**
+     * Planner 等受控任务使用兼容范围更广的 JSON Object 响应模式。
+     */
     @Override
-    public Mono<ChatCompletionResult> completeJson(ChatCompletionCommand command) {
+    public Mono<ChatCompletionResult<JSONObject>> completeJson(ChatCompletionCommand command) {
         Observation parent = observationRegistry.getCurrentObservation();
-        return Mono.fromCallable(() -> callWithParent(command, OpenAiChatModel.ResponseFormat.Type.JSON_OBJECT, parent))
+        return Mono.fromCallable(() -> parseJson(callWithParent(
+                        command, OpenAiChatModel.ResponseFormat.Type.JSON_OBJECT, parent)))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
-    /** 在实际模型线程恢复调用方 Observation，使 Spring AI 模型 span 正确挂到业务链路下。 */
-    private ChatCompletionResult callWithParent(ChatCompletionCommand command, OpenAiChatModel.ResponseFormat.Type responseType,
-                                                Observation parent) {
+    /**
+     * 在实际模型线程恢复调用方 Observation，使 Spring AI 模型 span 正确挂到业务链路下。
+     */
+    private ChatCompletionResult<String> callWithParent(ChatCompletionCommand command,
+                                                        OpenAiChatModel.ResponseFormat.Type responseType,
+                                                        Observation parent) {
         if (Objects.isNull(parent)) {
             return call(command, responseType);
         }
@@ -64,7 +74,8 @@ public class SpringAiChatCompletionGateway implements ChatCompletionGateway {
         }
     }
 
-    private ChatCompletionResult call(ChatCompletionCommand command, OpenAiChatModel.ResponseFormat.Type responseType) {
+    private ChatCompletionResult<String> call(ChatCompletionCommand command,
+                                              OpenAiChatModel.ResponseFormat.Type responseType) {
         OpenAiChatModel chatModel = chatModelFactory.create(command.modelConfig());
         List<Message> messages = new ArrayList<>();
         if (!command.systemPrompt().isBlank()) {
@@ -99,15 +110,30 @@ public class SpringAiChatCompletionGateway implements ChatCompletionGateway {
         };
     }
 
-    private static ChatCompletionResult toResult(ChatResponse response) {
+    private static ChatCompletionResult<String> toResult(ChatResponse response) {
         if (Objects.isNull(response)) {
-            return new ChatCompletionResult("", TokenUsage.empty());
+            return new ChatCompletionResult<>("", TokenUsage.empty());
         }
         String content = Optional.ofNullable(response.getResult())
                 .map(Generation::getOutput)
                 .map(AbstractMessage::getText)
                 .orElse("");
         Usage usage = response.getMetadata().getUsage();
-        return new ChatCompletionResult(content, TokenUsageConverter.convert(usage));
+        return new ChatCompletionResult<>(content, TokenUsageConverter.convert(usage));
+    }
+
+    private static ChatCompletionResult<JSONObject> parseJson(ChatCompletionResult<String> result) {
+        if (result.content() == null || result.content().isBlank()) {
+            throw new IllegalStateException("JSON Object模型未返回内容");
+        }
+        try {
+            JSONObject content = JSON.parseObject(result.content());
+            if (content == null) {
+                throw new IllegalStateException("JSON Object模型返回内容为空");
+            }
+            return new ChatCompletionResult<>(content, result.usage());
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException("JSON Object模型返回内容无法解析", exception);
+        }
     }
 }

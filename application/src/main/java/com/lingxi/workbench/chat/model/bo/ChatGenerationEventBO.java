@@ -2,10 +2,15 @@ package com.lingxi.workbench.chat.model.bo;
 
 import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.EqualsAndHashCode;
 
 /** 模型生成任务向观察者发布的安全事件。 */
 @EqualsAndHashCode
+@Builder(access = AccessLevel.PRIVATE)
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
 public final class ChatGenerationEventBO {
 
     private final ChatGenerationEventType type;
@@ -14,35 +19,31 @@ public final class ChatGenerationEventBO {
     private final AgentToolExecutionEvent tool;
     private final ChatClarificationEventBO clarification;
     private final ChatExecutionTimelineEventBO execution;
+    private final ChatStepOutputEventBO stepOutput;
     private final ChatErrorBO error;
 
-    private ChatGenerationEventBO(
-            ChatGenerationEventType type,
-            long sequence,
-            String content,
-            AgentToolExecutionEvent tool,
-            ChatClarificationEventBO clarification,
-            ChatExecutionTimelineEventBO execution,
-            ChatErrorBO error) {
-        this.type = type;
-        this.sequence = sequence;
-        this.content = content;
-        this.tool = tool;
-        this.clarification = clarification;
-        this.execution = execution;
-        this.error = error;
-    }
-
     public static ChatGenerationEventBO chunk(long sequence, String content) {
-        return new ChatGenerationEventBO(ChatGenerationEventType.CHUNK, sequence, content, null, null, null, null);
+        return ChatGenerationEventBO.builder()
+                .type(ChatGenerationEventType.CHUNK)
+                .sequence(sequence)
+                .content(content)
+                .build();
     }
 
     public static ChatGenerationEventBO tool(long sequence, AgentToolExecutionEvent tool) {
-        return new ChatGenerationEventBO(ChatGenerationEventType.TOOL, sequence, null, tool, null, null, null);
+        return ChatGenerationEventBO.builder()
+                .type(ChatGenerationEventType.TOOL)
+                .sequence(sequence)
+                .tool(tool)
+                .build();
     }
 
     public static ChatGenerationEventBO clarification(long sequence, ChatClarificationEventBO clarification) {
-        return new ChatGenerationEventBO(ChatGenerationEventType.CLARIFICATION, sequence, null, null, clarification, null, null);
+        return ChatGenerationEventBO.builder()
+                .type(ChatGenerationEventType.CLARIFICATION)
+                .sequence(sequence)
+                .clarification(clarification)
+                .build();
     }
 
     public static ChatGenerationEventBO execution(long sequence, ChatGenerationEventType type,
@@ -51,15 +52,30 @@ public final class ChatGenerationEventBO {
                 && type != ChatGenerationEventType.STEP && type != ChatGenerationEventType.REPLANNING) {
             throw new IllegalArgumentException("执行时间线事件类型不正确");
         }
-        return new ChatGenerationEventBO(type, sequence, null, null, null, execution, null);
+        return ChatGenerationEventBO.builder()
+                .type(type)
+                .sequence(sequence)
+                .execution(execution)
+                .build();
+    }
+
+    public static ChatGenerationEventBO stepOutput(long sequence, ChatStepOutputEventBO stepOutput) {
+        return ChatGenerationEventBO.builder()
+                .type(ChatGenerationEventType.STEP_OUTPUT)
+                .sequence(sequence)
+                .stepOutput(stepOutput)
+                .build();
     }
 
     public static ChatGenerationEventBO snapshot(String content) {
-        return new ChatGenerationEventBO(ChatGenerationEventType.SNAPSHOT, 0, content, null, null, null, null);
+        return ChatGenerationEventBO.builder()
+                .type(ChatGenerationEventType.SNAPSHOT)
+                .content(content)
+                .build();
     }
 
     public static ChatGenerationEventBO completed() {
-        return new ChatGenerationEventBO(ChatGenerationEventType.COMPLETED, 0, null, null, null, null, null);
+        return ChatGenerationEventBO.builder().type(ChatGenerationEventType.COMPLETED).build();
     }
 
     public static ChatGenerationEventBO failed() {
@@ -67,11 +83,14 @@ public final class ChatGenerationEventBO {
     }
 
     public static ChatGenerationEventBO failed(String code, String message) {
-        return new ChatGenerationEventBO(ChatGenerationEventType.FAILED, 0, null, null, null, null, new ChatErrorBO(code, message));
+        return ChatGenerationEventBO.builder()
+                .type(ChatGenerationEventType.FAILED)
+                .error(new ChatErrorBO(code, message))
+                .build();
     }
 
     public static ChatGenerationEventBO cancelled() {
-        return new ChatGenerationEventBO(ChatGenerationEventType.CANCELLED, 0, null, null, null, null, null);
+        return ChatGenerationEventBO.builder().type(ChatGenerationEventType.CANCELLED).build();
     }
 
     public ChatGenerationEventType type() {
@@ -96,6 +115,10 @@ public final class ChatGenerationEventBO {
 
     public ChatExecutionTimelineEventBO execution() {
         return execution;
+    }
+
+    public ChatStepOutputEventBO stepOutput() {
+        return stepOutput;
     }
 
     public ChatErrorBO error() {

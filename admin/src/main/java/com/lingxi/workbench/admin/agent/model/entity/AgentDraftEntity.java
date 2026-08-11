@@ -2,7 +2,6 @@ package com.lingxi.workbench.admin.agent.model.entity;
 
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
@@ -38,8 +37,6 @@ public class AgentDraftEntity extends TimeEntity {
     private RetrievalPolicy retrievalPolicy;
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private GenerationPolicy generationPolicy;
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
-    private AgentRuntimePolicy runtimePolicy;
     private Long revision;
     private String changeNote;
     private Long createdBy;

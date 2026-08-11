@@ -30,6 +30,7 @@ import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.InteractionRecordMemoryConfig;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
@@ -48,6 +49,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
@@ -170,6 +172,28 @@ class ApplicationChatExecutionServiceImplTest {
         assertEquals("默认回答", result.answer());
         assertEquals("default_agent", executed.get().capability().getCode());
         assertEquals("普通问题", executed.get().inputs().getString("query"));
+    }
+
+    @Test
+    void shouldReturnBudgetBoundaryMessageWithoutCallingCapabilityAfterContextOverrun() {
+        AppRuntimeSnapshot snapshot = defaultSnapshot();
+        snapshot.definition().setRuntimePolicy(ApplicationRuntimePolicy.builder()
+                .maxModelCalls(2)
+                .maxToolCalls(0)
+                .maxDelegations(0)
+                .totalTokenBudget(10)
+                .tokenGracePercent(10)
+                .timeoutSeconds(60)
+                .build());
+        ApplicationChatExecutionServiceImpl service = service(
+                unexpectedCapabilityService(), new ChatExecutionContextRegistry(),
+                conversationContextService(TokenUsage.of(8, 4, 12)),
+                (context, response) -> IntentRoutingResult.skipped(context.routingQuery()), plannerDisabled());
+
+        ApplicationChatResult result = service.execute(executionRequest(snapshot, "普通问题"));
+
+        assertTrue(result.answer().contains("预算边界"));
+        assertEquals(TokenUsage.of(8, 4, 12), result.tokenUsage());
     }
 
     @Test
@@ -339,17 +363,17 @@ class ApplicationChatExecutionServiceImplTest {
 
     private static ConversationContextService conversationContextService(TokenUsage preparationUsage) {
         RuntimeVariablesInitializer initializer = new RuntimeVariablesInitializer("Lingxi Workbench");
-        return (application, query, loginUser, turn) -> ConversationContext.builder()
-                .applicationSnapshot(application)
-                .loginUser(loginUser)
-                .turn(turn)
-                .originalQuery(query)
-                .contextualizedQuery(query)
+        return input -> ConversationContext.builder()
+                .applicationSnapshot(input.application())
+                .loginUser(input.loginUser())
+                .turn(input.turn())
+                .originalQuery(input.query())
+                .contextualizedQuery(input.query())
                 .recentMessages(List.of())
                 .summary("")
                 .longTermMemory("")
                 .budget(contextBudget())
-                .runtimeVariables(runtimeVariables(initializer, loginUser, query, turn))
+                .runtimeVariables(runtimeVariables(initializer, input.loginUser(), input.query(), input.turn()))
                 .preparationTokenUsage(preparationUsage)
                 .build();
     }
@@ -443,10 +467,6 @@ class ApplicationChatExecutionServiceImplTest {
                 .promptVersionId(90L)
                 .maxSteps(6)
                 .maxReplans(1)
-                .maxModelCalls(6)
-                .maxToolCalls(6)
-                .tokenBudget(12000)
-                .timeoutSeconds(60)
                 .build();
     }
 }

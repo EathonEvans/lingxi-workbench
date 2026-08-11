@@ -41,7 +41,7 @@ class QueryContextualizerTest {
         TokenUsage usage = TokenUsage.of(20, 5, 25);
         prepareDependencies(policy);
         when(completionGateway.complete(org.mockito.ArgumentMatchers.any()))
-                .thenReturn(Mono.just(new ChatCompletionResult("  退款订单 A-100  ", usage)));
+                .thenReturn(Mono.just(new ChatCompletionResult<>("  退款订单 A-100  ", usage)));
         List<ChatMemoryMessageBO> history = List.of(
                 new ChatMemoryMessageBO(1, MessageRole.USER, "帮我退款"),
                 new ChatMemoryMessageBO(2, MessageRole.ASSISTANT, "请提供订单号"));
@@ -63,7 +63,7 @@ class QueryContextualizerTest {
         TokenUsage usage = TokenUsage.of(8, 2, 10);
         prepareDependencies(policy);
         when(completionGateway.complete(org.mockito.ArgumentMatchers.any()))
-                .thenReturn(Mono.just(new ChatCompletionResult("   ", usage)));
+                .thenReturn(Mono.just(new ChatCompletionResult<>("   ", usage)));
 
         QueryContextualizer.ContextualizationResult result = contextualizer.contextualize(
                 policy, "原问题", new RuntimeVariables(), List.of());

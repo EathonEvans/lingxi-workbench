@@ -1,11 +1,15 @@
 package com.lingxi.workbench.application.runtime.service.impl;
 
+import com.lingxi.workbench.application.runtime.common.enums.ExecutionDecisionAction;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
+import com.lingxi.workbench.application.runtime.model.PlanExecutionRequest;
+import com.lingxi.workbench.application.runtime.model.PlanExecutionResult;
 import com.lingxi.workbench.application.runtime.model.PlannerRuntimeRequest;
 import com.lingxi.workbench.application.runtime.service.ChatExecutionEventPublisher;
+import com.lingxi.workbench.application.runtime.service.ExecutionFailureClassifier;
 import com.lingxi.workbench.application.runtime.service.ExecutionPersistenceService;
 import com.lingxi.workbench.application.runtime.service.InteractionSessionService;
 import com.lingxi.workbench.application.runtime.service.PlanExecutionService;
@@ -17,11 +21,11 @@ import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.PlannerPolicy;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -43,12 +47,15 @@ class PlannerRuntimeCoordinatorImplTest {
         RecordingPublisher publisher = new RecordingPublisher();
         ChatExecutionContext executionContext = mock(ChatExecutionContext.class);
         when(executionContext.getEventPublisher()).thenReturn(publisher);
+        when(executionContext.getRuntimePolicy()).thenReturn(ApplicationRuntimePolicy.builder()
+                .maxModelCalls(6).build());
         when(plannerService.decide(any())).thenThrow(
                 new BusinessException(HttpStatusEnum.CONFLICT, "Planner输出无效"));
         PlannerRuntimeCoordinatorImpl coordinator = new PlannerRuntimeCoordinatorImpl(
-                mock(InteractionSessionService.class), persistenceService, plannerService, planExecutionService);
+                mock(InteractionSessionService.class), persistenceService, plannerService, planExecutionService,
+                new ExecutionFailureClassifier());
         ConversationContext context = mock(ConversationContext.class);
-        PlannerPolicy policy = PlannerPolicy.builder().enabled(true).maxModelCalls(6).build();
+        PlannerPolicy policy = PlannerPolicy.builder().enabled(true).build();
         ApplicationDefinition definition = mock(ApplicationDefinition.class);
         when(definition.plannerPolicy()).thenReturn(policy);
         AppRuntimeSnapshot snapshot = mock(AppRuntimeSnapshot.class);
@@ -58,7 +65,6 @@ class PlannerRuntimeCoordinatorImplTest {
                 .runId("run-1")
                 .conversationContext(context)
                 .executionContext(executionContext)
-                .startedAt(Instant.now())
                 .build();
 
         assertThrows(BusinessException.class, () -> coordinator.execute(request));
@@ -69,7 +75,37 @@ class PlannerRuntimeCoordinatorImplTest {
                 eventCaptor.getAllValues().stream().map(ExecutionEventCommand::getEventType).toList());
         assertEquals(List.of(ExecutionEventType.PLANNING, ExecutionEventType.RUN_FAILED),
                 publisher.events.stream().map(ChatExecutionTimelineEventBO::getEventType).toList());
+        assertEquals("Planner输出无效", publisher.events.getLast().getMessage());
         verify(planExecutionService, never()).execute(any());
+    }
+
+    @Test
+    void shouldBypassPlannerWhenContextPreparationReachedBudgetBoundary() {
+        ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
+        PlannerService plannerService = mock(PlannerService.class);
+        PlanExecutionService planExecutionService = mock(PlanExecutionService.class);
+        RecordingPublisher publisher = new RecordingPublisher();
+        ChatExecutionContext executionContext = mock(ChatExecutionContext.class);
+        when(executionContext.getEventPublisher()).thenReturn(publisher);
+        when(executionContext.shouldFinalize()).thenReturn(true);
+        when(planExecutionService.execute(any())).thenReturn(
+                new PlanExecutionResult("请缩小问题范围", null, List.of()));
+        PlannerRuntimeCoordinatorImpl coordinator = new PlannerRuntimeCoordinatorImpl(
+                mock(InteractionSessionService.class), persistenceService, plannerService, planExecutionService,
+                new ExecutionFailureClassifier());
+        PlannerRuntimeRequest request = PlannerRuntimeRequest.builder()
+                .runId("run-budget")
+                .conversationContext(mock(ConversationContext.class))
+                .executionContext(executionContext)
+                .build();
+
+        PlanExecutionResult result = coordinator.execute(request);
+
+        assertEquals("请缩小问题范围", result.content());
+        ArgumentCaptor<PlanExecutionRequest> requestCaptor = ArgumentCaptor.forClass(PlanExecutionRequest.class);
+        verify(planExecutionService).execute(requestCaptor.capture());
+        assertEquals(ExecutionDecisionAction.CLARIFY, requestCaptor.getValue().getInitialDecision().getAction());
+        verify(plannerService, never()).decide(any());
     }
 
     private static final class RecordingPublisher implements ChatExecutionEventPublisher {

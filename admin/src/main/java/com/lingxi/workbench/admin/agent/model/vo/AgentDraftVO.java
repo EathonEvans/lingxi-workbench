@@ -1,6 +1,5 @@
 package com.lingxi.workbench.admin.agent.model.vo;
 
-import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
@@ -29,7 +28,6 @@ public class AgentDraftVO {
     private AgentKnowledgeBindingVO knowledge;
     private RetrievalPolicy retrievalPolicy;
     private GenerationPolicy generationPolicy;
-    private AgentRuntimePolicy runtimePolicy;
     private Long revision;
     private String changeNote;
 }

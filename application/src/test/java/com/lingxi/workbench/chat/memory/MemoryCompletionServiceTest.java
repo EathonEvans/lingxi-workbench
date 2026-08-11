@@ -35,7 +35,7 @@ class MemoryCompletionServiceTest {
     @Test
     void shouldPreserveTemplateLikeTextFromConversationHistory() {
         preparePrompt("提取以下对话：\n{{conversation_history}}");
-        when(completionGateway.complete(any())).thenReturn(Mono.just(new ChatCompletionResult("  {\"summary\":\"ok\"}  ", null)));
+        when(completionGateway.complete(any())).thenReturn(Mono.just(new ChatCompletionResult<>("  {\"summary\":\"ok\"}  ", null)));
 
         String result = service.complete(
                 11L,

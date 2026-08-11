@@ -1,5 +1,7 @@
 package com.lingxi.workbench.infra.ai.chat.openai;
 
+import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.infra.ai.chat.model.bo.ChatCompletionResult;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatCompletionCommand;
 import org.junit.jupiter.api.Test;
@@ -42,7 +44,7 @@ class SpringAiChatCompletionGatewayTest {
         ChatCompletionCommand command = new ChatCompletionCommand("任务", "系统指令", List.of(), config);
 
         gateway.complete(command).block();
-        gateway.completeJson(command).block();
+        ChatCompletionResult<JSONObject> jsonResult = gateway.completeJson(command).block();
 
         ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
         verify(chatModel, times(2)).call(promptCaptor.capture());
@@ -52,6 +54,7 @@ class SpringAiChatCompletionGatewayTest {
         assertNull(options.getResponseFormat().getJsonSchema());
         assertEquals("planner-model", options.getModel());
         assertEquals(512, options.getMaxTokens());
+        assertEquals(new JSONObject(), jsonResult.content());
     }
 
     private static ChatResponse response() {

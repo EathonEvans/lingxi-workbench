@@ -84,6 +84,29 @@ class SpringAiStreamingChatGatewayTest {
     }
 
     @Test
+    void shouldEmitOnlyFinalUsageWhenProviderRepeatsCumulativeSnapshot() {
+        ChatModelRuntimeConfig config = config();
+        OpenAiChatModel chatModel = mock(OpenAiChatModel.class);
+        Flux<ChatResponse> responseStream = Flux.just(
+                response("你", usage(100, 1, 101)),
+                response("好", usage(100, 2, 102)),
+                response("", usage(100, 2, 102)));
+        when(chatModel.stream(any(Prompt.class))).thenReturn(responseStream);
+        OpenAiCompatibleChatModelFactory factory = mock(OpenAiCompatibleChatModelFactory.class);
+        when(factory.create(config)).thenReturn(chatModel);
+        SpringAiStreamingChatGateway gateway = new SpringAiStreamingChatGateway(factory, ObservationRegistry.NOOP);
+
+        List<ChatStreamChunk> chunks = gateway.stream(new ChatStreamCommand("你好", List.of(), config))
+                .collectList()
+                .block();
+
+        assertEquals(List.of(
+                new ChatStreamChunk("你"),
+                new ChatStreamChunk("好"),
+                new ChatStreamChunk("", TokenUsage.of(100, 2, 102))), chunks);
+    }
+
+    @Test
     void shouldExecuteSpringAiToolLoopAndReturnFinalAnswer() {
         ChatModelRuntimeConfig config = config();
         OpenAiChatModel chatModel = mock(OpenAiChatModel.class);
@@ -125,9 +148,9 @@ class SpringAiStreamingChatGatewayTest {
                                 .userId(1L)
                                 .conversationId(2L)
                                 .assistantMessageId(3L)
-                                .build())
+                        .build())
                         .maxToolCalls(2)
-                        .maxModelCalls(3)
+                        .maxModelCalls(2)
                         .maxResultCharacters(1000)
                         .eventPublisher(toolEvents::add)
                         .build();
@@ -158,7 +181,8 @@ class SpringAiStreamingChatGatewayTest {
         assertEquals(
                 List.of(
                         new ChatStreamChunk("", TokenUsage.of(5, 2, 7)),
-                        new ChatStreamChunk("现在是北京时间", TokenUsage.of(8, 3, 11))),
+                        new ChatStreamChunk("现在是北京时间"),
+                        new ChatStreamChunk("", TokenUsage.of(8, 3, 11))),
                 chunks);
         ArgumentCaptor<Prompt> promptCaptor =
                 ArgumentCaptor.forClass(Prompt.class);
@@ -235,6 +259,64 @@ class SpringAiStreamingChatGatewayTest {
         assertEquals(List.of(AgentToolExecutionStatus.RUNNING, AgentToolExecutionStatus.SUCCEEDED,
                 AgentToolExecutionStatus.REUSED), toolEvents.stream().map(AgentToolExecutionEvent::getStatus).toList());
         assertTrue(chunks.stream().anyMatch(chunk -> chunk.content().contains("已有时间信息")));
+        ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
+        verify(chatModel, times(3)).stream(promptCaptor.capture());
+        OpenAiChatOptions finalOptions = (OpenAiChatOptions) promptCaptor.getAllValues().getLast().getOptions();
+        assertTrue(finalOptions.getToolCallbacks().isEmpty());
+        assertEquals("none", finalOptions.getToolChoice());
+    }
+
+    @Test
+    void shouldFinalizeWithExistingEvidenceWhenToolLimitIsReached() {
+        ChatModelRuntimeConfig config = config();
+        OpenAiChatModel chatModel = mock(OpenAiChatModel.class);
+        when(chatModel.getOptions()).thenReturn(OpenAiChatOptions.builder().model("test-model").build());
+        AtomicInteger modelCalls = new AtomicInteger();
+        when(chatModel.stream(any(Prompt.class))).thenAnswer(invocation -> switch (modelCalls.getAndIncrement()) {
+            case 0 -> Flux.just(toolCallResponse("call-1", "{\"zoneId\":\"Asia/Shanghai\"}"));
+            case 1 -> Flux.just(toolCallResponse("call-2", "{\"zoneId\":\"Asia/Tokyo\"}"));
+            default -> Flux.just(response("已根据第一次查询结果完成回答", usage(7, 4, 11)));
+        });
+        OpenAiCompatibleChatModelFactory factory = mock(OpenAiCompatibleChatModelFactory.class);
+        when(factory.create(config)).thenReturn(chatModel);
+        AtomicInteger executions = new AtomicInteger();
+        ToolCallback callback = FunctionToolCallback
+                .builder("system_current_time", (TimeInput input) -> {
+                    executions.incrementAndGet();
+                    return Map.of("zoneId", input.zoneId(), "currentTime", "2026-07-29T14:30:00+08:00");
+                })
+                .description("查询当前时间")
+                .inputType(TimeInput.class)
+                .build();
+        AgentToolRuntimeConfig toolConfig = AgentToolRuntimeConfig.builder()
+                .tools(List.of(tool(callback)))
+                .executionContext(AgentToolExecutionContext.builder()
+                        .executionId("execution-tool-limit")
+                        .userId(1L)
+                        .conversationId(2L)
+                        .assistantMessageId(3L)
+                        .build())
+                .maxToolCalls(1)
+                .maxModelCalls(4)
+                .maxTotalTokens(1000)
+                .maxFinalizationTokens(1100)
+                .maxResultCharacters(1000)
+                .build();
+        SpringAiStreamingChatGateway gateway = new SpringAiStreamingChatGateway(factory, ObservationRegistry.NOOP);
+
+        List<ChatStreamChunk> chunks = gateway.stream(ChatStreamCommand.builder()
+                        .prompt("查询两个时区")
+                        .systemPrompt("")
+                        .history(List.of())
+                        .modelConfig(config)
+                        .toolRuntimeConfig(toolConfig)
+                        .build())
+                .collectList()
+                .block();
+
+        assertEquals(1, executions.get());
+        assertEquals(3, modelCalls.get());
+        assertTrue(chunks.stream().anyMatch(chunk -> chunk.content().contains("第一次查询结果")));
         ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
         verify(chatModel, times(3)).stream(promptCaptor.capture());
         OpenAiChatOptions finalOptions = (OpenAiChatOptions) promptCaptor.getAllValues().getLast().getOptions();

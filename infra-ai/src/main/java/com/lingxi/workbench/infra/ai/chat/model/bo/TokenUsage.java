@@ -37,7 +37,9 @@ public record TokenUsage(Integer inputTokens, Integer outputTokens, Integer tota
 
     /** 返回当前快照与另一个快照逐项累计后的新快照。 */
     public TokenUsage plus(TokenUsage other) {
-        Objects.requireNonNull(other, "待累计的Token用量不能为空");
+        if (Objects.isNull(other)) {
+            return this;
+        }
         return TokenUsage.of(sum(inputTokens, other.inputTokens), sum(outputTokens, other.outputTokens), sum(totalTokens, other.totalTokens));
     }
 

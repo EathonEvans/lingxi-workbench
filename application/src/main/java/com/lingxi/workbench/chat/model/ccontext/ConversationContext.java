@@ -33,9 +33,10 @@ public final class ConversationContext {
     private final ContextBudgetPolicy budget;
     private final RuntimeVariables runtimeVariables;
     private final TokenUsage preparationTokenUsage;
+    private final int preparationModelCalls;
 
     @Builder
-    private ConversationContext(AppRuntimeSnapshot applicationSnapshot, LoginUser loginUser, ChatTurnBO turn, String originalQuery, String contextualizedQuery, List<ChatMemoryMessageBO> recentMessages, String summary, String longTermMemory, ContextBudgetPolicy budget, RuntimeVariables runtimeVariables, TokenUsage preparationTokenUsage) {
+    private ConversationContext(AppRuntimeSnapshot applicationSnapshot, LoginUser loginUser, ChatTurnBO turn, String originalQuery, String contextualizedQuery, List<ChatMemoryMessageBO> recentMessages, String summary, String longTermMemory, ContextBudgetPolicy budget, RuntimeVariables runtimeVariables, TokenUsage preparationTokenUsage, int preparationModelCalls) {
         this.applicationSnapshot = Objects.requireNonNull(applicationSnapshot, "Application运行快照不能为空");
         this.loginUser = Objects.requireNonNull(loginUser, "登录用户不能为空");
         this.turn = Objects.requireNonNull(turn, "对话轮次不能为空");
@@ -47,6 +48,7 @@ public final class ConversationContext {
         this.budget = Objects.requireNonNull(budget, "共享上下文预算不能为空");
         this.runtimeVariables = Objects.requireNonNull(runtimeVariables, "运行时变量不能为空");
         this.preparationTokenUsage = Objects.requireNonNullElseGet(preparationTokenUsage, TokenUsage::empty);
+        this.preparationModelCalls = preparationModelCalls;
     }
 
     /**
@@ -70,6 +72,7 @@ public final class ConversationContext {
                 .budget(budget)
                 .runtimeVariables(runtimeVariables.forkForQuery(query))
                 .preparationTokenUsage(preparationTokenUsage)
+                .preparationModelCalls(preparationModelCalls)
                 .build();
     }
 

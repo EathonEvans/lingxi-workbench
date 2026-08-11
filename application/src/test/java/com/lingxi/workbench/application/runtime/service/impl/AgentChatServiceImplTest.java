@@ -33,6 +33,8 @@ import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
 import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
 import com.lingxi.workbench.workflow.model.AgentCollaborationLimits;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
+import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
+import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
@@ -61,6 +63,7 @@ class AgentChatServiceImplTest {
                 .executionId("run-1")
                 .runtimeVariables(runtimeVariables())
                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
+                .contextBudget(ContextBudgetPolicy.builder().reservedOutputTokens(2048).build())
                 .build();
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
 
@@ -148,12 +151,13 @@ class AgentChatServiceImplTest {
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
         ApplicationAgentReference supervisor = new ApplicationAgentReference(10L, 20L, "协调Agent", "负责规划");
         ApplicationAgentReference member = new ApplicationAgentReference(30L, 40L, "售后专家", "处理退款与售后政策");
-        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true, supervisor, List.of(member), new AgentCollaborationLimits(2, 1));
+        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(
+                true, supervisor, List.of(member), new AgentCollaborationLimits(1));
         ChatExecutionContext execution = ChatExecutionContext.builder()
                 .executionId("run-collaboration")
                 .runtimeVariables(runtimeVariables())
                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
-                .collaborationScope(AgentCollaborationScope.root(collaboration))
+                .collaborationScope(AgentCollaborationScope.root(collaboration, 2))
                 .build();
         AgentChatServiceImpl service = supervisorService(
                 definition,
@@ -182,7 +186,7 @@ class AgentChatServiceImplTest {
     void shouldRejectSupervisorSnapshotContainingKnowledgeSearch() {
         AgentRuntimeDefinition definition = supervisorDefinition();
         definition.setKnowledgeSearch(reactDefinition().getKnowledgeSearch());
-        definition.setToolPolicy(new AgentRuntimeDefinition.ToolPolicy(1, 1000));
+        definition.setToolPolicy(new AgentRuntimeDefinition.ToolPolicy(1000));
         AgentChatServiceImpl service = supervisorService(definition, AgentChatServiceImplTest::promptSnapshotByVersion, command -> Flux.empty(), toolCodes -> List.of());
         ChatExecutionContext execution = ChatExecutionContext.builder()
                 .executionId("run-invalid-supervisor")
@@ -196,33 +200,43 @@ class AgentChatServiceImplTest {
     }
 
     @Test
-    void shouldRejectInvalidToolLimitsBeforeCallingGateway() {
+    void shouldDisableToolsAndFinalizeWhenApplicationToolBudgetIsUnavailable() {
         AgentRuntimeDefinition definition = definition();
         definition.setToolCodes(List.of("system_current_time"));
-        definition.setToolPolicy(new AgentRuntimeDefinition.ToolPolicy(0, 1000));
+        AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
         AgentChatServiceImpl service = service(
                 definition,
-                promptVersionId -> promptSnapshot(),
+                AgentChatServiceImplTest::promptSnapshotByVersion,
                 command -> {
-                    throw new AssertionError("非法工具配置不应进入模型网关");
+                    captured.set(command);
+                    return Flux.just(new ChatStreamChunk("已基于现有上下文回答"));
                 },
-                toolCodes -> List.of());
+                toolCodes -> List.of(new StubAgentTool()));
         ChatExecutionContext execution = ChatExecutionContext.builder()
                 .executionId("run-invalid-tool-limit")
                 .runtimeVariables(runtimeVariables())
                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
+                .runtimePolicy(ApplicationRuntimePolicy.builder()
+                        .maxModelCalls(3)
+                        .maxToolCalls(0)
+                        .maxDelegations(0)
+                        .totalTokenBudget(8000)
+                        .timeoutSeconds(120)
+                        .build())
                 .build();
 
-        BusinessException exception = assertThrows(BusinessException.class, () -> service.chat(10L, 20L, "如何退款", execution));
+        String answer = service.chat(10L, 20L, "如何退款", execution);
 
-        assertEquals("AgentVersion工具调用配置超出允许范围", exception.getMessage());
+        assertEquals("已基于现有上下文回答", answer);
+        assertTrue(captured.get().toolRuntimeConfig().isEmpty());
+        assertTrue(captured.get().systemPrompt().contains("本次不再开放工具、委派或规划"));
     }
 
     @Test
     void shouldAppendToolEvidencePolicyWhenAgentEnablesTools() {
         AgentRuntimeDefinition definition = definition();
         definition.setToolCodes(List.of("system_current_time"));
-        definition.setToolPolicy(new AgentRuntimeDefinition.ToolPolicy(1, 1000));
+        definition.setToolPolicy(new AgentRuntimeDefinition.ToolPolicy(1000));
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
         AgentChatServiceImpl service = service(
                 definition,
@@ -249,6 +263,68 @@ class AgentChatServiceImplTest {
         assertTrue(captured.get().systemPrompt().contains("不得使用模型记忆、心算或猜测替代工具执行"));
         assertTrue(captured.get().systemPrompt().contains("工具执行结果是本轮回答可使用的可信事实来源"));
         assertTrue(captured.get().systemPrompt().contains("不得因为知识片段缺少相关内容而拒绝回答"));
+    }
+
+    @Test
+    void shouldKeepToolBudgetIndependentFromRemainingModelCalls() {
+        AgentRuntimeDefinition definition = definition();
+        definition.setToolCodes(List.of("system_current_time"));
+        definition.setToolPolicy(new AgentRuntimeDefinition.ToolPolicy(1000));
+        AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
+        AgentChatServiceImpl service = service(
+                definition,
+                AgentChatServiceImplTest::promptSnapshotByVersion,
+                command -> {
+                    captured.set(command);
+                    return Flux.just(new ChatStreamChunk("已有答案"));
+                },
+                toolCodes -> List.of(new StubAgentTool()));
+        ChatExecutionContext execution = ChatExecutionContext.builder()
+                .executionId("run-independent-budgets")
+                .runtimeVariables(runtimeVariables())
+                .turn(new ChatTurnBO(10L, 11L, 12L, 3))
+                .runtimePolicy(ApplicationRuntimePolicy.builder()
+                        .maxModelCalls(2)
+                        .maxToolCalls(3)
+                        .maxDelegations(0)
+                        .totalTokenBudget(8000)
+                        .timeoutSeconds(120)
+                        .build())
+                .build();
+
+        service.chat(10L, 20L, "如何退款", execution);
+
+        assertEquals(3, captured.get().toolRuntimeConfig().orElseThrow().getMaxToolCalls());
+        assertEquals(2, captured.get().toolRuntimeConfig().orElseThrow().getMaxModelCalls());
+    }
+
+    @Test
+    void shouldClampModelTimeoutToApplicationRemainingDeadline() {
+        AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
+        AgentChatServiceImpl service = service(
+                definition(),
+                AgentChatServiceImplTest::promptSnapshotByVersion,
+                command -> {
+                    captured.set(command);
+                    return Flux.just(new ChatStreamChunk("按时回答"));
+                },
+                toolCodes -> List.of());
+        ChatExecutionContext execution = ChatExecutionContext.builder()
+                .executionId("run-timeout")
+                .runtimeVariables(runtimeVariables())
+                .turn(new ChatTurnBO(10L, 11L, 12L, 3))
+                .runtimePolicy(ApplicationRuntimePolicy.builder()
+                        .maxModelCalls(2)
+                        .maxToolCalls(0)
+                        .maxDelegations(0)
+                        .totalTokenBudget(8000)
+                        .timeoutSeconds(30)
+                        .build())
+                .build();
+
+        service.chat(10L, 20L, "如何退款", execution);
+
+        assertEquals(30, captured.get().modelConfig().getTimeoutSeconds());
     }
 
     @Test
@@ -343,12 +419,7 @@ class AgentChatServiceImplTest {
                 .generationPolicy(AgentRuntimeDefinition.GenerationPolicy.builder()
                         .temperature(new BigDecimal("0.2"))
                         .topP(new BigDecimal("0.9"))
-                        .maxOutputTokens(2048)
-                        .timeoutSeconds(60)
-                        .maxRetries(1)
                         .build())
-                .runtimePolicy(new AgentRuntimeDefinition.RuntimePolicy(
-                        90, 3, 12000, 2048))
                 .build();
     }
 
@@ -360,8 +431,10 @@ class AgentChatServiceImplTest {
                 .systemPromptVersionId(88L)
                 .userPromptVersionId(89L)
                 .toolCodes(List.of())
-                .generationPolicy(AgentRuntimeDefinition.GenerationPolicy.builder().temperature(new BigDecimal("0.2")).topP(new BigDecimal("0.9")).maxOutputTokens(2048).timeoutSeconds(60).maxRetries(1).build())
-                .runtimePolicy(new AgentRuntimeDefinition.RuntimePolicy(90, 3, 12000, 2048))
+                .generationPolicy(AgentRuntimeDefinition.GenerationPolicy.builder()
+                        .temperature(new BigDecimal("0.2"))
+                        .topP(new BigDecimal("0.9"))
+                        .build())
                 .build();
     }
 
@@ -373,7 +446,7 @@ class AgentChatServiceImplTest {
                 .systemPromptVersionId(88L)
                 .userPromptVersionId(89L)
                 .toolCodes(List.of())
-                .toolPolicy(new AgentRuntimeDefinition.ToolPolicy(1, 1000))
+                .toolPolicy(new AgentRuntimeDefinition.ToolPolicy(1000))
                 .knowledgeSearch(AgentRuntimeDefinition.KnowledgeSearchCapability.builder()
                         .knowledgeBaseId(30L)
                         .knowledgeIndexVersionId(31L)
@@ -387,11 +460,7 @@ class AgentChatServiceImplTest {
                 .generationPolicy(AgentRuntimeDefinition.GenerationPolicy.builder()
                         .temperature(new BigDecimal("0.2"))
                         .topP(new BigDecimal("0.9"))
-                        .maxOutputTokens(2048)
-                        .timeoutSeconds(60)
-                        .maxRetries(1)
                         .build())
-                .runtimePolicy(new AgentRuntimeDefinition.RuntimePolicy(90, 2, 12000, 2048))
                 .build();
     }
 

@@ -8,13 +8,23 @@ import org.springframework.stereotype.Component;
 
 import java.util.function.Supplier;
 
-/** 在当前 Trace 下创建稳定的 Application Chat 阶段 span。 */
+/**
+ * 在当前 Trace 下创建稳定的 Application Chat 阶段 span。
+ */
 @Component
 @RequiredArgsConstructor
 public class AiStageObserver {
 
     private final ObservationRegistry observationRegistry;
 
+    /**
+     * 观测执行
+     *
+     * @param stage 步骤
+     * @param action 操作
+     * @return 操作结果
+     * @param <T> 操作结果类型
+     */
     public <T> T observe(AiObservationStage stage, Supplier<T> action) {
         Observation observation = Observation.createNotStarted("lingxi.ai.stage", observationRegistry)
                 .contextualName(stage.getCode().toLowerCase())
@@ -29,7 +39,9 @@ public class AiStageObserver {
         });
     }
 
-    /** 为最终调度目标建立带 executionId/runId 的子链路。 */
+    /**
+     * 为最终调度目标建立带 executionId/runId 的子链路。
+     */
     public <T> T observeExecution(String executionId, String executionMode, Supplier<T> action) {
         Observation observation = Observation.createNotStarted("lingxi.ai.execution", observationRegistry)
                 .contextualName("application-execution")

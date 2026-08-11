@@ -1,9 +1,11 @@
 package com.lingxi.workbench.application.runtime.service.impl;
 
+import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionDecisionAction;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.model.PlannerRequest;
 import com.lingxi.workbench.application.runtime.model.PlannerResult;
 import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
@@ -28,6 +30,7 @@ import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
 import com.lingxi.workbench.workflow.model.PlannerPolicy;
@@ -61,6 +64,9 @@ class PlannerServiceImplTest {
         assertFalse(command.systemPrompt().contains("987654321"));
         assertFalse(command.systemPrompt().contains("876543210"));
         assertFalse(command.systemPrompt().contains("configuration-secret"));
+        assertTrue(command.systemPrompt().contains("Agent或Workflow步骤禁止包含inputs"));
+        assertTrue(command.systemPrompt().contains("只有Tool步骤可以按能力输入Schema包含inputs"));
+        assertTrue(command.systemPrompt().contains("平台会自动注入当前问题和已声明依赖的步骤结果"));
         assertEquals(60, command.modelConfig().getTimeoutSeconds());
         assertTrue(command.modelConfig().getMaxTokens() <= 500);
     }
@@ -79,6 +85,21 @@ class PlannerServiceImplTest {
         assertEquals(TokenUsage.of(22, 11, 33), result.tokenUsage());
         assertEquals(2, captured.size());
         assertTrue(captured.getLast().prompt().contains("上一次JSON决策未通过平台协议或业务校验"));
+    }
+
+    @Test
+    void shouldTellRepairAttemptWhyTopLevelInputsWereRejected() {
+        List<ChatCompletionCommand> captured = new ArrayList<>();
+        PlannerServiceImpl service = service(captured, List.of(
+                completion("{\"action\":\"EXECUTE_REACT\",\"capabilityCode\":\"support\",\"inputs\":{}}",
+                        TokenUsage.of(10, 5, 15)),
+                completion(validDecision(), TokenUsage.of(12, 6, 18))));
+
+        PlannerResult result = service.decide(request(2000));
+
+        assertEquals(ExecutionDecisionAction.EXECUTE_REACT, result.decision().getAction());
+        assertTrue(captured.getFirst().systemPrompt().contains("决策顶层禁止返回inputs"));
+        assertTrue(captured.getLast().prompt().contains("决策包含未声明字段：inputs"));
     }
 
     @Test
@@ -110,24 +131,41 @@ class PlannerServiceImplTest {
     }
 
     @Test
-    void shouldRejectActualPlannerUsageAbovePublishedBudget() {
+    void shouldRetainPlannerDecisionWhenActualUsageCrossesSoftBudget() {
         PlannerServiceImpl service = service(new ArrayList<>(), List.of(
                 completion(validDecision(), TokenUsage.of(1500, 700, 2200))));
 
-        assertThrows(BusinessException.class, () -> service.decide(request(2000)));
+        PlannerResult result = service.decide(request(2000));
+
+        assertEquals(ExecutionDecisionAction.EXECUTE_REACT, result.decision().getAction());
+        assertEquals(2200, result.tokenUsage().totalTokens());
+    }
+
+    @Test
+    void shouldClarifyWithoutRepairCallWhenRemainingWorkBudgetCannotFitRepairPrompt() {
+        List<ChatCompletionCommand> captured = new ArrayList<>();
+        PlannerServiceImpl service = service(captured, List.of(
+                completion(invalidClarification(), TokenUsage.of(600, 200, 800))));
+
+        PlannerResult result = service.decide(request(1000));
+
+        assertEquals(ExecutionDecisionAction.CLARIFY, result.decision().getAction());
+        assertEquals(1, result.modelCalls());
+        assertEquals(1, captured.size());
+        assertEquals(800, result.tokenUsage().totalTokens());
     }
 
     private static PlannerServiceImpl service(List<ChatCompletionCommand> captured,
-                                              List<ChatCompletionResult> completions) {
+                                              List<ChatCompletionResult<JSONObject>> completions) {
         AtomicInteger responseIndex = new AtomicInteger();
         ChatCompletionGateway gateway = new ChatCompletionGateway() {
             @Override
-            public Mono<ChatCompletionResult> complete(ChatCompletionCommand command) {
+            public Mono<ChatCompletionResult<String>> complete(ChatCompletionCommand command) {
                 throw new AssertionError("Planner必须使用JSON Object模型调用");
             }
 
             @Override
-            public Mono<ChatCompletionResult> completeJson(ChatCompletionCommand command) {
+            public Mono<ChatCompletionResult<JSONObject>> completeJson(ChatCompletionCommand command) {
                 captured.add(command);
                 return Mono.just(completions.get(responseIndex.getAndIncrement()));
             }
@@ -143,16 +181,24 @@ class PlannerServiceImplTest {
         return request(plannerTokenBudget, 6);
     }
 
-    private static PlannerRequest request(int plannerTokenBudget, int availableModelCalls) {
+    private static PlannerRequest request(int plannerTokenBudget, int maxModelCalls) {
+        ConversationContext conversation = context(plannerTokenBudget, maxModelCalls);
+        ChatExecutionContext execution = ChatExecutionContext.builder()
+                .executionId("execution-1")
+                .runtimeVariables(conversation.getRuntimeVariables())
+                .turn(conversation.getTurn())
+                .conversationContext(conversation)
+                .runtimePolicy(conversation.getApplicationSnapshot().definition().runtimePolicy())
+                .build();
         return PlannerRequest.builder()
-                .conversationContext(context(plannerTokenBudget))
+                .conversationContext(conversation)
+                .executionContext(execution)
                 .planNo(1)
-                .availableModelCalls(availableModelCalls)
                 .build();
     }
 
-    private static ChatCompletionResult completion(String content, TokenUsage usage) {
-        return new ChatCompletionResult(content, usage);
+    private static ChatCompletionResult<JSONObject> completion(String content, TokenUsage usage) {
+        return new ChatCompletionResult<>(JSON.parseObject(content), usage);
     }
 
     private static String validDecision() {
@@ -186,7 +232,7 @@ class PlannerServiceImplTest {
         };
     }
 
-    private static ConversationContext context(int plannerTokenBudget) {
+    private static ConversationContext context(int plannerTokenBudget, int maxModelCalls) {
         LoginUser user = new LoginUser(7L, "tester", "测试用户", null);
         ChatTurnBO turn = new ChatTurnBO(10L, 11L, 12L, 1);
         RuntimeVariables variables = new RuntimeVariablesInitializer("Lingxi Workbench").initialize(user, "处理售后问题", turn.conversationId());
@@ -197,13 +243,19 @@ class PlannerServiceImplTest {
         capabilities.add(defaultAgent);
         capabilities.add(support);
         PlannerPolicy planner = PlannerPolicy.builder().enabled(true).chatModelInstanceId(21L).promptVersionId(22L)
-                .maxSteps(6).maxReplans(1).maxModelCalls(6).maxToolCalls(4)
-                .tokenBudget(plannerTokenBudget).timeoutSeconds(60).build();
+                .maxSteps(6).maxReplans(1).build();
         ApplicationDefinition definition = ApplicationDefinition.builder()
                 .schemaVersion(com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION)
                 .defaultAgent(new ApplicationAgentReference(1L, 2L, "默认助手", "处理普通请求"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(capabilities).build())
                 .plannerPolicy(planner)
+                .runtimePolicy(ApplicationRuntimePolicy.builder()
+                        .maxModelCalls(maxModelCalls)
+                        .maxToolCalls(4)
+                        .maxDelegations(0)
+                        .totalTokenBudget(plannerTokenBudget)
+                        .timeoutSeconds(60)
+                        .build())
                 .build();
         return ConversationContext.builder()
                 .applicationSnapshot(new AppRuntimeSnapshot(1L, "planner-app", 2L, definition))

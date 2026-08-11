@@ -1,5 +1,7 @@
 package com.lingxi.workbench.application.runtime.service.impl;
 
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionDecisionAction;
 import com.lingxi.workbench.application.runtime.common.enums.StepInputSource;
 import com.lingxi.workbench.application.runtime.model.ExecutionDecision;
@@ -15,7 +17,7 @@ class ExecutionDecisionParserTest {
 
     @Test
     void shouldParseStrictPlanDecision() {
-        String output = """
+        JSONObject output = JSON.parseObject("""
                 {
                   "action": "EXECUTE_PLAN",
                   "plan": {
@@ -29,7 +31,7 @@ class ExecutionDecisionParserTest {
                     }]
                   }
                 }
-                """;
+                """);
 
         ExecutionDecision decision = parser.parse(output);
 
@@ -39,9 +41,11 @@ class ExecutionDecisionParserTest {
     }
 
     @Test
-    void shouldRejectMarkdownOrUnknownFields() {
-        assertThrows(BusinessException.class, () -> parser.parse("```json\n{\"action\":\"CLARIFY\"}\n```"));
-        assertThrows(BusinessException.class, () -> parser.parse("{\"action\":\"CLARIFY\",\"reasoning\":\"hidden\"}"));
-        assertThrows(BusinessException.class, () -> parser.parse("{\"action\":\"EXECUTE_PLAN\",\"plan\":{\"title\":\"x\",\"steps\":[{\"id\":\"s1\",\"unknown\":true}]}}"));
+    void shouldRejectEmptyOrUnknownFields() {
+        assertThrows(BusinessException.class, () -> parser.parse(new JSONObject()));
+        assertThrows(BusinessException.class, () -> parser.parse(
+                JSON.parseObject("{\"action\":\"CLARIFY\",\"reasoning\":\"hidden\"}")));
+        assertThrows(BusinessException.class, () -> parser.parse(JSON.parseObject(
+                "{\"action\":\"EXECUTE_PLAN\",\"plan\":{\"title\":\"x\",\"steps\":[{\"id\":\"s1\",\"unknown\":true}]}}")));
     }
 }

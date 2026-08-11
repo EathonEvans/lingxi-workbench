@@ -22,7 +22,7 @@ sa-token:
   token-name: Authorization
   timeout: 7200
   active-timeout: 1800
-  is-concurrent: false
+  is-concurrent: true
   is-share: false
   token-style: random-128
   is-log: false

@@ -5,6 +5,7 @@ import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.service.ApplicationRuntimeService;
 import com.lingxi.workbench.application.runtime.service.ApplicationChatExecutionService;
+import com.lingxi.workbench.application.runtime.service.ExecutionFailureClassifier;
 import com.lingxi.workbench.application.runtime.service.ChatExecutionEventPublisher;
 import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
@@ -116,7 +117,7 @@ class ChatStreamServiceImplTest {
 
         service = new ChatStreamServiceImpl(conversationService, messageRepo, generationEventRepo,
                 applicationRuntimeService, applicationChatExecutionService, event -> { }, tokenCountEstimator,
-                aiTracingService, aiStageObserver);
+                aiTracingService, aiStageObserver, new ExecutionFailureClassifier());
     }
 
     @Test
@@ -231,7 +232,7 @@ class ChatStreamServiceImplTest {
 
         assertEquals(List.of(ChatGenerationEventBO.failed("AI_MODEL_TIMEOUT", "模型响应超时，请重试")), events);
         verify(conversationService).failAssistant(
-                12L, "", "AI_MODEL_TIMEOUT", "模型响应超时", TokenUsage.empty());
+                12L, "", "AI_MODEL_TIMEOUT", "模型响应超时，请重试", TokenUsage.empty());
     }
 
     @Test

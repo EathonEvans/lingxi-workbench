@@ -28,8 +28,7 @@ public class ConversationSummaryMemoryService {
      * 若本轮新增轮次不满足触发阈值则跳过，否则通过 MemoryCompletionService 生成摘要并持久化。
      */
     public void generate(AssistantCompletedEvent event, ConversationSummaryMemoryConfig config) {
-        ConversationSummaryTrigger trigger = new ConversationSummaryTrigger(
-                config.effectiveMinRounds(), config.effectiveMinTokens(), SUMMARY_INPUT_TOKEN_BUDGET);
+        ConversationSummaryTrigger trigger = new ConversationSummaryTrigger(config.effectiveMinRounds(), config.effectiveMinTokens(), SUMMARY_INPUT_TOKEN_BUDGET);
         Optional<ConversationSummarySource> optionalSource = conversationMemoryService.loadSummarySource(event.userId(), event.turn(), trigger);
         if (optionalSource.isEmpty()) {
             return;

@@ -47,10 +47,15 @@ public final class AgentCollaborationScope {
     /** 共享的原子委派计数器 */
     private final AtomicInteger delegationCount;
 
-    private AgentCollaborationScope(AgentCollaborationDefinition definition, List<Long> callPath, AtomicInteger delegationCount) {
+    /** Application单轮运行边界中的最大委派次数。 */
+    private final int maxDelegations;
+
+    private AgentCollaborationScope(AgentCollaborationDefinition definition, List<Long> callPath,
+                                    AtomicInteger delegationCount, int maxDelegations) {
         this.definition = Objects.requireNonNull(definition, "协作定义不能为空");
         this.callPath = List.copyOf(callPath);
         this.delegationCount = Objects.requireNonNull(delegationCount, "委派计数器不能为空");
+        this.maxDelegations = maxDelegations;
     }
 
     /**
@@ -63,16 +68,17 @@ public final class AgentCollaborationScope {
      * @param definition 发布快照中的协作定义
      * @return 根作用域，callPath = [supervisor.agentId]，计数器 = 0
      */
-    public static AgentCollaborationScope root(AgentCollaborationDefinition definition) {
+    public static AgentCollaborationScope root(AgentCollaborationDefinition definition, int maxDelegations) {
         if (Objects.isNull(definition) || !definition.enabled()
                 || Objects.isNull(definition.supervisor())
                 || Objects.isNull(definition.supervisor().agentId())
                 || Objects.isNull(definition.supervisor().agentVersionId())
                 || Objects.isNull(definition.limits())
-                || definition.members().isEmpty()) {
+                || definition.members().isEmpty() || maxDelegations < 1) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "Application协作快照不完整");
         }
-        return new AgentCollaborationScope(definition, List.of(definition.supervisor().agentId()), new AtomicInteger());
+        return new AgentCollaborationScope(
+                definition, List.of(definition.supervisor().agentId()), new AtomicInteger(), maxDelegations);
     }
 
     /**
@@ -101,7 +107,7 @@ public final class AgentCollaborationScope {
      * 返回 Application 为本次请求配置的最大成员委派次数。
      */
     public int maxDelegations() {
-        return definition.limits().maxDelegations();
+        return maxDelegations;
     }
 
     /**
@@ -138,12 +144,12 @@ public final class AgentCollaborationScope {
         }
         // 门控 5：次数限制（原子操作）
         int used = delegationCount.incrementAndGet();
-        if (used > definition.limits().maxDelegations()) {
+        if (used > maxDelegations) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "Agent协作超过最大委派次数");
         }
         // 全部通过 → 创建子作用域（新 callPath = 父 callPath + target.agentId）
         List<Long> childPath = new ArrayList<>(callPath);
         childPath.add(target.agentId());
-        return new AgentCollaborationScope(definition, childPath, delegationCount);
+        return new AgentCollaborationScope(definition, childPath, delegationCount, maxDelegations);
     }
 }

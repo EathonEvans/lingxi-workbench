@@ -4,8 +4,10 @@ import cn.hutool.core.text.CharSequenceUtil;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.ExecutionFailure;
 import com.lingxi.workbench.application.runtime.service.ApplicationRuntimeService;
 import com.lingxi.workbench.application.runtime.service.ApplicationChatExecutionService;
+import com.lingxi.workbench.application.runtime.service.ExecutionFailureClassifier;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import com.lingxi.workbench.chat.holder.RunningGenerationTask;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
@@ -22,7 +24,6 @@ import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
-import com.lingxi.workbench.infra.ai.tool.AgentLoopLimitException;
 import com.lingxi.workbench.observability.common.enums.AiObservationStage;
 import com.lingxi.workbench.observability.service.AiStageObserver;
 import com.lingxi.workbench.observability.service.AiTraceRun;
@@ -43,7 +44,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeoutException;
 
 /**
  * 流式对话服务实现。
@@ -61,9 +61,6 @@ import java.util.concurrent.TimeoutException;
 public class ChatStreamServiceImpl implements ChatStreamService {
 
     private static final String MODEL_ERROR_CODE = "AI_MODEL_ERROR";
-    private static final String MODEL_ERROR_MESSAGE = "模型服务调用失败";
-    private static final String MODEL_TIMEOUT_CODE = "AI_MODEL_TIMEOUT";
-    private static final String MODEL_TIMEOUT_MESSAGE = "模型响应超时";
     private static final String TASK_START_ERROR_CODE = "GENERATION_START_ERROR";
     private static final String TASK_START_ERROR_MESSAGE = "模型生成任务启动失败";
     // 运行中对话任务
@@ -78,6 +75,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     private final TokenCountEstimator tokenCountEstimator;
     private final AiTracingService aiTracingService;
     private final AiStageObserver aiStageObserver;
+    private final ExecutionFailureClassifier failureClassifier;
 
     /**
      * 创建并启动一次流式模型生成任务。
@@ -294,24 +292,9 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     }
 
     /** Agent运行边界错误保留可操作提示，其他异常继续使用模型服务安全文案。 */
-    private static ChatFailure resolveFailure(Throwable exception) {
-        Optional<AgentLoopLimitException> loopLimit = findLoopLimit(exception);
-        return loopLimit
-                .map(limit -> new ChatFailure(limit.getErrorCode(), limit.getClientMessage(), limit.getClientMessage()))
-                .orElseGet(() -> hasCause(exception, TimeoutException.class)
-                        ? new ChatFailure(MODEL_TIMEOUT_CODE, MODEL_TIMEOUT_MESSAGE, "模型响应超时，请重试")
-                        : new ChatFailure(MODEL_ERROR_CODE, MODEL_ERROR_MESSAGE, "模型服务暂时不可用，请稍后重试"));
-    }
-
-    private static Optional<AgentLoopLimitException> findLoopLimit(Throwable exception) {
-        Throwable current = exception;
-        while (Objects.nonNull(current)) {
-            if (current instanceof AgentLoopLimitException loopLimit) {
-                return Optional.of(loopLimit);
-            }
-            current = current.getCause();
-        }
-        return Optional.empty();
+    private ChatFailure resolveFailure(Throwable exception) {
+        ExecutionFailure failure = failureClassifier.classify(exception);
+        return new ChatFailure(failure.code(), failure.clientMessage(), failure.clientMessage());
     }
 
     private static boolean hasCause(Throwable exception, Class<? extends Throwable> causeType) {
@@ -394,10 +377,9 @@ public class ChatStreamServiceImpl implements ChatStreamService {
 
     private static ChatGenerationEventBO restoredFailureEvent(ConversationMessageEntity message) {
         String code = Objects.requireNonNullElse(message.getErrorCode(), MODEL_ERROR_CODE);
-        if (code.startsWith("AGENT_")) {
-            return ChatGenerationEventBO.failed(code, Objects.requireNonNullElse(message.getErrorMessage(), "Agent执行达到运行边界"));
-        }
-        return ChatGenerationEventBO.failed();
+        String errorMessage = Objects.requireNonNullElse(
+                message.getErrorMessage(), "模型服务暂时不可用，请稍后重试");
+        return ChatGenerationEventBO.failed(code, errorMessage);
     }
 
     /**

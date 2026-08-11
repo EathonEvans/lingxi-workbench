@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.appmonitor.repo.mapper;
 
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppIssueBO;
+import com.lingxi.workbench.admin.appmonitor.model.bo.AppHealthBO;
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppMonitorSummaryBO;
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppStageMetricBO;
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppTraceBO;
@@ -18,6 +19,36 @@ import java.util.Optional;
 /** Application 观测事件聚合查询。 */
 @Mapper
 public interface AppMonitorMapper {
+
+    @Select("""
+            WITH terminal AS (
+                SELECT DISTINCT ON (trace_id)
+                       trace_id, application_id, status, latency_ms, created_at
+                FROM lingxi_core.ai_observability_event
+                WHERE event_type IN ('RUN_COMPLETED', 'RUN_FAILED')
+                  AND created_at >= #{from}
+                ORDER BY trace_id, created_at DESC
+            )
+            SELECT application.id AS application_id,
+                   application.name AS application_name,
+                   COUNT(terminal.trace_id) AS total_runs,
+                   COUNT(terminal.trace_id) FILTER (WHERE terminal.status = 'SUCCESS') AS success_runs,
+                   COUNT(terminal.trace_id) FILTER (WHERE terminal.status <> 'SUCCESS') AS failure_runs,
+                   COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY terminal.latency_ms)
+                            FILTER (WHERE terminal.latency_ms IS NOT NULL), 0)::BIGINT AS p95_ms,
+                   MAX(terminal.created_at) AS last_run_at
+            FROM lingxi_core.ai_application application
+            LEFT JOIN terminal ON terminal.application_id = application.id
+            WHERE application.status = 'ACTIVE'
+            GROUP BY application.id, application.name
+            ORDER BY CASE WHEN COUNT(terminal.trace_id) = 0 THEN 1 ELSE 0 END,
+                     failure_runs DESC,
+                     COUNT(terminal.trace_id) FILTER (WHERE terminal.status = 'SUCCESS')::NUMERIC
+                         / NULLIF(COUNT(terminal.trace_id), 0),
+                     application.name
+            LIMIT 100
+            """)
+    List<AppHealthBO> applicationHealth(@Param("from") OffsetDateTime from);
 
     @Select("""
             SELECT COUNT(*) AS total_runs,

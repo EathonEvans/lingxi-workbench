@@ -9,7 +9,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
-/** 在一个短事务中原子保存交互记录及其向量。 */
+/**
+ * 在一个短事务中原子保存交互记录及其向量。
+ */
 @Service
 @RequiredArgsConstructor
 public class InteractionMemoryStoreService {

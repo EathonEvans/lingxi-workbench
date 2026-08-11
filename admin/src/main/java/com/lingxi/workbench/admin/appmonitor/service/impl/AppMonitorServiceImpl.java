@@ -3,10 +3,12 @@ package com.lingxi.workbench.admin.appmonitor.service.impl;
 import com.lingxi.workbench.admin.application.model.entity.AiApplicationEntity;
 import com.lingxi.workbench.admin.application.repo.AiApplicationRepo;
 import com.lingxi.workbench.admin.appmonitor.common.enums.AppExecutionMode;
+import com.lingxi.workbench.admin.appmonitor.common.enums.AppHealthStatus;
 import com.lingxi.workbench.admin.appmonitor.common.enums.AppRunStatus;
 import com.lingxi.workbench.admin.appmonitor.common.enums.TraceSourceStatus;
 import com.lingxi.workbench.admin.appmonitor.gateway.LangfuseTraceGateway;
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppIssueBO;
+import com.lingxi.workbench.admin.appmonitor.model.bo.AppHealthBO;
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppMonitorSummaryBO;
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppStageMetricBO;
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppTraceBO;
@@ -16,6 +18,7 @@ import com.lingxi.workbench.admin.appmonitor.model.bo.LangfuseObservationBO;
 import com.lingxi.workbench.admin.appmonitor.model.bo.LangfuseTraceResult;
 import com.lingxi.workbench.admin.appmonitor.model.request.AppMonitorQuery;
 import com.lingxi.workbench.admin.appmonitor.model.vo.AppIssueVO;
+import com.lingxi.workbench.admin.appmonitor.model.vo.AppHealthVO;
 import com.lingxi.workbench.admin.appmonitor.model.vo.AppMonitorOverviewVO;
 import com.lingxi.workbench.admin.appmonitor.model.vo.AppMonitorSummaryVO;
 import com.lingxi.workbench.admin.appmonitor.model.vo.AppOptionVO;
@@ -44,6 +47,10 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class AppMonitorServiceImpl implements AppMonitorService {
 
+    private static final double CRITICAL_SUCCESS_RATE = 90D;
+    private static final double DEGRADED_SUCCESS_RATE = 98D;
+    private static final long DEGRADED_P95_MS = 15_000L;
+
     private final AppMonitorRepo monitorRepo;
     private final AiApplicationRepo applicationRepo;
     private final LangfuseTraceGateway langfuseTraceGateway;
@@ -62,11 +69,43 @@ public class AppMonitorServiceImpl implements AppMonitorService {
         AppMonitorSummaryBO summary = monitorRepo.summary(query.getApplicationId(), from);
         return AppMonitorOverviewVO.builder()
                 .summary(toSummary(summary))
+                // 健康矩阵始终保留全部启用应用，applicationId 只筛选总览指标和下方链路。
+                .applications(monitorRepo.applicationHealth(from).stream()
+                        .map(AppMonitorServiceImpl::toHealth)
+                        .toList())
                 .stages(monitorRepo.stages(query.getApplicationId(), from).stream().map(AppMonitorServiceImpl::toStage).toList())
                 .trend(monitorRepo.trend(query.getApplicationId(), from).stream().map(AppMonitorServiceImpl::toTrend).toList())
                 .issues(monitorRepo.issues(query.getApplicationId(), from).stream().map(AppMonitorServiceImpl::toIssue).toList())
                 .refreshedAt(OffsetDateTime.now())
                 .build();
+    }
+
+    private static AppHealthVO toHealth(AppHealthBO health) {
+        double successRate = percentage(health.getSuccessRuns(), health.getTotalRuns());
+        return AppHealthVO.builder()
+                .applicationId(String.valueOf(health.getApplicationId()))
+                .applicationName(health.getApplicationName())
+                .status(resolveHealthStatus(health.getTotalRuns(), successRate, health.getP95Ms()))
+                .totalRuns(health.getTotalRuns())
+                .failureRuns(health.getFailureRuns())
+                .successRate(successRate)
+                .p95Ms(health.getP95Ms())
+                .lastRunAt(health.getLastRunAt())
+                .build();
+    }
+
+    /** 健康阈值是管理端公开 SLO：成功率低于90%为严重，低于98%或P95超过15秒为需关注。 */
+    private static AppHealthStatus resolveHealthStatus(long totalRuns, double successRate, long p95Ms) {
+        if (totalRuns == 0) {
+            return AppHealthStatus.NO_DATA;
+        }
+        if (successRate < CRITICAL_SUCCESS_RATE) {
+            return AppHealthStatus.CRITICAL;
+        }
+        if (successRate < DEGRADED_SUCCESS_RATE || p95Ms > DEGRADED_P95_MS) {
+            return AppHealthStatus.DEGRADED;
+        }
+        return AppHealthStatus.HEALTHY;
     }
 
     @Override

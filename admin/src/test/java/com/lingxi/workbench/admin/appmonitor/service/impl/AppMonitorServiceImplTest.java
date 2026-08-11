@@ -2,6 +2,8 @@ package com.lingxi.workbench.admin.appmonitor.service.impl;
 
 import com.lingxi.workbench.admin.application.repo.AiApplicationRepo;
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppMonitorSummaryBO;
+import com.lingxi.workbench.admin.appmonitor.model.bo.AppHealthBO;
+import com.lingxi.workbench.admin.appmonitor.common.enums.AppHealthStatus;
 import com.lingxi.workbench.admin.appmonitor.model.request.AppMonitorQuery;
 import com.lingxi.workbench.admin.appmonitor.model.vo.AppMonitorOverviewVO;
 import com.lingxi.workbench.admin.appmonitor.repo.AppMonitorRepo;
@@ -29,6 +31,7 @@ class AppMonitorServiceImplTest {
         AiApplicationRepo applicationRepo = mock(AiApplicationRepo.class);
         when(monitorRepo.summary(isNull(), any(OffsetDateTime.class)))
                 .thenReturn(new AppMonitorSummaryBO(8, 6, 1250, 3200));
+        when(monitorRepo.applicationHealth(any(OffsetDateTime.class))).thenReturn(List.of());
         when(monitorRepo.stages(isNull(), any(OffsetDateTime.class))).thenReturn(List.of());
         when(monitorRepo.trend(isNull(), any(OffsetDateTime.class))).thenReturn(List.of());
         when(monitorRepo.issues(isNull(), any(OffsetDateTime.class))).thenReturn(List.of());
@@ -44,6 +47,32 @@ class AppMonitorServiceImplTest {
     }
 
     @Test
+    void shouldClassifyApplicationHealthUsingPublishedThresholds() {
+        AppMonitorRepo monitorRepo = mock(AppMonitorRepo.class);
+        AiApplicationRepo applicationRepo = mock(AiApplicationRepo.class);
+        when(monitorRepo.summary(isNull(), any(OffsetDateTime.class)))
+                .thenReturn(new AppMonitorSummaryBO(20, 17, 1250, 3200));
+        when(monitorRepo.applicationHealth(any(OffsetDateTime.class))).thenReturn(List.of(
+                health(1L, "健康应用", 100, 99, 1, 2000),
+                health(2L, "慢应用", 100, 99, 1, 16000),
+                health(3L, "异常应用", 10, 8, 2, 2000),
+                health(4L, "新应用", 0, 0, 0, 0)));
+        when(monitorRepo.stages(isNull(), any(OffsetDateTime.class))).thenReturn(List.of());
+        when(monitorRepo.trend(isNull(), any(OffsetDateTime.class))).thenReturn(List.of());
+        when(monitorRepo.issues(isNull(), any(OffsetDateTime.class))).thenReturn(List.of());
+        AppMonitorServiceImpl service = new AppMonitorServiceImpl(
+                monitorRepo, applicationRepo, mock(LangfuseTraceGateway.class));
+
+        AppMonitorOverviewVO result = service.overview(new AppMonitorQuery());
+
+        assertThat(result.getApplications()).extracting(item -> item.getStatus()).containsExactly(
+                AppHealthStatus.HEALTHY,
+                AppHealthStatus.DEGRADED,
+                AppHealthStatus.CRITICAL,
+                AppHealthStatus.NO_DATA);
+    }
+
+    @Test
     void shouldRejectUnknownApplicationFilter() {
         AppMonitorRepo monitorRepo = mock(AppMonitorRepo.class);
         AiApplicationRepo applicationRepo = mock(AiApplicationRepo.class);
@@ -56,5 +85,17 @@ class AppMonitorServiceImplTest {
         assertThatThrownBy(() -> service.overview(query))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getHttpStatus()).isEqualTo(HttpStatusEnum.NOT_FOUND));
+    }
+
+    private static AppHealthBO health(Long id, String name, long total, long success, long failures, long p95Ms) {
+        AppHealthBO health = new AppHealthBO();
+        health.setApplicationId(id);
+        health.setApplicationName(name);
+        health.setTotalRuns(total);
+        health.setSuccessRuns(success);
+        health.setFailureRuns(failures);
+        health.setP95Ms(p95Ms);
+        health.setLastRunAt(OffsetDateTime.now());
+        return health;
     }
 }

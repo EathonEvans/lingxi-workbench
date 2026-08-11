@@ -7,6 +7,7 @@ import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
+import com.lingxi.workbench.chat.model.bo.ChatStepOutputEventBO;
 import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
@@ -178,6 +179,17 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
             default -> ChatGenerationEventType.STEP;
         };
         ChatGenerationEventBO generationEvent = ChatGenerationEventBO.execution(++sequence, type, event);
+        eventRepo.append(id(), generationEvent);
+        eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
+    }
+
+    /** 发布计划步骤文本增量；该事件不参与最终Assistant正文累计。 */
+    @Override
+    public synchronized void publishStepOutput(ChatStepOutputEventBO event) {
+        if (terminal || event == null || CharSequenceUtil.isEmpty(event.content())) {
+            return;
+        }
+        ChatGenerationEventBO generationEvent = ChatGenerationEventBO.stepOutput(++sequence, event);
         eventRepo.append(id(), generationEvent);
         eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
     }

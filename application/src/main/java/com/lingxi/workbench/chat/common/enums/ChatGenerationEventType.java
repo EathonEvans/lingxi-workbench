@@ -19,6 +19,8 @@ public enum ChatGenerationEventType {
     PLAN("PLAN", "执行计划"),
     /** 计划步骤状态变化。 */
     STEP("STEP", "计划步骤"),
+    /** 计划步骤产生的安全文本增量。 */
+    STEP_OUTPUT("STEP_OUTPUT", "步骤输出"),
     /** 步骤失败后开始有限重规划。 */
     REPLANNING("REPLANNING", "正在重规划"),
     /** 从数据库恢复的完整或部分回答快照。 */

@@ -4,7 +4,6 @@ import cn.hutool.core.text.CharSequenceUtil;
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
 import com.lingxi.workbench.admin.agent.common.enums.KnowledgeBindingMode;
 import com.lingxi.workbench.admin.agent.model.config.AgentDefinition;
-import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.KnowledgeSearchCapabilitySnapshot;
@@ -60,7 +59,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class AgentServiceImpl implements AgentService {
-    private static final int AGENT_SCHEMA_VERSION = 4;
+    private static final int AGENT_SCHEMA_VERSION = 5;
     private static final int KNOWLEDGE_SEARCH_MAX_QUERY_CHARACTERS = 2000;
     private static final int KNOWLEDGE_SEARCH_TIMEOUT_SECONDS = 15;
 
@@ -158,7 +157,6 @@ public class AgentServiceImpl implements AgentService {
         draft.setSchemaVersion(AGENT_SCHEMA_VERSION);
         draft.setRetrievalPolicy(RetrievalPolicy.defaults());
         draft.setGenerationPolicy(GenerationPolicy.defaults());
-        draft.setRuntimePolicy(AgentRuntimePolicy.defaults());
         draft.setToolCodes(List.of());
         draft.setToolPolicy(AgentToolPolicy.defaults());
         draft.setRevision(0L);
@@ -208,7 +206,6 @@ public class AgentServiceImpl implements AgentService {
         draft.setToolPolicy(request.getToolPolicy());
         applyTypeSpecificDraft(agent.getAgentType(), draft, request);
         draft.setGenerationPolicy(request.getGenerationPolicy());
-        draft.setRuntimePolicy(request.getRuntimePolicy());
         draft.setChangeNote(trimToNull(request.getChangeNote()));
         draft.setUpdatedBy(operatorId);
         if (!draftRepo.updateWithRevision(draft, request.getExpectedRevision())) {
@@ -375,8 +372,7 @@ public class AgentServiceImpl implements AgentService {
                 .userPromptVersionId(draft.getUserPromptVersionId())
                 .toolCodes(List.copyOf(draft.getToolCodes()))
                 .toolPolicy(draft.getToolPolicy())
-                .generationPolicy(draft.getGenerationPolicy())
-                .runtimePolicy(draft.getRuntimePolicy());
+                .generationPolicy(draft.getGenerationPolicy());
         if (agent.getAgentType() == AgentType.SUPERVISOR) {
             return builder.build();
         }

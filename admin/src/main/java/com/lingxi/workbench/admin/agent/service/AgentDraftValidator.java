@@ -1,10 +1,6 @@
 package com.lingxi.workbench.admin.agent.service;
 
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
-import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
-import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
-import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
-import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
 import com.lingxi.workbench.admin.agent.model.entity.AgentDraftEntity;
 import com.lingxi.workbench.admin.agent.model.entity.AgentDraftKnowledgeEntity;
 import com.lingxi.workbench.admin.agent.model.entity.AgentEntity;
@@ -75,13 +71,11 @@ public class AgentDraftValidator {
         validatePrompt(draft.getUserPromptVersionId(), PromptRole.USER, RuntimeVariableChannel.USER_PROMPT, "USER_PROMPT", agentType, issues);
 
         validateKnowledge(agentType, knowledgeBinding, issues);
-        validateCrossLimits(agentType, draft, knowledgeBinding, chatModel, issues);
         return new AgentValidationResultVO(issues.isEmpty(), issues);
     }
 
     private void validatePolicies(AgentType agentType, AgentDraftEntity draft, AgentDraftKnowledgeEntity knowledgeBinding, List<AgentValidationIssueVO> issues) {
         validatePolicy(draft.getGenerationPolicy(), "GENERATION_POLICY", issues);
-        validatePolicy(draft.getRuntimePolicy(), "RUNTIME_POLICY", issues);
         validatePolicy(draft.getToolPolicy(), "TOOL_POLICY", issues);
         if (agentType == AgentType.REACT && Objects.nonNull(knowledgeBinding)) {
             validatePolicy(draft.getRetrievalPolicy(), "KNOWLEDGE_SEARCH_POLICY", issues);
@@ -291,62 +285,6 @@ public class AgentDraftValidator {
                         binding.getKnowledgeBaseId(), binding.getEmbeddingModelInstanceId());
             } catch (BusinessException exception) {
                 add(issues, "KNOWLEDGE_INDEX_UNPUBLISHABLE", exception.getMessage());
-            }
-        }
-    }
-
-    private void validateCrossLimits(AgentType agentType, AgentDraftEntity draft, AgentDraftKnowledgeEntity knowledgeBinding, ModelInstanceEntity chatModel, List<AgentValidationIssueVO> issues) {
-        RetrievalPolicy retrieval = draft.getRetrievalPolicy();
-        GenerationPolicy generation = draft.getGenerationPolicy();
-        AgentRuntimePolicy runtime = draft.getRuntimePolicy();
-        AgentToolPolicy toolPolicy = draft.getToolPolicy();
-        if (Objects.isNull(generation)
-                || Objects.isNull(runtime)
-                || Objects.isNull(generation.getMaxOutputTokens())
-                || Objects.isNull(generation.getTimeoutSeconds())
-                || Objects.isNull(runtime.getMaxOutputTokens())
-                || Objects.isNull(runtime.getTotalTimeoutSeconds())
-                || Objects.isNull(runtime.getMaxModelCalls())
-                || Objects.isNull(runtime.getMaxInputTokens())
-                || Objects.isNull(toolPolicy)
-                || Objects.isNull(toolPolicy.getMaxToolCalls())) {
-            return;
-        }
-        if (generation.getMaxOutputTokens() > runtime.getMaxOutputTokens()) {
-            add(issues, "OUTPUT_LIMIT_CONFLICT", "回答输出Token上限不能超过Agent输出上限");
-        }
-        if (generation.getTimeoutSeconds() > runtime.getTotalTimeoutSeconds()) {
-            add(issues, "TIMEOUT_CONFLICT", "回答超时时间不能超过Agent总超时时间");
-        }
-        int requiredCalls = 1;
-        boolean toolEnabled = Objects.nonNull(draft.getToolCodes()) && !draft.getToolCodes().isEmpty();
-        boolean knowledgeSearchEnabled = agentType == AgentType.REACT && Objects.nonNull(knowledgeBinding);
-        if (toolEnabled || knowledgeSearchEnabled) {
-            /*
-             * 每次串行工具调用后都要再次调用模型，最后还需要一次模型调用生成自然语言回答。
-             */
-            requiredCalls += toolPolicy.getMaxToolCalls();
-        }
-        if (runtime.getMaxModelCalls() < requiredCalls) {
-            add(
-                    issues,
-                    "MODEL_CALL_LIMIT_CONFLICT",
-                    "模型调用次数上限不足，当前配置至少需要" + requiredCalls + "次");
-        }
-        if (knowledgeSearchEnabled && Objects.nonNull(retrieval)
-                && Objects.nonNull(retrieval.getMaxContextTokens())
-                && retrieval.getMaxContextTokens() >= runtime.getMaxInputTokens()) {
-            add(issues, "INPUT_BUDGET_CONFLICT", "知识搜索结果必须为用户问题和Prompt预留输入空间");
-        }
-        if (Objects.nonNull(chatModel)) {
-            if (Objects.nonNull(chatModel.getMaxTokens())
-                    && generation.getMaxOutputTokens() > chatModel.getMaxTokens()) {
-                add(issues, "MODEL_OUTPUT_LIMIT_EXCEEDED", "回答输出上限超过模型单次输出上限");
-            }
-            if (Objects.nonNull(chatModel.getContextWindow())
-                    && runtime.getMaxInputTokens() + generation.getMaxOutputTokens()
-                    > chatModel.getContextWindow()) {
-                add(issues, "MODEL_CONTEXT_LIMIT_EXCEEDED", "Agent输入输出预算超过模型上下文窗口");
             }
         }
     }

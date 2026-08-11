@@ -5,6 +5,7 @@ import com.lingxi.workbench.application.runtime.service.impl.RuntimeVariablesIni
 import com.lingxi.workbench.chat.model.bo.ChatMemoryMessageBO;
 import com.lingxi.workbench.chat.memory.MemoryContextService;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
+import com.lingxi.workbench.chat.model.bo.ConversationContextPrepareBO;
 import com.lingxi.workbench.chat.model.bo.ConversationMemorySnapshot;
 import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;
@@ -12,16 +13,22 @@ import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
 import com.lingxi.workbench.chat.service.ConversationContextService;
 import com.lingxi.workbench.chat.service.ConversationMemoryService;
 import com.lingxi.workbench.framework.context.LoginUser;
+import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
+import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
+import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
+import com.lingxi.workbench.workflow.model.ContextualizationPolicy;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 
-import java.util.Objects;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
 /** 默认的共享对话上下文准备用例。 */
 @Service
@@ -35,7 +42,14 @@ public class ConversationContextServiceImpl implements ConversationContextServic
     private final TokenCountEstimator tokenCountEstimator;
 
     @Override
-    public ConversationContext prepare(AppRuntimeSnapshot application, String query, LoginUser loginUser, ChatTurnBO turn) {
+    public ConversationContext prepare(ConversationContextPrepareBO input) {
+        AppRuntimeSnapshot application = input.application();
+        String query = input.query();
+        LoginUser loginUser = input.loginUser();
+        ChatTurnBO turn = input.turn();
+        ApplicationRuntimePolicy runtimePolicy = application.definition().runtimePolicy();
+        Instant deadline = input.startedAt().plusSeconds(runtimePolicy.getTimeoutSeconds());
+
         // ① 从 Application 发布快照读取上下文策略和 Token 预算
         ApplicationContextPolicy contextPolicy = application.definition().contextPolicy();
         ContextBudgetPolicy budget = contextPolicy.budget();
@@ -63,9 +77,11 @@ public class ConversationContextServiceImpl implements ConversationContextServic
             runtimeVariables.put(RuntimeVariableAccessors.LONG_TERM_MEMORY, longTermMemory);
         }
 
-        // ⑥ Query 上下文化：有摘要时用摘要补充语义，无摘要时保持原文
+        // ⑥ Query 重写：有摘要时用摘要补充语义，无摘要时保持原文
+        ContextualizationPolicy contextualizationPolicy = withinDeadline(contextPolicy.contextualization(), deadline);
         QueryContextualizer.ContextualizationResult contextualization = queryContextualizer
-                .contextualize(contextPolicy.contextualization(), query, runtimeVariables, memory.recentMessages());
+                .contextualize(contextualizationPolicy, query, runtimeVariables, memory.recentMessages());
+        ensureWithinDeadline(deadline);
 
         // ⑦ 组装不可变 ConversationContext，共享给后续路由和执行
         return ConversationContext.builder()
@@ -80,7 +96,45 @@ public class ConversationContextServiceImpl implements ConversationContextServic
                 .budget(budget)
                 .runtimeVariables(runtimeVariables)
                 .preparationTokenUsage(contextualization.usage())
+                .preparationModelCalls(contextualization.modelCalls())
                 .build();
+    }
+
+    /** 上下文化局部超时不得越过Application单轮硬截止。 */
+    private static ContextualizationPolicy withinDeadline(ContextualizationPolicy policy, Instant deadline) {
+        Duration remaining = remaining(deadline);
+        if (!policy.isEnabled()) {
+            return policy;
+        }
+        int timeoutSeconds = Math.min(policy.effectiveTimeoutSeconds(), Math.toIntExact(remaining.toSeconds()));
+        if (timeoutSeconds < 1) {
+            throw timeoutExceeded();
+        }
+        return ContextualizationPolicy.builder()
+                .enabled(true)
+                .chatModelInstanceId(policy.getChatModelInstanceId())
+                .promptVersionId(policy.getPromptVersionId())
+                .fallbackToOriginal(policy.isFallbackToOriginal())
+                .maxOutputTokens(policy.effectiveMaxOutputTokens())
+                .maxOutputCharacters(policy.effectiveMaxOutputCharacters())
+                .timeoutSeconds(timeoutSeconds)
+                .build();
+    }
+
+    private static void ensureWithinDeadline(Instant deadline) {
+        remaining(deadline);
+    }
+
+    private static Duration remaining(Instant deadline) {
+        Duration remaining = Duration.between(Instant.now(), deadline);
+        if (remaining.isZero() || remaining.isNegative()) {
+            throw timeoutExceeded();
+        }
+        return remaining;
+    }
+
+    private static BusinessException timeoutExceeded() {
+        return new BusinessException(HttpStatusEnum.CONFLICT, "Application单轮执行超过总超时");
     }
 
     private static List<ChatHistoryMessage> toHistory(List<ChatMemoryMessageBO> messages) {

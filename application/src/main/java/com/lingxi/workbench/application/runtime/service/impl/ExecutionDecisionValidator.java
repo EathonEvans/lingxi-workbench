@@ -103,10 +103,14 @@ public class ExecutionDecisionValidator {
                 throw invalid("计划步骤只能依赖此前步骤：" + dependency);
             }
         }
-        validateInputs(step, completedStepIds, dependencies);
+        validateInputs(step, capability, completedStepIds, dependencies);
     }
 
-    private static void validateInputs(PlanStep step, Set<String> completedStepIds, Set<String> dependencies) {
+    private static void validateInputs(PlanStep step, ApplicationCapabilityDefinition capability,
+                                       Set<String> completedStepIds, Set<String> dependencies) {
+        if (capability.getType() != ApplicationCapabilityType.TOOL && !step.inputs().isEmpty()) {
+            throw invalid("Agent或Workflow计划步骤不得声明inputs");
+        }
         Set<String> names = new HashSet<>();
         for (StepInputReference input : step.inputs()) {
             if (input == null || input.getSource() == null) {

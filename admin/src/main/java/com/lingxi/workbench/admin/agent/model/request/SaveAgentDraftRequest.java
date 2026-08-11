@@ -1,6 +1,5 @@
 package com.lingxi.workbench.admin.agent.model.request;
 
-import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
@@ -39,9 +38,6 @@ public class SaveAgentDraftRequest {
     @NotNull(message = "请配置回答生成策略")
     @Valid
     private GenerationPolicy generationPolicy;
-    @NotNull(message = "请配置Agent运行限制")
-    @Valid
-    private AgentRuntimePolicy runtimePolicy;
     @NotNull(message = "缺少草稿revision")
     @Min(value = 0, message = "草稿revision不能小于0")
     private Long expectedRevision;

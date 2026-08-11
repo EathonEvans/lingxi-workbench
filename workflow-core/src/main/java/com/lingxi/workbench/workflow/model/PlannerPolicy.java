@@ -18,20 +18,12 @@ public class PlannerPolicy {
     private Long promptVersionId;
     private int maxSteps;
     private int maxReplans;
-    private int maxModelCalls;
-    private int maxToolCalls;
-    private int tokenBudget;
-    private int timeoutSeconds;
 
     public static PlannerPolicy disabled() {
         return PlannerPolicy.builder()
                 .enabled(false)
                 .maxSteps(8)
                 .maxReplans(1)
-                .maxModelCalls(12)
-                .maxToolCalls(20)
-                .tokenBudget(32000)
-                .timeoutSeconds(300)
                 .build();
     }
 }

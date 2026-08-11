@@ -75,7 +75,6 @@ public class AgentConverter {
                 .knowledge(toKnowledgeVO(knowledge))
                 .retrievalPolicy(draft.getRetrievalPolicy())
                 .generationPolicy(draft.getGenerationPolicy())
-                .runtimePolicy(draft.getRuntimePolicy())
                 .revision(draft.getRevision())
                 .changeNote(draft.getChangeNote())
                 .build();
@@ -122,7 +121,6 @@ public class AgentConverter {
                 .toolPolicy(definition.getToolPolicy())
                 .knowledgeSearch(definition.getKnowledgeSearch())
                 .generationPolicy(definition.getGenerationPolicy())
-                .runtimePolicy(definition.getRuntimePolicy())
                 .build();
     }
 

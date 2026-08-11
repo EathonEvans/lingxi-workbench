@@ -64,10 +64,6 @@ public class AgentRuntimeDefinition {
      * 回答模型生成参数。
      */
     private GenerationPolicy generationPolicy;
-    /**
-     * 单次 Agent 执行的全局资源限制。
-     */
-    private RuntimePolicy runtimePolicy;
 
     /** 返回发布快照冻结的工具编码。 */
     public List<String> resolveToolCodes() {
@@ -111,38 +107,13 @@ public class AgentRuntimeDefinition {
          * 核采样参数。
          */
         private BigDecimal topP;
-        /**
-         * 最大输出 Token 数。
-         */
-        private Integer maxOutputTokens;
-        /**
-         * 单次模型调用超时秒数。
-         */
-        private Integer timeoutSeconds;
-        /**
-         * 模型调用失败后的最大重试次数。
-         */
-        private Integer maxRetries;
-    }
-
-    /**
-     * 运行时全局限制策略。
-     *
-     * @param totalTimeoutSeconds 整个 Agent 节点执行的总超时秒数
-     * @param maxModelCalls       最多模型调用次数
-     * @param maxInputTokens      输入 Token 总数上限
-     * @param maxOutputTokens     输出 Token 总数上限
-     */
-    public record RuntimePolicy(Integer totalTimeoutSeconds, Integer maxModelCalls, Integer maxInputTokens,
-                                Integer maxOutputTokens) {
     }
 
     /**
      * 本地工具调用边界。
      *
-     * @param maxToolCalls        最多工具调用次数
      * @param maxResultCharacters 单次工具结果最大字符数
      */
-    public record ToolPolicy(Integer maxToolCalls, Integer maxResultCharacters) {
+    public record ToolPolicy(Integer maxResultCharacters) {
     }
 }

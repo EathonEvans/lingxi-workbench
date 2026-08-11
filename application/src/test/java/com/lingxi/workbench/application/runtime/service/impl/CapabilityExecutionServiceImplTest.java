@@ -16,9 +16,12 @@ import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
+import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 import io.micrometer.observation.ObservationRegistry;
+
+import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -101,6 +104,29 @@ class CapabilityExecutionServiceImplTest {
                         JSONObject.of("query", "问题"), context())));
 
         assertEquals("能力执行超时：consult_agent", exception.getMessage());
+    }
+
+    @Test
+    void shouldRejectExpiredApplicationDeadlineBeforeCapabilityExecution() {
+        AgentChatService agentChatService = mock(AgentChatService.class);
+        AgentRuntimeService agentRuntimeService = mock(AgentRuntimeService.class);
+        ApplicationCapabilityChecksum checksum = new ApplicationCapabilityChecksum();
+        CapabilityExecutionServiceImpl service = service(
+                agentChatService, agentRuntimeService, checksum, mock(TokenCountEstimator.class));
+        ChatExecutionContext context = ChatExecutionContext.builder()
+                .executionId("expired-execution")
+                .runtimeVariables(new RuntimeVariables())
+                .turn(new ChatTurnBO(10L, 11L, 12L, 1))
+                .runtimePolicy(ApplicationRuntimePolicy.builder().timeoutSeconds(1).build())
+                .startedAt(Instant.now().minusSeconds(2))
+                .build();
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.execute(
+                new CapabilityExecutionRequest(agentCapability(checksum.calculate(70L), 10),
+                        JSONObject.of("query", "问题"), context)));
+
+        assertEquals("Application单轮执行超过总超时", exception.getMessage());
+        verifyNoInteractions(agentChatService, agentRuntimeService);
     }
 
     private static CapabilityExecutionServiceImpl service(AgentChatService agentChatService,

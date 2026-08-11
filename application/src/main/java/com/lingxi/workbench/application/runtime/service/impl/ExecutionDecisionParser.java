@@ -1,8 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.impl;
 
-import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONException;
 import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.application.runtime.model.ExecutionDecision;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
@@ -25,23 +23,18 @@ public class ExecutionDecisionParser {
     /**
      * 只接受单个 JSON 对象；Markdown 代码块和未声明字段均视为协议错误。
      */
-    public ExecutionDecision parse(String output) {
-        if (output == null || output.isBlank()) {
+    public ExecutionDecision parse(JSONObject output) {
+        if (output == null || output.isEmpty()) {
             throw invalid("Planner返回内容为空");
         }
-        String normalized = output.trim();
-        if (!normalized.startsWith("{") || !normalized.endsWith("}")) {
-            throw invalid("Planner必须返回单个JSON对象");
-        }
         try {
-            JSONObject root = JSON.parseObject(normalized);
-            requireKnownFields(root, DECISION_FIELDS, "决策");
-            validatePlanShape(root.get("plan"));
-            validateClarificationShape(root.get("clarification"));
-            return root.toJavaObject(ExecutionDecision.class);
+            requireKnownFields(output, DECISION_FIELDS, "决策");
+            validatePlanShape(output.get("plan"));
+            validateClarificationShape(output.get("clarification"));
+            return output.toJavaObject(ExecutionDecision.class);
         } catch (BusinessException exception) {
             throw exception;
-        } catch (JSONException | IllegalArgumentException exception) {
+        } catch (IllegalArgumentException exception) {
             throw invalid("Planner返回的JSON结构无效");
         }
     }

@@ -3,6 +3,7 @@ package com.lingxi.workbench.chat.holder;
 import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
+import com.lingxi.workbench.chat.model.bo.ChatStepOutputEventBO;
 import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
@@ -45,6 +46,28 @@ class RunningGenerationTaskTest {
         assertEquals(AgentToolExecutionStatus.SUCCEEDED, events.get(1).tool().getStatus());
         assertEquals(ChatGenerationEventType.COMPLETED, events.get(2).type());
         assertEquals("回答", task.answer());
+    }
+
+    @Test
+    void shouldPublishStepOutputWithoutAppendingAssistantAnswer() {
+        RunningGenerationTask task = RunningGenerationTask.builder()
+                .turn(new ChatTurnBO(10L, 11L, 12L, 1))
+                .userId(7L)
+                .applicationVersionId(30L)
+                .memoryConfig(MemoryConfig.disabled())
+                .eventRepo(mock(ChatGenerationEventRepo.class))
+                .traceRun(mock(AiTraceRun.class))
+                .build();
+
+        task.publishStepOutput(new ChatStepOutputEventBO("run-1", 1, "collect", "步骤结果"));
+        assertTrue(task.beginTerminal());
+        task.publishTerminal(ChatGenerationEventBO.completed());
+
+        List<ChatGenerationEventBO> events = task.eventsAfter(0).collectList().block();
+
+        assertEquals(ChatGenerationEventType.STEP_OUTPUT, events.getFirst().type());
+        assertEquals("步骤结果", events.getFirst().stepOutput().content());
+        assertEquals("", task.answer());
     }
 
     private static AgentToolExecutionEvent toolEvent(AgentToolExecutionStatus status, Long durationMillis) {

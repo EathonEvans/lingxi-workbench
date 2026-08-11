@@ -14,7 +14,11 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/** Assistant 完成后的异步记忆编排，只负责调度三个相互独立的记忆用例。 */
+import static org.springframework.boot.autoconfigure.task.TaskExecutionAutoConfiguration.APPLICATION_TASK_EXECUTOR_BEAN_NAME;
+
+/**
+ * Assistant 完成后的异步记忆编排，只负责调度三个相互独立的记忆用例。
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -29,13 +33,15 @@ public class MemoryPostProcessor {
     private final InteractionRecordMemoryService interactionService;
     private final AiStageObserver aiStageObserver;
 
-    @Async
+    @Async(APPLICATION_TASK_EXECUTOR_BEAN_NAME)
     @EventListener
     public void onAssistantCompleted(AssistantCompletedEvent event) {
         aiStageObserver.observe(AiObservationStage.MEMORY_POST, () -> process(event));
     }
 
-    /** 三条记忆管线共享同一个MEMORY_POST父span，单条失败仍按既有隔离策略处理。 */
+    /**
+     * 三条记忆管线共享同一个MEMORY_POST父span，单条失败仍按既有隔离策略处理。
+     */
     private void process(AssistantCompletedEvent event) {
         MemoryConfig config = event.memoryConfig();
         if (config.summary().isEnabled()) {

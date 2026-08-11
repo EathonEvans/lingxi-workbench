@@ -14,9 +14,21 @@ import org.mockito.ArgumentCaptor;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class AiRuntimeObservationHandlerTest {
+
+    @Test
+    void shouldIgnoreUnnamedWebObservationContext() {
+        AiObservationEventWriter writer = mock(AiObservationEventWriter.class);
+        AiRuntimeObservationHandler handler = new AiRuntimeObservationHandler(writer);
+
+        boolean supported = handler.supportsContext(new Observation.Context());
+
+        assertThat(supported).isFalse();
+        verifyNoInteractions(writer);
+    }
 
     @Test
     void shouldPersistToolNameWithoutArgumentsOrResult() {

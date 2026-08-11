@@ -111,10 +111,16 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
      * 统一转换一轮模型流，文本与 Usage 均沿用普通对话的输出契约。
      */
     private Flux<ChatStreamChunk> streamAnswer(Flux<ChatResponse> responseStream) {
-        // 保留有文本或真实 Usage 的分片；仅含空文本且无用量的信息不向上游传播。
-        return responseStream
-                .map(SpringAiStreamingChatGateway::toChunk)
-                .filter(SpringAiStreamingChatGateway::hasContentOrUsage);
+        return Flux.defer(() -> {
+            AtomicReference<TokenUsage> latestUsage = new AtomicReference<>(TokenUsage.empty());
+            Flux<ChatStreamChunk> contentChunks = responseStream
+                    .map(response -> toContentChunk(response, latestUsage))
+                    .filter(chunk -> !chunk.content().isEmpty());
+
+            // Spring AI Usage 表示当前模型请求的累计快照，不是当前文本分片的增量。
+            // 整轮结束后只向上游发送一次最终快照，避免兼容供应商逐片重复返回 Usage 时被重复累加。
+            return contentChunks.concatWith(Mono.defer(() -> finalUsageChunk(latestUsage.get())));
+        });
     }
 
     /**
@@ -169,13 +175,18 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
         }
 
         int requestedToolCalls = Objects.requireNonNull(completedResponse.getResult()).getOutput().getToolCalls().size();
-        loopState.recordToolCalls(requestedToolCalls);
+        if (loopState.shouldFinalizeBeforeToolExecution()) {
+            return streamFinalAnswer(chatModel, prompt, loopState, "模型工作预算已到边界");
+        }
+        if (!loopState.tryRecordToolCalls(requestedToolCalls)) {
+            return streamFinalAnswer(chatModel, prompt, loopState, "工具调用额度已用尽");
+        }
 
         return executeToolCalling(prompt, completedResponse)
                 .flatMapMany(result -> {
                     Prompt answerPrompt = new Prompt(result.conversationHistory(), prompt.getOptions());
                     if (loopState.shouldFinalize()) {
-                        return streamFinalAnswer(chatModel, answerPrompt, loopState);
+                        return streamFinalAnswer(chatModel, answerPrompt, loopState, "运行预算已到边界或工具结果已经重复");
                     }
                     return streamAnswer(chatModel, answerPrompt, runtimeConfig, loopState);
                 });
@@ -184,11 +195,12 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
     /**
      * 预算接近上限或命中重复调用时，保留一次禁用工具的模型调用用于整理已有证据。
      */
-    private Flux<ChatStreamChunk> streamFinalAnswer(OpenAiChatModel chatModel, Prompt prompt, AgentLoopState loopState) {
+    private Flux<ChatStreamChunk> streamFinalAnswer(OpenAiChatModel chatModel, Prompt prompt, AgentLoopState loopState,
+                                                    String reason) {
         return Flux.defer(() -> {
-            loopState.beginModelCall();
+            loopState.beginFinalModelCall();
             List<Message> messages = new ArrayList<>(prompt.getInstructions());
-            messages.add(new SystemMessage("运行预算已接近边界或工具结果已经重复。请停止调用任何工具，基于已有信息直接回答；信息不足时明确说明缺少什么。"));
+            messages.add(new SystemMessage(reason + "。禁止继续调用工具、委派或规划；请优先基于已有证据给出可用答案。证据不足时只提出一个最关键的补充问题，并明确说明当前结论的限制。"));
             OpenAiChatOptions options = ((OpenAiChatOptions) prompt.getOptions()).mutate()
                     .toolCallbacks(List.of())
                     .toolChoice("none")
@@ -228,24 +240,25 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
                 .orElse("");
     }
 
-    /**
-     * 从 Spring AI 响应中提取文本增量和 Token 用量。
-     * 空响应被转换为空分片，由上游过滤逻辑统一丢弃。
-     */
-    private static ChatStreamChunk toChunk(ChatResponse response) {
+    /** 从 Spring AI 响应中提取文本，并保留本轮最后一个真实 Usage 快照。 */
+    private static ChatStreamChunk toContentChunk(ChatResponse response, AtomicReference<TokenUsage> latestUsage) {
         if (Objects.isNull(response)) {
             return new ChatStreamChunk("");
         }
         String content = finalContent(response);
         TokenUsage usage = TokenUsageConverter.convertActual(response.getMetadata().getUsage());
-        return new ChatStreamChunk(content, usage);
+        if (usage.hasUsage()) {
+            latestUsage.set(usage);
+        }
+        return new ChatStreamChunk(content);
     }
 
-    /**
-     * 过滤供应商返回的无文本、无 Token 用量空分片。
-     */
-    private static boolean hasContentOrUsage(ChatStreamChunk chunk) {
-        return !chunk.content().isEmpty() || chunk.hasUsage();
+    /** 模型整轮结束时只发布一次最终 Usage；供应商未返回时不制造空分片。 */
+    private static Mono<ChatStreamChunk> finalUsageChunk(TokenUsage usage) {
+        if (!usage.hasUsage()) {
+            return Mono.empty();
+        }
+        return Mono.just(new ChatStreamChunk("", usage));
     }
 
     private static BoundedToolCallback boundedCallback(AgentTool tool, AgentToolRuntimeConfig runtimeConfig, int maxResultCharacters,

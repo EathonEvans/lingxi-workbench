@@ -20,6 +20,7 @@ import com.lingxi.workbench.application.runtime.service.ChatExecutionContextRegi
 import com.lingxi.workbench.application.runtime.service.IntentRoutingService;
 import com.lingxi.workbench.application.runtime.service.PlannerRuntimeCoordinator;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
+import com.lingxi.workbench.chat.model.bo.ConversationContextPrepareBO;
 import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
 import com.lingxi.workbench.chat.service.ConversationContextService;
@@ -44,6 +45,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
@@ -73,6 +75,9 @@ import java.util.function.Supplier;
 @Slf4j
 @RequiredArgsConstructor
 public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecutionService {
+
+    private static final String BUDGET_BOUNDARY_RESPONSE =
+            "本轮上下文处理已达到预算边界，请缩小问题范围或开启新对话后继续。";
 
     /**
      * 默认入口在能力目录中保留的唯一编码。区分快速路由中命中的具体能力。
@@ -117,7 +122,13 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
 
         // ② 一次性准备窗口记忆、摘要、长期记忆和运行时变量，后续路由与执行共享同一上下文
         ConversationContext preparedContext = aiStageObserver.observe(AiObservationStage.CONTEXT_PREPARE,
-                () -> conversationContextService.prepare(snapshot, request.getQuery(), request.getLoginUser(), request.getTurn()));
+                () -> conversationContextService.prepare(ConversationContextPrepareBO.builder()
+                        .application(snapshot)
+                        .query(request.getQuery())
+                        .loginUser(request.getLoginUser())
+                        .turn(request.getTurn())
+                        .startedAt(startedAt)
+                        .build()));
 
         // ③ 恢复上一轮Planner澄清或确认结果，并生成本轮真正参与路由的问题
         PlannerContextResolution plannerResolution = plannerRuntimeCoordinator.resolveInteraction(
@@ -148,8 +159,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         return switch (routing.getAction()) {
             case FIXED_RESPONSE -> new ChatDispatch.Fixed(routing.getResponse());
             case CLARIFICATION -> new ChatDispatch.Clarify(routing.getResponse(), routing.getClarification());
-            case EXECUTE_AGENT -> new ChatDispatch.Capability(executionQuery,
-                    resolveFastRouteCapability(snapshot, routing.getMapping(), ApplicationCapabilityType.REACT_AGENT));
+            case EXECUTE_AGENT -> new ChatDispatch.Capability(executionQuery, resolveFastRouteCapability(snapshot, routing.getMapping(), ApplicationCapabilityType.REACT_AGENT));
             case EXECUTE_WORKFLOW -> new ChatDispatch.Capability(executionQuery,
                     resolveFastRouteCapability(snapshot, routing.getMapping(), ApplicationCapabilityType.WORKFLOW));
             case SKIPPED, NO_MATCH -> resolveFallbackDispatch(snapshot, executionQuery, plannerResolution);
@@ -188,7 +198,8 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         };
 
         // ② 基于最终执行问题派生运行时变量，并构建本轮唯一的可写执行上下文
-        ChatExecutionContext executionContext = createExecutionContext(request, conversationContext, executionId, dispatch.query());
+        ChatExecutionContext executionContext = createExecutionContext(
+                request, conversationContext, executionId, dispatch.query(), startedAt);
 
         // ③ Workflow节点只携带executionId，通过注册表读取同一份可信上下文
         executionContextRegistry.register(executionContext);
@@ -201,10 +212,10 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                             .conversationContext(conversationContext)
                             .executionContext(executionContext)
                             .confirmedCapabilityCodes(planner.confirmedCapabilityCodes())
-                            .startedAt(startedAt)
                             .build());
-                    case ChatDispatch.Capability capability -> executeCapability(
-                            capability.capability(), capability.query(), executionContext);
+                    case ChatDispatch.Capability capability -> executionContext.hasFinalizationCapacity()
+                            ? executeCapability(capability.capability(), capability.query(), executionContext)
+                            : budgetBoundaryResult(executionContext);
                 });
 
             // ⑤ 统一记录最终执行类型、轨迹数量和完整链路耗时
@@ -236,14 +247,16 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         return false;
     }
 
-    private static ChatExecutionContext createExecutionContext(ApplicationChatExecutionRequest request, ConversationContext conversationContext, String executionId, String executionQuery) {
+    private static ChatExecutionContext createExecutionContext(ApplicationChatExecutionRequest request, ConversationContext conversationContext,
+                                                               String executionId, String executionQuery, Instant startedAt) {
         AppRuntimeSnapshot snapshot = request.getApplication();
         // 每种执行路径都从已准备变量派生独立副本，避免执行期修改污染ConversationContext
         RuntimeVariables runtimeVariables = conversationContext.getRuntimeVariables().forkForQuery(executionQuery);
         // 多Agent协作未启用时不创建协作作用域，普通ReAct与Workflow保持最小运行状态
         AgentCollaborationScope collaborationScope = Optional.ofNullable(snapshot.definition().collaboration())
                 .filter(AgentCollaborationDefinition::enabled)
-                .map(AgentCollaborationScope::root)
+                .map(definition -> AgentCollaborationScope.root(
+                        definition, snapshot.definition().runtimePolicy().getMaxDelegations()))
                 .orElse(null);
         return ChatExecutionContext.builder()
                 .executionId(executionId)
@@ -253,7 +266,11 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                 .collaborationScope(collaborationScope)
                 .memoryConfig(snapshot.definition().memoryConf())
                 .conversationContext(conversationContext)
+                .runtimePolicy(snapshot.definition().runtimePolicy())
+                .contextBudget(snapshot.definition().contextPolicy().budget())
+                .startedAt(startedAt)
                 .tokenUsageAccumulator(initialUsage(conversationContext.getPreparationTokenUsage()))
+                .modelCallCounter(new AtomicInteger(conversationContext.getPreparationModelCalls()))
                 .build();
     }
 
@@ -369,6 +386,11 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
             throw new BusinessException(HttpStatusEnum.CONFLICT, "能力必须返回非空结果");
         }
         return new ApplicationChatResult(result.content(), context.tokenUsage(), result.traces(), result.modelInstanceId());
+    }
+
+    /** 上下文准备已经越过硬边界时保留真实用量，并停止继续产生模型或Tool成本。 */
+    private static ApplicationChatResult budgetBoundaryResult(ChatExecutionContext context) {
+        return new ApplicationChatResult(BUDGET_BOUNDARY_RESPONSE, context.tokenUsage(), List.of());
     }
 
     /**

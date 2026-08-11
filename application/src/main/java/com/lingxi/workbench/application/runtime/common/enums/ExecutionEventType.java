@@ -14,6 +14,7 @@ public enum ExecutionEventType {
     STEP_COMPLETED("STEP_COMPLETED", "步骤已完成"),
     STEP_FAILED("STEP_FAILED", "步骤失败"),
     REPLANNING("REPLANNING", "正在重新规划"),
+    FINALIZING("FINALIZING", "正在整理现有结果"),
     CLARIFICATION_REQUIRED("CLARIFICATION_REQUIRED", "需要用户澄清"),
     RUN_COMPLETED("RUN_COMPLETED", "运行已完成"),
     RUN_FAILED("RUN_FAILED", "运行失败"),

@@ -123,7 +123,9 @@ class ApplicationDraftValidatorTest {
         gateway.addVersion(10L, 101L);
         gateway.addAgent(20L, true, 201L);
         gateway.addVersion(20L, 201L);
-        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true, new ApplicationAgentReference(10L, null, null, null), List.of(new ApplicationAgentReference(20L, null, null, null)), new AgentCollaborationLimits(3, 1));
+        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true,
+                new ApplicationAgentReference(10L, null, null, null),
+                List.of(new ApplicationAgentReference(20L, null, null, null)), new AgentCollaborationLimits(1));
 
         ApplicationDefinitionResolution result = validator.resolveForPublish(ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION).collaboration(collaboration)
@@ -139,7 +141,9 @@ class ApplicationDraftValidatorTest {
     void shouldRejectSupervisorDuplicatedAsMember() {
         gateway.addAgent(10L, true, 101L, AgentType.SUPERVISOR);
         gateway.addVersion(10L, 101L);
-        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true, new ApplicationAgentReference(10L, null, null, null), List.of(new ApplicationAgentReference(10L, null, null, null)), new AgentCollaborationLimits(3, 1));
+        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true,
+                new ApplicationAgentReference(10L, null, null, null),
+                List.of(new ApplicationAgentReference(10L, null, null, null)), new AgentCollaborationLimits(1));
 
         ApplicationDefinitionResolution result = validator.resolveForPublish(ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION).collaboration(collaboration)
@@ -155,7 +159,9 @@ class ApplicationDraftValidatorTest {
         gateway.addVersion(10L, 101L);
         gateway.addAgent(20L, true, 201L, AgentType.REACT);
         gateway.addVersion(20L, 201L);
-        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true, new ApplicationAgentReference(10L, null, null, null), List.of(new ApplicationAgentReference(20L, null, null, null)), new AgentCollaborationLimits(3, 1));
+        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true,
+                new ApplicationAgentReference(10L, null, null, null),
+                List.of(new ApplicationAgentReference(20L, null, null, null)), new AgentCollaborationLimits(1));
 
         ApplicationDefinitionResolution result = validator.resolveForPublish(ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION).collaboration(collaboration)
@@ -448,10 +454,6 @@ class ApplicationDraftValidatorTest {
                 .promptVersionId(701L)
                 .maxSteps(6)
                 .maxReplans(1)
-                .maxModelCalls(12)
-                .maxToolCalls(10)
-                .tokenBudget(24000)
-                .timeoutSeconds(180)
                 .build();
         ApplicationDefinition draft = ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
@@ -467,17 +469,13 @@ class ApplicationDraftValidatorTest {
     }
 
     @Test
-    void shouldRejectPlannerReferencesAndBudgetsOutsideRuntimeBoundary() {
+    void shouldRejectInvalidPlannerReferencesAndPlanningBounds() {
         gateway.addAgent(40L, true, 401L, AgentType.REACT);
         gateway.addVersion(40L, 401L);
         PlannerPolicy planner = PlannerPolicy.builder()
                 .enabled(true)
                 .maxSteps(21)
                 .maxReplans(4)
-                .maxModelCalls(20)
-                .maxToolCalls(21)
-                .tokenBudget(64001)
-                .timeoutSeconds(301)
                 .build();
         ApplicationDefinition draft = ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
@@ -491,9 +489,84 @@ class ApplicationDraftValidatorTest {
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
                 .contains("PLANNER_MODEL_REQUIRED", "PLANNER_PROMPT_REQUIRED", "PLANNER_STEPS_INVALID",
-                        "PLANNER_REPLANS_INVALID", "PLANNER_MODEL_BUDGET_EXCEEDED",
-                        "PLANNER_TOOL_BUDGET_EXCEEDED", "PLANNER_TOKEN_BUDGET_EXCEEDED",
-                        "PLANNER_TIMEOUT_EXCEEDED");
+                        "PLANNER_REPLANS_INVALID");
+    }
+
+    @Test
+    void shouldRequireSharedModelBudgetForPlannerAndTargetExecution() {
+        gateway.addAgent(40L, true, 401L, AgentType.REACT);
+        gateway.addVersion(40L, 401L);
+        models.put(601L, new ModelInstanceReferenceBO(601L, ModelType.CHAT, EnableStatus.ACTIVE));
+        prompts.put(701L, new PromptService.PromptVersionReference(701L, PromptRole.SYSTEM, true, List.of()));
+        PlannerPolicy planner = PlannerPolicy.builder().enabled(true).chatModelInstanceId(601L)
+                .promptVersionId(701L).maxSteps(6).maxReplans(1).build();
+        ApplicationRuntimePolicy runtime = ApplicationRuntimePolicy.builder()
+                .maxModelCalls(1).maxToolCalls(4).maxDelegations(0)
+                .totalTokenBudget(64000).timeoutSeconds(300).build();
+
+        ApplicationDefinitionResolution result = validator.resolveForPublish(ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
+                .plannerPolicy(planner)
+                .runtimePolicy(runtime)
+                .build());
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .contains("RUNTIME_MODEL_CALLS_INSUFFICIENT");
+    }
+
+    @Test
+    void shouldRejectCapabilityBoundaryExceedingApplicationRuntimeBudget() {
+        gateway.addAgent(40L, true, 401L, AgentType.REACT);
+        gateway.addVersion(40L, 401L);
+        ApplicationCapabilityDefinition defaultCapability = ApplicationCapabilityDefinition.builder()
+                .code("default_agent")
+                .type(ApplicationCapabilityType.REACT_AGENT)
+                .targetId(40L)
+                .timeoutSeconds(200)
+                .resultTokenBudget(2000)
+                .build();
+        ApplicationRuntimePolicy runtimePolicy = ApplicationRuntimePolicy.builder()
+                .maxModelCalls(4)
+                .maxToolCalls(4)
+                .maxDelegations(0)
+                .totalTokenBudget(1024)
+                .timeoutSeconds(100)
+                .build();
+        ApplicationDefinition draft = ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
+                .capabilityCatalog(CapabilityCatalogSnapshot.builder()
+                        .capabilities(List.of(defaultCapability))
+                        .build())
+                .runtimePolicy(runtimePolicy)
+                .build();
+
+        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .contains("CAPABILITY_TIMEOUT_EXCEEDS_RUNTIME", "CAPABILITY_RESULT_BUDGET_EXCEEDS_RUNTIME");
+    }
+
+    @Test
+    void shouldNormalizeAndValidateTokenFinalizationGrace() {
+        gateway.addAgent(40L, true, 401L, AgentType.REACT);
+        gateway.addVersion(40L, 401L);
+        ApplicationRuntimePolicy runtimePolicy = ApplicationRuntimePolicy.defaults();
+        runtimePolicy.setTokenGracePercent(31);
+        ApplicationDefinition draft = ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .defaultAgent(new ApplicationAgentReference(40L, null, null, null))
+                .runtimePolicy(runtimePolicy)
+                .build();
+
+        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .contains("RUNTIME_TOKEN_GRACE_INVALID");
     }
 
     @Test

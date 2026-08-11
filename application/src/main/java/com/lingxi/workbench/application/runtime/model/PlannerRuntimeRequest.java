@@ -4,7 +4,6 @@ import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import lombok.Builder;
 import lombok.Getter;
 
-import java.time.Instant;
 import java.util.Set;
 
 /** 初始Planner模型调用和后续计划执行的聚合输入。 */
@@ -15,7 +14,6 @@ public class PlannerRuntimeRequest {
     private String runId;
     private ConversationContext conversationContext;
     private ChatExecutionContext executionContext;
-    private Instant startedAt;
     private Set<String> confirmedCapabilityCodes;
 
     public Set<String> confirmedCapabilityCodes() {

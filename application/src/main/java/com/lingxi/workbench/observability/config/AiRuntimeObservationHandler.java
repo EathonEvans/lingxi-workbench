@@ -62,7 +62,8 @@ public class AiRuntimeObservationHandler implements ObservationHandler<Observati
 
     @Override
     public boolean supportsContext(Observation.Context context) {
-        return SUPPORTED_NAMES.contains(context.getName());
+        // Web 请求等通用 Observation 在 Handler 匹配阶段可能尚未设置名称，必须安全拒绝而非影响请求链路。
+        return Objects.nonNull(context.getName()) && SUPPORTED_NAMES.contains(context.getName());
     }
 
     private static AiObservationEventType eventType(String observationName) {

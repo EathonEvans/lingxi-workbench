@@ -13,8 +13,6 @@ import java.util.Objects;
  */
 final class AgentLoopState {
 
-    private static final double WARNING_RATIO = 0.7D;
-
     private final AgentToolRuntimeConfig runtimeConfig;
     private final TokenUsageAccumulator tokenUsage = new TokenUsageAccumulator();
     private final AgentToolExecutionLedger toolLedger = new AgentToolExecutionLedger();
@@ -26,11 +24,11 @@ final class AgentLoopState {
         this.runtimeConfig = Objects.requireNonNull(runtimeConfig, "工具运行配置不能为空");
     }
 
-    /** 模型调用前校验硬边界并占用一次调用额度。 */
+    /** 工作模型调用前校验软边界并占用一次调用额度。 */
     void beginModelCall() {
-        if (completedModelCalls >= runtimeConfig.getMaxModelCalls()) {
+        if (completedModelCalls >= runtimeConfig.getMaxModelCalls() - 1) {
             throw new AgentLoopLimitException("AGENT_MODEL_CALL_LIMIT", "处理步骤已达到上限，请缩小问题范围后重试",
-                    "工具调用循环超过模型调用次数限制，limit=" + runtimeConfig.getMaxModelCalls());
+                    "Agent工作模型额度已用尽，已保留最终回答调用，limit=" + runtimeConfig.getMaxModelCalls());
         }
         TokenUsage currentUsage = tokenUsage.snapshot();
         if (hasReached(currentUsage.inputTokens(), runtimeConfig.getMaxInputTokens())) {
@@ -41,6 +39,26 @@ final class AgentLoopState {
             throw new AgentLoopLimitException("AGENT_OUTPUT_TOKEN_LIMIT", "本次回答已达到生成上限，请拆分问题后重试",
                     "Agent累计输出Token超过限制，limit=" + runtimeConfig.getMaxOutputTokens());
         }
+        if (hasReached(currentUsage.totalTokens(), runtimeConfig.getMaxTotalTokens())) {
+            throw new AgentLoopLimitException("AGENT_TOTAL_TOKEN_LIMIT", "本次处理的信息量已达到上限，正在整理已有结果",
+                    "Agent累计Token达到工作软上限，limit=" + runtimeConfig.getMaxTotalTokens());
+        }
+        runtimeConfig.getExecutionBudget().reserveModelCall();
+        completedModelCalls++;
+    }
+
+    /** 禁用工具的最终回答调用只校验硬边界，并使用Application预留额度。 */
+    void beginFinalModelCall() {
+        if (completedModelCalls >= runtimeConfig.getMaxModelCalls()) {
+            throw new AgentLoopLimitException("AGENT_MODEL_CALL_LIMIT", "本次处理已达到模型调用硬上限",
+                    "Agent最终回答没有可用模型调用额度，limit=" + runtimeConfig.getMaxModelCalls());
+        }
+        TokenUsage currentUsage = tokenUsage.snapshot();
+        if (hasReached(currentUsage.totalTokens(), runtimeConfig.getMaxFinalizationTokens())) {
+            throw new AgentLoopLimitException("AGENT_TOTAL_TOKEN_HARD_LIMIT", "本次处理已达到Token硬上限",
+                    "Agent累计Token达到最终回答硬上限，limit=" + runtimeConfig.getMaxFinalizationTokens());
+        }
+        runtimeConfig.getExecutionBudget().reserveFinalModelCall();
         completedModelCalls++;
     }
 
@@ -49,13 +67,14 @@ final class AgentLoopState {
         tokenUsage.add(usage);
     }
 
-    /** 校验并累计模型本轮请求的工具数量。 */
-    void recordToolCalls(int requestedToolCalls) {
+    /** 尝试占用模型本轮请求的工具数量；额度不足时由调用方直接进入最终回答。 */
+    boolean tryRecordToolCalls(int requestedToolCalls) {
         if (completedToolCalls + requestedToolCalls > runtimeConfig.getMaxToolCalls()) {
-            throw new AgentLoopLimitException("AGENT_TOOL_CALL_LIMIT", "工具调用次数已达到上限，现有信息不足以继续处理",
-                    "模型请求的工具调用次数超过Agent限制，limit=" + runtimeConfig.getMaxToolCalls());
+            return false;
         }
+        runtimeConfig.getExecutionBudget().reserveToolCalls(requestedToolCalls);
         completedToolCalls += requestedToolCalls;
+        return true;
     }
 
     AgentToolExecutionLedger toolLedger() {
@@ -70,20 +89,15 @@ final class AgentLoopState {
     /** 判断下一轮是否必须禁用工具并收敛为最终回答。 */
     boolean shouldFinalize() {
         return finalResponseRequested || completedModelCalls >= runtimeConfig.getMaxModelCalls() - 1
-                || isWarningThresholdReached();
+                || hasReached(tokenUsage.snapshot().totalTokens(), runtimeConfig.getMaxTotalTokens());
     }
 
-    private boolean isWarningThresholdReached() {
-        TokenUsage currentUsage = tokenUsage.snapshot();
-        return hasReachedRatio(currentUsage.inputTokens(), runtimeConfig.getMaxInputTokens())
-                || hasReachedRatio(currentUsage.outputTokens(), runtimeConfig.getMaxOutputTokens());
+    /** Token软上限命中后不再执行模型刚请求的新工具，避免继续扩大上下文。 */
+    boolean shouldFinalizeBeforeToolExecution() {
+        return hasReached(tokenUsage.snapshot().totalTokens(), runtimeConfig.getMaxTotalTokens());
     }
 
     private static boolean hasReached(Integer usedTokens, int limit) {
         return limit > 0 && Objects.nonNull(usedTokens) && usedTokens >= limit;
-    }
-
-    private static boolean hasReachedRatio(Integer usedTokens, int limit) {
-        return limit > 0 && Objects.nonNull(usedTokens) && (double) usedTokens / limit >= WARNING_RATIO;
     }
 }

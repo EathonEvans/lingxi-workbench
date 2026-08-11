@@ -55,7 +55,6 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
-import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.MAX_DELEGATIONS;
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.MAX_MEMBER_AGENTS;
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.MIN_DELEGATIONS;
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.MIN_MEMBER_AGENTS;
@@ -117,7 +116,8 @@ public class ApplicationDraftValidator {
         MemoryConfig memoryConf = resolveMemory(draftDefinition.memoryConf(), fastRouteResolution.embeddingModelInstanceId(), issues);
         PlannerPolicy plannerPolicy = resolvePlannerPolicy(draftDefinition.plannerPolicy(), issues);
         ApplicationRuntimePolicy runtimePolicy = resolveRuntimePolicy(draftDefinition.runtimePolicy(), issues);
-        validatePlannerRuntimeBudget(plannerPolicy, runtimePolicy, issues);
+        validateRuntimeBoundaries(
+                runtimePolicy, capabilityCatalog, collaboration, contextPolicy, plannerPolicy, issues);
         if (Objects.isNull(defaultAgent)) {
             issues.add(issue("EXECUTION_ENTRY_REQUIRED", "definition.defaultAgent", "请选择默认ReAct Agent"));
         }
@@ -362,43 +362,13 @@ public class ApplicationDraftValidator {
         validatePlannerPrompt(policy.getPromptVersionId(), issues);
         validateRange(policy.getMaxSteps(), 1, 20, "PLANNER_STEPS_INVALID", "definition.plannerPolicy.maxSteps", "计划步骤数", issues);
         validateRange(policy.getMaxReplans(), 0, 3, "PLANNER_REPLANS_INVALID", "definition.plannerPolicy.maxReplans", "重规划次数", issues);
-        validateRange(policy.getMaxModelCalls(), 2, 100, "PLANNER_MODEL_CALLS_INVALID", "definition.plannerPolicy.maxModelCalls", "规划模型调用次数", issues);
-        validateRange(policy.getMaxToolCalls(), 0, 100, "PLANNER_TOOL_CALLS_INVALID", "definition.plannerPolicy.maxToolCalls", "计划Tool调用次数", issues);
-        validateRange(policy.getTokenBudget(), 1024, 200000, "PLANNER_TOKEN_BUDGET_INVALID", "definition.plannerPolicy.tokenBudget", "规划Token预算", issues);
-        validateRange(policy.getTimeoutSeconds(), 5, 3600, "PLANNER_TIMEOUT_INVALID", "definition.plannerPolicy.timeoutSeconds", "规划超时时间", issues);
         return PlannerPolicy.builder()
                 .enabled(true)
                 .chatModelInstanceId(policy.getChatModelInstanceId())
                 .promptVersionId(policy.getPromptVersionId())
                 .maxSteps(policy.getMaxSteps())
                 .maxReplans(policy.getMaxReplans())
-                .maxModelCalls(policy.getMaxModelCalls())
-                .maxToolCalls(policy.getMaxToolCalls())
-                .tokenBudget(policy.getTokenBudget())
-                .timeoutSeconds(policy.getTimeoutSeconds())
                 .build();
-    }
-
-    /**
-     * Planner 只能使用 Application 总运行预算的子集。
-     */
-    private static void validatePlannerRuntimeBudget(PlannerPolicy planner, ApplicationRuntimePolicy runtime,
-                                                     List<ApplicationValidationIssueVO> issues) {
-        if (!planner.isEnabled()) {
-            return;
-        }
-        if (planner.getMaxModelCalls() > runtime.getMaxModelCalls()) {
-            issues.add(issue("PLANNER_MODEL_BUDGET_EXCEEDED", "definition.plannerPolicy.maxModelCalls", "Planner模型调用上限不能超过Application总上限"));
-        }
-        if (planner.getMaxToolCalls() > runtime.getMaxToolCalls()) {
-            issues.add(issue("PLANNER_TOOL_BUDGET_EXCEEDED", "definition.plannerPolicy.maxToolCalls", "Planner Tool调用上限不能超过Application总上限"));
-        }
-        if (planner.getTokenBudget() > runtime.getTotalTokenBudget()) {
-            issues.add(issue("PLANNER_TOKEN_BUDGET_EXCEEDED", "definition.plannerPolicy.tokenBudget", "Planner Token预算不能超过Application总预算"));
-        }
-        if (planner.getTimeoutSeconds() > runtime.getTimeoutSeconds()) {
-            issues.add(issue("PLANNER_TIMEOUT_EXCEEDED", "definition.plannerPolicy.timeoutSeconds", "Planner超时时间不能超过Application总超时"));
-        }
     }
 
     private static ApplicationRuntimePolicy resolveRuntimePolicy(ApplicationRuntimePolicy draft, List<ApplicationValidationIssueVO> issues) {
@@ -407,8 +377,55 @@ public class ApplicationDraftValidator {
         validateRange(policy.getMaxToolCalls(), 0, 100, "RUNTIME_TOOL_CALLS_INVALID", "definition.runtimePolicy.maxToolCalls", "Tool调用次数", issues);
         validateRange(policy.getMaxDelegations(), 0, 10, "RUNTIME_DELEGATIONS_INVALID", "definition.runtimePolicy.maxDelegations", "委派次数", issues);
         validateRange(policy.getTotalTokenBudget(), 1024, 1000000, "RUNTIME_TOKEN_BUDGET_INVALID", "definition.runtimePolicy.totalTokenBudget", "总Token预算", issues);
+        validateRange(policy.effectiveTokenGracePercent(), 0, 30, "RUNTIME_TOKEN_GRACE_INVALID", "definition.runtimePolicy.tokenGracePercent", "Token收口缓冲比例", issues);
         validateRange(policy.getTimeoutSeconds(), 1, 3600, "RUNTIME_TIMEOUT_INVALID", "definition.runtimePolicy.timeoutSeconds", "总超时时间", issues);
-        return policy;
+        return ApplicationRuntimePolicy.builder()
+                .maxModelCalls(policy.getMaxModelCalls())
+                .maxToolCalls(policy.getMaxToolCalls())
+                .maxDelegations(policy.getMaxDelegations())
+                .totalTokenBudget(policy.getTotalTokenBudget())
+                .tokenGracePercent(policy.effectiveTokenGracePercent())
+                .timeoutSeconds(policy.getTimeoutSeconds())
+                .build();
+    }
+
+    /** Application总预算必须覆盖每个能力的局部边界和已启用协作。 */
+    private static void validateRuntimeBoundaries(ApplicationRuntimePolicy runtimePolicy,
+                                                  CapabilityCatalogSnapshot catalog,
+                                                  AgentCollaborationDefinition collaboration,
+                                                  ApplicationContextPolicy contextPolicy,
+                                                  PlannerPolicy plannerPolicy,
+                                                  List<ApplicationValidationIssueVO> issues) {
+        if (Objects.isNull(runtimePolicy) || Objects.isNull(catalog)) {
+            return;
+        }
+        if (Objects.nonNull(collaboration) && runtimePolicy.getMaxDelegations() < MIN_DELEGATIONS) {
+            issues.add(issue("RUNTIME_DELEGATIONS_REQUIRED", "definition.runtimePolicy.maxDelegations",
+                    "启用多Agent协作时最大委派次数至少为" + MIN_DELEGATIONS));
+        }
+        int minimumModelCalls = 1;
+        if (contextPolicy.contextualization().isEnabled()) {
+            minimumModelCalls++;
+        }
+        if (plannerPolicy.isEnabled()) {
+            minimumModelCalls++;
+        }
+        if (runtimePolicy.getMaxModelCalls() < minimumModelCalls) {
+            issues.add(issue("RUNTIME_MODEL_CALLS_INSUFFICIENT", "definition.runtimePolicy.maxModelCalls",
+                    "当前上下文化与Planner策略至少需要" + minimumModelCalls + "次模型调用额度"));
+        }
+        for (int index = 0; index < catalog.capabilities().size(); index++) {
+            ApplicationCapabilityDefinition capability = catalog.capabilities().get(index);
+            String field = "definition.capabilityCatalog.capabilities[" + index + "]";
+            if (capability.getTimeoutSeconds() > runtimePolicy.getTimeoutSeconds()) {
+                issues.add(issue("CAPABILITY_TIMEOUT_EXCEEDS_RUNTIME", field + ".timeoutSeconds",
+                        "能力超时时间不能超过Application总超时"));
+            }
+            if (capability.getResultTokenBudget() > runtimePolicy.getTotalTokenBudget()) {
+                issues.add(issue("CAPABILITY_RESULT_BUDGET_EXCEEDS_RUNTIME", field + ".resultTokenBudget",
+                        "能力结果Token预算不能超过Application总Token预算"));
+            }
+        }
     }
 
     private static int defaultIfNull(Integer value, int defaultValue) {
@@ -854,9 +871,6 @@ public class ApplicationDraftValidator {
         if (Objects.isNull(limits)) {
             issues.add(issue("COLLABORATION_LIMITS_REQUIRED", "definition.collaboration.limits", "协同模式缺少运行边界"));
             return null;
-        }
-        if (limits.maxDelegations() < MIN_DELEGATIONS || limits.maxDelegations() > MAX_DELEGATIONS) {
-            issues.add(issue("MAX_DELEGATIONS_INVALID", "definition.collaboration.limits.maxDelegations", "最大委派次数必须在" + MIN_DELEGATIONS + "到" + MAX_DELEGATIONS + "之间"));
         }
         if (limits.maxDepth() != SUPERVISOR_MAX_DEPTH) {
             issues.add(issue("MAX_DEPTH_UNSUPPORTED", "definition.collaboration.limits.maxDepth", "当前阶段仅支持Supervisor到成员Agent的一层委派"));

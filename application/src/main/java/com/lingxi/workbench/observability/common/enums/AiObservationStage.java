@@ -4,7 +4,9 @@ import com.baomidou.mybatisplus.annotation.EnumValue;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
-/** 一轮 Application Chat 的稳定观测阶段。 */
+/**
+ * 一轮 Application Chat 的稳定观测阶段。
+ */
 @Getter
 @RequiredArgsConstructor
 public enum AiObservationStage {

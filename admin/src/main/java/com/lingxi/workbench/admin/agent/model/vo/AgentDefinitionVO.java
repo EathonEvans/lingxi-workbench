@@ -1,7 +1,6 @@
 package com.lingxi.workbench.admin.agent.model.vo;
 
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
-import com.lingxi.workbench.admin.agent.model.config.AgentRuntimePolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.KnowledgeSearchCapabilitySnapshot;
@@ -28,5 +27,4 @@ public class AgentDefinitionVO {
     private AgentToolPolicy toolPolicy;
     private KnowledgeSearchCapabilitySnapshot knowledgeSearch;
     private GenerationPolicy generationPolicy;
-    private AgentRuntimePolicy runtimePolicy;
 }

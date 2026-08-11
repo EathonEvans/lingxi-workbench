@@ -73,10 +73,12 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
     }
 
     private CapabilityExecutionResult executeCapability(CapabilityExecutionRequest request) {
+        Duration timeout = request.context().remainingTimeout(
+                Duration.ofSeconds(request.capability().getTimeoutSeconds()));
         CapabilityExecutionResult result = switch (request.capability().getType()) {
-            case REACT_AGENT -> executeWithinTimeout(request, () -> executeAgent(request));
-            case WORKFLOW -> executeWithinTimeout(request, () -> executeWorkflow(request));
-            case TOOL -> executeTool(request);
+            case REACT_AGENT -> executeWithinTimeout(request, timeout, () -> executeAgent(request));
+            case WORKFLOW -> executeWithinTimeout(request, timeout, () -> executeWorkflow(request));
+            case TOOL -> executeTool(request, timeout);
         };
         if (tokenCountEstimator.estimate(result.content()) > request.capability().getResultTokenBudget()) {
             throw invalid("能力结果超过Application发布快照Token预算");
@@ -84,12 +86,12 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
         return result;
     }
 
-    private CapabilityExecutionResult executeWithinTimeout(CapabilityExecutionRequest request,
+    private CapabilityExecutionResult executeWithinTimeout(CapabilityExecutionRequest request, Duration timeout,
                                                            Callable<CapabilityExecutionResult> execution) {
         Observation parent = observationRegistry.getCurrentObservation();
         return Mono.fromCallable(() -> callWithParent(execution, parent))
                 .subscribeOn(Schedulers.boundedElastic())
-                .timeout(Duration.ofSeconds(request.capability().getTimeoutSeconds()))
+                .timeout(timeout)
                 .onErrorMap(TimeoutException.class, exception ->
                         invalid("能力执行超时：" + request.capability().getCode()))
                 .block();
@@ -140,12 +142,13 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
         return new CapabilityExecutionResult(answer, modelInstanceId, result.traces());
     }
 
-    private CapabilityExecutionResult executeTool(CapabilityExecutionRequest request) {
+    private CapabilityExecutionResult executeTool(CapabilityExecutionRequest request, Duration timeout) {
         ApplicationCapabilityDefinition capability = request.capability();
         RuntimeToolEntity toolDefinition = toolRuntimeRepo.findActiveById(capability.getTargetId())
                 .orElseThrow(() -> invalid("Application锁定的Tool不存在或已停用"));
         requireChecksum(capability, checksum.calculate(toolConfiguration(toolDefinition)));
         AgentTool tool = toolRuntimeService.resolveActiveTool(capability.getTargetId());
+        request.context().reserveToolCalls(1);
         String invocationId = UUID.randomUUID().toString();
         long startedAt = System.nanoTime();
         publishTool(request.context(), tool,
@@ -154,7 +157,10 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
             Observation parent = observationRegistry.getCurrentObservation();
             String result = Mono.fromCallable(() -> callToolWithParent(tool, request.inputs(), parent))
                     .subscribeOn(Schedulers.boundedElastic())
-                    .block(Duration.ofSeconds(capability.getTimeoutSeconds()));
+                    .timeout(timeout)
+                    .onErrorMap(TimeoutException.class, exception ->
+                            invalid("能力执行超时：" + capability.getCode()))
+                    .block();
             if (result == null || result.isBlank()) {
                 throw invalid("Tool能力必须返回非空结果");
             }

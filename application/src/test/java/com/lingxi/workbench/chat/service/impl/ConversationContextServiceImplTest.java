@@ -7,15 +7,18 @@ import com.lingxi.workbench.chat.memory.MemoryContextService;
 import com.lingxi.workbench.chat.model.bo.ChatMemoryMessageBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.bo.ConversationMemorySnapshot;
+import com.lingxi.workbench.chat.model.bo.ConversationContextPrepareBO;
 import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;
 import com.lingxi.workbench.chat.service.ConversationMemoryService;
 import com.lingxi.workbench.framework.context.LoginUser;
+import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.ConversationSummaryMemoryConfig;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
@@ -25,9 +28,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 
 import java.util.List;
+import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -55,23 +61,81 @@ class ConversationContextServiceImplTest {
                 .build();
         when(memoryContextService.build(7L, "继续处理", memoryConfig)).thenReturn("1234567890");
         when(queryContextualizer.contextualize(any(), eq("继续处理"), any(), eq(loadedMessages)))
-                .thenReturn(new QueryContextualizer.ContextualizationResult("明确后的问题", TokenUsage.of(12, 3, 15)));
+                .thenReturn(new QueryContextualizer.ContextualizationResult(
+                        "明确后的问题", TokenUsage.of(12, 3, 15), 1));
         ConversationContextServiceImpl service = new ConversationContextServiceImpl(memoryService, memoryContextService,
                 new RuntimeVariablesInitializer("Lingxi Workbench"), queryContextualizer, tokenCountEstimator);
         AppRuntimeSnapshot application = application(memoryConfig);
         LoginUser loginUser = new LoginUser(7L, "tester", "测试用户", null);
 
-        ConversationContext context = service.prepare(application, "继续处理", loginUser, turn);
+        ConversationContext context = service.prepare(prepareInput(application, "继续处理", loginUser, turn));
 
         assertEquals("已有摘要", context.getSummary());
         assertEquals(loadedMessages, context.getRecentMessages());
         assertEquals("1234567890", context.getLongTermMemory());
         assertEquals("明确后的问题", context.routingQuery());
         assertEquals(TokenUsage.of(12, 3, 15), context.getPreparationTokenUsage());
+        assertEquals(1, context.getPreparationModelCalls());
         assertEquals("继续处理", context.getRuntimeVariables().require(RuntimeVariableAccessors.USER_QUERY));
         verify(memoryService).loadContextMemory(eq(7L), eq(turn), any(ContextBudgetPolicy.class));
         verify(memoryContextService).build(7L, "继续处理", memoryConfig);
         verify(queryContextualizer).contextualize(any(), eq("继续处理"), any(), eq(loadedMessages));
+    }
+
+    @Test
+    void shouldPreserveContextUsageBeyondHardBudgetForBoundaryFallback() {
+        ConversationMemoryService memoryService = mock(ConversationMemoryService.class);
+        when(memoryService.getWindowMemory(any(), any(), any(), anyInt(), anyInt())).thenReturn(List.of());
+        QueryContextualizer queryContextualizer = mock(QueryContextualizer.class);
+        when(queryContextualizer.contextualize(any(), any(), any(), any())).thenReturn(
+                new QueryContextualizer.ContextualizationResult("问题", TokenUsage.of(8, 4, 12), 1));
+        ConversationContextServiceImpl service = new ConversationContextServiceImpl(
+                memoryService, mock(MemoryContextService.class), new RuntimeVariablesInitializer("Lingxi Workbench"),
+                queryContextualizer, mock(TokenCountEstimator.class));
+        AppRuntimeSnapshot application = application(MemoryConfig.disabled(), ApplicationRuntimePolicy.builder()
+                .maxModelCalls(2).maxToolCalls(0).maxDelegations(0).totalTokenBudget(10).timeoutSeconds(30).build());
+        ChatTurnBO turn = new ChatTurnBO(10L, 11L, 12L, 1);
+
+        ConversationContext context = service.prepare(
+                prepareInput(application, "问题", new LoginUser(7L, "tester", "测试用户", null), turn));
+
+        assertEquals("问题", context.routingQuery());
+        assertEquals(TokenUsage.of(8, 4, 12), context.getPreparationTokenUsage());
+    }
+
+    @Test
+    void shouldRejectContextPreparationAfterApplicationDeadline() {
+        ConversationMemoryService memoryService = mock(ConversationMemoryService.class);
+        when(memoryService.getWindowMemory(any(), any(), any(), anyInt(), anyInt())).thenReturn(List.of());
+        QueryContextualizer queryContextualizer = mock(QueryContextualizer.class);
+        ConversationContextServiceImpl service = new ConversationContextServiceImpl(
+                memoryService, mock(MemoryContextService.class), new RuntimeVariablesInitializer("Lingxi Workbench"),
+                queryContextualizer, mock(TokenCountEstimator.class));
+        AppRuntimeSnapshot application = application(MemoryConfig.disabled(), ApplicationRuntimePolicy.builder()
+                .maxModelCalls(1).maxToolCalls(0).maxDelegations(0).totalTokenBudget(1024).timeoutSeconds(1).build());
+        ChatTurnBO turn = new ChatTurnBO(10L, 11L, 12L, 1);
+        ConversationContextPrepareBO input = ConversationContextPrepareBO.builder()
+                .application(application)
+                .query("问题")
+                .loginUser(new LoginUser(7L, "tester", "测试用户", null))
+                .turn(turn)
+                .startedAt(Instant.now().minusSeconds(2))
+                .build();
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.prepare(input));
+
+        assertEquals("Application单轮执行超过总超时", exception.getMessage());
+    }
+
+    private static ConversationContextPrepareBO prepareInput(AppRuntimeSnapshot application, String query,
+                                                             LoginUser loginUser, ChatTurnBO turn) {
+        return ConversationContextPrepareBO.builder()
+                .application(application)
+                .query(query)
+                .loginUser(loginUser)
+                .turn(turn)
+                .startedAt(Instant.now())
+                .build();
     }
 
     private static ChatMemoryMessageBO message(int sequenceNo, MessageRole role, String content) {
@@ -79,6 +143,10 @@ class ConversationContextServiceImplTest {
     }
 
     private static AppRuntimeSnapshot application(MemoryConfig memoryConfig) {
+        return application(memoryConfig, ApplicationRuntimePolicy.defaults());
+    }
+
+    private static AppRuntimeSnapshot application(MemoryConfig memoryConfig, ApplicationRuntimePolicy runtimePolicy) {
         ApplicationAgentReference defaultAgent = new ApplicationAgentReference(40L, 41L, "默认助手", "处理通用请求");
         ApplicationCapabilityDefinition capability = ApplicationCapabilityDefinition.builder()
                 .code("default_agent")
@@ -91,6 +159,7 @@ class ConversationContextServiceImplTest {
                 .defaultAgent(defaultAgent)
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(capability)).build())
                 .memoryConf(memoryConfig)
+                .runtimePolicy(runtimePolicy)
                 .build();
         return new AppRuntimeSnapshot(1L, "support", 2L, definition);
     }

@@ -2,7 +2,9 @@ package com.lingxi.workbench.observability.model.entity;
 
 import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
 import com.lingxi.workbench.observability.common.enums.AiObservationEventType;
@@ -20,6 +22,8 @@ import java.time.OffsetDateTime;
 @TableName(value = "lingxi_core.ai_observability_event", autoResultMap = true)
 public class AiObservationEventEntity {
 
+    /** 观测事件主键由 MyBatis-Plus 分配，避免数据库表与运行时生成策略脱节。 */
+    @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     private String traceId;
     private String spanId;

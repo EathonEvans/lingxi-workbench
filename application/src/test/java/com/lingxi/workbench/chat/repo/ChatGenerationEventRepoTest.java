@@ -4,10 +4,12 @@ import com.alibaba.fastjson2.JSON;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
 import com.lingxi.workbench.chat.config.ChatGenerationEventProperties;
+import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventCacheBO;
 import com.lingxi.workbench.chat.model.bo.ChatPlanStepBO;
+import com.lingxi.workbench.chat.model.bo.ChatStepOutputEventBO;
 import com.lingxi.workbench.framework.cache.RedisUtil;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
@@ -87,6 +89,24 @@ class ChatGenerationEventRepoTest {
         assertEquals(ExecutionStepStatus.RUNNING, restored.execution().getStepStatus());
         assertEquals("collect", restored.execution().steps().getFirst().stepId());
         assertEquals("support_agent", restored.execution().steps().getFirst().capabilityCode());
+    }
+
+    @Test
+    void shouldRoundTripStepOutputThroughReplayCache() {
+        RedisUtil redisUtil = mock(RedisUtil.class);
+        ChatGenerationEventRepo repo = new ChatGenerationEventRepo(redisUtil, properties());
+        ChatGenerationEventBO source = ChatGenerationEventBO.stepOutput(
+                4, new ChatStepOutputEventBO("run-1", 2, "collect", "已获取资料"));
+        when(redisUtil.lRange(EVENT_KEY, 0, -1)).thenReturn(List.of(
+                JSON.toJSONString(ChatGenerationEventCacheBO.from(source))));
+
+        ChatGenerationEventBO restored = repo.findAfter(12L, 3).getFirst();
+
+        assertEquals(ChatGenerationEventType.STEP_OUTPUT, restored.type());
+        assertEquals("run-1", restored.stepOutput().runId());
+        assertEquals(2, restored.stepOutput().planNo());
+        assertEquals("collect", restored.stepOutput().stepId());
+        assertEquals("已获取资料", restored.stepOutput().content());
     }
 
     private static ChatGenerationEventProperties properties() {

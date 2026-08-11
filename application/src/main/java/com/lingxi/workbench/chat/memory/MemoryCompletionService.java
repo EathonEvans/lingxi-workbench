@@ -52,7 +52,7 @@ public class MemoryCompletionService {
         String prompt = renderPrompt(snapshot.content(), variables);
         ChatModelRuntimeConfig chatConfig = chatModelResolver.resolve(chatModelInstanceId);
         ChatCompletionCommand command = new ChatCompletionCommand(prompt, "", List.of(), chatConfig);
-        ChatCompletionResult result = Objects.requireNonNull(
+        ChatCompletionResult<String> result = Objects.requireNonNull(
                 completionGateway.complete(command).block(COMPLETION_TIMEOUT),
                 "记忆提取模型未返回结果");
         if (result.content() == null || result.content().isBlank()) {

@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.appmonitor.repo;
 
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppIssueBO;
+import com.lingxi.workbench.admin.appmonitor.model.bo.AppHealthBO;
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppMonitorSummaryBO;
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppStageMetricBO;
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppTraceBO;
@@ -22,6 +23,10 @@ import java.util.Optional;
 public class AppMonitorRepo {
 
     private final AppMonitorMapper mapper;
+
+    public List<AppHealthBO> applicationHealth(OffsetDateTime from) {
+        return mapper.applicationHealth(from);
+    }
 
     public AppMonitorSummaryBO summary(Long applicationId, OffsetDateTime from) {
         return mapper.summary(applicationId, from);

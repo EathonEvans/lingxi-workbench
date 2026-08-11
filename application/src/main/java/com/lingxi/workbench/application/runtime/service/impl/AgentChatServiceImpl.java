@@ -1,6 +1,5 @@
 package com.lingxi.workbench.application.runtime.service.impl;
 
-import com.lingxi.workbench.application.runtime.model.AgentCollaborationScope;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
@@ -22,6 +21,7 @@ import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionContext;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolRuntimeConfig;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
+import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -36,7 +36,6 @@ import static com.lingxi.workbench.application.runtime.common.constants.AgentCha
 import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.SUPERVISOR_COLLABORATION_PROMPT;
 import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.TOOL_AUGMENTED_SYSTEM_PROMPT;
 import static com.lingxi.workbench.infra.ai.tool.common.constants.AgentToolLimitConstants.MAX_RESULT_CHARACTERS;
-import static com.lingxi.workbench.infra.ai.tool.common.constants.AgentToolLimitConstants.MAX_TOOL_CALLS;
 import static com.lingxi.workbench.infra.ai.tool.common.constants.AgentToolLimitConstants.MIN_RESULT_CHARACTERS;
 import static com.lingxi.workbench.infra.ai.tool.common.constants.AgentToolLimitConstants.MIN_TOOL_CALLS;
 
@@ -55,6 +54,8 @@ import static com.lingxi.workbench.infra.ai.tool.common.constants.AgentToolLimit
 @Service
 @RequiredArgsConstructor
 public class AgentChatServiceImpl implements AgentChatService {
+
+    private static final String FINALIZATION_ONLY_PROMPT = "运行工作预算已到边界，本次不再开放工具、委派或规划。请基于会话中已有事实直接回答；信息不足时只提出一个最关键的补充问题。";
 
     private final AgentRuntimeService agentRuntimeService;
     private final AgentChatPreparationStrategyRegistry preparationStrategyRegistry;
@@ -93,10 +94,21 @@ public class AgentChatServiceImpl implements AgentChatService {
         List<AgentTool> runtimeTools = this.loadRuntimeTools(execution, snapshot);
 
         PromptPair prompt = chatContext.getPromptPair();
+        Optional<AgentToolRuntimeConfig> toolRuntimeConfig = resolveToolRuntimeConfig(execution, definition, runtimeTools);
+        boolean finalizationOnly = !runtimeTools.isEmpty() && toolRuntimeConfig.isEmpty();
+        int remainingTokenBudget = execution.shouldFinalize()
+                ? execution.remainingFinalizationTokenBudget()
+                : execution.remainingTokenBudget();
+        ChatModelRuntimeConfig sourceConfig = modelRuntimeConfigService.getChatModelConfig(
+                definition.getChatModelInstanceId());
+        Duration requestTimeout = execution.remainingTimeout(Duration.ofSeconds(
+                Optional.ofNullable(sourceConfig.getTimeoutSeconds())
+                        .orElse(execution.getRuntimePolicy().getTimeoutSeconds())));
         ChatModelRuntimeConfig modelConfig = applyGenerationPolicy(
-                modelRuntimeConfigService.getChatModelConfig(definition.getChatModelInstanceId()),
-                definition.getGenerationPolicy());
-        return this.generate(execution, definition, prompt, chatContext, modelConfig, runtimeTools, timeout(definition));
+                sourceConfig, definition.getGenerationPolicy(), execution.getContextBudget(), remainingTokenBudget,
+                requestTimeout);
+        return this.generate(execution, prompt, chatContext, modelConfig, runtimeTools, toolRuntimeConfig,
+                finalizationOnly, requestTimeout);
     }
 
     /**
@@ -130,18 +142,31 @@ public class AgentChatServiceImpl implements AgentChatService {
     /**
      * 生成
      */
-    private String generate(ChatExecutionContext execution, AgentRuntimeDefinition definition, PromptPair prompt, ModelChatContext context, ChatModelRuntimeConfig modelConfig, List<AgentTool> runtimeTools, Duration timeout) {
+    private String generate(ChatExecutionContext execution, PromptPair prompt, ModelChatContext context,
+                            ChatModelRuntimeConfig modelConfig, List<AgentTool> runtimeTools,
+                            Optional<AgentToolRuntimeConfig> toolRuntimeConfig, boolean finalizationOnly,
+                            Duration requestTimeout) {
+        List<AgentTool> exposedTools = toolRuntimeConfig.isPresent() ? runtimeTools : List.of();
+        String systemPrompt = applyToolSystemPolicy(prompt.systemPrompt(), exposedTools);
+        if (finalizationOnly) {
+            systemPrompt = systemPrompt.isBlank()
+                    ? FINALIZATION_ONLY_PROMPT
+                    : systemPrompt + "\n\n" + FINALIZATION_ONLY_PROMPT;
+        }
         // 构建chat命令
         ChatStreamCommand command = ChatStreamCommand.builder()
                 .prompt(prompt.userPrompt())
-                .systemPrompt(applyToolSystemPolicy(prompt.systemPrompt(), runtimeTools))
+                .systemPrompt(systemPrompt)
                 .history(context.getRuntimeVariables().require(RuntimeVariableAccessors.SESSION_HISTORY))
                 .modelConfig(modelConfig)
-                .toolRuntimeConfig(resolveToolRuntimeConfig(execution, definition, runtimeTools).orElse(null))
+                .toolRuntimeConfig(toolRuntimeConfig.orElse(null))
                 .build();
 
         StringBuilder answer = new StringBuilder();
 
+        if (toolRuntimeConfig.isEmpty()) {
+            execution.reserveFinalModelCall();
+        }
         streamingChatGateway.stream(command)
                 .doOnNext(chunk -> {
                     answer.append(chunk.content());
@@ -149,7 +174,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                     execution.getEventPublisher().publishText(chunk);
                 })
                 .then()
-                .block(timeout);
+                .block(requestTimeout);
         return answer.toString();
     }
 
@@ -199,26 +224,20 @@ public class AgentChatServiceImpl implements AgentChatService {
     }
 
     /** 将本次已解析的全部工具装配为 Spring AI 工具运行配置。 */
-    private Optional<AgentToolRuntimeConfig> resolveToolRuntimeConfig(ChatExecutionContext execution, AgentRuntimeDefinition definition, List<AgentTool> runtimeTools) {
+    private Optional<AgentToolRuntimeConfig> resolveToolRuntimeConfig(ChatExecutionContext execution,
+                                                                      AgentRuntimeDefinition definition,
+                                                                      List<AgentTool> runtimeTools) {
         if (runtimeTools.isEmpty()) {
             return Optional.empty();
         }
-        AgentRuntimeDefinition.ToolPolicy toolPolicy = definition.getToolPolicy();
-
-        AgentRuntimeDefinition.RuntimePolicy runtimePolicy = definition.getRuntimePolicy();
-        if (Objects.isNull(runtimePolicy) || Objects.isNull(runtimePolicy.maxModelCalls())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "启用工具或Agent协作时必须配置模型调用次数限制");
+        int generationModelCalls = execution.remainingModelCalls();
+        int maxToolCalls = execution.remainingToolCalls();
+        if (execution.shouldFinalize() || maxToolCalls < MIN_TOOL_CALLS) {
+            return Optional.empty();
         }
-        int generationModelCalls = runtimePolicy.maxModelCalls();
-        int localToolCalls = Optional.ofNullable(toolPolicy).map(AgentRuntimeDefinition.ToolPolicy::maxToolCalls).orElse(0);
-        boolean hasDelegationTools = runtimeTools.stream().anyMatch(tool -> tool.definition().getCode().startsWith(DELEGATE_AGENT_TOOL_PREFIX));
-        int configuredDelegations = hasDelegationTools ? execution.collaborationScope().map(AgentCollaborationScope::maxDelegations).orElse(0) : 0;
-        int configuredToolCalls = Math.max(localToolCalls, configuredDelegations);
-        int maxToolCalls = Math.min(configuredToolCalls, generationModelCalls - 1);
-        if (maxToolCalls < MIN_TOOL_CALLS) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "Agent模型调用次数不足以完成Tool执行闭环，请提高运行限制");
-        }
-        int maxResultCharacters = Optional.ofNullable(toolPolicy).map(AgentRuntimeDefinition.ToolPolicy::maxResultCharacters).orElse(DEFAULT_DELEGATION_RESULT_CHARACTERS);
+        int maxResultCharacters = Optional.ofNullable(definition.getToolPolicy())
+                .map(AgentRuntimeDefinition.ToolPolicy::maxResultCharacters)
+                .orElse(DEFAULT_DELEGATION_RESULT_CHARACTERS);
         AgentToolExecutionContext toolExecutionContext = AgentToolExecutionContext.builder()
                 .executionId(execution.getExecutionId())
                 .userId(execution.getRuntimeVariables().require(RuntimeVariableAccessors.USER_ID))
@@ -231,29 +250,32 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .executionContext(toolExecutionContext)
                 .maxToolCalls(maxToolCalls)
                 .maxModelCalls(generationModelCalls)
-                .maxInputTokens(Objects.requireNonNullElse(runtimePolicy.maxInputTokens(), 0))
-                .maxOutputTokens(Objects.requireNonNullElse(runtimePolicy.maxOutputTokens(), 0))
+                .maxTotalTokens(execution.remainingTokenBudget())
+                .maxFinalizationTokens(execution.remainingFinalizationTokenBudget())
                 .maxResultCharacters(maxResultCharacters)
                 .eventPublisher(execution.getEventPublisher()::publishTool)
+                .executionBudget(execution)
                 .build();
         return Optional.of(runtimeConfig);
     }
 
-    private static ChatModelRuntimeConfig applyGenerationPolicy(ChatModelRuntimeConfig source, AgentRuntimeDefinition.GenerationPolicy policy) {
-        if (Objects.isNull(policy)) {
-            return source;
-        }
+    private static ChatModelRuntimeConfig applyGenerationPolicy(ChatModelRuntimeConfig source,
+                                                                 AgentRuntimeDefinition.GenerationPolicy policy,
+                                                                 ContextBudgetPolicy contextBudget,
+                                                                 int remainingTokenBudget,
+                                                                 Duration requestTimeout) {
         Double temperature = source.getTemperature();
-        if (Objects.nonNull(policy.getTemperature())) {
+        if (Objects.nonNull(policy) && Objects.nonNull(policy.getTemperature())) {
             temperature = policy.getTemperature().doubleValue();
         }
         Double topP = source.getTopP();
-        if (Objects.nonNull(policy.getTopP())) {
+        if (Objects.nonNull(policy) && Objects.nonNull(policy.getTopP())) {
             topP = policy.getTopP().doubleValue();
         }
-        Integer maxTokens = Objects.requireNonNullElse(policy.getMaxOutputTokens(), source.getMaxTokens());
-        Integer timeoutSeconds = Objects.requireNonNullElse(policy.getTimeoutSeconds(), source.getTimeoutSeconds());
-        Integer maxRetries = Objects.requireNonNullElse(policy.getMaxRetries(), source.getMaxRetries());
+        int outputBudget = Math.min(contextBudget.getReservedOutputTokens(), remainingTokenBudget);
+        int maxTokens = Objects.isNull(source.getMaxTokens())
+                ? outputBudget
+                : Math.min(source.getMaxTokens(), outputBudget);
 
         return ChatModelRuntimeConfig.builder()
                 .instanceId(source.getInstanceId())
@@ -265,16 +287,18 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .maxTokens(maxTokens)
                 .stopSequences(source.getStopSequences())
                 .extensionParameters(source.getExtensionParameters())
-                .timeoutSeconds(timeoutSeconds)
-                .maxRetries(maxRetries)
+                .timeoutSeconds(timeoutSeconds(requestTimeout))
+                .maxRetries(source.getMaxRetries())
                 .build();
     }
 
-    private static Duration timeout(AgentRuntimeDefinition definition) {
-        int totalTimeout = Optional.ofNullable(definition.getRuntimePolicy()).map(AgentRuntimeDefinition.RuntimePolicy::totalTimeoutSeconds).orElse(90);
-        int generationTimeout = Optional.ofNullable(definition.getGenerationPolicy()).map(AgentRuntimeDefinition.GenerationPolicy::getTimeoutSeconds).orElse(60);
-        int seconds = Math.min(totalTimeout, generationTimeout);
-        return Duration.ofSeconds(Math.max(seconds, 1));
+    /** 模型配置只接受整秒，向上取整；流式阻塞仍使用精确剩余时间作为硬截止。 */
+    private static int timeoutSeconds(Duration timeout) {
+        long seconds = timeout.toSeconds();
+        if (!timeout.minusSeconds(seconds).isZero()) {
+            seconds++;
+        }
+        return Math.toIntExact(Math.max(1L, seconds));
     }
 
     private static void validateCommon(AgentRuntimeDefinition definition) {
@@ -290,18 +314,12 @@ public class AgentChatServiceImpl implements AgentChatService {
         if (definition.resolveToolCodes().isEmpty() && Objects.isNull(definition.getKnowledgeSearch())) {
             return;
         }
-        if (Objects.isNull(definition.getToolPolicy()) || Objects.isNull(definition.getToolPolicy().maxToolCalls()) || Objects.isNull(definition.getToolPolicy().maxResultCharacters()) || Objects.isNull(definition.getRuntimePolicy()) || Objects.isNull(definition.getRuntimePolicy().maxModelCalls())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "AgentVersion工具调用配置不完整");
-        }
         AgentRuntimeDefinition.ToolPolicy toolPolicy = definition.getToolPolicy();
-        int maxToolCalls = toolPolicy.maxToolCalls();
-        int maxResultCharacters = toolPolicy.maxResultCharacters();
-        if (maxToolCalls < MIN_TOOL_CALLS || maxToolCalls > MAX_TOOL_CALLS || maxResultCharacters < MIN_RESULT_CHARACTERS || maxResultCharacters > MAX_RESULT_CHARACTERS) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "AgentVersion工具调用配置超出允许范围");
+        if (Objects.nonNull(toolPolicy) && (Objects.isNull(toolPolicy.maxResultCharacters())
+                || toolPolicy.maxResultCharacters() < MIN_RESULT_CHARACTERS
+                || toolPolicy.maxResultCharacters() > MAX_RESULT_CHARACTERS)) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "AgentVersion工具结果字符上限超出允许范围");
         }
-        int requiredModelCalls = maxToolCalls + 1;
-        if (definition.getRuntimePolicy().maxModelCalls() < requiredModelCalls) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "AgentVersion模型调用次数不足以完成工具调用闭环");
-        }
+        // 工具授权和单次结果裁剪属于Agent行为；调用次数、Token与超时统一由Application控制。
     }
 }

@@ -5,9 +5,11 @@ import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatPlanStepBO;
+import com.lingxi.workbench.chat.model.bo.ChatStepOutputEventBO;
 import com.lingxi.workbench.chat.model.vo.ChatExecutionTimelineVO;
 import com.lingxi.workbench.chat.model.vo.ChatErrorVO;
 import com.lingxi.workbench.chat.model.vo.ChatSubAgentEventVO;
+import com.lingxi.workbench.chat.model.vo.ChatStepOutputVO;
 import com.lingxi.workbench.chat.model.vo.ChatToolEventVO;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
@@ -110,5 +112,21 @@ class ChatGenerationSseEventRouterTest {
         ChatErrorVO payload = assertInstanceOf(ChatErrorVO.class, routed.data());
         assertEquals("AGENT_TOOL_CALL_LIMIT", payload.code());
         assertEquals("工具调用次数已达到上限，现有信息不足以继续处理", payload.message());
+    }
+
+    @Test
+    void shouldRoutePlanStepOutputSeparatelyFromAssistantMessage() {
+        ChatGenerationEventBO event = ChatGenerationEventBO.stepOutput(
+                11, new ChatStepOutputEventBO("run-1", 2, "analyze", "正在整理证据"));
+
+        ServerSentEvent<?> routed = ChatGenerationSseEventRouter.rout(event);
+
+        assertEquals("step_output", routed.event());
+        assertEquals("11", routed.id());
+        ChatStepOutputVO payload = assertInstanceOf(ChatStepOutputVO.class, routed.data());
+        assertEquals("run-1", payload.getRunId());
+        assertEquals(2, payload.getPlanNo());
+        assertEquals("analyze", payload.getStepId());
+        assertEquals("正在整理证据", payload.getContent());
     }
 }
