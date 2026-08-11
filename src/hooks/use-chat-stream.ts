@@ -6,6 +6,7 @@ import type {
   ChatClarificationEvent,
   ChatExecutionTimelineEvent,
   ChatStart,
+  ChatStepOutputEvent,
   ChatSubAgentEvent,
   ChatToolEvent,
   ClarificationResponse,
@@ -27,6 +28,7 @@ export type ChatMessage = {
   role: "assistant" | "user";
   status?: "done" | "error" | "stopped" | "streaming";
   subAgents?: ChatSubAgentEvent[];
+  stepOutputs?: ChatStepOutputEvent[];
   timeline?: ChatExecutionTimelineEvent[];
   tools?: ChatToolEvent[];
 };
@@ -40,6 +42,7 @@ type PendingGeneration = {
   clarification?: ChatClarificationEvent;
   cancelled?: boolean;
   subAgents: ChatSubAgentEvent[];
+  stepOutputs: ChatStepOutputEvent[];
   timeline: ChatExecutionTimelineEvent[];
   tools: ChatToolEvent[];
   userMessageId: string;
@@ -51,6 +54,7 @@ type GenerationHandlers = {
   onClarification: (event: ChatClarificationEvent) => void;
   onSnapshot: (content: string) => void;
   onStart: (start: ChatStart) => void;
+  onStepOutput: (event: ChatStepOutputEvent) => void;
   onSubAgent: (event: ChatSubAgentEvent) => void;
   onTimeline: (event: ChatExecutionTimelineEvent) => void;
   onTool: (event: ChatToolEvent) => void;
@@ -83,6 +87,7 @@ type UseChatStreamReturn = {
 };
 
 const PENDING_GENERATION_KEY = "lingxi-pending-generation";
+const MAX_STEP_OUTPUT_CHARACTERS = 12000;
 const MODEL_ERROR_CODE = "AI_MODEL_ERROR";
 const NON_RESUMABLE_ERROR_CODES = new Set([
   MODEL_ERROR_CODE,
@@ -101,6 +106,7 @@ function readPendingGeneration(): PendingGeneration | undefined {
     return {
       ...pending,
       subAgents: pending.subAgents ?? [],
+      stepOutputs: pending.stepOutputs ?? [],
       timeline: pending.timeline ?? [],
       tools: pending.tools ?? [],
     };
@@ -127,6 +133,27 @@ function mergeByKey<T>(current: T[] | undefined, next: T, key: (item: T) => stri
 function mergeTimelineEvents(current: ChatExecutionTimelineEvent[] | undefined, next: ChatExecutionTimelineEvent) {
   return mergeByKey(current, next, (event) => event.sequence).toSorted(
     (left, right) => left.sequence - right.sequence,
+  );
+}
+
+function mergeStepOutputEvents(
+  current: ChatStepOutputEvent[] | undefined,
+  next: ChatStepOutputEvent,
+): ChatStepOutputEvent[] {
+  const events = current ?? [];
+  const index = events.findIndex(
+    (event) =>
+      event.runId === next.runId
+      && event.planNo === next.planNo
+      && event.stepId === next.stepId,
+  );
+  if (index < 0) return [...events, next];
+  const merged = `${events[index].content}${next.content}`;
+  const content = merged.length > MAX_STEP_OUTPUT_CHARACTERS
+    ? `…${merged.slice(-MAX_STEP_OUTPUT_CHARACTERS)}`
+    : merged;
+  return events.map((event, eventIndex) =>
+    eventIndex === index ? { ...next, content } : event,
   );
 }
 
@@ -249,6 +276,16 @@ export function useChatStream({
         savePendingGeneration(pending);
         updateAssistant(pending, (message) => ({ ...message, subAgents: pending.subAgents }));
       },
+      onStepOutput: (event) => {
+        if (!isActive()) return;
+        pending.stepOutputs = mergeStepOutputEvents(pending.stepOutputs, event);
+        pending.lastSequence = Math.max(pending.lastSequence, event.sequence);
+        savePendingGeneration(pending);
+        updateAssistant(pending, (message) => ({
+          ...message,
+          stepOutputs: pending.stepOutputs,
+        }));
+      },
       onTimeline: (event) => {
         if (!isActive()) return;
         pending.timeline = mergeTimelineEvents(pending.timeline, event);
@@ -334,6 +371,7 @@ export function useChatStream({
             role: "assistant",
             status: "streaming",
             subAgents: pending.subAgents,
+            stepOutputs: pending.stepOutputs,
             timeline: pending.timeline,
             tools: pending.tools,
           },
@@ -407,6 +445,7 @@ export function useChatStream({
           lastSequence: 0,
           prompt,
           subAgents: [],
+          stepOutputs: [],
           timeline: [],
           tools: [],
           userMessageId: generateMessageId(),
@@ -488,6 +527,7 @@ export function useChatStream({
         lastSequence: 0,
         prompt: option.label,
         subAgents: [],
+        stepOutputs: [],
         timeline: [],
         tools: [],
         userMessageId: generateMessageId(),

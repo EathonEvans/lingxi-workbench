@@ -81,6 +81,40 @@
   gap: 10px;
 }
 
+.notices {
+  display: grid;
+  padding-top: 8px;
+  gap: 5px;
+}
+
+.noticeInfo,
+.noticeError {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  padding: 6px 8px;
+  border-radius: 7px;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.noticeInfo {
+  color: #536d9b;
+  background: #edf3ff;
+}
+
+.noticeError {
+  color: #a14a54;
+  background: #fff0f1;
+}
+
+.noticeInfo svg,
+.noticeError svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
 .section {
   min-width: 0;
 }
@@ -104,7 +138,7 @@
 }
 
 .operations li,
-.plan li {
+.planRow {
   display: flex;
   min-width: 0;
   min-height: 29px;
@@ -112,6 +146,34 @@
   color: #5e6b7d;
   gap: 7px;
   font-size: 12px;
+}
+
+.planItem {
+  min-width: 0;
+}
+
+.planRow small {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #929cab;
+  font-size: 10px;
+}
+
+.stepOutput {
+  max-height: 92px;
+  padding: 6px 8px;
+  margin: 1px 0 5px 20px;
+  border-left: 2px solid #d8e2f1;
+  color: #728096;
+  background: #f3f6fa;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.stepOutput[data-live="true"] {
+  border-left-color: #5c84dc;
 }
 
 .operationIcon,
@@ -164,8 +226,24 @@
 }
 
 :global([data-theme="dark"]) .operations li,
-:global([data-theme="dark"]) .plan li {
+:global([data-theme="dark"]) .planRow {
   color: #a9b5c8;
+}
+
+:global([data-theme="dark"]) .noticeInfo {
+  color: #a9bde4;
+  background: #253653;
+}
+
+:global([data-theme="dark"]) .noticeError {
+  color: #e1a5ab;
+  background: #472b31;
+}
+
+:global([data-theme="dark"]) .stepOutput {
+  border-color: #3b4d68;
+  color: #9eabc0;
+  background: #1d2633;
 }
 
 :global([data-theme="dark"]) .count {

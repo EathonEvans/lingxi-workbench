@@ -39,7 +39,7 @@ export type ChatPlanStep = {
 
 export type ChatExecutionTimelineEvent = {
   displayName?: string;
-  eventType: "CLARIFICATION_REQUIRED" | "PLANNING" | "PLAN_CREATED" | "REPLANNING" | "RUN_CANCELLED" | "RUN_COMPLETED" | "RUN_FAILED" | "STEP_COMPLETED" | "STEP_FAILED" | "STEP_STARTED";
+  eventType: "CLARIFICATION_REQUIRED" | "FINALIZING" | "PLANNING" | "PLAN_CREATED" | "REPLANNING" | "RUN_CANCELLED" | "RUN_COMPLETED" | "RUN_FAILED" | "STEP_COMPLETED" | "STEP_FAILED" | "STEP_STARTED";
   message?: string;
   planNo?: number;
   runId: string;
@@ -47,6 +47,14 @@ export type ChatExecutionTimelineEvent = {
   stepId?: string;
   stepStatus?: "CANCELLED" | "COMPLETED" | "FAILED" | "RUNNING" | "SKIPPED";
   steps: ChatPlanStep[];
+};
+
+export type ChatStepOutputEvent = {
+  content: string;
+  planNo: number;
+  runId: string;
+  sequence: number;
+  stepId: string;
 };
 
 export type ChatClarificationEvent = {
@@ -132,6 +140,7 @@ type StreamChatOptions = {
   onTimeline?: (event: ChatExecutionTimelineEvent) => void;
   onSnapshot?: (content: string) => void;
   onStart?: (start: ChatStart) => void;
+  onStepOutput?: (event: ChatStepOutputEvent) => void;
   onSubAgent?: (event: ChatSubAgentEvent) => void;
   onTool?: (event: ChatToolEvent) => void;
   query: string;
@@ -239,6 +248,11 @@ const EVENT_DISPATCH: Record<string, EventHandler> = {
 
   replanning(data, options) {
     options.onTimeline?.(JSON.parse(data) as ChatExecutionTimelineEvent);
+    return false;
+  },
+
+  step_output(data, options) {
+    options.onStepOutput?.(JSON.parse(data) as ChatStepOutputEvent);
     return false;
   },
 
@@ -445,7 +459,7 @@ async function initiateChat(options: StreamChatOptions): Promise<ChatStart> {
 async function resumeStream(
   assistantMessageId: string,
   afterSequence: number,
-  options: Pick<StreamChatOptions, "session" | "signal" | "onChunk" | "onSnapshot" | "onTool" | "onSubAgent" | "onClarification" | "onTimeline" | "onCancelled">,
+  options: Pick<StreamChatOptions, "session" | "signal" | "onChunk" | "onSnapshot" | "onTool" | "onSubAgent" | "onClarification" | "onTimeline" | "onStepOutput" | "onCancelled">,
 ): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/v1/ai/chat/resume`, {
     body: JSON.stringify({ assistantMessageId, afterSequence }),
