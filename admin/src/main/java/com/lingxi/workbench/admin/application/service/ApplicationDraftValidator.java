@@ -377,7 +377,7 @@ public class ApplicationDraftValidator {
         }
         if (runtimePolicy.getMaxModelCalls() < minimumModelCalls) {
             issues.add(issue("RUNTIME_MODEL_CALLS_INSUFFICIENT", "definition.runtimePolicy.maxModelCalls",
-                    "当前上下文化与Agent执行至少需要" + minimumModelCalls + "次模型调用额度"));
+                    "当前问题重写与Agent执行至少需要" + minimumModelCalls + "次模型调用额度"));
         }
         for (int index = 0; index < catalog.capabilities().size(); index++) {
             ApplicationCapabilityDefinition capability = catalog.capabilities().get(index);
@@ -641,7 +641,7 @@ public class ApplicationDraftValidator {
     }
 
     /**
-     * 校验上下文化引用和各上下文分区预算，生成可直接冻结的规范配置。
+     * 校验问题重写引用和各上下文分区预算，生成可直接冻结的规范配置。
      */
     private ApplicationContextPolicy resolveContextPolicy(ApplicationContextPolicy draft, List<ApplicationValidationIssueVO> issues) {
         ApplicationContextPolicy source = Objects.requireNonNullElseGet(draft, ApplicationContextPolicy::defaults);
@@ -657,11 +657,11 @@ public class ApplicationDraftValidator {
         validateContextualizationModel(draft.getChatModelInstanceId(), issues);
         validateContextualizationPrompt(draft.getPromptVersionId(), issues);
         validateRange(draft.effectiveMaxOutputTokens(), MIN_CONTEXTUALIZATION_OUTPUT_TOKENS, MAX_CONTEXTUALIZATION_OUTPUT_TOKENS,
-                "CONTEXTUALIZATION_OUTPUT_TOKENS_INVALID", "definition.contextPolicy.contextualization.maxOutputTokens", "上下文化输出Token上限", issues);
+                "CONTEXTUALIZATION_OUTPUT_TOKENS_INVALID", "definition.contextPolicy.contextualization.maxOutputTokens", "问题重写输出Token上限", issues);
         validateRange(draft.effectiveMaxOutputCharacters(), MIN_CONTEXTUALIZATION_OUTPUT_CHARACTERS, MAX_CONTEXTUALIZATION_OUTPUT_CHARACTERS,
-                "CONTEXTUALIZATION_OUTPUT_CHARACTERS_INVALID", "definition.contextPolicy.contextualization.maxOutputCharacters", "上下文化输出字符上限", issues);
+                "CONTEXTUALIZATION_OUTPUT_CHARACTERS_INVALID", "definition.contextPolicy.contextualization.maxOutputCharacters", "问题重写输出字符上限", issues);
         validateRange(draft.effectiveTimeoutSeconds(), 1, MAX_CONTEXTUALIZATION_TIMEOUT_SECONDS,
-                "CONTEXTUALIZATION_TIMEOUT_INVALID", "definition.contextPolicy.contextualization.timeoutSeconds", "上下文化超时时间", issues);
+                "CONTEXTUALIZATION_TIMEOUT_INVALID", "definition.contextPolicy.contextualization.timeoutSeconds", "问题重写超时时间", issues);
         return ContextualizationPolicy.builder()
                 .enabled(true)
                 .chatModelInstanceId(draft.getChatModelInstanceId())
@@ -720,38 +720,52 @@ public class ApplicationDraftValidator {
     private void validateContextualizationModel(Long modelId, List<ApplicationValidationIssueVO> issues) {
         String field = "definition.contextPolicy.contextualization.chatModelInstanceId";
         if (Objects.isNull(modelId)) {
-            issues.add(issue("CONTEXTUALIZATION_MODEL_REQUIRED", field, "请选择上下文化使用的Chat模型"));
+            issues.add(issue("CONTEXTUALIZATION_MODEL_REQUIRED", field, "请选择问题重写使用的Chat模型"));
             return;
         }
         ModelInstanceReferenceBO model = modelInstanceService.findReference(modelId).orElse(null);
         if (Objects.isNull(model) || model.status() != EnableStatus.ACTIVE || model.modelType() != ModelType.CHAT) {
-            issues.add(issue("CONTEXTUALIZATION_MODEL_UNAVAILABLE", field, "上下文化Chat模型不存在、已停用或类型不匹配"));
+            issues.add(issue("CONTEXTUALIZATION_MODEL_UNAVAILABLE", field, "问题重写Chat模型不存在、已停用或类型不匹配"));
         }
     }
 
     private void validateContextualizationPrompt(Long versionId, List<ApplicationValidationIssueVO> issues) {
         String field = "definition.contextPolicy.contextualization.promptVersionId";
         if (Objects.isNull(versionId)) {
-            issues.add(issue("CONTEXTUALIZATION_PROMPT_REQUIRED", field, "请选择已发布的上下文化SYSTEM Prompt版本"));
+            issues.add(issue("CONTEXTUALIZATION_PROMPT_REQUIRED", field, "请选择已发布的问题重写SYSTEM Prompt版本"));
             return;
         }
         PromptService.PromptVersionReference prompt = promptService.findPublishedVersion(versionId).orElse(null);
         if (Objects.isNull(prompt) || !prompt.active() || prompt.role() != PromptRole.SYSTEM) {
-            issues.add(issue("CONTEXTUALIZATION_PROMPT_UNAVAILABLE", field, "上下文化Prompt版本不存在、已停用或角色不匹配"));
+            issues.add(issue("CONTEXTUALIZATION_PROMPT_UNAVAILABLE", field, "问题重写Prompt版本不存在、已停用或角色不匹配"));
             return;
         }
-        for (PromptService.PromptVariableReference definition : prompt.variables()) {
+        Set<String> variableNames = new HashSet<>();
+        List<PromptService.PromptVariableReference> variables = Objects.requireNonNullElse(prompt.variables(), List.of());
+        for (PromptService.PromptVariableReference definition : variables) {
+            variableNames.add(definition.name());
             Optional<BuiltInRuntimeVariable> variable = RuntimeVariableCatalog.find(definition.name());
             if (variable.isEmpty()) {
-                issues.add(issue("CONTEXTUALIZATION_PROMPT_VARIABLE_UNSUPPORTED", field, "上下文化Prompt包含运行端不支持的变量：" + definition.name()));
+                issues.add(issue("CONTEXTUALIZATION_PROMPT_VARIABLE_UNSUPPORTED", field, "问题重写Prompt包含运行端不支持的变量：" + definition.name()));
                 continue;
             }
             if (!variable.get().supportsChannel(RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT)) {
-                issues.add(issue("CONTEXTUALIZATION_PROMPT_VARIABLE_UNSAFE", field, "问题上下文化提示词禁止使用变量：" + definition.name()));
+                issues.add(issue("CONTEXTUALIZATION_PROMPT_VARIABLE_UNSAFE", field, "问题重写提示词禁止使用变量：" + definition.name()));
             }
             if (Objects.isNull(definition.type()) || !variable.get().getType().getCode().equals(definition.type().getCode())) {
-                issues.add(issue("CONTEXTUALIZATION_PROMPT_VARIABLE_TYPE_MISMATCH", field, "上下文化Prompt变量类型不匹配：" + definition.name()));
+                issues.add(issue("CONTEXTUALIZATION_PROMPT_VARIABLE_TYPE_MISMATCH", field, "问题重写Prompt变量类型不匹配：" + definition.name()));
             }
+        }
+        requireContextualizationVariable(variableNames, BuiltInRuntimeVariable.USER_QUERY, field, issues);
+        requireContextualizationVariable(variableNames, BuiltInRuntimeVariable.CONTEXTUALIZATION_HISTORY, field, issues);
+    }
+
+    /** 问题与历史统一由发布 Prompt 注入，避免运行时再按消息角色重复发送。 */
+    private static void requireContextualizationVariable(Set<String> variableNames, BuiltInRuntimeVariable variable,
+                                                         String field, List<ApplicationValidationIssueVO> issues) {
+        if (!variableNames.contains(variable.getCode())) {
+            issues.add(issue("CONTEXTUALIZATION_PROMPT_VARIABLE_MISSING", field,
+                    "问题重写Prompt必须声明变量：" + variable.getCode()));
         }
     }
 

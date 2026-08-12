@@ -2,7 +2,6 @@ package com.lingxi.workbench.chat.memory;
 
 import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.service.prompt.PromptRuntimeService;
-import com.lingxi.workbench.chat.memory.config.MemoryChatModelResolver;
 import com.lingxi.workbench.infra.ai.chat.ChatCompletionGateway;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatCompletionResult;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
@@ -10,6 +9,7 @@ import com.lingxi.workbench.infra.ai.chat.model.command.ChatCompletionCommand;
 import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -31,7 +31,7 @@ public class MemoryCompletionService {
             "\\{\\{\\s*([a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)*)\\s*}}");
 
     private final PromptRuntimeService promptRuntimeService;
-    private final MemoryChatModelResolver chatModelResolver;
+    private final ModelRuntimeConfigService modelRuntimeConfigService;
     private final ChatCompletionGateway completionGateway;
 
     /**
@@ -50,7 +50,7 @@ public class MemoryCompletionService {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "记忆提取Prompt必须为SYSTEM角色");
         }
         String prompt = renderPrompt(snapshot.content(), variables);
-        ChatModelRuntimeConfig chatConfig = chatModelResolver.resolve(chatModelInstanceId);
+        ChatModelRuntimeConfig chatConfig = modelRuntimeConfigService.getChatModelConfig(chatModelInstanceId);
         ChatCompletionCommand command = new ChatCompletionCommand(prompt, "", List.of(), chatConfig);
         ChatCompletionResult<String> result = Objects.requireNonNull(
                 completionGateway.complete(command).block(COMPLETION_TIMEOUT),

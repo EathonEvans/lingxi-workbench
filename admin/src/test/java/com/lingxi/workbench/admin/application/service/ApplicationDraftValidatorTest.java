@@ -660,7 +660,8 @@ class ApplicationDraftValidatorTest {
         gateway.addAgent(10L, true, 101L);
         gateway.addVersion(10L, 101L);
         models.put(601L, new ModelInstanceReferenceBO(601L, ModelType.CHAT, EnableStatus.ACTIVE));
-        prompts.put(701L, new PromptService.PromptVersionReference(701L, PromptRole.SYSTEM, true, List.of()));
+        prompts.put(701L, new PromptService.PromptVersionReference(
+                701L, PromptRole.SYSTEM, true, contextualizationVariables()));
         ContextualizationPolicy contextualization = ContextualizationPolicy.builder()
                 .enabled(true)
                 .chatModelInstanceId(601L)
@@ -730,6 +731,36 @@ class ApplicationDraftValidatorTest {
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
                 .contains("CONTEXTUALIZATION_PROMPT_VARIABLE_UNSUPPORTED");
+    }
+
+    @Test
+    void shouldRejectMissingRequiredContextualizationVariables() {
+        gateway.addAgent(10L, true, 101L);
+        gateway.addVersion(10L, 101L);
+        models.put(601L, new ModelInstanceReferenceBO(601L, ModelType.CHAT, EnableStatus.ACTIVE));
+        prompts.put(701L, new PromptService.PromptVersionReference(701L, PromptRole.SYSTEM, true, List.of()));
+        ApplicationDefinition draft = fallbackDefinitionBuilder()
+                .contextPolicy(ApplicationContextPolicy.builder()
+                        .contextualization(ContextualizationPolicy.builder()
+                                .enabled(true)
+                                .chatModelInstanceId(601L)
+                                .promptVersionId(701L)
+                                .build())
+                        .budget(ContextBudgetPolicy.defaults())
+                        .build())
+                .build();
+
+        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::message)
+                .contains("问题重写Prompt必须声明变量：user.query", "问题重写Prompt必须声明变量：query.contextualization_history");
+    }
+
+    private static List<PromptService.PromptVariableReference> contextualizationVariables() {
+        return List.of(
+                new PromptService.PromptVariableReference("user.query", PromptVariableType.STRING),
+                new PromptService.PromptVariableReference("query.contextualization_history", PromptVariableType.MESSAGE_LIST));
     }
 
     private static ApplicationDefinition definition(Long versionId) {

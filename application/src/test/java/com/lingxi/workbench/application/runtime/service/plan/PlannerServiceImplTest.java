@@ -266,7 +266,7 @@ class PlannerServiceImplTest {
                 .loginUser(user)
                 .turn(turn)
                 .originalQuery("处理售后问题")
-                .contextualizedQuery("处理售后问题")
+                .rewrittenQuery("处理售后问题")
                 .recentMessages(List.of())
                 .budget(ContextBudgetPolicy.builder().maxHistoryRounds(5).maxSystemPromptTokens(4000).maxCapabilityTokens(4000)
                         .maxHistoryTokens(4000).maxMemoryTokens(4000).maxInputTokens(4000).maxObservationTokens(4000)

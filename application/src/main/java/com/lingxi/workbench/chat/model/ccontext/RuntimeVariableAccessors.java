@@ -79,7 +79,7 @@ public final class RuntimeVariableAccessors {
     public static final RuntimeVariableAccessor<String> SESSION_SUMMARY =
             stringAccessor(BuiltInRuntimeVariable.SESSION_SUMMARY);
     /**
-     * 按问题上下文化策略独立裁剪后的历史消息。
+     * 按问题重写策略独立裁剪后的历史消息。
      */
     public static final RuntimeVariableAccessor<List<ChatHistoryMessage>> CONTEXTUALIZATION_HISTORY =
             historyAccessor(BuiltInRuntimeVariable.CONTEXTUALIZATION_HISTORY);

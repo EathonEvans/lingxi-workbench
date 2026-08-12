@@ -315,9 +315,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
      * 快速路由解析。
      * 平台交互恢复中或 Application 未启用快速路由时返回 SKIPPED。
      */
-    private IntentRoutingResult fastRoute(ApplicationChatExecutionRequest request,
-                                          ConversationContext context,
-                                          boolean resumed) {
+    private IntentRoutingResult fastRoute(ApplicationChatExecutionRequest request, ConversationContext context, boolean resumed) {
         if (resumed || !isFastRouteEnabled(request.getApplication())) {
             return IntentRoutingResult.skipped(context.routingQuery());
         }
@@ -334,7 +332,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
 
     /**
      * 确定执行用 query。路由结果的 executionQuery 优先（可包含槽位补充），
-     * 否则使用上下文中的上下文化 query。
+     * 否则使用上下文中的重写问题。
      */
     private static String resolveExecutionQuery(ConversationContext context, IntentRoutingResult routing) {
         if (Objects.isNull(routing.getExecutionQuery()) || routing.getExecutionQuery().isBlank()) {

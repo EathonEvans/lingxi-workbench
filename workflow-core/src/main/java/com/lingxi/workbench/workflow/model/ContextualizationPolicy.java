@@ -8,7 +8,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** Application 路由前问题上下文化策略，随 ApplicationVersion 一起冻结。 */
+/** Application 路由前问题重写策略，随 ApplicationVersion 一起冻结。 */
 @Getter
 @Setter
 @Builder

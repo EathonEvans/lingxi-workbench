@@ -7,7 +7,7 @@ import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
  * 执行一次完整 Agent 对话的唯一业务入口。
  *
  * <p>调用方只需要提供锁定的 Agent 版本、用户问题和服务端执行上下文，不需要了解
- * 共享上下文准备、问题上下文化、Prompt 渲染和工具调用等内部阶段。</p>
+ * 共享上下文准备、问题重写、Prompt 渲染和工具调用等内部阶段。</p>
  */
 public interface AgentChatService {
 

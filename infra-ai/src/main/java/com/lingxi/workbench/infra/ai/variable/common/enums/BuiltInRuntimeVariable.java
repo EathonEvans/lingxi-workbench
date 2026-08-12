@@ -144,9 +144,9 @@ public enum BuiltInRuntimeVariable {
     CONTEXTUALIZATION_HISTORY(
             RuntimeVariableGroup.QUERY,
             "contextualization_history",
-            "问题上下文化历史",
+            "问题重写历史",
             PromptVariableDataType.MESSAGE_LIST,
-            "按照问题上下文化策略裁剪的会话消息列表",
+            "按照问题重写策略裁剪的会话消息列表",
             RuntimeVariableProducer.CONVERSATION_HISTORY,
             RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
             RuntimeVariableChannel.STRUCTURED_MESSAGE,

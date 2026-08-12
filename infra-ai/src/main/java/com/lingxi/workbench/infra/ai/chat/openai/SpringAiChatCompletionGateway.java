@@ -114,12 +114,25 @@ public class SpringAiChatCompletionGateway implements ChatCompletionGateway {
         if (Objects.isNull(response)) {
             return new ChatCompletionResult<>("", TokenUsage.empty());
         }
-        String content = Optional.ofNullable(response.getResult())
+        Generation generation = response.getResult();
+        String content = Optional.ofNullable(generation)
                 .map(Generation::getOutput)
                 .map(AbstractMessage::getText)
                 .orElse("");
+        String finishReason = Optional.ofNullable(generation)
+                .map(Generation::getMetadata)
+                .map(metadata -> metadata.getFinishReason())
+                .orElse(null);
+        int reasoningCharacters = Optional.ofNullable(generation)
+                .map(Generation::getOutput)
+                .map(AbstractMessage::getMetadata)
+                .map(metadata -> metadata.get("reasoningContent"))
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .map(String::length)
+                .orElse(0);
         Usage usage = response.getMetadata().getUsage();
-        return new ChatCompletionResult<>(content, TokenUsageConverter.convert(usage));
+        return new ChatCompletionResult<>(content, TokenUsageConverter.convert(usage), finishReason, reasoningCharacters);
     }
 
     private static ChatCompletionResult<JSONObject> parseJson(ChatCompletionResult<String> result) {
@@ -131,7 +144,7 @@ public class SpringAiChatCompletionGateway implements ChatCompletionGateway {
             if (content == null) {
                 throw new IllegalStateException("JSON Object模型返回内容为空");
             }
-            return new ChatCompletionResult<>(content, result.usage());
+            return new ChatCompletionResult<>(content, result.usage(), result.finishReason(), result.reasoningCharacters());
         } catch (RuntimeException exception) {
             throw new IllegalStateException("JSON Object模型返回内容无法解析", exception);
         }

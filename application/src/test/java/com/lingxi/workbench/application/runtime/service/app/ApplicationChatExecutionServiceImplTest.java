@@ -343,7 +343,7 @@ class ApplicationChatExecutionServiceImplTest {
                 .loginUser(input.loginUser())
                 .turn(input.turn())
                 .originalQuery(input.query())
-                .contextualizedQuery(input.query())
+                .rewrittenQuery(input.query())
                 .recentMessages(List.of())
                 .summary("")
                 .longTermMemory("")

@@ -292,13 +292,13 @@ class IntentRoutingServiceImplTest {
         return service.route(context, clarificationResponse);
     }
 
-    private static ConversationContext context(AppRuntimeSnapshot snapshot, LoginUser loginUser, ChatTurnBO turn, String originalQuery, String contextualizedQuery) {
+    private static ConversationContext context(AppRuntimeSnapshot snapshot, LoginUser loginUser, ChatTurnBO turn, String originalQuery, String rewrittenQuery) {
         return ConversationContext.builder()
                 .applicationSnapshot(snapshot)
                 .loginUser(loginUser)
                 .turn(turn)
                 .originalQuery(originalQuery)
-                .contextualizedQuery(contextualizedQuery)
+                .rewrittenQuery(rewrittenQuery)
                 .recentMessages(List.of())
                 .summary("")
                 .longTermMemory("")

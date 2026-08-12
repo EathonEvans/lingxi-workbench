@@ -25,7 +25,7 @@ public class SaveApplicationDraftRequest {
     /** Application 级长期记忆配置。 */
     @Valid
     private MemoryConfig memory;
-    /** 路由前问题上下文化与共享上下文分区预算。 */
+    /** 路由前问题重写与共享上下文分区预算。 */
     @Valid
     private ApplicationContextPolicy contextPolicy;
     /** fallback 角色对能力目录的引用。 */

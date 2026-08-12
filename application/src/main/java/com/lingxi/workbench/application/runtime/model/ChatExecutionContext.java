@@ -312,7 +312,7 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
     /**
      * 汇总一次非流式中间节点返回的 Token 用量。
      *
-     * <p>问题上下文化、工具调用后的继续生成等模型请求都必须记录到同一个上下文，
+     * <p>问题重写、工具调用后的继续生成等模型请求都必须记录到同一个上下文，
      * 最终才能将完整 Agent 执行成本写回 Assistant 消息。模型完成后才会返回真实用量，
      * 因此这里仅做事实记账；即使单次响应越过硬线，也保留已经生成的完整结果，并由
      * {@link #hasFinalizationCapacity()} 阻止任何后续模型调用。</p>

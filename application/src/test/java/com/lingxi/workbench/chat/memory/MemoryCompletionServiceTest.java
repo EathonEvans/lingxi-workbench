@@ -1,14 +1,15 @@
 package com.lingxi.workbench.chat.memory;
 
+import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.service.prompt.PromptRuntimeService;
-import com.lingxi.workbench.chat.memory.config.MemoryChatModelResolver;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.ChatCompletionGateway;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatCompletionResult;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatCompletionCommand;
 import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
+import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import reactor.core.publisher.Mono;
@@ -27,10 +28,10 @@ import static org.mockito.Mockito.when;
 class MemoryCompletionServiceTest {
 
     private final PromptRuntimeService promptRuntimeService = mock(PromptRuntimeService.class);
-    private final MemoryChatModelResolver modelResolver = mock(MemoryChatModelResolver.class);
+    private final ModelRuntimeConfigService modelRuntimeConfigService = mock(ModelRuntimeConfigService.class);
     private final ChatCompletionGateway completionGateway = mock(ChatCompletionGateway.class);
     private final MemoryCompletionService service = new MemoryCompletionService(
-            promptRuntimeService, modelResolver, completionGateway);
+            promptRuntimeService, modelRuntimeConfigService, completionGateway);
 
     @Test
     void shouldPreserveTemplateLikeTextFromConversationHistory() {
@@ -46,6 +47,8 @@ class MemoryCompletionServiceTest {
         ArgumentCaptor<ChatCompletionCommand> commandCaptor = ArgumentCaptor.forClass(ChatCompletionCommand.class);
         verify(completionGateway).complete(commandCaptor.capture());
         assertEquals("提取以下对话：\nuser: 请解释 {{user.query}} 的用途", commandCaptor.getValue().prompt());
+        assertEquals("disabled", commandCaptor.getValue().modelConfig().getExtensionParameters()
+                .getJSONObject("thinking").getString("type"));
     }
 
     @Test
@@ -64,7 +67,11 @@ class MemoryCompletionServiceTest {
     private void preparePrompt(String content) {
         when(promptRuntimeService.resolvePublished(11L))
                 .thenReturn(new PromptRuntimeSnapshot(11L, content, List.of(), PromptRole.SYSTEM));
-        when(modelResolver.resolve(21L))
-                .thenReturn(ChatModelRuntimeConfig.builder().instanceId(21L).maxTokens(2048).build());
+        when(modelRuntimeConfigService.getChatModelConfig(21L))
+                .thenReturn(ChatModelRuntimeConfig.builder()
+                        .instanceId(21L)
+                        .maxTokens(2048)
+                        .extensionParameters(JSONObject.of("thinking", JSONObject.of("type", "disabled")))
+                        .build());
     }
 }

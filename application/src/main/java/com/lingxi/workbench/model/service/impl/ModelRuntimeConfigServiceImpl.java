@@ -43,7 +43,7 @@ public class ModelRuntimeConfigServiceImpl implements ModelRuntimeConfigService 
     }
 
     /**
-     * 按 Agent 版本锁定的实例 ID 获取当前可调用的对话模型配置。
+     * 按实例 ID 获取当前可调用的完整对话模型配置。
      *
      * <p>校验模型、供应商和密钥状态均为 ACTIVE，解密密钥后组装运行时参数。</p>
      */
@@ -52,9 +52,9 @@ public class ModelRuntimeConfigServiceImpl implements ModelRuntimeConfigService 
     public ChatModelRuntimeConfig getChatModelConfig(Long instanceId) {
         ModelRuntimeConfigBO config = configRepo.findChatModel(instanceId)
                 .orElseThrow(() -> new BusinessException(
-                        HttpStatusEnum.NOT_FOUND, "Agent配置的对话模型不可用"));
+                        HttpStatusEnum.NOT_FOUND, "指定的对话模型不可用"));
         if (!OPENAI_COMPATIBLE.equals(config.getProtocol())) {
-            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "Agent模型协议暂不支持");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "指定的对话模型协议暂不支持");
         }
         String apiKey = secretCipher.decrypt(config.getSecretCiphertext(), config.getSecretIv());
         return converter.toRuntimeConfig(config, apiKey);

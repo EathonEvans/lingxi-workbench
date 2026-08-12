@@ -339,7 +339,7 @@ class PlanExecutionServiceImplTest {
                 .loginUser(user)
                 .turn(turn)
                 .originalQuery("整理资料")
-                .contextualizedQuery("整理资料")
+                .rewrittenQuery("整理资料")
                 .recentMessages(List.of())
                 .budget(ContextBudgetPolicy.builder().maxHistoryRounds(5).maxSystemPromptTokens(2000).maxCapabilityTokens(2000)
                         .maxHistoryTokens(2000).maxMemoryTokens(2000).maxInputTokens(2000).maxObservationTokens(2000)

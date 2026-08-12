@@ -87,20 +87,20 @@ ChatStreamServiceImpl
 3. 加载最近历史和可选会话摘要。
 4. 在剩余记忆预算内加载画像与相关交互记录。
 5. 初始化用户、会话、时间、历史、摘要和长期记忆运行时变量。
-6. 生成 `contextualizedQuery`，仅供快速路由和 Planner 使用。
+6. 生成 `rewrittenQuery`，仅供快速路由和 Planner 使用。
 7. 返回不可跨用户复用的 `ConversationContext`。
 
 核心字段：
 
 ```text
 originalQuery          原始问题，用于回答、审计和持久化
-contextualizedQuery    上下文化问题，用于路由与规划
+rewrittenQuery         重写问题，用于路由与规划
 recentMessages         有界历史窗口
 summary                有界会话摘要
 longTermMemory         画像与相关交互记录的有界组合
 runtimeVariables       本轮统一变量容器
 budget                 各上下文分区预算
-preparationTokenUsage  上下文化模型消耗
+preparationTokenUsage  问题重写模型消耗
 ```
 
 知识库内容不属于预加载上下文。AgentVersion 可以冻结 `KnowledgeSearchCapability`，

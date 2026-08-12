@@ -7,6 +7,7 @@ import com.lingxi.workbench.infra.ai.chat.model.command.ChatCompletionCommand;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.metadata.ChatGenerationMetadata;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -17,6 +18,7 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import io.micrometer.observation.ObservationRegistry;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -55,6 +57,29 @@ class SpringAiChatCompletionGatewayTest {
         assertEquals("planner-model", options.getModel());
         assertEquals(512, options.getMaxTokens());
         assertEquals(new JSONObject(), jsonResult.content());
+    }
+
+    @Test
+    void shouldExposeFinishReasonAndReasoningLengthWithoutExposingReasoningContent() {
+        ChatModelRuntimeConfig config = ChatModelRuntimeConfig.builder().build();
+        AssistantMessage output = AssistantMessage.builder()
+                .content("")
+                .properties(Map.of("reasoningContent", "内部推理内容"))
+                .build();
+        Generation generation = new Generation(output, ChatGenerationMetadata.builder().finishReason("LENGTH").build());
+        ChatResponse response = new ChatResponse(List.of(generation));
+        OpenAiChatModel chatModel = mock(OpenAiChatModel.class);
+        when(chatModel.call(any(Prompt.class))).thenReturn(response);
+        OpenAiCompatibleChatModelFactory factory = mock(OpenAiCompatibleChatModelFactory.class);
+        when(factory.create(config)).thenReturn(chatModel);
+        SpringAiChatCompletionGateway gateway = new SpringAiChatCompletionGateway(factory, ObservationRegistry.NOOP);
+
+        ChatCompletionResult<String> result = gateway.complete(
+                new ChatCompletionCommand("任务", "系统指令", List.of(), config)).block();
+
+        assertEquals("", result.content());
+        assertEquals("LENGTH", result.finishReason());
+        assertEquals(6, result.reasoningCharacters());
     }
 
     private static ChatResponse response() {

@@ -47,7 +47,7 @@ class ConversationContextServiceImplTest {
     void shouldPrepareSharedContextFromSingleMemorySnapshot() {
         ConversationMemoryService memoryService = mock(ConversationMemoryService.class);
         MemoryContextService memoryContextService = mock(MemoryContextService.class);
-        QueryContextualizer queryContextualizer = mock(QueryContextualizer.class);
+        QueryRewriter queryRewriter = mock(QueryRewriter.class);
         TokenCountEstimator tokenCountEstimator = mock(TokenCountEstimator.class);
         when(tokenCountEstimator.estimate(any(String.class))).thenAnswer(invocation -> invocation.<String>getArgument(0).length());
         List<ChatMemoryMessageBO> loadedMessages = List.of(
@@ -61,11 +61,11 @@ class ConversationContextServiceImplTest {
                 .summary(ConversationSummaryMemoryConfig.builder().enabled(true).build())
                 .build();
         when(memoryContextService.build(7L, "继续处理", memoryConfig)).thenReturn("1234567890");
-        when(queryContextualizer.contextualize(any(), eq("继续处理"), any(), eq(loadedMessages)))
-                .thenReturn(new QueryContextualizer.ContextualizationResult(
+        when(queryRewriter.rewrite(any(), eq("继续处理"), any(), eq(loadedMessages)))
+                .thenReturn(new QueryRewriter.RewriteResult(
                         "明确后的问题", TokenUsage.of(12, 3, 15), 1));
         ConversationContextServiceImpl service = new ConversationContextServiceImpl(memoryService, memoryContextService,
-                new RuntimeVariablesInitializer("Lingxi Workbench"), queryContextualizer, tokenCountEstimator);
+                new RuntimeVariablesInitializer("Lingxi Workbench"), queryRewriter, tokenCountEstimator);
         AppRuntimeSnapshot application = application(memoryConfig);
         LoginUser loginUser = new LoginUser(7L, "tester", "测试用户", null);
 
@@ -80,19 +80,19 @@ class ConversationContextServiceImplTest {
         assertEquals("继续处理", context.getRuntimeVariables().require(RuntimeVariableAccessors.USER_QUERY));
         verify(memoryService).loadContextMemory(eq(7L), eq(turn), any(ContextBudgetPolicy.class));
         verify(memoryContextService).build(7L, "继续处理", memoryConfig);
-        verify(queryContextualizer).contextualize(any(), eq("继续处理"), any(), eq(loadedMessages));
+        verify(queryRewriter).rewrite(any(), eq("继续处理"), any(), eq(loadedMessages));
     }
 
     @Test
     void shouldPreserveContextUsageBeyondHardBudgetForBoundaryFallback() {
         ConversationMemoryService memoryService = mock(ConversationMemoryService.class);
         when(memoryService.getWindowMemory(any(), any(), any(), anyInt(), anyInt())).thenReturn(List.of());
-        QueryContextualizer queryContextualizer = mock(QueryContextualizer.class);
-        when(queryContextualizer.contextualize(any(), any(), any(), any())).thenReturn(
-                new QueryContextualizer.ContextualizationResult("问题", TokenUsage.of(8, 4, 12), 1));
+        QueryRewriter queryRewriter = mock(QueryRewriter.class);
+        when(queryRewriter.rewrite(any(), any(), any(), any())).thenReturn(
+                new QueryRewriter.RewriteResult("问题", TokenUsage.of(8, 4, 12), 1));
         ConversationContextServiceImpl service = new ConversationContextServiceImpl(
                 memoryService, mock(MemoryContextService.class), new RuntimeVariablesInitializer("Lingxi Workbench"),
-                queryContextualizer, mock(TokenCountEstimator.class));
+                queryRewriter, mock(TokenCountEstimator.class));
         AppRuntimeSnapshot application = application(MemoryConfig.disabled(), ApplicationRuntimePolicy.builder()
                 .maxModelCalls(2).maxToolCalls(0).maxDelegations(0).totalTokenBudget(10).timeoutSeconds(30).build());
         ChatTurnBO turn = new ChatTurnBO(10L, 11L, 12L, 1);
@@ -108,10 +108,10 @@ class ConversationContextServiceImplTest {
     void shouldRejectContextPreparationAfterApplicationDeadline() {
         ConversationMemoryService memoryService = mock(ConversationMemoryService.class);
         when(memoryService.getWindowMemory(any(), any(), any(), anyInt(), anyInt())).thenReturn(List.of());
-        QueryContextualizer queryContextualizer = mock(QueryContextualizer.class);
+        QueryRewriter queryRewriter = mock(QueryRewriter.class);
         ConversationContextServiceImpl service = new ConversationContextServiceImpl(
                 memoryService, mock(MemoryContextService.class), new RuntimeVariablesInitializer("Lingxi Workbench"),
-                queryContextualizer, mock(TokenCountEstimator.class));
+                queryRewriter, mock(TokenCountEstimator.class));
         AppRuntimeSnapshot application = application(MemoryConfig.disabled(), ApplicationRuntimePolicy.builder()
                 .maxModelCalls(1).maxToolCalls(0).maxDelegations(0).totalTokenBudget(1024).timeoutSeconds(1).build());
         ChatTurnBO turn = new ChatTurnBO(10L, 11L, 12L, 1);

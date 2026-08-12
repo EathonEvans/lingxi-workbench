@@ -51,12 +51,12 @@ public class PromptTemplateRenderer {
     }
 
     /**
-     * 渲染问题上下文化任务使用的 Prompt。
+     * 渲染问题重写任务使用的 Prompt。
      *
-     * <p>该 Prompt 在模型协议中仍是 SYSTEM 角色，但变量权限由独立的问题上下文化
+     * <p>该 Prompt 在模型协议中仍是 SYSTEM 角色，但变量权限由独立的问题重写
      * 通道控制，不能因此放宽普通回答 System Prompt 的安全边界。</p>
      */
-    public String renderContextualizationPrompt(PromptRuntimeSnapshot snapshot, RuntimeVariables variables) {
+    public String renderQueryRewritePrompt(PromptRuntimeSnapshot snapshot, RuntimeVariables variables) {
         return renderPrompt(snapshot, variables, PromptRole.SYSTEM, RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT);
     }
 

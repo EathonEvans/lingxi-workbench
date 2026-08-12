@@ -122,7 +122,7 @@ class PromptTemplateRendererTest {
     }
 
     @Test
-    void shouldRenderContextualizationVariablesWithoutRelaxingSystemPrompt() {
+    void shouldRenderQueryRewriteVariablesWithoutRelaxingSystemPrompt() {
         RuntimeVariables variables = runtimeVariables();
         variables.put(
                 RuntimeVariableAccessors.CONTEXTUALIZATION_HISTORY,
@@ -139,7 +139,7 @@ class PromptTemplateRendererTest {
                         definition("user.query", "STRING")),
                 PromptRole.SYSTEM);
 
-        String rendered = renderer.renderContextualizationPrompt(
+        String rendered = renderer.renderQueryRewritePrompt(
                 snapshot,
                 variables);
 

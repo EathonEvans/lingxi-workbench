@@ -1,5 +1,6 @@
 package com.lingxi.workbench.chat.service.impl;
 
+import com.alibaba.fastjson2.JSON;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.service.app.RuntimeVariablesInitializer;
 import com.lingxi.workbench.chat.model.bo.ChatMemoryMessageBO;
@@ -22,6 +23,7 @@ import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.workflow.model.ContextualizationPolicy;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 
@@ -31,6 +33,7 @@ import java.util.List;
 import java.util.Objects;
 
 /** 默认的共享对话上下文准备用例。 */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ConversationContextServiceImpl implements ConversationContextService {
@@ -38,7 +41,7 @@ public class ConversationContextServiceImpl implements ConversationContextServic
     private final ConversationMemoryService conversationMemoryService;
     private final MemoryContextService memoryContextService;
     private final RuntimeVariablesInitializer runtimeVariablesInitializer;
-    private final QueryContextualizer queryContextualizer;
+    private final QueryRewriter queryRewriter;
     private final TokenCountEstimator tokenCountEstimator;
 
     @Override
@@ -77,10 +80,10 @@ public class ConversationContextServiceImpl implements ConversationContextServic
             runtimeVariables.put(RuntimeVariableAccessors.LONG_TERM_MEMORY, longTermMemory);
         }
 
-        // ⑥ Query 重写：有摘要时用摘要补充语义，无摘要时保持原文
+        // ⑥ 问题重写：存在历史时消解指代；没有历史时保持原问题，避免无意义模型调用
         ContextualizationPolicy contextualizationPolicy = withinDeadline(contextPolicy.contextualization(), deadline);
-        QueryContextualizer.ContextualizationResult contextualization = queryContextualizer
-                .contextualize(contextualizationPolicy, query, runtimeVariables, memory.recentMessages());
+        QueryRewriter.RewriteResult rewrite = queryRewriter.rewrite(contextualizationPolicy, query, runtimeVariables, memory.recentMessages());
+        log.info("问题重写完成,源问题：{} -> 重写后:{}", query, JSON.toJSONString(rewrite));
         ensureWithinDeadline(deadline);
 
         // ⑦ 组装不可变 ConversationContext，共享给后续路由和执行
@@ -89,18 +92,18 @@ public class ConversationContextServiceImpl implements ConversationContextServic
                 .loginUser(loginUser)
                 .turn(turn)
                 .originalQuery(query)
-                .contextualizedQuery(contextualization.query())
+                .rewrittenQuery(rewrite.query())
                 .recentMessages(memory.recentMessages())
                 .summary(summary)
                 .longTermMemory(longTermMemory)
                 .budget(budget)
                 .runtimeVariables(runtimeVariables)
-                .preparationTokenUsage(contextualization.usage())
-                .preparationModelCalls(contextualization.modelCalls())
+                .preparationTokenUsage(rewrite.usage())
+                .preparationModelCalls(rewrite.modelCalls())
                 .build();
     }
 
-    /** 上下文化局部超时不得越过Application单轮硬截止。 */
+    /** 问题重写局部超时不得越过Application单轮硬截止。 */
     private static ContextualizationPolicy withinDeadline(ContextualizationPolicy policy, Instant deadline) {
         Duration remaining = remaining(deadline);
         if (!policy.isEnabled()) {

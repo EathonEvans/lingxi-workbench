@@ -199,7 +199,7 @@ public class AgentDraftValidator {
      * 变量必须具备运行时来源，并且只能进入当前 Agent 能力对应的消费通道。
      *
      * <p>PromptRole 只描述模型消息角色，不能表达同为 SYSTEM 角色的普通回答指令
-     * 和问题上下文化任务之间的变量差异，因此此处必须按 variableChannel 校验。</p>
+     * 和问题重写任务之间的变量差异，因此此处必须按 variableChannel 校验。</p>
      */
     private void validatePromptVariables(PromptVersionEntity version, RuntimeVariableChannel variableChannel, AgentType agentType, String codePrefix, List<AgentValidationIssueVO> issues) {
         List<PromptVariableDefinition> variables = version.getVariables();
