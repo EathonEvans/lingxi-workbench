@@ -16,6 +16,7 @@ public class PlanExecutionRequest {
     private ConversationContext conversationContext;
     private ChatExecutionContext executionContext;
     private Set<String> confirmedCapabilityCodes;
+    private PlanExecutorRuntimeContext planExecutor;
 
     public Set<String> confirmedCapabilityCodes() {
         return confirmedCapabilityCodes == null ? Set.of() : Set.copyOf(confirmedCapabilityCodes);

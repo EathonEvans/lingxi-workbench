@@ -26,8 +26,14 @@ public class AgentReferenceServiceImpl implements AgentReferenceService {
     }
 
     @Override
-    public Optional<Long> findVersion(Long agentId, Long versionId) {
+    public Optional<AgentVersionReference> findVersion(Long agentId, Long versionId) {
         return agentVersionRepo.findByAgentIdAndId(agentId, versionId)
-                .map(version -> version.getId());
+                .filter(version -> version.getSchemaVersion() != null
+                        && version.getDefinitionSnapshot() != null
+                        && version.getDefinitionSnapshot().getAgentType() != null)
+                .map(version -> new AgentVersionReference(
+                        version.getId(),
+                        version.getSchemaVersion(),
+                        version.getDefinitionSnapshot().getAgentType()));
     }
 }

@@ -1,6 +1,7 @@
 package com.lingxi.workbench.application.runtime.model;
 
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.model.PlanExecutorPolicy;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -64,6 +65,10 @@ public class AgentRuntimeDefinition {
      * 回答模型生成参数。
      */
     private GenerationPolicy generationPolicy;
+    /**
+     * Schema V6 Plan Executor 的结构性规划边界。
+     */
+    private PlanExecutorPolicy planExecutorPolicy;
 
     /** 返回发布快照冻结的工具编码。 */
     public List<String> resolveToolCodes() {

@@ -1,7 +1,7 @@
 package com.lingxi.workbench.chat.service.impl;
 
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
-import com.lingxi.workbench.application.runtime.service.impl.RuntimeVariablesInitializer;
+import com.lingxi.workbench.application.runtime.service.app.RuntimeVariablesInitializer;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
 import com.lingxi.workbench.chat.memory.MemoryContextService;
 import com.lingxi.workbench.chat.model.bo.ChatMemoryMessageBO;
@@ -18,6 +18,7 @@ import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
+import com.lingxi.workbench.workflow.model.FallbackAgent;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.ConversationSummaryMemoryConfig;
@@ -147,16 +148,15 @@ class ConversationContextServiceImplTest {
     }
 
     private static AppRuntimeSnapshot application(MemoryConfig memoryConfig, ApplicationRuntimePolicy runtimePolicy) {
-        ApplicationAgentReference defaultAgent = new ApplicationAgentReference(40L, 41L, "默认助手", "处理通用请求");
         ApplicationCapabilityDefinition capability = ApplicationCapabilityDefinition.builder()
                 .code("default_agent")
-                .type(ApplicationCapabilityType.REACT_AGENT)
+                .type(ApplicationCapabilityType.AGENT)
                 .targetId(40L)
                 .targetVersionId(41L)
                 .build();
         ApplicationDefinition definition = ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
-                .defaultAgent(defaultAgent)
+                .fallback(new FallbackAgent("default_agent"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(capability)).build())
                 .memoryConf(memoryConfig)
                 .runtimePolicy(runtimePolicy)

@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.agent.service;
 
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.model.PlanExecutorPolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
@@ -44,6 +45,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -304,6 +306,66 @@ class AgentDraftValidatorTest {
         assertTrue(issueCodes.contains("KNOWLEDGE_INDEX_UNPUBLISHABLE"));
     }
 
+    @Test
+    void shouldAcceptValidPlanExecutorContract() {
+        AgentDraftEntity draft = validDraft();
+        draft.setUserPromptVersionId(null);
+        draft.setPlanExecutorPolicy(PlanExecutorPolicy.defaults());
+
+        AgentValidationResultVO result = validator.validate(
+                activeAgent(AgentType.PLAN_EXECUTOR),
+                draft,
+                null);
+
+        assertTrue(result.valid());
+    }
+
+    @Test
+    void shouldRejectPlanExecutorUserPromptToolsKnowledgeAndInvalidPolicy() {
+        AgentDraftEntity draft = validDraft();
+        draft.setToolCodes(List.of("system_current_time"));
+        draft.setPlanExecutorPolicy(PlanExecutorPolicy.builder()
+                .maxSteps(21)
+                .maxReplans(4)
+                .maxProtocolRepairAttempts(4)
+                .build());
+
+        AgentValidationResultVO result = validator.validate(
+                activeAgent(AgentType.PLAN_EXECUTOR),
+                draft,
+                knowledgeBinding());
+        List<String> issueCodes = result.issues().stream()
+                .map(AgentValidationIssueVO::code)
+                .toList();
+
+        assertFalse(result.valid());
+        assertTrue(issueCodes.contains("USER_PROMPT_UNSUPPORTED"));
+        assertTrue(issueCodes.contains("TOOL_CODES_UNSUPPORTED"));
+        assertTrue(issueCodes.contains("KNOWLEDGE_UNSUPPORTED"));
+        assertTrue(issueCodes.contains("PLAN_EXECUTOR_POLICY_INVALID"));
+    }
+
+    @Test
+    void shouldRejectPlanExecutorPolicyOnConversationalAgent() {
+        preparePrompt(
+                USER_VERSION_ID,
+                31L,
+                PromptRole.USER,
+                reactUserVariables());
+        AgentDraftEntity draft = validDraft();
+        draft.setPlanExecutorPolicy(PlanExecutorPolicy.defaults());
+
+        AgentValidationResultVO result = validator.validate(
+                activeAgent(AgentType.REACT),
+                draft,
+                null);
+
+        assertFalse(result.valid());
+        assertTrue(result.issues().stream()
+                .map(AgentValidationIssueVO::code)
+                .anyMatch("PLAN_EXECUTOR_POLICY_UNSUPPORTED"::equals));
+    }
+
     private void prepareModelsAndKnowledge() {
         ModelInstanceEntity chatModel = model(
                 CHAT_MODEL_ID,
@@ -369,7 +431,7 @@ class AgentDraftValidatorTest {
 
     private static AgentDraftEntity validDraft() {
         AgentDraftEntity draft = new AgentDraftEntity();
-        draft.setSchemaVersion(2);
+        draft.setSchemaVersion(AGENT_SCHEMA_VERSION);
         draft.setChatModelInstanceId(CHAT_MODEL_ID);
         draft.setSystemPromptVersionId(SYSTEM_VERSION_ID);
         draft.setUserPromptVersionId(USER_VERSION_ID);

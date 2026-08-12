@@ -20,7 +20,7 @@ public interface AgentDraftMapper extends BaseMapper<AgentDraftEntity> {
                    tool_policy = #{entity.toolPolicy,typeHandler=com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler},
                    retrieval_policy = #{entity.retrievalPolicy,typeHandler=com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler},
                    generation_policy = #{entity.generationPolicy,typeHandler=com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler},
-                   runtime_policy = #{entity.runtimePolicy,typeHandler=com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler},
+                   plan_executor_policy = #{entity.planExecutorPolicy,typeHandler=com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler},
                    change_note = #{entity.changeNote},
                    updated_by = #{entity.updatedBy},
                    revision = revision + 1,

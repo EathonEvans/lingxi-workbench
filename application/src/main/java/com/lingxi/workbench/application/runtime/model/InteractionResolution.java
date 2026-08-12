@@ -1,0 +1,25 @@
+package com.lingxi.workbench.application.runtime.model;
+
+import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+
+import java.util.Set;
+
+/** 已校验所有权、状态、期限和 ApplicationVersion 的跨请求交互恢复结果。 */
+@Getter
+@Builder
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
+public class InteractionResolution {
+    private final String originalQuery;
+    private final String response;
+    private final InteractionSessionType type;
+    private final Set<String> confirmedCapabilityCodes;
+    private final InteractionResumeTarget resumeTarget;
+
+    public Set<String> confirmedCapabilityCodes() {
+        return confirmedCapabilityCodes == null ? Set.of() : Set.copyOf(confirmedCapabilityCodes);
+    }
+}

@@ -8,7 +8,7 @@ package com.lingxi.workbench.workflow.common.constants;
  *
  * <p>各常量说明：</p>
  * <ul>
- *   <li>{@code APPLICATION_SCHEMA_VERSION = 7} — 当前 ApplicationDefinition 协议版本号</li>
+ *   <li>{@code APPLICATION_SCHEMA_VERSION = 9} — 当前 ApplicationDefinition 协议版本号</li>
  *   <li>{@code MIN_MEMBER_AGENTS = 1} —
  *       启用协作时最少需要的成员 Agent 数量</li>
  *   <li>{@code MAX_MEMBER_AGENTS = 8} —
@@ -23,7 +23,7 @@ package com.lingxi.workbench.workflow.common.constants;
 public interface ApplicationCollaborationConstants {
 
     /** ApplicationDefinition 协议版本号 */
-    int APPLICATION_SCHEMA_VERSION = 7;
+    int APPLICATION_SCHEMA_VERSION = 9;
 
     /** 最少成员 Agent 数量 */
     int MIN_MEMBER_AGENTS = 1;

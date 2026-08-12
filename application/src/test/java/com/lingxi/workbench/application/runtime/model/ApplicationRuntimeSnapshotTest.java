@@ -1,7 +1,7 @@
 package com.lingxi.workbench.application.runtime.model;
 
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
-import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
+import com.lingxi.workbench.workflow.model.FallbackAgent;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
@@ -37,7 +37,7 @@ class ApplicationRuntimeSnapshotTest {
                 () -> new AppRuntimeSnapshot(1L, "support", 2L,
                         ApplicationDefinition.builder().schemaVersion(APPLICATION_SCHEMA_VERSION).build()));
 
-        assertEquals("Application缺少默认ReAct Agent", error.getMessage());
+        assertEquals("Application缺少fallback Agent能力编码", error.getMessage());
     }
 
     @Test
@@ -96,10 +96,9 @@ class ApplicationRuntimeSnapshotTest {
     }
 
     private static ApplicationDefinition definition(ApplicationIntentMapping mapping) {
-        ApplicationAgentReference defaultAgent = new ApplicationAgentReference(10L, 11L, "默认助手", "处理普通请求");
-        ApplicationCapabilityDefinition defaultCapability = ApplicationCapabilityDefinition.builder()
+        ApplicationCapabilityDefinition fallbackCap = ApplicationCapabilityDefinition.builder()
                 .code("default_agent")
-                .type(ApplicationCapabilityType.REACT_AGENT)
+                .type(ApplicationCapabilityType.AGENT)
                 .targetId(10L)
                 .targetVersionId(11L)
                 .build();
@@ -117,9 +116,9 @@ class ApplicationRuntimeSnapshotTest {
                 .build();
         return ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
-                .defaultAgent(defaultAgent)
+                .fallback(new FallbackAgent("default_agent"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder()
-                        .capabilities(List.of(defaultCapability, workflowCapability))
+                        .capabilities(List.of(fallbackCap, workflowCapability))
                         .build())
                 .optionalFastRoutes(mapping == null ? null : fastRoutes)
                 .build();

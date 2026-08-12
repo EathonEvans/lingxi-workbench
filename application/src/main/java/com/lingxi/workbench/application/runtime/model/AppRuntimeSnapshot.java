@@ -3,6 +3,7 @@ package com.lingxi.workbench.application.runtime.model;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
+import com.lingxi.workbench.workflow.model.FallbackAgent;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
 import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
 
@@ -40,19 +41,18 @@ public record AppRuntimeSnapshot(
         if (definition.schemaVersion() != APPLICATION_SCHEMA_VERSION) {
             throw new IllegalArgumentException("Application运行定义版本不受支持");
         }
-        boolean hasDefaultAgent = Objects.nonNull(definition.defaultAgent())
-                && Objects.nonNull(definition.defaultAgent().agentId())
-                && Objects.nonNull(definition.defaultAgent().agentVersionId());
-        if (!hasDefaultAgent) {
-            throw new IllegalArgumentException("Application缺少默认ReAct Agent");
+        FallbackAgent fallback = definition.fallback();
+        if (fallback == null || fallback.cap() == null || fallback.cap().isBlank()) {
+            throw new IllegalArgumentException("Application缺少fallback Agent能力编码");
         }
-        boolean catalogContainsDefault = definition.capabilityCatalog().capabilities().stream()
-                .anyMatch(capability -> "default_agent".equals(capability.getCode())
-                        && capability.getType() == ApplicationCapabilityType.REACT_AGENT
-                        && Objects.equals(capability.getTargetId(), definition.defaultAgent().agentId())
-                        && Objects.equals(capability.getTargetVersionId(), definition.defaultAgent().agentVersionId()));
-        if (!catalogContainsDefault) {
-            throw new IllegalArgumentException("Application能力目录缺少锁定的默认Agent");
+        long fallbackCount = definition.capabilityCatalog().capabilities().stream()
+                .filter(capability -> fallback.cap().equals(capability.getCode()))
+                .filter(capability -> capability.getType() == ApplicationCapabilityType.AGENT)
+                .filter(capability -> Objects.nonNull(capability.getTargetId()))
+                .filter(capability -> Objects.nonNull(capability.getTargetVersionId()))
+                .count();
+        if (fallbackCount != 1) {
+            throw new IllegalArgumentException("Application能力目录缺少唯一锁定的fallback Agent");
         }
         if (Objects.nonNull(definition.optionalFastRoutes())) {
             validateFastRoutes(definition);
@@ -89,7 +89,7 @@ public record AppRuntimeSnapshot(
         }
         ApplicationCapabilityType expectedType = mapping.getTargetType() == IntentExecutionTargetType.WORKFLOW
                 ? ApplicationCapabilityType.WORKFLOW
-                : ApplicationCapabilityType.REACT_AGENT;
+                : ApplicationCapabilityType.AGENT;
         ApplicationCapabilityDefinition capability = definition.capabilityCatalog().capabilities().stream()
                 .filter(item -> Objects.equals(item.getCode(), mapping.getCapabilityCode()))
                 .filter(item -> item.getType() == expectedType)

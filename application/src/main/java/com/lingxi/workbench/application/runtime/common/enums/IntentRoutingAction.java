@@ -39,6 +39,9 @@ public enum IntentRoutingAction {
     /** 需要用户澄清或补充信息 */
     CLARIFICATION("CLARIFICATION", "请求用户澄清"),
 
+    /** 跨能力歧义或候选未映射，携带安全证据交由fallback Agent判断。 */
+    DEFER_TO_AGENT("DEFER_TO_AGENT", "交由fallback Agent判断"),
+
     /** 可选快速路由未形成确定性结果，交由Planner或默认ReAct Agent。 */
     NO_MATCH("NO_MATCH", "交由模型决策");
 

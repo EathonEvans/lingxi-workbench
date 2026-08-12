@@ -191,8 +191,7 @@ public class ApplicationServiceImpl implements ApplicationService {
                 .optionalFastRoutes(request.getOptionalFastRoutes())
                 .memoryConf(Objects.requireNonNullElseGet(request.getMemory(), com.lingxi.workbench.workflow.model.MemoryConfig::disabled))
                 .contextPolicy(Objects.requireNonNullElseGet(request.getContextPolicy(), com.lingxi.workbench.workflow.model.ApplicationContextPolicy::defaults))
-                .defaultAgent(request.getDefaultAgent())
-                .plannerPolicy(Objects.requireNonNullElseGet(request.getPlannerPolicy(), com.lingxi.workbench.workflow.model.PlannerPolicy::disabled))
+                .fallback(request.getFallback())
                 .capabilityCatalog(Objects.requireNonNullElseGet(request.getCapabilityCatalog(), com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot::empty))
                 .runtimePolicy(Objects.requireNonNullElseGet(request.getRuntimePolicy(), com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy::defaults))
                 .build());
@@ -307,6 +306,13 @@ public class ApplicationServiceImpl implements ApplicationService {
                     "停用的Application不能切换版本");
         }
         AiApplicationVersionEntity version = requireVersion(id, versionId);
+        if (!Objects.equals(version.getSchemaVersion(), APPLICATION_SCHEMA_VERSION)
+                || version.getDefinitionSnapshot() == null
+                || version.getDefinitionSnapshot().schemaVersion() != APPLICATION_SCHEMA_VERSION) {
+            throw new BusinessException(
+                    HttpStatusEnum.CONFLICT,
+                    "当前运行时只能激活V9 Application正式版本");
+        }
         application.setPublishedVersionId(versionId);
         application.setUpdatedBy(operatorId);
         applicationRepo.save(application);
@@ -361,7 +367,6 @@ public class ApplicationServiceImpl implements ApplicationService {
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .memoryConf(com.lingxi.workbench.workflow.model.MemoryConfig.disabled())
                 .contextPolicy(com.lingxi.workbench.workflow.model.ApplicationContextPolicy.defaults())
-                .plannerPolicy(com.lingxi.workbench.workflow.model.PlannerPolicy.disabled())
                 .capabilityCatalog(com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot.empty())
                 .runtimePolicy(com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy.defaults())
                 .build();

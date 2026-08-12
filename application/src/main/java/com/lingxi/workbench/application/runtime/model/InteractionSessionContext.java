@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
-/** Planner澄清或风险确认的持久化上下文。 */
+/** Agent 运行时澄清或风险确认的持久化上下文。 */
 @Data
 @Builder
 @NoArgsConstructor

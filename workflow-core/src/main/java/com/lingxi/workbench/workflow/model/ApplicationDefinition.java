@@ -12,7 +12,7 @@ import lombok.Setter;
 /**
  * Application 发布版本中的完整行为定义。
  *
- * <p>默认 ReAct Agent 和不可变能力目录构成执行边界，可选快速路由只负责确定性直达。</p>
+ * <p>fallback Agent 能力和不可变能力目录构成执行边界，可选快速路由只负责确定性直达。</p>
  */
 @Getter
 @Setter
@@ -26,17 +26,17 @@ public class ApplicationDefinition {
 
     private AgentCollaborationDefinition collaboration;
 
-    /** 可选快速路由；未命中时进入 Planner 或默认 ReAct Agent。 */
+    /**
+     * 可选快速路由；未命中时进入 fallback Agent。
+     */
     private ApplicationIntentBinding optionalFastRoutes;
 
     private MemoryConfig memoryConf;
 
     private ApplicationContextPolicy contextPolicy;
 
-    /** 默认执行入口；发布后必须锁定 ReAct AgentVersion。 */
-    private ApplicationAgentReference defaultAgent;
-
-    private PlannerPolicy plannerPolicy;
+    /** fallback 角色，只引用能力目录，不重复保存 Agent 主键或版本。 */
+    private FallbackAgent fallback;
 
     private CapabilityCatalogSnapshot capabilityCatalog;
 
@@ -62,12 +62,8 @@ public class ApplicationDefinition {
         return contextPolicy == null ? ApplicationContextPolicy.defaults() : contextPolicy;
     }
 
-    public ApplicationAgentReference defaultAgent() {
-        return defaultAgent;
-    }
-
-    public PlannerPolicy plannerPolicy() {
-        return plannerPolicy == null ? PlannerPolicy.disabled() : plannerPolicy;
+    public FallbackAgent fallback() {
+        return fallback;
     }
 
     public CapabilityCatalogSnapshot capabilityCatalog() {

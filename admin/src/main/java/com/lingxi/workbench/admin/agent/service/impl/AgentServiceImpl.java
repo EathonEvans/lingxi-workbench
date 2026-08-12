@@ -2,6 +2,7 @@ package com.lingxi.workbench.admin.agent.service.impl;
 
 import cn.hutool.core.text.CharSequenceUtil;
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.model.PlanExecutorPolicy;
 import com.lingxi.workbench.admin.agent.common.enums.KnowledgeBindingMode;
 import com.lingxi.workbench.admin.agent.model.config.AgentDefinition;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
@@ -55,11 +56,12 @@ import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
+
 /** Agent 控制面业务实现。 */
 @Service
 @RequiredArgsConstructor
 public class AgentServiceImpl implements AgentService {
-    private static final int AGENT_SCHEMA_VERSION = 5;
     private static final int KNOWLEDGE_SEARCH_MAX_QUERY_CHARACTERS = 2000;
     private static final int KNOWLEDGE_SEARCH_TIMEOUT_SECONDS = 15;
 
@@ -159,6 +161,9 @@ public class AgentServiceImpl implements AgentService {
         draft.setGenerationPolicy(GenerationPolicy.defaults());
         draft.setToolCodes(List.of());
         draft.setToolPolicy(AgentToolPolicy.defaults());
+        draft.setPlanExecutorPolicy(request.getAgentType() == AgentType.PLAN_EXECUTOR
+                ? PlanExecutorPolicy.defaults()
+                : null);
         draft.setRevision(0L);
         draft.setCreatedBy(operatorId);
         draft.setUpdatedBy(operatorId);
@@ -302,6 +307,13 @@ public class AgentServiceImpl implements AgentService {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "停用的Agent不能切换版本");
         }
         AgentVersionEntity version = requireVersion(id, versionId);
+        if (!Objects.equals(version.getSchemaVersion(), AGENT_SCHEMA_VERSION)
+                || version.getDefinitionSnapshot() == null
+                || version.getDefinitionSnapshot().getAgentType() != agent.getAgentType()) {
+            throw new BusinessException(
+                    HttpStatusEnum.CONFLICT,
+                    "只能激活与当前Agent类型一致的V6正式版本");
+        }
         agent.setPublishedVersionId(versionId);
         agent.setUpdatedBy(operatorId);
         agentRepo.save(agent);
@@ -327,10 +339,13 @@ public class AgentServiceImpl implements AgentService {
         draft.setRetrievalPolicy(agentType == AgentType.REACT
                 ? request.getRetrievalPolicy()
                 : RetrievalPolicy.defaults());
+        draft.setPlanExecutorPolicy(agentType == AgentType.PLAN_EXECUTOR
+                ? request.getPlanExecutorPolicy()
+                : null);
     }
 
     private void saveKnowledgeBinding(AgentType agentType, AgentDraftEntity draft, Long knowledgeBaseId) {
-        if (agentType == AgentType.SUPERVISOR) {
+        if (agentType != AgentType.REACT) {
             draftKnowledgeRepo.deleteByDraftId(draft.getId());
             return;
         }
@@ -372,8 +387,9 @@ public class AgentServiceImpl implements AgentService {
                 .userPromptVersionId(draft.getUserPromptVersionId())
                 .toolCodes(List.copyOf(draft.getToolCodes()))
                 .toolPolicy(draft.getToolPolicy())
-                .generationPolicy(draft.getGenerationPolicy());
-        if (agent.getAgentType() == AgentType.SUPERVISOR) {
+                .generationPolicy(draft.getGenerationPolicy())
+                .planExecutorPolicy(draft.getPlanExecutorPolicy());
+        if (agent.getAgentType() != AgentType.REACT) {
             return builder.build();
         }
         return builder

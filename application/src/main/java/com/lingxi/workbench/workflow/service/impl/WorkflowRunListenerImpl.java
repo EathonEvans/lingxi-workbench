@@ -3,7 +3,7 @@ package com.lingxi.workbench.workflow.service.impl;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
-import com.lingxi.workbench.application.runtime.service.ChatExecutionContextRegistry;
+import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionContextRegistry;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.workflow.model.WorkflowExecutionResult;
 import com.lingxi.workbench.workflow.model.WorkflowNodeDefinition;

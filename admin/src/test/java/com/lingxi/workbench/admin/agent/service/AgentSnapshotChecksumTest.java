@@ -38,7 +38,7 @@ class AgentSnapshotChecksumTest {
 
     private static AgentDefinition definition(int topK) {
         return AgentDefinition.builder()
-                .schemaVersion(5)
+                .schemaVersion(6)
                 .agentType(AgentType.REACT)
                 .chatModelInstanceId(10L)
                 .systemPromptVersionId(20L)

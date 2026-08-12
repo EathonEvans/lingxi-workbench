@@ -55,6 +55,9 @@ public class IntentRoutingResult {
      */
     private final ChatClarificationEventBO clarification;
 
+    /** 未直达时提供给 fallback Agent 的安全结构化证据。 */
+    private final IntentRoutingEvidence routingEvidence;
+
     /**
      * 当前请求未进入快速路由。
      */
@@ -62,6 +65,10 @@ public class IntentRoutingResult {
         return builder()
                 .action(IntentRoutingAction.SKIPPED)
                 .executionQuery(query)
+                .routingEvidence(IntentRoutingEvidence.builder()
+                        .reason(com.lingxi.workbench.application.runtime.common.enums.IntentRoutingFallbackReason.ROUTING_DISABLED)
+                        .candidates(java.util.List.of())
+                        .build())
                 .build();
     }
 
@@ -72,6 +79,21 @@ public class IntentRoutingResult {
         return builder()
                 .action(IntentRoutingAction.NO_MATCH)
                 .executionQuery(query)
+                .routingEvidence(IntentRoutingEvidence.builder()
+                        .reason(com.lingxi.workbench.application.runtime.common.enums.IntentRoutingFallbackReason.NOT_MATCHED)
+                        .candidates(java.util.List.of())
+                        .build())
+                .build();
+    }
+
+    /**
+     * 快速路由无法安全直达时，将裁剪后的候选证据交给 fallback Agent 二次判断。
+     */
+    public static IntentRoutingResult defer(String query, IntentRoutingEvidence evidence) {
+        return builder()
+                .action(IntentRoutingAction.DEFER_TO_AGENT)
+                .executionQuery(query)
+                .routingEvidence(evidence)
                 .build();
     }
 }

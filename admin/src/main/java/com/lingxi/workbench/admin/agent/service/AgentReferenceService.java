@@ -9,7 +9,7 @@ public interface AgentReferenceService {
 
     Optional<AgentReference> findAgent(Long agentId);
 
-    Optional<Long> findVersion(Long agentId, Long versionId);
+    Optional<AgentVersionReference> findVersion(Long agentId, Long versionId);
 
     /**
      * @param id Agent 主键
@@ -26,5 +26,9 @@ public interface AgentReferenceService {
      * @param publishedVersionId 当前生效版本主键
      */
     record AgentReference(AgentIdentity identity, boolean active, Long publishedVersionId) {
+    }
+
+    /** 发布快照的最小跨模块协议元数据。 */
+    record AgentVersionReference(Long id, int schemaVersion, AgentType agentType) {
     }
 }

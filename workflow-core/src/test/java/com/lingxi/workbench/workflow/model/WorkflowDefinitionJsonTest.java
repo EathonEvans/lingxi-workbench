@@ -69,17 +69,17 @@ class WorkflowDefinitionJsonTest {
         ApplicationAgentReference member = new ApplicationAgentReference(9007199254740997L, 9007199254740999L, "售后专家", "处理售后问题");
         AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(
                 true, supervisor, List.of(member), new AgentCollaborationLimits(1));
-        ApplicationCapabilityDefinition defaultCapability = ApplicationCapabilityDefinition.builder()
+        ApplicationCapabilityDefinition fallbackCap = ApplicationCapabilityDefinition.builder()
                 .code("default_agent")
-                .type(ApplicationCapabilityType.REACT_AGENT)
+                .type(ApplicationCapabilityType.AGENT)
                 .targetId(member.agentId())
                 .targetVersionId(member.agentVersionId())
                 .build();
         ApplicationDefinition source = ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .collaboration(collaboration)
-                .defaultAgent(member)
-                .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(defaultCapability)).build())
+                .fallback(new FallbackAgent("fallback_agent"))
+                .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(fallbackCap)).build())
                 .build();
 
         String json = JSON.toJSONString(source);
@@ -154,10 +154,9 @@ class WorkflowDefinitionJsonTest {
 
     @Test
     void shouldRoundTripApplicationCapabilityCatalog() {
-        ApplicationAgentReference defaultAgent = new ApplicationAgentReference(10L, 11L, "默认助手", "处理通用请求");
         ApplicationCapabilityDefinition capability = ApplicationCapabilityDefinition.builder()
-                .code("default_agent")
-                .type(ApplicationCapabilityType.REACT_AGENT)
+                .code("fallback_agent")
+                .type(ApplicationCapabilityType.AGENT)
                 .name("默认助手")
                 .description("处理通用请求")
                 .targetId(10L)
@@ -169,8 +168,7 @@ class WorkflowDefinitionJsonTest {
                 .build();
         ApplicationDefinition source = ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
-                .defaultAgent(defaultAgent)
-                .plannerPolicy(PlannerPolicy.disabled())
+                .fallback(new FallbackAgent("fallback_agent"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(capability)).build())
                 .runtimePolicy(ApplicationRuntimePolicy.defaults())
                 .build();
@@ -179,9 +177,10 @@ class WorkflowDefinitionJsonTest {
         ApplicationDefinition restored = JSON.parseObject(json, ApplicationDefinition.class);
 
         assertThat(restored).isEqualTo(source);
-        assertThat(restored.defaultAgent().agentVersionId()).isEqualTo(11L);
+        assertThat(restored.fallback().cap()).isEqualTo("fallback_agent");
+        assertThat(json).contains("\"fallback\":{\"cap\":\"fallback_agent\"}");
         assertThat(restored.capabilityCatalog().capabilities()).singleElement()
-                .satisfies(item -> assertThat(item.getCode()).isEqualTo("default_agent"));
+                .satisfies(item -> assertThat(item.getCode()).isEqualTo("fallback_agent"));
         assertThat(json).contains("\"targetVersionId\":\"11\"");
     }
 

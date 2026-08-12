@@ -1,25 +1,27 @@
 package com.lingxi.workbench.application.runtime.model;
 
 import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
 
 import java.util.List;
+import java.util.Objects;
 
-/**
- * @param conversationContext 路由前准备的共享上下文
- * @param executionContext    本轮共享执行状态与剩余预算
- * @param stepResults         已完成计划步骤的受限结果
- * @param limitation          触发提前收口的安全原因；正常综合时为空
- */
-public record FinalSynthesisRequest(ConversationContext conversationContext, ChatExecutionContext executionContext,
-                                    List<PlanStepResult> stepResults, String limitation) {
+/** 使用锁定 Plan Executor AgentVersion 对已完成步骤结果进行最终综合。 */
+@Getter
+@Builder
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
+public class FinalSynthesisRequest {
+    private final ConversationContext conversationContext;
+    private final ChatExecutionContext executionContext;
+    private final List<PlanStepResult> stepResults;
+    private final String limitation;
+    private final PlanExecutorRuntimeContext planExecutor;
 
-    public FinalSynthesisRequest(ConversationContext conversationContext, ChatExecutionContext executionContext,
-                                 List<PlanStepResult> stepResults) {
-        this(conversationContext, executionContext, stepResults, null);
-    }
-
-    public FinalSynthesisRequest {
-        stepResults = java.util.Optional.ofNullable(stepResults).map(List::copyOf).orElseGet(List::of);
+    public List<PlanStepResult> stepResults() {
+        return List.copyOf(Objects.requireNonNullElse(stepResults, List.of()));
     }
 
     public boolean isLimited() {

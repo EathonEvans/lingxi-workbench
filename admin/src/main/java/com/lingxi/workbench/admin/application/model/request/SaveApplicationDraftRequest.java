@@ -3,10 +3,9 @@ package com.lingxi.workbench.admin.application.model.request;
 import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
 import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
-import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
-import com.lingxi.workbench.workflow.model.PlannerPolicy;
+import com.lingxi.workbench.workflow.model.FallbackAgent;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -29,12 +28,9 @@ public class SaveApplicationDraftRequest {
     /** 路由前问题上下文化与共享上下文分区预算。 */
     @Valid
     private ApplicationContextPolicy contextPolicy;
-    /** 默认 ReAct Agent；草稿只提交 agentId，发布时锁定版本。 */
+    /** fallback 角色对能力目录的引用。 */
     @Valid
-    private ApplicationAgentReference defaultAgent;
-    /** Planner 配置由 M3 冻结，M4 启用执行。 */
-    @Valid
-    private PlannerPolicy plannerPolicy;
+    private FallbackAgent fallback;
     /** Application 可见的 Agent、Workflow 与 Tool 能力。 */
     @Valid
     private CapabilityCatalogSnapshot capabilityCatalog;

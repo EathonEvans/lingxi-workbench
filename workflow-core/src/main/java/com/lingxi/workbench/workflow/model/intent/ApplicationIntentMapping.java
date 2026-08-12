@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
  * <ul>
  *   <li><b>WORKFLOW</b> — 交给独立管理的 Workflow 正式版本执行。
  *       草稿保存 Workflow 主键，Application 发布时锁定 WorkflowVersion。</li>
- *   <li><b>AGENT</b> — 交给指定的 ReAct Agent 或 Supervisor 执行。
+ *   <li><b>AGENT</b> — 交给指定的 Agent 执行。
  *       草稿中 {@code targetId} 保存 Agent 稳定主键，发布时解析并锁定为
  *       {@code targetVersionId}。</li>
  *   <li><b>FIXED_RESPONSE</b> — 直接返回预定义的固定文本，不调用任何模型。
@@ -24,7 +24,7 @@ import lombok.NoArgsConstructor;
  * <ul>
  *   <li>{@code intentCode} — 意图树叶子节点的稳定编码</li>
  *   <li>{@code targetType} — 执行目标类型：WORKFLOW / AGENT / FIXED_RESPONSE</li>
- *   <li>{@code capabilityCode} — Schema V5 中引用能力目录的稳定编码；固定答复为空</li>
+ *   <li>{@code capabilityCode} — 引用能力目录的稳定编码；固定答复为空</li>
  *   <li>{@code targetId} — Agent 或 Workflow 的稳定主键</li>
  *   <li>{@code targetVersionId} — 发布快照中锁定并解析的 AgentVersion 或 WorkflowVersion 主键。
  *       草稿中可以留空（表示发布时跟随当前生效版本），发布后由控制面填充</li>
@@ -48,7 +48,7 @@ public class ApplicationIntentMapping {
     private IntentExecutionTargetType targetType;
 
     /**
-     * Schema V5 可选快速路由引用的能力目录编码
+     * 可选快速路由引用的能力目录编码
      */
     private String capabilityCode;
 

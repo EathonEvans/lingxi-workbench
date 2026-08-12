@@ -12,7 +12,8 @@ import lombok.RequiredArgsConstructor;
 public enum AgentType {
 
     REACT("REACT", "ReAct Agent"),
-    SUPERVISOR("SUPERVISOR", "多Agent监督者");
+    SUPERVISOR("SUPERVISOR", "多Agent监督者"),
+    PLAN_EXECUTOR("PLAN_EXECUTOR", "规划执行Agent");
 
     /** 稳定编码，同时作为数据库和发布快照存储值。 */
     @EnumValue

@@ -25,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
 
 class WorkflowDraftResolverTest {
 
@@ -58,7 +59,8 @@ class WorkflowDraftResolverTest {
         AgentReferenceService.AgentIdentity identity = new AgentReferenceService.AgentIdentity(10L, "售后Agent", "处理售后请求", AgentType.REACT);
         when(agentReferenceService.findAgent(10L))
                 .thenReturn(Optional.of(new AgentReferenceService.AgentReference(identity, true, 12L)));
-        when(agentReferenceService.findVersion(10L, 12L)).thenReturn(Optional.of(12L));
+        when(agentReferenceService.findVersion(10L, 12L)).thenReturn(Optional.of(
+                new AgentReferenceService.AgentVersionReference(12L, AGENT_SCHEMA_VERSION, AgentType.REACT)));
         when(intentTreeService.findReference(20L))
                 .thenReturn(Optional.of(new IntentTreeService.IntentTreeReference(20L, true, 22L, "售后意图")));
         when(intentTreeService.findVersion(20L, 22L)).thenReturn(Optional.of(new IntentTreeDefinition(

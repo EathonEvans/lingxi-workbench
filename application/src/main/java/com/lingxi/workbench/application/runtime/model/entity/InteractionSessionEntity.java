@@ -24,6 +24,9 @@ public class InteractionSessionEntity extends TimeEntity {
     private Long userId;
     private Long applicationVersionId;
     private String runId;
+    private String resumeCapabilityCode;
+    private Long orchestratorAgentId;
+    private Long orchestratorAgentVersionId;
     private InteractionSessionType interactionType;
     private InteractionSessionStatus status;
     private Integer roundNo;

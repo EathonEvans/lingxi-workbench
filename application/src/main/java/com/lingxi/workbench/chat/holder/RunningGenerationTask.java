@@ -1,7 +1,7 @@
 package com.lingxi.workbench.chat.holder;
 
 import cn.hutool.core.text.CharSequenceUtil;
-import com.lingxi.workbench.application.runtime.service.ChatExecutionEventPublisher;
+import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionEventPublisher;
 import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;

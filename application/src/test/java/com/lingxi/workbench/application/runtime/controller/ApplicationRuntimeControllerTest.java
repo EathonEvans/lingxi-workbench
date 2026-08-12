@@ -2,7 +2,7 @@ package com.lingxi.workbench.application.runtime.controller;
 
 import com.lingxi.workbench.application.runtime.model.vo.AvailableApplicationVO;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
-import com.lingxi.workbench.application.runtime.service.ApplicationRuntimeService;
+import com.lingxi.workbench.application.runtime.service.app.ApplicationRuntimeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;

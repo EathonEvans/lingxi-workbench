@@ -68,7 +68,13 @@ public class AgentDraftValidator {
         }
         validateTools(agentType, draft, knowledgeBinding, chatModel, issues);
         validatePrompt(draft.getSystemPromptVersionId(), PromptRole.SYSTEM, RuntimeVariableChannel.SYSTEM_PROMPT, "SYSTEM_PROMPT", agentType, issues);
-        validatePrompt(draft.getUserPromptVersionId(), PromptRole.USER, RuntimeVariableChannel.USER_PROMPT, "USER_PROMPT", agentType, issues);
+        if (agentType == AgentType.PLAN_EXECUTOR) {
+            if (Objects.nonNull(draft.getUserPromptVersionId())) {
+                add(issues, "USER_PROMPT_UNSUPPORTED", "Plan Executor的用户消息由平台构建，不能配置USER Prompt");
+            }
+        } else {
+            validatePrompt(draft.getUserPromptVersionId(), PromptRole.USER, RuntimeVariableChannel.USER_PROMPT, "USER_PROMPT", agentType, issues);
+        }
 
         validateKnowledge(agentType, knowledgeBinding, issues);
         return new AgentValidationResultVO(issues.isEmpty(), issues);
@@ -79,6 +85,11 @@ public class AgentDraftValidator {
         validatePolicy(draft.getToolPolicy(), "TOOL_POLICY", issues);
         if (agentType == AgentType.REACT && Objects.nonNull(knowledgeBinding)) {
             validatePolicy(draft.getRetrievalPolicy(), "KNOWLEDGE_SEARCH_POLICY", issues);
+        }
+        if (agentType == AgentType.PLAN_EXECUTOR) {
+            validatePolicy(draft.getPlanExecutorPolicy(), "PLAN_EXECUTOR_POLICY", issues);
+        } else if (Objects.nonNull(draft.getPlanExecutorPolicy())) {
+            add(issues, "PLAN_EXECUTOR_POLICY_UNSUPPORTED", "仅Plan Executor可以配置计划执行策略");
         }
     }
 
@@ -92,6 +103,9 @@ public class AgentDraftValidator {
         long distinctCount = toolCodes.stream().distinct().count();
         if (distinctCount != toolCodes.size()) {
             add(issues, "TOOL_CODE_DUPLICATED", "工具编码不能重复");
+        }
+        if (agentType == AgentType.PLAN_EXECUTOR && !toolCodes.isEmpty()) {
+            add(issues, "TOOL_CODES_UNSUPPORTED", "Plan Executor不能绑定普通Agent Tool");
         }
         Set<String> activeCodes = toolService.findActiveCodes(toolCodes);
         for (String toolCode : toolCodes) {
@@ -255,8 +269,8 @@ public class AgentDraftValidator {
         if (Objects.isNull(binding)) {
             return;
         }
-        if (agentType == AgentType.SUPERVISOR) {
-            add(issues, "KNOWLEDGE_UNSUPPORTED", "Supervisor Agent不能绑定知识库");
+        if (agentType != AgentType.REACT) {
+            add(issues, "KNOWLEDGE_UNSUPPORTED", agentType.getDescribe() + "不能绑定知识库");
             return;
         }
         Optional<KnowledgeBaseEntity> optional =

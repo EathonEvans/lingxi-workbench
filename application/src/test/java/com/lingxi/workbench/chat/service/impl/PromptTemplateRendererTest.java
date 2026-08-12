@@ -1,7 +1,7 @@
 package com.lingxi.workbench.chat.service.impl;
 
 import com.alibaba.fastjson2.JSON;
-import com.lingxi.workbench.application.runtime.service.impl.RuntimeVariablesInitializer;
+import com.lingxi.workbench.application.runtime.service.app.RuntimeVariablesInitializer;
 import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.PromptRuntimeVariableDefinition;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;

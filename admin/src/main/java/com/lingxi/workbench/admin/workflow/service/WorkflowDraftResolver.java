@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
+
 /** 校验独立 Workflow 草稿并在发布时锁定所有外部资源版本。 */
 @Component
 @RequiredArgsConstructor
@@ -67,11 +69,19 @@ public class WorkflowDraftResolver {
         if (!agent.active()) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "节点" + nodeId + "引用的Agent已停用");
         }
+        if (agent.identity().agentType() == com.lingxi.workbench.infra.ai.agent.common.enums.AgentType.PLAN_EXECUTOR) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "节点" + nodeId + "不能引用PLAN_EXECUTOR Agent");
+        }
         Long versionId = Optional.ofNullable(config.agentVersionId()).orElse(agent.publishedVersionId());
-        if (Objects.isNull(versionId) || agentReferenceService.findVersion(config.agentId(), versionId).isEmpty()) {
+        AgentReferenceService.AgentVersionReference version = Objects.isNull(versionId)
+                ? null
+                : agentReferenceService.findVersion(config.agentId(), versionId).orElse(null);
+        if (Objects.isNull(version)
+                || version.schemaVersion() != AGENT_SCHEMA_VERSION
+                || version.agentType() != agent.identity().agentType()) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "节点" + nodeId + "没有可用的Agent正式版本");
         }
-        return new AgentNodeConfig(config.agentId(), versionId, config.inputMapping(), config.outputMapping());
+        return new AgentNodeConfig(config.agentId(), version.id(), config.inputMapping(), config.outputMapping());
     }
 
     private IntentClassifierNodeConfig resolveIntentTree(String nodeId, IntentClassifierNodeConfig config) {

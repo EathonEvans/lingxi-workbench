@@ -1,7 +1,7 @@
 package com.lingxi.workbench.chat.service.impl;
 
 import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
-import com.lingxi.workbench.application.runtime.service.PromptRuntimeService;
+import com.lingxi.workbench.application.runtime.service.prompt.PromptRuntimeService;
 import com.lingxi.workbench.chat.memory.config.MemoryChatModelResolver;
 import com.lingxi.workbench.chat.model.bo.ChatMemoryMessageBO;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;

@@ -3,10 +3,10 @@ package com.lingxi.workbench.chat.service.impl;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
-import com.lingxi.workbench.application.runtime.service.ApplicationRuntimeService;
-import com.lingxi.workbench.application.runtime.service.ApplicationChatExecutionService;
-import com.lingxi.workbench.application.runtime.service.ExecutionFailureClassifier;
-import com.lingxi.workbench.application.runtime.service.ChatExecutionEventPublisher;
+import com.lingxi.workbench.application.runtime.service.app.ApplicationRuntimeService;
+import com.lingxi.workbench.application.runtime.service.app.ApplicationChatExecutionService;
+import com.lingxi.workbench.application.runtime.service.execution.ExecutionFailureClassifier;
+import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionEventPublisher;
 import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
@@ -33,6 +33,7 @@ import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
+import com.lingxi.workbench.workflow.model.FallbackAgent;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -83,16 +84,15 @@ class ChatStreamServiceImplTest {
     private ChatStreamServiceImpl service;
 
     private static ApplicationDefinition applicationDefinition() {
-        ApplicationAgentReference defaultAgent = new ApplicationAgentReference(40L, 41L, "默认助手", "处理通用请求");
         ApplicationCapabilityDefinition capability = ApplicationCapabilityDefinition.builder()
                 .code("default_agent")
-                .type(ApplicationCapabilityType.REACT_AGENT)
+                .type(ApplicationCapabilityType.AGENT)
                 .targetId(40L)
                 .targetVersionId(41L)
                 .build();
         return ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
-                .defaultAgent(defaultAgent)
+                .fallback(new FallbackAgent("default_agent"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(capability)).build())
                 .build();
     }

@@ -29,10 +29,10 @@ import com.lingxi.workbench.workflow.model.ConversationSummaryMemoryConfig;
 import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.workflow.model.ContextualizationPolicy;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
+import com.lingxi.workbench.workflow.model.FallbackAgent;
 import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
 import com.lingxi.workbench.workflow.model.InteractionRecordMemoryConfig;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
-import com.lingxi.workbench.workflow.model.PlannerPolicy;
 import com.lingxi.workbench.workflow.model.UserProfileMemoryConfig;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
@@ -59,6 +59,7 @@ import static com.lingxi.workbench.workflow.common.constants.ApplicationCollabor
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.MIN_DELEGATIONS;
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.MIN_MEMBER_AGENTS;
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.SUPERVISOR_MAX_DEPTH;
+import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
 
 /**
  * Application 发布校验与引用解析。
@@ -80,7 +81,6 @@ public class ApplicationDraftValidator {
     private static final int MIN_SUMMARY_TRIGGER_TOKENS = 256;
     private static final int MAX_SUMMARY_TRIGGER_TOKENS = 16000;
     private static final Pattern CAPABILITY_CODE_PATTERN = Pattern.compile("^[a-z][a-z0-9_]{1,63}$");
-    private static final String DEFAULT_AGENT_CAPABILITY_CODE = "default_agent";
 
     private final AgentReferenceService agentReferenceService;
     private final ApplicationIntentTreeReferenceGateway intentTreeReferenceGateway;
@@ -108,19 +108,17 @@ public class ApplicationDraftValidator {
 
         AgentCollaborationDefinition collaboration = resolveCollaboration(draftDefinition.collaboration(), issues);
         ApplicationContextPolicy contextPolicy = resolveContextPolicy(draftDefinition.contextPolicy(), issues);
-        ApplicationAgentReference defaultAgent = resolveDefaultAgent(draftDefinition.defaultAgent(), issues);
         CapabilityCatalogSnapshot capabilityCatalog = resolveCapabilityCatalog(
-                draftDefinition.capabilityCatalog(), defaultAgent, issues);
+                draftDefinition.capabilityCatalog(), issues);
+        ApplicationCapabilityDefinition fallbackCapability = resolveFallback(
+                draftDefinition.fallback(), capabilityCatalog, issues);
+        validateAgentCapabilityTopology(fallbackCapability, capabilityCatalog, issues);
         FastRouteResolution fastRouteResolution = resolveFastRoutes(
                 draftDefinition.optionalFastRoutes(), capabilityCatalog, issues);
         MemoryConfig memoryConf = resolveMemory(draftDefinition.memoryConf(), fastRouteResolution.embeddingModelInstanceId(), issues);
-        PlannerPolicy plannerPolicy = resolvePlannerPolicy(draftDefinition.plannerPolicy(), issues);
         ApplicationRuntimePolicy runtimePolicy = resolveRuntimePolicy(draftDefinition.runtimePolicy(), issues);
         validateRuntimeBoundaries(
-                runtimePolicy, capabilityCatalog, collaboration, contextPolicy, plannerPolicy, issues);
-        if (Objects.isNull(defaultAgent)) {
-            issues.add(issue("EXECUTION_ENTRY_REQUIRED", "definition.defaultAgent", "请选择默认ReAct Agent"));
-        }
+                runtimePolicy, capabilityCatalog, collaboration, contextPolicy, issues);
         if (!issues.isEmpty()) {
             return new ApplicationDefinitionResolution(null, issues);
         }
@@ -130,47 +128,15 @@ public class ApplicationDraftValidator {
                 .optionalFastRoutes(fastRouteResolution.binding())
                 .memoryConf(memoryConf)
                 .contextPolicy(contextPolicy)
-                .defaultAgent(defaultAgent)
-                .plannerPolicy(plannerPolicy)
+                .fallback(new FallbackAgent(fallbackCapability.getCode()))
                 .capabilityCatalog(capabilityCatalog)
                 .runtimePolicy(runtimePolicy)
                 .build();
         return new ApplicationDefinitionResolution(resolved, issues);
     }
 
-    /**
-     * 默认入口只允许 ReAct Agent，并在发布时锁定不可变版本。
-     */
-    private ApplicationAgentReference resolveDefaultAgent(ApplicationAgentReference draft, List<ApplicationValidationIssueVO> issues) {
-        String field = "definition.defaultAgent";
-        if (Objects.isNull(draft) || Objects.isNull(draft.agentId())) {
-            return null;
-        }
-        AgentReferenceService.AgentReference agent = agentReferenceService.findAgent(draft.agentId()).orElse(null);
-        if (Objects.isNull(agent) || !agent.active()) {
-            issues.add(issue("DEFAULT_AGENT_UNAVAILABLE", field + ".agentId", "默认Agent不存在或已停用"));
-            return null;
-        }
-        if (agent.identity().agentType() != AgentType.REACT) {
-            issues.add(issue("DEFAULT_AGENT_TYPE_INVALID", field + ".agentId", "默认入口只能选择ReAct Agent"));
-            return null;
-        }
-        Long versionId = Objects.requireNonNullElse(draft.agentVersionId(), agent.publishedVersionId());
-        Long resolvedVersionId = Objects.isNull(versionId)
-                ? null
-                : agentReferenceService.findVersion(draft.agentId(), versionId).orElse(null);
-        if (Objects.isNull(resolvedVersionId)) {
-            issues.add(issue("DEFAULT_AGENT_VERSION_UNAVAILABLE", field + ".agentVersionId", "默认Agent没有可用正式版本"));
-            return null;
-        }
-        AgentReferenceService.AgentIdentity identity = agent.identity();
-        return new ApplicationAgentReference(identity.id(), resolvedVersionId, identity.name(), identity.description());
-    }
-
-    /**
-     * 解析能力目录，并将默认 Agent 的可配置执行策略写入不可变快照。
-     */
-    private CapabilityCatalogSnapshot resolveCapabilityCatalog(CapabilityCatalogSnapshot draft, ApplicationAgentReference defaultAgent,
+    /** 解析并锁定能力目录中的全部执行目标。 */
+    private CapabilityCatalogSnapshot resolveCapabilityCatalog(CapabilityCatalogSnapshot draft,
                                                                List<ApplicationValidationIssueVO> issues) {
         List<ApplicationCapabilityDefinition> resolved = new ArrayList<>();
         Set<String> codes = new HashSet<>();
@@ -179,25 +145,8 @@ public class ApplicationDraftValidator {
             issues.add(issue("CAPABILITY_COUNT_INVALID", "definition.capabilityCatalog.capabilities", "能力目录最多配置50项能力"));
             return CapabilityCatalogSnapshot.builder().capabilities(resolved).build();
         }
-        List<ApplicationCapabilityDefinition> defaultCapabilities = capabilities.stream()
-                .filter(capability -> Objects.nonNull(capability) && DEFAULT_AGENT_CAPABILITY_CODE.equals(capability.getCode()))
-                .toList();
-        if (defaultCapabilities.size() > 1) {
-            issues.add(issue("DEFAULT_AGENT_CAPABILITY_DUPLICATED", "definition.capabilityCatalog.capabilities", "默认Agent能力只能配置一项"));
-        }
-        if (Objects.nonNull(defaultAgent)) {
-            codes.add(DEFAULT_AGENT_CAPABILITY_CODE);
-            ApplicationCapabilityDefinition defaultCapability = resolveDefaultAgentCapability(
-                    defaultCapabilities.isEmpty() ? null : defaultCapabilities.getFirst(), defaultAgent, issues);
-            if (Objects.nonNull(defaultCapability)) {
-                resolved.add(defaultCapability);
-            }
-        }
         for (int index = 0; index < capabilities.size(); index++) {
             ApplicationCapabilityDefinition capability = capabilities.get(index);
-            if (Objects.nonNull(capability) && DEFAULT_AGENT_CAPABILITY_CODE.equals(capability.getCode())) {
-                continue;
-            }
             String field = "definition.capabilityCatalog.capabilities[" + index + "]";
             ApplicationCapabilityDefinition item = resolveCapability(capability, field, codes, issues);
             if (Objects.nonNull(item)) {
@@ -207,33 +156,54 @@ public class ApplicationDraftValidator {
         return CapabilityCatalogSnapshot.builder().capabilities(List.copyOf(resolved)).build();
     }
 
-    /**
-     * 默认能力的编码、类型和目标由默认入口约束，运营侧只配置描述、风险和执行预算。
-     */
-    private ApplicationCapabilityDefinition resolveDefaultAgentCapability(ApplicationCapabilityDefinition draft, ApplicationAgentReference defaultAgent,
-                                                                          List<ApplicationValidationIssueVO> issues) {
-        ApplicationCapabilityDefinition capability = Objects.requireNonNullElseGet(draft, () -> ApplicationCapabilityDefinition.builder()
-                .code(DEFAULT_AGENT_CAPABILITY_CODE)
-                .type(ApplicationCapabilityType.REACT_AGENT)
-                .targetId(defaultAgent.agentId())
-                .build());
-        String field = "definition.capabilityCatalog.capabilities[default_agent]";
-        if (capability.getType() != ApplicationCapabilityType.REACT_AGENT) {
-            issues.add(issue("DEFAULT_AGENT_CAPABILITY_TYPE_INVALID", field + ".type", "默认Agent能力类型必须为ReAct Agent"));
+    /** fallback 必须唯一指向已解析的 REACT 或 PLAN_EXECUTOR Agent 能力。 */
+    private ApplicationCapabilityDefinition resolveFallback(
+            FallbackAgent fallback,
+            CapabilityCatalogSnapshot catalog,
+            List<ApplicationValidationIssueVO> issues) {
+        String field = "definition.fallback.cap";
+        String cap = Objects.isNull(fallback) ? null : fallback.cap();
+        if (isBlank(cap) || !CAPABILITY_CODE_PATTERN.matcher(cap).matches()) {
+            issues.add(issue("FALLBACK_AGENT_REQUIRED", field, "请选择能力目录中的fallback Agent能力"));
             return null;
         }
-        if (!Objects.equals(capability.getTargetId(), defaultAgent.agentId())) {
-            issues.add(issue("DEFAULT_AGENT_CAPABILITY_TARGET_INVALID", field + ".targetId", "默认Agent能力目标必须与默认执行入口一致"));
+        List<ApplicationCapabilityDefinition> matches = catalog.capabilities().stream()
+                .filter(capability -> cap.equals(capability.getCode()))
+                .toList();
+        if (matches.size() != 1 || matches.getFirst().getType() != ApplicationCapabilityType.AGENT) {
+            issues.add(issue("FALLBACK_AGENT_UNAVAILABLE", field, "fallback必须唯一指向能力目录中的AGENT能力"));
             return null;
         }
-        if (Objects.nonNull(capability.getTargetVersionId())
-                && !Objects.equals(capability.getTargetVersionId(), defaultAgent.agentVersionId())) {
-            issues.add(issue("DEFAULT_AGENT_CAPABILITY_VERSION_INVALID", field + ".targetVersionId", "默认Agent能力版本必须与默认执行入口一致"));
+        ApplicationCapabilityDefinition capability = matches.getFirst();
+        AgentReferenceService.AgentReference agent = agentReferenceService.findAgent(capability.getTargetId()).orElse(null);
+        if (Objects.isNull(agent)
+                || (agent.identity().agentType() != AgentType.REACT
+                && agent.identity().agentType() != AgentType.PLAN_EXECUTOR)) {
+            issues.add(issue("FALLBACK_AGENT_TYPE_INVALID", field, "fallback Agent类型只能是REACT或PLAN_EXECUTOR"));
             return null;
         }
-        validateCapabilityPolicy(capability, field, issues);
-        return agentCapability(capability, defaultAgent.name(), normalizedDescription(capability, defaultAgent.description()),
-                defaultAgent.agentVersionId());
+        return capability;
+    }
+
+    /** V2 只允许 fallback 使用唯一一个 Plan Executor，其他 Agent 能力必须是可编排的 ReAct 叶子。 */
+    private void validateAgentCapabilityTopology(
+            ApplicationCapabilityDefinition fallback,
+            CapabilityCatalogSnapshot catalog,
+            List<ApplicationValidationIssueVO> issues) {
+        for (ApplicationCapabilityDefinition capability : catalog.capabilities()) {
+            if (capability.getType() != ApplicationCapabilityType.AGENT) {
+                continue;
+            }
+            AgentReferenceService.AgentReference agent = agentReferenceService.findAgent(capability.getTargetId()).orElse(null);
+            if (Objects.nonNull(agent)
+                    && agent.identity().agentType() == AgentType.PLAN_EXECUTOR
+                    && (Objects.isNull(fallback) || !Objects.equals(capability.getCode(), fallback.getCode()))) {
+                issues.add(issue(
+                        "PLAN_EXECUTOR_NESTING_FORBIDDEN",
+                        "definition.capabilityCatalog.capabilities",
+                        "PLAN_EXECUTOR只能作为Application fallback，不能作为扩展能力或计划叶子"));
+            }
+        }
     }
 
     private ApplicationCapabilityDefinition resolveCapability(ApplicationCapabilityDefinition draft, String field, Set<String> codes,
@@ -243,7 +213,7 @@ public class ApplicationDraftValidator {
             return null;
         }
         if (!codes.add(draft.getCode())) {
-            issues.add(issue("CAPABILITY_CODE_DUPLICATED", field + ".code", "能力编码不能重复或使用保留编码default_agent"));
+            issues.add(issue("CAPABILITY_CODE_DUPLICATED", field + ".code", "能力编码不能重复"));
             return null;
         }
         if (Objects.isNull(draft.getType()) || Objects.isNull(draft.getTargetId())) {
@@ -252,7 +222,7 @@ public class ApplicationDraftValidator {
         }
         validateCapabilityPolicy(draft, field, issues);
         return switch (draft.getType()) {
-            case REACT_AGENT -> resolveAgentCapability(draft, field, issues);
+            case AGENT -> resolveAgentCapability(draft, field, issues);
             case WORKFLOW -> resolveWorkflowCapability(draft, field, issues);
             case TOOL -> resolveToolCapability(draft, field, issues);
         };
@@ -274,16 +244,22 @@ public class ApplicationDraftValidator {
     private ApplicationCapabilityDefinition resolveAgentCapability(ApplicationCapabilityDefinition draft, String field,
                                                                    List<ApplicationValidationIssueVO> issues) {
         AgentReferenceService.AgentReference agent = agentReferenceService.findAgent(draft.getTargetId()).orElse(null);
-        if (Objects.isNull(agent) || !agent.active() || agent.identity().agentType() != AgentType.REACT) {
-            issues.add(issue("CAPABILITY_AGENT_UNAVAILABLE", field + ".targetId", "能力目标必须是已启用的ReAct Agent"));
+        if (Objects.isNull(agent) || !agent.active()
+                || (agent.identity().agentType() != AgentType.REACT
+                && agent.identity().agentType() != AgentType.PLAN_EXECUTOR)) {
+            issues.add(issue("CAPABILITY_AGENT_UNAVAILABLE", field + ".targetId", "能力目标必须是已启用的REACT或PLAN_EXECUTOR Agent"));
             return null;
         }
         Long versionId = Objects.requireNonNullElse(draft.getTargetVersionId(), agent.publishedVersionId());
-        if (Objects.isNull(versionId) || agentReferenceService.findVersion(draft.getTargetId(), versionId).isEmpty()) {
+        AgentReferenceService.AgentVersionReference version = agentReferenceService.findVersion(draft.getTargetId(), versionId).orElse(null);
+        if (Objects.isNull(version)
+                || version.schemaVersion() != AGENT_SCHEMA_VERSION
+                || version.agentType() != agent.identity().agentType()) {
             issues.add(issue("CAPABILITY_AGENT_VERSION_UNAVAILABLE", field + ".targetVersionId", "能力目标Agent没有可用正式版本"));
             return null;
         }
-        return agentCapability(draft, agent.identity().name(), normalizedDescription(draft, agent.identity().description()), versionId);
+        return agentCapability(
+                draft, agent.identity().name(), normalizedDescription(draft, agent.identity().description()), version.id());
     }
 
     private ApplicationCapabilityDefinition resolveWorkflowCapability(ApplicationCapabilityDefinition draft, String field,
@@ -325,7 +301,7 @@ public class ApplicationDraftValidator {
     private static ApplicationCapabilityDefinition agentCapability(ApplicationCapabilityDefinition draft, String name, String description,
                                                                     Long versionId) {
         return baseCapability(draft, name, description, versionId, queryInputSchema(), responseOutputSchema(),
-                "REACT_AGENT_VERSION", checksum(versionId));
+                "AGENT_VERSION", checksum(versionId));
     }
 
     private static ApplicationCapabilityDefinition baseCapability(ApplicationCapabilityDefinition draft, String name, String description,
@@ -353,24 +329,6 @@ public class ApplicationDraftValidator {
         return isBlank(draft.getDescription()) ? fallback : draft.getDescription();
     }
 
-    private PlannerPolicy resolvePlannerPolicy(PlannerPolicy draft, List<ApplicationValidationIssueVO> issues) {
-        PlannerPolicy policy = Objects.requireNonNullElseGet(draft, PlannerPolicy::disabled);
-        if (!policy.isEnabled()) {
-            return PlannerPolicy.disabled();
-        }
-        validatePlannerModel(policy.getChatModelInstanceId(), issues);
-        validatePlannerPrompt(policy.getPromptVersionId(), issues);
-        validateRange(policy.getMaxSteps(), 1, 20, "PLANNER_STEPS_INVALID", "definition.plannerPolicy.maxSteps", "计划步骤数", issues);
-        validateRange(policy.getMaxReplans(), 0, 3, "PLANNER_REPLANS_INVALID", "definition.plannerPolicy.maxReplans", "重规划次数", issues);
-        return PlannerPolicy.builder()
-                .enabled(true)
-                .chatModelInstanceId(policy.getChatModelInstanceId())
-                .promptVersionId(policy.getPromptVersionId())
-                .maxSteps(policy.getMaxSteps())
-                .maxReplans(policy.getMaxReplans())
-                .build();
-    }
-
     private static ApplicationRuntimePolicy resolveRuntimePolicy(ApplicationRuntimePolicy draft, List<ApplicationValidationIssueVO> issues) {
         ApplicationRuntimePolicy policy = Objects.requireNonNullElseGet(draft, ApplicationRuntimePolicy::defaults);
         validateRange(policy.getMaxModelCalls(), 1, 100, "RUNTIME_MODEL_CALLS_INVALID", "definition.runtimePolicy.maxModelCalls", "模型调用次数", issues);
@@ -394,7 +352,6 @@ public class ApplicationDraftValidator {
                                                   CapabilityCatalogSnapshot catalog,
                                                   AgentCollaborationDefinition collaboration,
                                                   ApplicationContextPolicy contextPolicy,
-                                                  PlannerPolicy plannerPolicy,
                                                   List<ApplicationValidationIssueVO> issues) {
         if (Objects.isNull(runtimePolicy) || Objects.isNull(catalog)) {
             return;
@@ -407,12 +364,9 @@ public class ApplicationDraftValidator {
         if (contextPolicy.contextualization().isEnabled()) {
             minimumModelCalls++;
         }
-        if (plannerPolicy.isEnabled()) {
-            minimumModelCalls++;
-        }
         if (runtimePolicy.getMaxModelCalls() < minimumModelCalls) {
             issues.add(issue("RUNTIME_MODEL_CALLS_INSUFFICIENT", "definition.runtimePolicy.maxModelCalls",
-                    "当前上下文化与Planner策略至少需要" + minimumModelCalls + "次模型调用额度"));
+                    "当前上下文化与Agent执行至少需要" + minimumModelCalls + "次模型调用额度"));
         }
         for (int index = 0; index < catalog.capabilities().size(); index++) {
             ApplicationCapabilityDefinition capability = catalog.capabilities().get(index);
@@ -556,11 +510,18 @@ public class ApplicationDraftValidator {
         }
         ApplicationCapabilityType expectedType = mapping.getTargetType() == IntentExecutionTargetType.WORKFLOW
                 ? ApplicationCapabilityType.WORKFLOW
-                : ApplicationCapabilityType.REACT_AGENT;
+                : ApplicationCapabilityType.AGENT;
         ApplicationCapabilityDefinition capability = findFastRouteCapability(mapping, expectedType, capabilityCatalog);
         if (Objects.isNull(capability)) {
             issues.add(issue("FAST_ROUTE_CAPABILITY_UNAVAILABLE", field + ".capabilityCode", "请选择能力目录中唯一可用的执行能力"));
             return null;
+        }
+        if (capability.getType() == ApplicationCapabilityType.AGENT) {
+            AgentReferenceService.AgentReference agent = agentReferenceService.findAgent(capability.getTargetId()).orElse(null);
+            if (Objects.isNull(agent) || agent.identity().agentType() != AgentType.REACT) {
+                issues.add(issue("FAST_ROUTE_AGENT_TYPE_INVALID", field + ".capabilityCode", "快速路由只能指向REACT Agent能力"));
+                return null;
+            }
         }
         return ApplicationIntentMapping.builder()
                 .intentCode(mapping.getIntentCode())
@@ -783,30 +744,6 @@ public class ApplicationDraftValidator {
         }
     }
 
-    private void validatePlannerModel(Long modelId, List<ApplicationValidationIssueVO> issues) {
-        String field = "definition.plannerPolicy.chatModelInstanceId";
-        if (Objects.isNull(modelId)) {
-            issues.add(issue("PLANNER_MODEL_REQUIRED", field, "请选择Planner使用的Chat模型"));
-            return;
-        }
-        ModelInstanceReferenceBO model = modelInstanceService.findReference(modelId).orElse(null);
-        if (Objects.isNull(model) || model.status() != EnableStatus.ACTIVE || model.modelType() != ModelType.CHAT) {
-            issues.add(issue("PLANNER_MODEL_UNAVAILABLE", field, "Planner Chat模型不存在、已停用或类型不匹配"));
-        }
-    }
-
-    private void validatePlannerPrompt(Long versionId, List<ApplicationValidationIssueVO> issues) {
-        String field = "definition.plannerPolicy.promptVersionId";
-        if (Objects.isNull(versionId)) {
-            issues.add(issue("PLANNER_PROMPT_REQUIRED", field, "请选择已发布的Planner SYSTEM Prompt版本"));
-            return;
-        }
-        PromptService.PromptVersionReference prompt = promptService.findPublishedVersion(versionId).orElse(null);
-        if (Objects.isNull(prompt) || !prompt.active() || prompt.role() != PromptRole.SYSTEM) {
-            issues.add(issue("PLANNER_PROMPT_UNAVAILABLE", field, "Planner Prompt版本不存在、已停用或角色不匹配"));
-        }
-    }
-
     private void validateMemoryPrompt(Long versionId, PromptRole expectedRole, String field, List<ApplicationValidationIssueVO> issues) {
         if (Objects.isNull(versionId)) {
             issues.add(issue("MEMORY_PROMPT_REQUIRED", field, "请选择已发布的记忆Prompt版本"));
@@ -901,13 +838,16 @@ public class ApplicationDraftValidator {
             issues.add(issue("COLLABORATION_AGENT_UNPUBLISHED", field, "协作Agent尚无生效版本"));
             return null;
         }
-        Long resolvedVersionId = agentReferenceService.findVersion(reference.agentId(), versionId).orElse(null);
-        if (Objects.isNull(resolvedVersionId)) {
+        AgentReferenceService.AgentVersionReference resolvedVersion =
+                agentReferenceService.findVersion(reference.agentId(), versionId).orElse(null);
+        if (Objects.isNull(resolvedVersion)
+                || resolvedVersion.schemaVersion() != AGENT_SCHEMA_VERSION
+                || resolvedVersion.agentType() != expectedType) {
             issues.add(issue("COLLABORATION_AGENT_VERSION_NOT_FOUND", field, "协作Agent版本不存在或不属于所选Agent"));
             return null;
         }
         AgentReferenceService.AgentIdentity identity = agent.identity();
-        return new ApplicationAgentReference(identity.id(), resolvedVersionId, identity.name(), identity.description());
+        return new ApplicationAgentReference(identity.id(), resolvedVersion.id(), identity.name(), identity.description());
     }
 
     private static ApplicationValidationIssueVO issue(

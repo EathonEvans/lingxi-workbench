@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.model;
 
-import com.lingxi.workbench.application.runtime.service.ChatExecutionEventPublisher;
+import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionEventPublisher;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;

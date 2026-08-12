@@ -1,7 +1,7 @@
 package com.lingxi.workbench.application.runtime.controller;
 
 import com.lingxi.workbench.application.runtime.model.vo.AvailableApplicationVO;
-import com.lingxi.workbench.application.runtime.service.ApplicationRuntimeService;
+import com.lingxi.workbench.application.runtime.service.app.ApplicationRuntimeService;
 import com.lingxi.workbench.framework.convention.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;

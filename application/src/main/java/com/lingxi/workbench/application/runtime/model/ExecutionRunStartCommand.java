@@ -1,7 +1,6 @@
 package com.lingxi.workbench.application.runtime.model;
 
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
-import com.lingxi.workbench.workflow.model.PlannerPolicy;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -13,5 +12,6 @@ public class ExecutionRunStartCommand {
     private AppRuntimeSnapshot application;
     private ChatTurnBO turn;
     private Long userId;
-    private PlannerPolicy plannerPolicy;
+    private String runId;
+    private AgentRuntimeSnapshot orchestratorAgent;
 }

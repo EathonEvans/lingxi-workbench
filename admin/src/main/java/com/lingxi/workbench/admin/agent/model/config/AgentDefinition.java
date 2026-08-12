@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.agent.model.config;
 
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.model.PlanExecutorPolicy;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -29,4 +30,6 @@ public class AgentDefinition {
     /** Schema V4 ReAct知识搜索能力；资源与索引版本均在发布时冻结。 */
     private KnowledgeSearchCapabilitySnapshot knowledgeSearch;
     private GenerationPolicy generationPolicy;
+    /** 仅 PLAN_EXECUTOR 使用的结构性规划边界。 */
+    private PlanExecutorPolicy planExecutorPolicy;
 }

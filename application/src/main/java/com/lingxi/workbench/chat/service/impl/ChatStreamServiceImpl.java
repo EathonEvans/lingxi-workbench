@@ -5,9 +5,9 @@ import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRe
 import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ExecutionFailure;
-import com.lingxi.workbench.application.runtime.service.ApplicationRuntimeService;
-import com.lingxi.workbench.application.runtime.service.ApplicationChatExecutionService;
-import com.lingxi.workbench.application.runtime.service.ExecutionFailureClassifier;
+import com.lingxi.workbench.application.runtime.service.app.ApplicationRuntimeService;
+import com.lingxi.workbench.application.runtime.service.app.ApplicationChatExecutionService;
+import com.lingxi.workbench.application.runtime.service.execution.ExecutionFailureClassifier;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import com.lingxi.workbench.chat.holder.RunningGenerationTask;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
@@ -42,7 +42,6 @@ import reactor.core.scheduler.Schedulers;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -135,7 +134,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                     .clarificationResponse(request.getClarificationResponse())
                     .eventPublisher(task)
                     .build();
-            this.startApplicationGeneration(executionRequest);
+            this.startGeneration(executionRequest);
         } catch (RuntimeException exception) {
             /*
              * 这里只处理任务注册或 Reactor 订阅创建阶段同步抛出的异常。
@@ -214,7 +213,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      * Agent 或 Workflow 执行期间通过 task 实时发布文本和工具状态，目标执行完成后再校准
      * 最终回答与 Token 用量；任务取消仍会释放该后台订阅。
      */
-    private void startApplicationGeneration(ApplicationChatExecutionRequest executionRequest) {
+    private void startGeneration(ApplicationChatExecutionRequest executionRequest) {
         RunningGenerationTask task = (RunningGenerationTask) executionRequest.getEventPublisher();
 
         Disposable subscription = Mono

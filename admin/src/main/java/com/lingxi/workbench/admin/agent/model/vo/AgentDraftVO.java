@@ -3,6 +3,7 @@ package com.lingxi.workbench.admin.agent.model.vo;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
+import com.lingxi.workbench.infra.ai.agent.model.PlanExecutorPolicy;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -28,6 +29,7 @@ public class AgentDraftVO {
     private AgentKnowledgeBindingVO knowledge;
     private RetrievalPolicy retrievalPolicy;
     private GenerationPolicy generationPolicy;
+    private PlanExecutorPolicy planExecutorPolicy;
     private Long revision;
     private String changeNote;
 }

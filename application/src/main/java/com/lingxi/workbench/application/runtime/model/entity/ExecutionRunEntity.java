@@ -19,6 +19,8 @@ public class ExecutionRunEntity {
     private Long userId;
     private Long applicationId;
     private Long applicationVersionId;
+    private Long orchestratorAgentId;
+    private Long orchestratorAgentVersionId;
     private Long plannerModelInstanceId;
     private Long plannerPromptVersionId;
     @TableField(fill = FieldFill.INSERT)
