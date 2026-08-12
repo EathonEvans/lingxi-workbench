@@ -29,6 +29,7 @@ import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
 import com.lingxi.workbench.chat.service.ConversationContextService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
 import com.lingxi.workbench.observability.common.enums.AiObservationStage;
@@ -138,8 +139,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                 snapshot, request.getTurn(), request.getLoginUser().id(),
                 preparedContext.getOriginalQuery(), request.getClarificationResponse());
         ConversationContext context = interaction
-                .map(resolution -> preparedContext.withRoutingQuery(
-                        resolution.getOriginalQuery() + "\n补充信息：" + resolution.getResponse()))
+                .map(resolution -> preparedContext.withRoutingQuery(resolution.getOriginalQuery() + "\n补充信息：" + resolution.getResponse()))
                 .orElse(preparedContext);
 
         // ④ 恢复请求跳过 fresh route；其他请求按 Application 配置执行可选快速路由。
@@ -203,10 +203,8 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                 || !Objects.equals(capability.getTargetVersionId(), target.agentVersionId())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "交互会话恢复目标与ApplicationVersion不一致");
         }
-        ChatDispatch.Capability dispatch = capabilityDispatch(
-                query, capability, null, interaction.confirmedCapabilityCodes());
-        if (dispatch.hints().agent().definition().getAgentType()
-                != com.lingxi.workbench.infra.ai.agent.common.enums.AgentType.PLAN_EXECUTOR) {
+        ChatDispatch.Capability dispatch = capabilityDispatch(query, capability, null, interaction.confirmedCapabilityCodes());
+        if (dispatch.hints().agent().definition().getAgentType() != AgentType.PLAN_EXECUTOR) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "交互会话恢复目标不是Plan Executor Agent");
         }
         return dispatch;

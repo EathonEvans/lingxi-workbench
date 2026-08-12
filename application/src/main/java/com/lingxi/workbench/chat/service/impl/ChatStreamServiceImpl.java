@@ -165,6 +165,14 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         }
     }
 
+    /**
+     * 将落库的对话轮次转换为前端启动响应。
+     *
+     * <p>主键统一转为字符串返回，避免 JavaScript Number 对大整数产生精度损失。</p>
+     *
+     * @param turn 已落库的对话轮次（包含会话、用户消息和 Assistant 消息主键）
+     * @return 前端用于订阅 SSE 的启动响应
+     */
     private ChatStartVO toStartVO(ChatTurnBO turn) {
         return new ChatStartVO(String.valueOf(turn.conversationId()), String.valueOf(turn.userMessageId()), String.valueOf(turn.assistantMessageId()));
     }
@@ -239,6 +247,15 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         }
     }
 
+    /**
+     * 目标执行成功后推进任务终态：校准最终回答与 Token 用量，并落库完成事件。
+     *
+     * <p>结果中的回答与用量是意图路由后目标执行的最终产物，可能覆盖流式过程中
+     * 累积的临时文本，因此先通过 {@code reconcileFinalResult} 校准再进入统一终态流程。</p>
+     *
+     * @param task   运行中的生成任务
+     * @param result 目标执行结果（最终回答、Token 用量和模型实例）
+     */
     private void completeApplicationTask(RunningGenerationTask task, ApplicationChatResult result) {
         task.reconcileFinalResult(result.answer(), result.tokenUsage());
         completeTask(task, result.modelInstanceId());
@@ -296,6 +313,16 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         return new ChatFailure(failure.code(), failure.clientMessage(), failure.clientMessage());
     }
 
+    /**
+     * 沿异常链查找是否存在指定类型的根因。
+     *
+     * <p>用于区分"任务已被取消/终止后模型调用被中断"这一预期异常与其他真实失败，
+     * 避免把用户主动取消误判为系统错误。</p>
+     *
+     * @param exception 待检查的异常
+     * @param causeType 需要查找的根因类型
+     * @return 异常链中存在该类型根因时返回 true
+     */
     private static boolean hasCause(Throwable exception, Class<? extends Throwable> causeType) {
         Throwable current = exception;
         while (Objects.nonNull(current)) {
@@ -374,6 +401,15 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         };
     }
 
+    /**
+     * 根据数据库消息的错误信息构造恢复场景下的失败终态事件。
+     *
+     * <p>原任务所在进程已退出时，SSE 恢复只能读取持久化的错误码和错误消息；
+     * 两者缺失时回退到模型服务通用错误码与安全提示文案。</p>
+     *
+     * @param message 已落库的 Assistant 消息（含错误码与错误消息）
+     * @return 携带恢复错误信息的失败终态事件
+     */
     private static ChatGenerationEventBO restoredFailureEvent(ConversationMessageEntity message) {
         String code = Objects.requireNonNullElse(message.getErrorCode(), MODEL_ERROR_CODE);
         String errorMessage = Objects.requireNonNullElse(

@@ -25,7 +25,16 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 
-/** Planner运行协调实现。 */
+/**
+ * Planner 运行协调实现。
+ *
+ * <p>作为 Planner 编排的协调器，统一编排运行记录落库、Planner 决策、决策执行与澄清会话恢复：
+ * 先持久化运行开始信息并发布“规划中”事件，再根据上下文工作预算决定是否调用 PlannerService 决策，
+ * 最后把初始决策交给 PlanExecutionService 执行。</p>
+ *
+ * <p>上下文工作预算耗尽时不调用 Planner，直接构造可恢复的澄清会话；Planner 决策失败时
+ * 区分用户取消与运行时异常，事件写入失败则抑制为原始异常的附加异常，保留原始失败语义。</p>
+ */
 @Service
 @RequiredArgsConstructor
 public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator {
@@ -35,8 +44,19 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
     private final PlanExecutionService planExecutionService;
     private final ExecutionFailureClassifier failureClassifier;
 
+    /**
+     * 执行一次 Planner 编排运行：先落库运行开始信息并发布“规划中”事件，
+     * 再根据上下文工作预算决定是否调用 Planner 决策，最终将初始决策交给执行服务。
+     *
+     * <p>上下文工作预算耗尽时跳过 Planner，直接以可恢复的澄清会话结束本轮；
+     * Planner 决策失败时区分“用户取消”与“运行时异常”两类失败，统一发布失败事件后原样抛出。</p>
+     *
+     * @param request Planner 运行请求，包含运行标识、会话上下文与执行上下文
+     * @return 计划执行结果
+     */
     @Override
     public PlanExecutionResult execute(PlannerRuntimeRequest request) {
+        // 先持久化运行开始记录，作为整轮执行的锚点，后续事件与决策都挂在该运行下。
         persistenceService.startRun(ExecutionRunStartCommand.builder()
                 .application(request.getConversationContext().getApplicationSnapshot())
                 .turn(request.getExecutionContext().getTurn())
@@ -45,10 +65,12 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
                 .orchestratorAgent(request.getPlanExecutor().getAgent())
                 .build());
         publishPlanning(request.getRunId(), request.getExecutionContext());
+        // 上下文工作预算已耗尽：跳过 Planner 决策，直接以澄清会话结束本轮，避免预算不足时继续消耗模型调用。
         if (request.getExecutionContext().shouldFinalize()) {
             return planExecutionService.execute(planRequest(request, budgetBoundaryClarification()));
         }
         PlannerResult plannerResult;
+        // 调用 Planner 生成初始决策；取消与运行时异常分开处理，保证用户取消语义不被吞掉。
         try {
             plannerResult = plannerService.decide(PlannerRequest.builder()
                     .conversationContext(request.getConversationContext())
@@ -57,6 +79,7 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
                     .confirmedCapabilityCodes(request.confirmedCapabilityCodes())
                     .planExecutor(request.getPlanExecutor())
                     .build());
+            // 将 Planner 决策消耗的 token 记入上下文，纳入本轮工作预算统计。
             request.getExecutionContext().recordUsage(plannerResult.tokenUsage());
         } catch (CancellationException exception) {
             publishInitialDecisionFailure(request, ExecutionEventType.RUN_CANCELLED, "规划已取消", exception);
@@ -69,6 +92,16 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
         return planExecutionService.execute(planRequest(request, plannerResult.decision()));
     }
 
+    /**
+     * 组装提交给执行服务的计划执行请求。
+     *
+     * <p>把初始决策与运行标识、会话上下文、执行上下文、已确认能力码和执行器统一打包，
+     * 供正常决策与预算边界澄清两条路径复用。</p>
+     *
+     * @param request  Planner 运行请求
+     * @param decision 初始执行决策（Planner 决策或预算边界澄清）
+     * @return 计划执行请求
+     */
     private static PlanExecutionRequest planRequest(PlannerRuntimeRequest request, ExecutionDecision decision) {
         return PlanExecutionRequest.builder()
                 .runId(request.getRunId())
@@ -93,8 +126,20 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
                 .build();
     }
 
+    /**
+     * 发布 Planner 初始决策失败事件：同时写入持久化事件与实时推送事件。
+     *
+     * <p>事件写入失败时抑制为原始异常的附加异常，保证原始决策失败不被掩盖；
+     * 本方法自身不抛出异常，避免在异常处理路径中二次失败。</p>
+     *
+     * @param request  Planner 运行请求，提供运行标识与事件发布器
+     * @param type     失败事件类型（取消或失败）
+     * @param message  面向客户端的失败消息
+     * @param original 原始异常，事件写入失败将作为 suppressed 附加到其上
+     */
     private void publishInitialDecisionFailure(PlannerRuntimeRequest request, ExecutionEventType type,
                                                String message, RuntimeException original) {
+        // 事件写入失败不能掩盖原始决策失败：抑制为原始异常的附加异常后继续抛出。
         try {
             persistenceService.appendEvent(ExecutionEventCommand.builder()
                     .runId(request.getRunId())
@@ -111,7 +156,14 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
         }
     }
 
+    /**
+     * 发布“规划中”事件：同时写入持久化事件与实时推送事件。
+     *
+     * @param runId            运行标识
+     * @param executionContext 执行上下文，提供事件发布器
+     */
     private void publishPlanning(String runId, ChatExecutionContext executionContext) {
+        // 规划事件双写：先持久化落库，再实时推送给前端时间线。
         persistenceService.appendEvent(ExecutionEventCommand.builder()
                 .runId(runId)
                 .eventType(ExecutionEventType.PLANNING)

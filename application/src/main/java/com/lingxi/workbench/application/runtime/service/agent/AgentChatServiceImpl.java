@@ -80,6 +80,19 @@ public class AgentChatServiceImpl implements AgentChatService {
         return chat(snapshot, query, execution);
     }
 
+    /**
+     * 执行一次 Agent 对话（基于已解析的发布快照）。
+     *
+     * <p>这是 Agent 执行循环的编排入口，按固定顺序完成：通用校验 → 入口查询一致性校验 →
+     * Supervisor 协作变量注入 → 按 agentType 选择策略准备模型上下文 → 加载运行时工具 →
+     * 推导生成策略与剩余预算 → 调用模型生成回答。若共享预算已到边界（finalizationOnly），
+     * 本次调用只做最终回答，不再开放工具。</p>
+     *
+     * @param snapshot  已解析并校验通过的 Agent 发布快照
+     * @param query     用户原始问题，必须与运行时变量中的 USER_QUERY 一致
+     * @param execution 共享执行上下文（预算、事件、协作作用域、运行时变量）
+     * @return 模型生成的最终回答文本
+     */
     @Override
     public String chat(AgentRuntimeSnapshot snapshot, String query, ChatExecutionContext execution) {
         AgentRuntimeDefinition definition = snapshot.definition();
@@ -99,10 +112,13 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         PromptPair prompt = chatContext.getPromptPair();
         Optional<AgentToolRuntimeConfig> toolRuntimeConfig = resolveToolRuntimeConfig(execution, definition, runtimeTools);
+        // 预算边界判定：工具已装配但工具配置为空 ⇒ 进入收尾模式，本次只做最终回答、不再开放工具
         boolean finalizationOnly = !runtimeTools.isEmpty() && toolRuntimeConfig.isEmpty();
+        // 收尾阶段改用收尾专用 Token 预算，其余情况使用常规剩余预算
         int remainingTokenBudget = execution.shouldFinalize()
                 ? execution.remainingFinalizationTokenBudget()
                 : execution.remainingTokenBudget();
+        // 从模型实例配置出发，叠加 Agent 生成策略与剩余预算，得到本次请求的最终模型配置
         ChatModelRuntimeConfig sourceConfig = modelRuntimeConfigService.getChatModelConfig(
                 definition.getChatModelInstanceId());
         Duration requestTimeout = execution.remainingTimeout(Duration.ofSeconds(
@@ -150,9 +166,11 @@ public class AgentChatServiceImpl implements AgentChatService {
                             ChatModelRuntimeConfig modelConfig, List<AgentTool> runtimeTools,
                             Optional<AgentToolRuntimeConfig> toolRuntimeConfig, boolean finalizationOnly,
                             Duration requestTimeout) {
+        // 工具配置缺失（收尾模式）时不向模型暴露任何工具，避免模型继续尝试调用
         List<AgentTool> exposedTools = toolRuntimeConfig.isPresent() ? runtimeTools : List.of();
         String systemPrompt = applyToolSystemPolicy(prompt.systemPrompt(), exposedTools);
         if (finalizationOnly) {
+            // 收尾模式追加边界提示：禁止工具、委派与规划，只基于会话已有事实作答
             systemPrompt = systemPrompt.isBlank()
                     ? FINALIZATION_ONLY_PROMPT
                     : systemPrompt + "\n\n" + FINALIZATION_ONLY_PROMPT;
@@ -168,9 +186,11 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         StringBuilder answer = new StringBuilder();
 
+        // 无工具配置的调用计入最终模型调用预算（收尾额度），防止超预算继续生成
         if (toolRuntimeConfig.isEmpty()) {
             execution.reserveFinalModelCall();
         }
+        // 流式消费：逐块累积回答文本、累加 Token 用量并转发文本事件，阻塞至完成或超时
         streamingChatGateway.stream(command)
                 .doOnNext(chunk -> {
                     answer.append(chunk.content());
@@ -211,6 +231,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         if (Objects.nonNull(snapshot.definition().getKnowledgeSearch())) {
             tools.add(knowledgeSearchToolFactory.create(snapshot.definition().getKnowledgeSearch()));
         }
+        // Supervisor 委派：将协作作用域中可委派的成员 Agent 逐个包装为委派工具
         execution.collaborationScope()
                 .filter(scope -> scope.canDelegate(snapshot.agentId()))
                 .stream()
@@ -220,8 +241,19 @@ public class AgentChatServiceImpl implements AgentChatService {
         return List.copyOf(tools);
     }
 
+    /**
+     * 将协作作用域中的一个成员 Agent 包装为委派工具。
+     *
+     * <p>委派工具被模型调用时，会 fork 出隔离的子执行上下文（独立预算与变量作用域），
+     * 递归进入子 Agent 的完整执行循环；子 Agent 的回答由 AgentDelegationTool 负责裁剪后返回。</p>
+     *
+     * @param execution 父 Agent 的共享执行上下文
+     * @param member    需要被委派的成员 Agent 引用（含版本号）
+     * @return 可被模型调用的委派工具
+     */
     private AgentTool delegationTool(ChatExecutionContext execution, ApplicationAgentReference member) {
         return new AgentDelegationTool(member, input -> {
+            // 委派执行：fork 出隔离子上下文后递归进入子 Agent 的完整执行循环
             ChatExecutionContext child = execution.forkForDelegation(member, input.getTask());
             return chat(member.agentId(), member.agentVersionId(), input.getTask(), child);
         });
@@ -234,6 +266,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         if (runtimeTools.isEmpty()) {
             return Optional.empty();
         }
+        // 预算边界：已进入收尾阶段或剩余工具调用次数不足时，本次调用降级为纯文本回答
         int generationModelCalls = execution.remainingModelCalls();
         int maxToolCalls = execution.remainingToolCalls();
         if (execution.shouldFinalize() || maxToolCalls < MIN_TOOL_CALLS) {
@@ -263,11 +296,26 @@ public class AgentChatServiceImpl implements AgentChatService {
         return Optional.of(runtimeConfig);
     }
 
+    /**
+     * 在模型实例基础配置上叠加 Agent 生成策略与上下文预算，得到本次请求的最终模型配置。
+     *
+     * <p>采样参数（temperature/topP）优先采用发布版本中显式配置的值；maxTokens 取模型配置、
+     * 上下文预留输出 Token 与剩余 Token 预算三者的较小值，保证单次输出不会挤爆共享预算。
+     * 超时统一向上取整为整秒模型配置，流式阻塞仍使用精确剩余时间作为硬截止。</p>
+     *
+     * @param source               模型实例的原始配置
+     * @param policy               Agent 发布版本声明的生成策略，可为 null
+     * @param contextBudget        上下文预算（预留输出 Token）
+     * @param remainingTokenBudget 当前剩余 Token 预算
+     * @param requestTimeout       本次请求的剩余超时时间
+     * @return 叠加策略与预算后的最终模型配置
+     */
     private static ChatModelRuntimeConfig applyGenerationPolicy(ChatModelRuntimeConfig source,
                                                                  AgentRuntimeDefinition.GenerationPolicy policy,
                                                                  ContextBudgetPolicy contextBudget,
                                                                  int remainingTokenBudget,
                                                                  Duration requestTimeout) {
+        // 采样参数：发布版本显式配置的值优先于模型实例默认值
         Double temperature = source.getTemperature();
         if (Objects.nonNull(policy) && Objects.nonNull(policy.getTemperature())) {
             temperature = policy.getTemperature().doubleValue();
@@ -276,6 +324,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         if (Objects.nonNull(policy) && Objects.nonNull(policy.getTopP())) {
             topP = policy.getTopP().doubleValue();
         }
+        // 输出上限取「上下文预留输出 Token」与「剩余 Token 预算」的较小值，防止单次回答挤爆共享预算
         int outputBudget = Math.min(contextBudget.getReservedOutputTokens(), remainingTokenBudget);
         int maxTokens = Objects.isNull(source.getMaxTokens())
                 ? outputBudget
@@ -305,6 +354,14 @@ public class AgentChatServiceImpl implements AgentChatService {
         return Math.toIntExact(Math.max(1L, seconds));
     }
 
+    /**
+     * 校验 AgentVersion 关键绑定的完整性。
+     *
+     * <p>模型实例、SYSTEM Prompt、USER Prompt 三者缺一不可，随后委托 validateToolPolicy
+     * 校验工具相关配置。任一校验失败都以冲突状态拒绝本次执行。</p>
+     *
+     * @param definition Agent 运行时定义（发布快照内容）
+     */
     private static void validateCommon(AgentRuntimeDefinition definition) {
         if (Objects.isNull(definition.getChatModelInstanceId())
                 || Objects.isNull(definition.getSystemPromptVersionId())
@@ -314,6 +371,14 @@ public class AgentChatServiceImpl implements AgentChatService {
         validateToolPolicy(definition);
     }
 
+    /**
+     * 校验工具策略：配置了工具（内置工具或知识库搜索）时必须给出合法的单次结果裁剪上限。
+     *
+     * <p>结果字符上限必须在平台允许的 [MIN_RESULT_CHARACTERS, MAX_RESULT_CHARACTERS] 范围内；
+     * 未配置任何工具时直接放行，不强制要求工具策略。</p>
+     *
+     * @param definition Agent 运行时定义（发布快照内容）
+     */
     private static void validateToolPolicy(AgentRuntimeDefinition definition) {
         if (definition.resolveToolCodes().isEmpty() && Objects.isNull(definition.getKnowledgeSearch())) {
             return;

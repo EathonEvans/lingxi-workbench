@@ -58,7 +58,9 @@ public final class ConversationContext {
         return rewrittenQuery;
     }
 
-    /** 为跨消息Planner澄清恢复新的有效任务，同时保留同一份已准备上下文数据。 */
+    /**
+     * 为跨消息Planner澄清恢复新的有效任务，同时保留同一份已准备上下文数据。
+     */
     public ConversationContext withRoutingQuery(String query) {
         return ConversationContext.builder()
                 .applicationSnapshot(applicationSnapshot)

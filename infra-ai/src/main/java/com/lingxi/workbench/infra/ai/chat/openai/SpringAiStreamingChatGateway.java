@@ -10,6 +10,7 @@ import com.lingxi.workbench.infra.ai.tool.model.AgentToolRuntimeConfig;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import io.micrometer.observation.contextpropagation.ObservationThreadLocalAccessor;
+import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -36,8 +37,16 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 基于 Spring AI 的 OpenAI 兼容协议流式对话实现。
+ *
+ * <p>将业务层 {@link ChatStreamCommand} 转换为 Spring AI Prompt，调用 OpenAI 兼容模型流式生成，
+ * 并把响应分片统一转换为业务无关的 {@link ChatStreamChunk} 交给上层。</p>
+ *
+ * <p>工具对话支持完整的工具调用循环：模型请求工具时先执行工具、把结果回填进消息历史后再次请求模型，
+ * 直至模型不再请求工具或命中预算/额度边界；循环期间通过 MessageAggregator 聚合流式分片以解析 tool_calls，
+ * 并在整轮结束时向调用方汇总一次 Token 用量快照。</p>
  */
 @Component
+@RequiredArgsConstructor
 public class SpringAiStreamingChatGateway implements StreamingChatGateway {
 
     private final OpenAiCompatibleChatModelFactory chatModelFactory;
@@ -45,13 +54,6 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
     private final ToolCallingManager toolCallingManager;
     private final MessageAggregator messageAggregator = new MessageAggregator();
 
-    public SpringAiStreamingChatGateway(OpenAiCompatibleChatModelFactory chatModelFactory, ObservationRegistry observationRegistry) {
-        this.chatModelFactory = chatModelFactory;
-        this.observationRegistry = observationRegistry;
-        this.toolCallingManager = ToolCallingManager.builder()
-                .observationRegistry(observationRegistry)
-                .build();
-    }
 
     /**
      * 将业务层对话命令转换为 Spring AI Prompt 并发起流式模型调用。
@@ -77,7 +79,9 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
         return stream.contextWrite(context -> context.put(ObservationThreadLocalAccessor.KEY, parent));
     }
 
-    /** 为一次工具增强回答创建独立循环状态，禁止跨请求共享执行记忆。 */
+    /**
+     * 为一次工具增强回答创建独立循环状态，禁止跨请求共享执行记忆。
+     */
     private Flux<ChatStreamChunk> streamToolAnswer(OpenAiChatModel chatModel, List<Message> messages, AgentToolRuntimeConfig runtimeConfig) {
         AgentLoopState loopState = new AgentLoopState(runtimeConfig);
         Prompt prompt = new Prompt(messages, buildToolOptions(chatModel, runtimeConfig, loopState));
@@ -115,6 +119,7 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
             AtomicReference<TokenUsage> latestUsage = new AtomicReference<>(TokenUsage.empty());
             Flux<ChatStreamChunk> contentChunks = responseStream
                     .map(response -> toContentChunk(response, latestUsage))
+                    // 分片过滤：部分供应商会推送仅携带 Usage 的空文本分片，丢弃它们避免污染下游输出流。
                     .filter(chunk -> !chunk.content().isEmpty());
 
             // Spring AI Usage 表示当前模型请求的累计快照，不是当前文本分片的增量。
@@ -128,6 +133,7 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
      */
     private OpenAiChatOptions buildToolOptions(OpenAiChatModel chatModel, AgentToolRuntimeConfig runtimeConfig, AgentLoopState loopState) {
         int maxResultCharacters = runtimeConfig.getMaxResultCharacters();
+        // 用带结果长度上限的包装回调替换原始工具，防止单个工具返回超长结果挤占上下文窗口。
         List<ToolCallback> callbacks = runtimeConfig.getTools()
                 .stream()
                 .map(tool -> boundedCallback(tool, runtimeConfig, maxResultCharacters, loopState))
@@ -156,6 +162,8 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
             loopState.beginModelCall();
 
             AtomicReference<ChatResponse> aggregatedResponse = new AtomicReference<>();
+            // 消息聚合：MessageAggregator 透传原始分片的同时，把整轮流聚合成完整 ChatResponse 存入引用，
+            // 供流结束后解析 tool_calls 使用，不影响文本分片实时下发。
             Flux<ChatResponse> responseStream = messageAggregator.aggregate(chatModel.stream(prompt), aggregatedResponse::set);
 
             Flux<ChatStreamChunk> currentAnswer = streamAnswer(responseStream);
@@ -174,6 +182,8 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
             return Flux.empty();
         }
 
+        // 工具循环预算控制：执行工具前先完成本轮调用记账，预算或额度边界命中时立即收敛为最终回答，
+        // 避免为注定终止的循环再消耗一次模型调用。
         int requestedToolCalls = Objects.requireNonNull(completedResponse.getResult()).getOutput().getToolCalls().size();
         if (loopState.shouldFinalizeBeforeToolExecution()) {
             return streamFinalAnswer(chatModel, prompt, loopState, "模型工作预算已到边界");
@@ -182,6 +192,8 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
             return streamFinalAnswer(chatModel, prompt, loopState, "工具调用额度已用尽");
         }
 
+        // 工具循环主体：执行模型请求的工具，把“Assistant tool_calls + 工具结果”回填进消息历史后，
+        // 携带新历史再次请求模型，形成“模型→工具→模型”迭代，直到模型不再请求工具。
         return executeToolCalling(prompt, completedResponse)
                 .flatMapMany(result -> {
                     Prompt answerPrompt = new Prompt(result.conversationHistory(), prompt.getOptions());
@@ -200,6 +212,8 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
         return Flux.defer(() -> {
             loopState.beginFinalModelCall();
             List<Message> messages = new ArrayList<>(prompt.getInstructions());
+            // 终答阶段：把终止原因写入系统提示词并清空全部工具（tool_choice=none），
+            // 强制模型基于已有证据收敛答案，防止再次进入工具循环。
             messages.add(new SystemMessage(reason + "。禁止继续调用工具、委派或规划；请优先基于已有证据给出可用答案。证据不足时只提出一个最关键的补充问题，并明确说明当前结论的限制。"));
             OpenAiChatOptions options = ((OpenAiChatOptions) prompt.getOptions()).mutate()
                     .toolCallbacks(List.of())
@@ -220,7 +234,9 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
                 .subscribeOn(Schedulers.boundedElastic()));
     }
 
-    /** 工具执行切换到 boundedElastic 后恢复父 Observation，确保 Tool span 与模型链路相关联。 */
+    /**
+     * 工具执行切换到 boundedElastic 后恢复父 Observation，确保 Tool span 与模型链路相关联。
+     */
     private ToolExecutionResult executeToolCallingWithParent(Prompt prompt, ChatResponse response, Observation parent) {
         if (Objects.isNull(parent)) {
             return toolCallingManager.executeToolCalls(prompt, response);
@@ -230,17 +246,25 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
         }
     }
 
+    /**
+     * 从 Reactor Context 中读取父 Observation；未写入观测上下文时返回 null。
+     */
     private static Observation observationFrom(ContextView context) {
         return context.getOrDefault(ObservationThreadLocalAccessor.KEY, null);
     }
 
+    /**
+     * 从完整模型响应中提取最终文本；无结果对象时返回空串。
+     */
     private static String finalContent(ChatResponse response) {
         return Optional.ofNullable(response.getResult())
                 .map(result -> result.getOutput().getText())
                 .orElse("");
     }
 
-    /** 从 Spring AI 响应中提取文本，并保留本轮最后一个真实 Usage 快照。 */
+    /**
+     * 从 Spring AI 响应中提取文本，并保留本轮最后一个真实 Usage 快照。
+     */
     private static ChatStreamChunk toContentChunk(ChatResponse response, AtomicReference<TokenUsage> latestUsage) {
         if (Objects.isNull(response)) {
             return new ChatStreamChunk("");
@@ -253,7 +277,9 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
         return new ChatStreamChunk(content);
     }
 
-    /** 模型整轮结束时只发布一次最终 Usage；供应商未返回时不制造空分片。 */
+    /**
+     * 模型整轮结束时只发布一次最终 Usage；供应商未返回时不制造空分片。
+     */
     private static Mono<ChatStreamChunk> finalUsageChunk(TokenUsage usage) {
         if (!usage.hasUsage()) {
             return Mono.empty();
@@ -261,6 +287,11 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
         return Mono.just(new ChatStreamChunk("", usage));
     }
 
+    /**
+     * 将业务工具包装为带结果长度上限的 Spring AI 工具回调。
+     *
+     * <p>执行上下文、事件发布器和循环状态一并注入包装回调，使工具执行可观测且结果大小可控。</p>
+     */
     private static BoundedToolCallback boundedCallback(AgentTool tool, AgentToolRuntimeConfig runtimeConfig, int maxResultCharacters,
                                                        AgentLoopState loopState) {
         return new BoundedToolCallback(tool, runtimeConfig.getExecutionContext(), maxResultCharacters, runtimeConfig.resolveEventPublisher(), loopState);

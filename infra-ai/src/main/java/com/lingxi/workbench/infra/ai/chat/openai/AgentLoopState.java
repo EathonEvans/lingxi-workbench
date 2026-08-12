@@ -24,7 +24,9 @@ final class AgentLoopState {
         this.runtimeConfig = Objects.requireNonNull(runtimeConfig, "工具运行配置不能为空");
     }
 
-    /** 工作模型调用前校验软边界并占用一次调用额度。 */
+    /**
+     * 工作模型调用前校验软边界并占用一次调用额度。
+     */
     void beginModelCall() {
         if (completedModelCalls >= runtimeConfig.getMaxModelCalls() - 1) {
             throw new AgentLoopLimitException("AGENT_MODEL_CALL_LIMIT", "处理步骤已达到上限，请缩小问题范围后重试",
@@ -47,7 +49,9 @@ final class AgentLoopState {
         completedModelCalls++;
     }
 
-    /** 禁用工具的最终回答调用只校验硬边界，并使用Application预留额度。 */
+    /**
+     * 禁用工具的最终回答调用只校验硬边界，并使用Application预留额度。
+     */
     void beginFinalModelCall() {
         if (completedModelCalls >= runtimeConfig.getMaxModelCalls()) {
             throw new AgentLoopLimitException("AGENT_MODEL_CALL_LIMIT", "本次处理已达到模型调用硬上限",
@@ -62,12 +66,16 @@ final class AgentLoopState {
         completedModelCalls++;
     }
 
-    /** 记录一轮模型调用的真实 Token 用量。 */
+    /**
+     * 记录一轮模型调用的真实 Token 用量。
+     */
     void recordUsage(TokenUsage usage) {
         tokenUsage.add(usage);
     }
 
-    /** 尝试占用模型本轮请求的工具数量；额度不足时由调用方直接进入最终回答。 */
+    /**
+     * 尝试占用模型本轮请求的工具数量；额度不足时由调用方直接进入最终回答。
+     */
     boolean tryRecordToolCalls(int requestedToolCalls) {
         if (completedToolCalls + requestedToolCalls > runtimeConfig.getMaxToolCalls()) {
             return false;
@@ -81,18 +89,24 @@ final class AgentLoopState {
         return toolLedger;
     }
 
-    /** 重复调用出现后只允许再进行一次禁用工具的总结调用。 */
+    /**
+     * 重复调用出现后只允许再进行一次禁用工具的总结调用。
+     */
     void requestFinalResponse() {
         finalResponseRequested = true;
     }
 
-    /** 判断下一轮是否必须禁用工具并收敛为最终回答。 */
+    /**
+     * 判断下一轮是否必须禁用工具并收敛为最终回答。
+     */
     boolean shouldFinalize() {
         return finalResponseRequested || completedModelCalls >= runtimeConfig.getMaxModelCalls() - 1
                 || hasReached(tokenUsage.snapshot().totalTokens(), runtimeConfig.getMaxTotalTokens());
     }
 
-    /** Token软上限命中后不再执行模型刚请求的新工具，避免继续扩大上下文。 */
+    /**
+     * Token软上限命中后不再执行模型刚请求的新工具，避免继续扩大上下文。
+     */
     boolean shouldFinalizeBeforeToolExecution() {
         return hasReached(tokenUsage.snapshot().totalTokens(), runtimeConfig.getMaxTotalTokens());
     }
