@@ -20,7 +20,9 @@ import java.util.Optional;
 
 import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
 
-/** 校验独立 Workflow 草稿并在发布时锁定所有外部资源版本。 */
+/**
+ * 校验独立 Workflow 草稿并在发布时锁定所有外部资源版本。
+ */
 @Component
 @RequiredArgsConstructor
 public class WorkflowDraftResolver {

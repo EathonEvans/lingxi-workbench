@@ -106,7 +106,7 @@ class ApplicationDraftValidatorTest {
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
-                .contains("CAPABILITY_AGENT_UNAVAILABLE", "FALLBACK_AGENT_UNAVAILABLE");
+                .containsExactly("CAPABILITY_AGENT_UNAVAILABLE");
     }
 
     @Test
@@ -117,7 +117,7 @@ class ApplicationDraftValidatorTest {
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
-                .contains("CAPABILITY_AGENT_VERSION_UNAVAILABLE", "FALLBACK_AGENT_UNAVAILABLE");
+                .containsExactly("CAPABILITY_AGENT_VERSION_UNAVAILABLE");
     }
 
     @Test
@@ -471,7 +471,7 @@ class ApplicationDraftValidatorTest {
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
-                .contains("CAPABILITY_AGENT_VERSION_UNAVAILABLE", "FALLBACK_AGENT_UNAVAILABLE");
+                .containsExactly("CAPABILITY_AGENT_VERSION_UNAVAILABLE");
     }
 
     @Test

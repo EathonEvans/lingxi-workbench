@@ -22,21 +22,33 @@ package com.lingxi.workbench.workflow.common.constants;
  */
 public interface ApplicationCollaborationConstants {
 
-    /** ApplicationDefinition 协议版本号 */
+    /**
+     * ApplicationDefinition 协议版本号
+     */
     int APPLICATION_SCHEMA_VERSION = 9;
 
-    /** 最少成员 Agent 数量 */
+    /**
+     * 最少成员 Agent 数量
+     */
     int MIN_MEMBER_AGENTS = 1;
 
-    /** 最多成员 Agent 数量 */
+    /**
+     * 最多成员 Agent 数量
+     */
     int MAX_MEMBER_AGENTS = 8;
 
-    /** 最小委派次数 */
+    /**
+     * 最小委派次数
+     */
     int MIN_DELEGATIONS = 1;
 
-    /** 最大委派次数 */
+    /**
+     * 最大委派次数
+     */
     int MAX_DELEGATIONS = 10;
 
-    /** Supervisor 委派最大深度，V1 固定为 1 */
+    /**
+     * Supervisor 委派最大深度，V1 固定为 1
+     */
     int SUPERVISOR_MAX_DEPTH = 1;
 }

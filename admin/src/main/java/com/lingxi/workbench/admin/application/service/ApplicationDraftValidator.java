@@ -111,7 +111,7 @@ public class ApplicationDraftValidator {
         CapabilityCatalogSnapshot capabilityCatalog = resolveCapabilityCatalog(
                 draftDefinition.capabilityCatalog(), issues);
         ApplicationCapabilityDefinition fallbackCapability = resolveFallback(
-                draftDefinition.fallback(), capabilityCatalog, issues);
+                draftDefinition.fallback(), draftDefinition.capabilityCatalog(), capabilityCatalog, issues);
         validateAgentCapabilityTopology(fallbackCapability, capabilityCatalog, issues);
         FastRouteResolution fastRouteResolution = resolveFastRoutes(
                 draftDefinition.optionalFastRoutes(), capabilityCatalog, issues);
@@ -159,7 +159,8 @@ public class ApplicationDraftValidator {
     /** fallback 必须唯一指向已解析的 REACT 或 PLAN_EXECUTOR Agent 能力。 */
     private ApplicationCapabilityDefinition resolveFallback(
             FallbackAgent fallback,
-            CapabilityCatalogSnapshot catalog,
+            CapabilityCatalogSnapshot draftCatalog,
+            CapabilityCatalogSnapshot resolvedCatalog,
             List<ApplicationValidationIssueVO> issues) {
         String field = "definition.fallback.cap";
         String cap = Objects.isNull(fallback) ? null : fallback.cap();
@@ -167,11 +168,21 @@ public class ApplicationDraftValidator {
             issues.add(issue("FALLBACK_AGENT_REQUIRED", field, "请选择能力目录中的fallback Agent能力"));
             return null;
         }
-        List<ApplicationCapabilityDefinition> matches = catalog.capabilities().stream()
+        List<ApplicationCapabilityDefinition> configuredMatches = Objects.isNull(draftCatalog)
+                ? List.of()
+                : draftCatalog.capabilities().stream()
+                        .filter(Objects::nonNull)
+                        .filter(capability -> cap.equals(capability.getCode()))
+                        .toList();
+        if (configuredMatches.size() != 1 || configuredMatches.getFirst().getType() != ApplicationCapabilityType.AGENT) {
+            issues.add(issue("FALLBACK_AGENT_UNAVAILABLE", field, "fallback必须唯一指向能力目录中的AGENT能力"));
+            return null;
+        }
+        List<ApplicationCapabilityDefinition> matches = resolvedCatalog.capabilities().stream()
                 .filter(capability -> cap.equals(capability.getCode()))
                 .toList();
-        if (matches.size() != 1 || matches.getFirst().getType() != ApplicationCapabilityType.AGENT) {
-            issues.add(issue("FALLBACK_AGENT_UNAVAILABLE", field, "fallback必须唯一指向能力目录中的AGENT能力"));
+        // 引用目标解析失败时，能力目录已经记录根因，避免再追加误导性的 fallback 级联错误。
+        if (matches.size() != 1) {
             return null;
         }
         ApplicationCapabilityDefinition capability = matches.getFirst();

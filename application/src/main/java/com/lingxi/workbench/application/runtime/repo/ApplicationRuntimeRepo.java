@@ -55,4 +55,12 @@ public class ApplicationRuntimeRepo {
                         .eq(RuntimeApplicationVersionEntity::getId, versionId)
                         .eq(RuntimeApplicationVersionEntity::getApplicationId, applicationId)));
     }
+
+    /** 批量查询候选 Application 的生效版本，供应用选择器过滤不可执行快照。 */
+    public List<RuntimeApplicationVersionEntity> findVersionsByIds(List<Long> versionIds) {
+        if (versionIds.isEmpty()) {
+            return List.of();
+        }
+        return versionMapper.selectByIds(versionIds);
+    }
 }

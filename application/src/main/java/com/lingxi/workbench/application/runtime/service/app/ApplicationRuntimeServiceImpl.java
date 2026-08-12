@@ -9,14 +9,19 @@ import com.lingxi.workbench.application.runtime.service.app.ApplicationRuntimeSe
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ApplicationRuntimeServiceImpl implements ApplicationRuntimeService {
 
     private final ApplicationRuntimeRepo repo;
@@ -29,7 +34,15 @@ public class ApplicationRuntimeServiceImpl implements ApplicationRuntimeService 
     @Override
     @Transactional(readOnly = true)
     public List<AvailableApplicationVO> listAvailableApplications() {
-        return repo.findAvailableApplications().stream()
+        List<RuntimeApplicationEntity> applications = repo.findAvailableApplications();
+        List<Long> versionIds = applications.stream()
+                .map(RuntimeApplicationEntity::getPublishedVersionId)
+                .filter(Objects::nonNull)
+                .toList();
+        Map<Long, RuntimeApplicationVersionEntity> versions = repo.findVersionsByIds(versionIds).stream()
+                .collect(Collectors.toMap(RuntimeApplicationVersionEntity::getId, Function.identity()));
+        return applications.stream()
+                .filter(application -> isExecutable(application, versions.get(application.getPublishedVersionId())))
                 .map(application -> new AvailableApplicationVO(
                         application.getCode(),
                         application.getName(),
@@ -61,7 +74,28 @@ public class ApplicationRuntimeServiceImpl implements ApplicationRuntimeService 
         try {
             return new AppRuntimeSnapshot(application.getId(), application.getCode(), version.getId(), version.getDefinitionSnapshot());
         } catch (IllegalArgumentException exception) {
+            log.warn("Application生效版本不可执行，applicationId={}，versionId={}，reason={}",
+                    application.getId(), version.getId(), exception.getMessage());
             throw new BusinessException(HttpStatusEnum.CONFLICT, "AI应用生效版本不可执行：" + exception.getMessage());
+        }
+    }
+
+    /** 应用选择器只暴露当前运行时能够构造完整快照的正式版本。 */
+    private boolean isExecutable(RuntimeApplicationEntity application, RuntimeApplicationVersionEntity version) {
+        if (Objects.isNull(version)
+                || !Objects.equals(version.getApplicationId(), application.getId())
+                || Objects.isNull(version.getDefinitionSnapshot())) {
+            log.warn("Application候选版本缺失或归属不一致，applicationId={}，versionId={}",
+                    application.getId(), application.getPublishedVersionId());
+            return false;
+        }
+        try {
+            new AppRuntimeSnapshot(application.getId(), application.getCode(), version.getId(), version.getDefinitionSnapshot());
+            return true;
+        } catch (IllegalArgumentException exception) {
+            log.warn("Application候选版本不可执行，applicationId={}，versionId={}，reason={}",
+                    application.getId(), version.getId(), exception.getMessage());
+            return false;
         }
     }
 }

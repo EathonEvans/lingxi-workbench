@@ -29,9 +29,10 @@ class ApplicationRuntimeServiceImplTest {
     @Test
     void shouldExposeStableCodeInsteadOfPublishedVersionId() {
         RuntimeApplicationEntity application = application();
+        RuntimeApplicationVersionEntity version = version(executableDefinition());
 
         ApplicationRuntimeServiceImpl service =
-                new ApplicationRuntimeServiceImpl(new StubApplicationRuntimeRepo(application, null));
+                new ApplicationRuntimeServiceImpl(new StubApplicationRuntimeRepo(application, version));
 
         List<AvailableApplicationVO> applications = service.listAvailableApplications();
 
@@ -39,6 +40,33 @@ class ApplicationRuntimeServiceImplTest {
                 List.of(new AvailableApplicationVO(
                         "general_assistant", "灵析通用助手", "企业知识问答")),
                 applications);
+    }
+
+    @Test
+    void shouldHideApplicationWithUnsupportedPublishedSchema() {
+        RuntimeApplicationEntity application = application();
+        RuntimeApplicationVersionEntity version = version(ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION - 1)
+                .build());
+        ApplicationRuntimeServiceImpl service = new ApplicationRuntimeServiceImpl(
+                new StubApplicationRuntimeRepo(application, version));
+
+        List<AvailableApplicationVO> applications = service.listAvailableApplications();
+
+        assertEquals(List.of(), applications);
+    }
+
+    @Test
+    void shouldHideApplicationWhenPublishedVersionBelongsToAnotherApplication() {
+        RuntimeApplicationEntity application = application();
+        RuntimeApplicationVersionEntity version = version(executableDefinition());
+        version.setApplicationId(99L);
+        ApplicationRuntimeServiceImpl service = new ApplicationRuntimeServiceImpl(
+                new StubApplicationRuntimeRepo(application, version));
+
+        List<AvailableApplicationVO> applications = service.listAvailableApplications();
+
+        assertEquals(List.of(), applications);
     }
 
     @Test
@@ -116,6 +144,11 @@ class ApplicationRuntimeServiceImplTest {
         @Override
         public List<RuntimeApplicationEntity> findAvailableApplications() {
             return List.of(application);
+        }
+
+        @Override
+        public List<RuntimeApplicationVersionEntity> findVersionsByIds(List<Long> versionIds) {
+            return Optional.ofNullable(version).stream().toList();
         }
 
         @Override

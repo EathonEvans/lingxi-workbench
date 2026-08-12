@@ -12,6 +12,8 @@ import org.springframework.stereotype.Component;
 
 import java.util.Objects;
 
+import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
+
 /** Application 实体、快照和管理端响应之间的显式转换器。 */
 @Component
 public class ApplicationConverter {
@@ -29,6 +31,7 @@ public class ApplicationConverter {
                 .status(application.getStatus())
                 .publishedVersionId(stringId(application.getPublishedVersionId()))
                 .publishedVersionNo(publishedVersion == null ? null : publishedVersion.getVersionNo())
+                .publishedVersionReady(isPublishedVersionReady(publishedVersion))
                 .draftRevision(draft == null ? null : draft.getRevision())
                 .updatedAt(application.getUpdatedAt())
                 .build();
@@ -47,6 +50,7 @@ public class ApplicationConverter {
                 .status(application.getStatus())
                 .publishedVersionId(stringId(application.getPublishedVersionId()))
                 .publishedVersionNo(publishedVersion == null ? null : publishedVersion.getVersionNo())
+                .publishedVersionReady(isPublishedVersionReady(publishedVersion))
                 .draft(toDraftVO(draft))
                 .createdAt(application.getCreatedAt())
                 .updatedAt(application.getUpdatedAt())
@@ -97,5 +101,13 @@ public class ApplicationConverter {
 
     private static String stringId(Long id) {
         return Objects.toString(id, null);
+    }
+
+    /** 控制面显式标记旧协议正式版本，避免运营误以为当前 Application 可运行。 */
+    private static boolean isPublishedVersionReady(AiApplicationVersionEntity version) {
+        return Objects.nonNull(version)
+                && Objects.equals(version.getSchemaVersion(), APPLICATION_SCHEMA_VERSION)
+                && Objects.nonNull(version.getDefinitionSnapshot())
+                && version.getDefinitionSnapshot().schemaVersion() == APPLICATION_SCHEMA_VERSION;
     }
 }

@@ -24,6 +24,7 @@ public class AgentVO {
     private EnableStatus status;
     private String publishedVersionId;
     private Integer publishedVersionNo;
+    private boolean publishedVersionReady;
     private Long draftRevision;
     private OffsetDateTime updatedAt;
 }

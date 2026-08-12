@@ -16,6 +16,8 @@ import org.springframework.stereotype.Component;
 
 import java.util.Objects;
 
+import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
+
 /** Agent 实体、快照和管理端响应之间的显式转换器。 */
 @Component
 public class AgentConverter {
@@ -33,6 +35,7 @@ public class AgentConverter {
                 .publishedVersionId(stringId(agent.getPublishedVersionId()))
                 .publishedVersionNo(Objects.isNull(publishedVersion)
                         ? null : publishedVersion.getVersionNo())
+                .publishedVersionReady(isPublishedVersionReady(agent, publishedVersion))
                 .draftRevision(Objects.isNull(draft) ? null : draft.getRevision())
                 .updatedAt(agent.getUpdatedAt())
                 .build();
@@ -54,6 +57,7 @@ public class AgentConverter {
                 .publishedVersionId(stringId(agent.getPublishedVersionId()))
                 .publishedVersionNo(Objects.isNull(publishedVersion)
                         ? null : publishedVersion.getVersionNo())
+                .publishedVersionReady(isPublishedVersionReady(agent, publishedVersion))
                 .draft(toDraftVO(draft, knowledge))
                 .createdAt(agent.getCreatedAt())
                 .updatedAt(agent.getUpdatedAt())
@@ -139,5 +143,14 @@ public class AgentConverter {
 
     private static String stringId(Long id) {
         return Objects.isNull(id) ? null : String.valueOf(id);
+    }
+
+    /** 当前正式版本只有满足最新协议且类型未漂移时，才能被 Application 或 Workflow 引用。 */
+    private static boolean isPublishedVersionReady(AgentEntity agent, AgentVersionEntity version) {
+        return Objects.nonNull(version)
+                && Objects.equals(version.getSchemaVersion(), AGENT_SCHEMA_VERSION)
+                && Objects.nonNull(version.getDefinitionSnapshot())
+                && Objects.equals(version.getDefinitionSnapshot().getSchemaVersion(), AGENT_SCHEMA_VERSION)
+                && version.getDefinitionSnapshot().getAgentType() == agent.getAgentType();
     }
 }

@@ -21,6 +21,7 @@ public class ApplicationDetailVO {
     private final EnableStatus status;
     private final String publishedVersionId;
     private final Integer publishedVersionNo;
+    private final boolean publishedVersionReady;
     private final ApplicationDraftVO draft;
     private final OffsetDateTime createdAt;
     private final OffsetDateTime updatedAt;

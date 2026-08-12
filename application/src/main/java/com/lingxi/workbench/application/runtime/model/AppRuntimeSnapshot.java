@@ -45,6 +45,9 @@ public record AppRuntimeSnapshot(
         if (fallback == null || fallback.cap() == null || fallback.cap().isBlank()) {
             throw new IllegalArgumentException("Application缺少fallback Agent能力编码");
         }
+        if (Objects.isNull(definition.capabilityCatalog())) {
+            throw new IllegalArgumentException("Application缺少能力目录");
+        }
         long fallbackCount = definition.capabilityCatalog().capabilities().stream()
                 .filter(capability -> fallback.cap().equals(capability.getCode()))
                 .filter(capability -> capability.getType() == ApplicationCapabilityType.AGENT)
