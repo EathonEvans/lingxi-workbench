@@ -175,6 +175,11 @@ export class ChatStreamError extends Error {
   }
 }
 
+/** 只有服务端返回的十进制消息主键才能用于续接或取消生成任务。 */
+export function isServerMessageId(messageId: string): boolean {
+  return /^[1-9]\d*$/.test(messageId);
+}
+
 // ─── SSE 解析 ────────────────────────────────────────────────
 
 type ParsedBlock = {
@@ -461,11 +466,17 @@ async function resumeStream(
   afterSequence: number,
   options: Pick<StreamChatOptions, "session" | "signal" | "onChunk" | "onSnapshot" | "onTool" | "onSubAgent" | "onClarification" | "onTimeline" | "onStepOutput" | "onCancelled">,
 ): Promise<void> {
+  if (!isServerMessageId(assistantMessageId)) {
+    throw new ChatStreamError("生成任务尚未创建完成，请重新发送", {
+      code: "INVALID_GENERATION_TASK_ID",
+      status: 400,
+    });
+  }
   const response = await fetch(`${API_BASE_URL}/v1/ai/chat/resume`, {
     body: JSON.stringify({ assistantMessageId, afterSequence }),
     headers: {
       "Content-Type": "application/json",
-      "Accept": "text/event-stream",
+      "Accept": "text/event-stream, application/json",
       ...authHeaders(options.session),
     },
     method: "POST",
@@ -509,6 +520,12 @@ export async function cancelChat(
   assistantMessageId: string,
   session: AuthSession,
 ): Promise<void> {
+  if (!isServerMessageId(assistantMessageId)) {
+    throw new ChatStreamError("生成任务尚未创建完成", {
+      code: "INVALID_GENERATION_TASK_ID",
+      status: 400,
+    });
+  }
   const response = await fetch(
     `${API_BASE_URL}/v1/ai/chat/cancel`,
     {

@@ -15,6 +15,7 @@ import {
   cancelChat,
   ChatStreamError,
   createConversation,
+  isServerMessageId,
   resumeChat,
   streamChat,
 } from "@/lib/chat";
@@ -103,6 +104,10 @@ function readPendingGeneration(): PendingGeneration | undefined {
     const value = sessionStorage.getItem(PENDING_GENERATION_KEY);
     if (!value) return undefined;
     const pending = JSON.parse(value) as PendingGeneration;
+    if (!isServerMessageId(pending.assistantMessageId)) {
+      clearPendingGeneration();
+      return undefined;
+    }
     return {
       ...pending,
       subAgents: pending.subAgents ?? [],
@@ -316,6 +321,11 @@ export function useChatStream({
         onLogout();
         return;
       }
+      if (!isServerMessageId(pending.assistantMessageId)) {
+        clearPendingGeneration();
+        setResumeAvailable(false);
+        return;
+      }
       const resumable = !(error instanceof ChatStreamError)
         || (!NON_RESUMABLE_ERROR_CODES.has(error.code ?? "") && error.status !== 404);
       setResumeAvailable(resumable);
@@ -390,7 +400,6 @@ export function useChatStream({
     async (pending: PendingGeneration, clarificationResponse?: ClarificationResponse) => {
       if (!session || !selectedApplicationCode) return;
       pendingGenerationRef.current = pending;
-      savePendingGeneration(pending);
       setStreaming(true);
       setStreamError(undefined);
       setResumeAvailable(false);
@@ -487,6 +496,15 @@ export function useChatStream({
     if (!pending || !session || !streaming) return;
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
+    if (!isServerMessageId(pending.assistantMessageId)) {
+      updateAssistant(pending, (message) => ({ ...message, status: "stopped" }));
+      clearPendingGeneration();
+      pendingGenerationRef.current = undefined;
+      setPendingClarification(undefined);
+      setResumeAvailable(false);
+      setStreaming(false);
+      return;
+    }
     try {
       await cancelChat(pending.assistantMessageId, session);
       updateAssistant(pending, (message) => ({ ...message, status: "stopped" }));

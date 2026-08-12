@@ -236,13 +236,15 @@ export default function WorkbenchShell() {
     listAvailableApplications(session)
       .then((apps) => {
         setApplications(apps);
-        if (apps.length > 0 && !selectedApplicationCode) {
-          setSelectedApplicationCode(apps[0].code);
-        }
+        setSelectedApplicationCode((current) =>
+          current && apps.some((app) => app.code === current)
+            ? current
+            : (apps[0]?.code ?? null),
+        );
       })
       .catch((error) => handleRequestError(error, "获取可用应用失败"))
       .finally(() => setApplicationLoading(false));
-    }, [handleRequestError, session, selectedApplicationCode]);
+    }, [handleRequestError, session]);
 
   useEffect(() => {
     if (!session) return;
