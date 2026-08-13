@@ -63,7 +63,7 @@ public class ConversationRepo {
     }
 
     /** 仅当当前覆盖位置与调用方读取时一致，才推进会话摘要投影。 */
-    public boolean promoteSummary(Long conversationId, Integer expectedSequenceNo, Integer coveredSequenceNo, String summary) {
+    public boolean isSummaryPromoted(Long conversationId, Integer expectedSequenceNo, Integer coveredSequenceNo, String summary) {
         ConversationEntity entity = new ConversationEntity();
         entity.setSummary(summary);
         entity.setSummaryAt(java.time.OffsetDateTime.now());

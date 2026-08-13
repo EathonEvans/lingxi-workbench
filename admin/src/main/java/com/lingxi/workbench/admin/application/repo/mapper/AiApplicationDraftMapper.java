@@ -22,7 +22,7 @@ public interface AiApplicationDraftMapper extends BaseMapper<AiApplicationDraftE
              WHERE id = #{entity.id}
                AND revision = #{expectedRevision}
             """)
-    int updateWithRevision(
+    int isUpdatedWithRevision(
             @Param("entity") AiApplicationDraftEntity entity,
             @Param("expectedRevision") Long expectedRevision);
 }

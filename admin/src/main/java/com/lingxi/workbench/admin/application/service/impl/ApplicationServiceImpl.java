@@ -197,7 +197,7 @@ public class ApplicationServiceImpl implements ApplicationService {
                 .build());
         draft.setChangeNote(trimToNull(request.getChangeNote()));
         draft.setUpdatedBy(operatorId);
-        if (!draftRepo.updateWithRevision(draft, request.getExpectedRevision())) {
+        if (!draftRepo.isUpdatedWithRevision(draft, request.getExpectedRevision())) {
             throw new BusinessException(
                     HttpStatusEnum.CONFLICT,
                     "Application草稿已被其他操作修改，请刷新后重试");

@@ -54,7 +54,7 @@ public class SysRoleServiceImpl implements SysRoleService {
 
     @Override
     public Set<Long> listUserRoleIds(Long userId) {
-        if (!sysRoleRepo.userExists(userId)) {
+        if (!sysRoleRepo.hasUser(userId)) {
             throw new BusinessException(HttpStatusEnum.NOT_FOUND, "系统用户不存在");
         }
         return sysRoleRepo.findUserRoleIds(userId);
@@ -127,7 +127,7 @@ public class SysRoleServiceImpl implements SysRoleService {
     @Override
     @Transactional
     public void assignUserRoles(Long userId, Set<Long> roleIds) {
-        if (!sysRoleRepo.userExists(userId)) {
+        if (!sysRoleRepo.hasUser(userId)) {
             throw new BusinessException(HttpStatusEnum.NOT_FOUND, "系统用户不存在");
         }
         if (!sysRoleRepo.existsAll(roleIds)) {

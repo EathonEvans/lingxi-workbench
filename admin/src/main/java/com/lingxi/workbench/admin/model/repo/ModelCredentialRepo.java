@@ -37,10 +37,12 @@ public class ModelCredentialRepo {
     }
 
     /**
-     * 查询全部模型访问密钥，供模型实例选择。
+     * 查询模型访问密钥列表（上限 1000 防止字典表失控），供模型实例选择。
      */
     public List<ModelCredentialEntity> findAll() {
-        return mapper.selectList(Wrappers.<ModelCredentialEntity>lambdaQuery().orderByAsc(ModelCredentialEntity::getId));
+        return mapper.selectList(Wrappers.<ModelCredentialEntity>lambdaQuery()
+                .orderByAsc(ModelCredentialEntity::getId)
+                .last("LIMIT 1000"));
     }
 
     public Optional<ModelCredentialEntity> findById(Long id) {

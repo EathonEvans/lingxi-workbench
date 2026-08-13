@@ -51,6 +51,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Application Chat 主执行流程。
@@ -144,6 +145,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
 
         // ④ 恢复请求跳过 fresh route；其他请求按 Application 配置执行可选快速路由。
         IntentRoutingResult routing = aiStageObserver.observe(AiObservationStage.INTENT_ROUTE,
+                ApplicationChatExecutionServiceImpl::recordRoutingEvidence,
                 () -> fastRoute(request, context, interaction.isPresent()));
 
         // ⑤ 调度合并和目标执行统一归入EXECUTION阶段，固定回复与澄清也保留完整链路。
@@ -155,6 +157,23 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                 case ChatDispatch.Executable executable -> executeExecutable(request, context, executable, startedAt);
             };
         });
+    }
+
+    /**
+     * 将路由决策证据（门控原因 + 候选编码与相似度）记录到 INTENT_ROUTE span，
+     * 供意图树质量分析与阈值调优。
+     */
+    private static void recordRoutingEvidence(io.micrometer.observation.Observation observation,
+                                              IntentRoutingResult routing) {
+        IntentRoutingEvidence evidence = routing.getRoutingEvidence();
+        if (Objects.isNull(evidence)) {
+            return;
+        }
+        observation.highCardinalityKeyValue("lingxi.intent.reason", evidence.getReason().name());
+        observation.highCardinalityKeyValue("lingxi.intent.action", routing.getAction().name());
+        observation.highCardinalityKeyValue("lingxi.intent.candidates", evidence.candidates().stream()
+                .map(candidate -> candidate.getIntentCode() + ":" + candidate.getConfidence())
+                .collect(Collectors.joining(",")));
     }
 
     /**
@@ -494,6 +513,13 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         }
     }
 
+    /**
+     * 能力分发所需的运行时解析结果。
+     *
+     * @param agent                   能力目录锁定的 Agent 运行快照
+     * @param routingEvidence         意图快速路由的命中证据
+     * @param confirmedCapabilityCodes 已与用户确认的可执行能力编码集合
+     */
     private record CapabilityDispatchHints(
             AgentRuntimeSnapshot agent,
             IntentRoutingEvidence routingEvidence,

@@ -215,7 +215,7 @@ public class IntentTreeServiceImpl implements IntentTreeService {
         draft.setDefinition(definition);
         draft.setChangeNote(trimToNull(request.getChangeNote()));
         draft.setUpdatedBy(operatorId);
-        if (!draftRepo.updateWithRevision(draft, request.getExpectedRevision())) {
+        if (!draftRepo.isUpdatedWithRevision(draft, request.getExpectedRevision())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "意图树草稿已被其他操作修改，请刷新后重试");
         }
         auditService.record("INTENT", "INTENT_TREE_DRAFT", draft.getId(), operatorId, "INTENT_TREE_DRAFT_SAVE", "意图树主键=" + id + "，revision=" + (request.getExpectedRevision() + 1));

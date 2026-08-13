@@ -3,12 +3,16 @@ package com.lingxi.workbench.admin.model.service.impl;
 import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.admin.model.model.bo.ModelConnectionTestResult;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
+import com.lingxi.workbench.infra.ai.outbound.ModelOutboundAddressPolicy;
+import com.lingxi.workbench.infra.ai.outbound.config.ModelOutboundSecurityProperties;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -41,7 +45,7 @@ class HttpModelConnectionTesterTest {
         });
         server.start();
 
-        HttpModelConnectionTester tester = new HttpModelConnectionTester();
+        HttpModelConnectionTester tester = testerWithLocalhostAllowed();
         JSONObject extensionParameters = new JSONObject();
         extensionParameters.put(
                 "thinking",
@@ -74,7 +78,7 @@ class HttpModelConnectionTesterTest {
         });
         server.start();
 
-        ModelConnectionTestResult result = new HttpModelConnectionTester().test(
+        ModelConnectionTestResult result = testerWithLocalhostAllowed().test(
                 "OPENAI_COMPATIBLE",
                 baseUrl(),
                 "wrong-key",
@@ -90,7 +94,7 @@ class HttpModelConnectionTesterTest {
 
     @Test
     void shouldRejectUnsupportedProtocolWithoutSendingRequest() {
-        ModelConnectionTestResult result = new HttpModelConnectionTester().test(
+        ModelConnectionTestResult result = testerWithLocalhostAllowed().test(
                 "ANTHROPIC",
                 "https://example.com/v1",
                 "secret",
@@ -117,7 +121,7 @@ class HttpModelConnectionTesterTest {
         });
         server.start();
 
-        ModelConnectionTestResult result = new HttpModelConnectionTester().test(
+        ModelConnectionTestResult result = testerWithLocalhostAllowed().test(
                 "OPENAI_COMPATIBLE",
                 baseUrl(),
                 "secret",
@@ -132,7 +136,7 @@ class HttpModelConnectionTesterTest {
 
     @Test
     void shouldRejectRerankUntilProviderProtocolIsAvailable() {
-        ModelConnectionTestResult result = new HttpModelConnectionTester().test(
+        ModelConnectionTestResult result = testerWithLocalhostAllowed().test(
                 "OPENAI_COMPATIBLE",
                 "https://example.com/v1",
                 "secret",
@@ -147,5 +151,14 @@ class HttpModelConnectionTesterTest {
 
     private String baseUrl() {
         return "http://127.0.0.1:" + server.getAddress().getPort() + "/v1";
+    }
+
+    /** 构造放行本机回环地址的测试实例，本地 HttpServer 需要被允许连接。 */
+    private static HttpModelConnectionTester testerWithLocalhostAllowed() {
+        ModelOutboundSecurityProperties properties = new ModelOutboundSecurityProperties();
+        properties.setAllowedPrivateHosts(List.of("127.0.0.1", "localhost", "::1"));
+        return new HttpModelConnectionTester(
+                HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(3)).build(),
+                new ModelOutboundAddressPolicy(properties));
     }
 }

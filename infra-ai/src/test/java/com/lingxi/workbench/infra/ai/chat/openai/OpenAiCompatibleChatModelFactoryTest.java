@@ -2,6 +2,7 @@ package com.lingxi.workbench.infra.ai.chat.openai;
 
 import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
+import com.lingxi.workbench.infra.ai.outbound.ModelOutboundAddressPolicy;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
@@ -13,6 +14,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 class OpenAiCompatibleChatModelFactoryTest {
 
@@ -34,7 +36,8 @@ class OpenAiCompatibleChatModelFactoryTest {
                 .maxRetries(2)
                 .build();
 
-        OpenAiChatModel model = new OpenAiCompatibleChatModelFactory(ObservationRegistry.NOOP).create(config);
+        OpenAiChatModel model = new OpenAiCompatibleChatModelFactory(
+                ObservationRegistry.NOOP, mock(ModelOutboundAddressPolicy.class)).create(config);
         OpenAiChatOptions options = model.getOptions();
 
         assertEquals("https://api.deepseek.com", options.getBaseUrl());
@@ -51,5 +54,53 @@ class OpenAiCompatibleChatModelFactoryTest {
         assertTrue(options.getStreamOptions().includeUsage());
         assertFalse(config.toString().contains("secret"));
         assertTrue(config.toString().contains("apiKey=******"));
+    }
+
+    @Test
+    void shouldReuseCachedClientForIdenticalConfig() {
+        OpenAiCompatibleChatModelFactory factory = new OpenAiCompatibleChatModelFactory(
+                ObservationRegistry.NOOP, mock(ModelOutboundAddressPolicy.class));
+        ChatModelRuntimeConfig config = ChatModelRuntimeConfig.builder()
+                .instanceId(9L)
+                .baseUrl("https://api.deepseek.com")
+                .apiKey("secret")
+                .modelCode("deepseek-chat")
+                .timeoutSeconds(45)
+                .maxRetries(2)
+                .build();
+
+        OpenAiChatModel first = factory.create(config);
+        OpenAiChatModel second = factory.create(config);
+
+        // 短 TTL 窗口内复用同一客户端，避免重复创建 HTTP 客户端与 TLS 连接
+        assertTrue(first == second);
+    }
+
+    @Test
+    void shouldRebuildClientWhenConfigChanges() {
+        OpenAiCompatibleChatModelFactory factory = new OpenAiCompatibleChatModelFactory(
+                ObservationRegistry.NOOP, mock(ModelOutboundAddressPolicy.class));
+        ChatModelRuntimeConfig base = ChatModelRuntimeConfig.builder()
+                .instanceId(9L)
+                .baseUrl("https://api.deepseek.com")
+                .apiKey("old-key")
+                .modelCode("deepseek-chat")
+                .timeoutSeconds(45)
+                .maxRetries(2)
+                .build();
+        ChatModelRuntimeConfig rotated = ChatModelRuntimeConfig.builder()
+                .instanceId(9L)
+                .baseUrl("https://api.deepseek.com")
+                .apiKey("new-key")
+                .modelCode("deepseek-chat")
+                .timeoutSeconds(45)
+                .maxRetries(2)
+                .build();
+
+        OpenAiChatModel first = factory.create(base);
+        OpenAiChatModel second = factory.create(rotated);
+
+        // 密钥轮换后指纹变化，不再复用旧客户端
+        assertTrue(first != second);
     }
 }

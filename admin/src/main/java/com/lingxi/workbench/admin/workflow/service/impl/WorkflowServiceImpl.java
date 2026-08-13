@@ -145,7 +145,7 @@ public class WorkflowServiceImpl implements WorkflowService {
         draft.setCanvasState(request.getCanvasState());
         draft.setChangeNote(request.getChangeNote());
         draft.setUpdatedBy(userId);
-        if (!draftRepo.updateWithRevision(draft, request.getExpectedRevision())) {
+        if (!draftRepo.isUpdatedWithRevision(draft, request.getExpectedRevision())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, CONFLICT_MSG);
         }
         return detail(id);
@@ -253,7 +253,7 @@ public class WorkflowServiceImpl implements WorkflowService {
         draft.setCanvasState(version.getCanvasSnapshot());
         draft.setChangeNote("基于" + version.getVersionName() + "恢复草稿");
         draft.setUpdatedBy(userId);
-        if (!draftRepo.updateWithRevision(draft, request.getExpectedRevision())) {
+        if (!draftRepo.isUpdatedWithRevision(draft, request.getExpectedRevision())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, CONFLICT_MSG);
         }
         return detail(id);

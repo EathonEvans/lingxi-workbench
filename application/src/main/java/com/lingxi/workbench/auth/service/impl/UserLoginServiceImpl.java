@@ -10,6 +10,7 @@ import com.lingxi.workbench.auth.service.UserAvatarUrlService;
 import com.lingxi.workbench.auth.service.UserLoginService;
 import com.lingxi.workbench.framework.exceptions.AuthException;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
+import com.lingxi.workbench.framework.auth.login.LoginFailureGuard;
 import com.lingxi.workbench.framework.auth.password.BCryptPasswordHasher;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -25,11 +26,15 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class UserLoginServiceImpl implements UserLoginService {
 
+    /** 与 sa-token.login-type 保持一致，用于防爆破按端隔离计数。 */
+    private static final String LOGIN_TYPE = "user";
+
     private final UserRepo userRepo;
     private final UserConverter userConverter;
     private final BCryptPasswordHasher passwordHasher;
     private final StpLogicDefinition stpLogicDefinition;
     private final UserAvatarUrlService userAvatarUrlService;
+    private final LoginFailureGuard loginFailureGuard;
 
     /**
      * 执行登录流程：
@@ -47,17 +52,23 @@ public class UserLoginServiceImpl implements UserLoginService {
     @Override
     @Transactional(readOnly = true)
     public UserLoginVO login(UserLoginRequest request) {
-        Optional<UserBO> userOpt = userRepo.findByUsername(normalizeUsername(request.username()));
+        String username = normalizeUsername(request.username());
+        if (loginFailureGuard.isLocked(LOGIN_TYPE, username)) {
+            throw AuthException.loginLocked("登录失败次数过多，账号已被临时锁定，请稍后再试");
+        }
+        Optional<UserBO> userOpt = userRepo.findByUsername(username);
 
         if (userOpt.isEmpty()) {
             // 用户不存在时执行常量时间虚拟比对，防止通过响应时间差异枚举有效账号
             passwordHasher.timingSafeDummyMatch(request.password());
+            loginFailureGuard.recordFailure(LOGIN_TYPE, username);
             throw AuthException.invalidCredentials();
         }
 
         UserBO user = userOpt.get();
 
         if (!passwordHasher.matches(request.password(), user.getPasswordHash())) {
+            loginFailureGuard.recordFailure(LOGIN_TYPE, username);
             throw AuthException.invalidCredentials();
         }
 
@@ -68,6 +79,9 @@ public class UserLoginServiceImpl implements UserLoginService {
         if (!user.canAccessApplication()) {
             throw AuthException.userDisabled("账号未开通应用端访问权限，请联系管理员");
         }
+
+        // 登录成功，清除历史失败计数
+        loginFailureGuard.clear(LOGIN_TYPE, username);
 
         // 登录成功后签发 Sa-Token，并将头像对象Key转换为浏览器可访问的临时地址
         SaTokenInfo tokenInfo = stpLogicDefinition.login(user.getId());

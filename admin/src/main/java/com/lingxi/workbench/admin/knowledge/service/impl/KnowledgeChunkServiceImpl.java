@@ -92,7 +92,7 @@ public class KnowledgeChunkServiceImpl implements KnowledgeChunkService {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "请先为知识库配置Embedding模型");
         }
         embeddingModelResolver.validate(knowledgeBase.getEmbeddingModelInstanceId());
-        if (!documentRepo.claimProcessing(documentId, request.strategy(), request.chunkSize(), request.chunkOverlap(), operatorId)) {
+        if (!documentRepo.canClaimProcessing(documentId, request.strategy(), request.chunkSize(), request.chunkOverlap(), operatorId)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "文档正在处理中，请勿重复提交");
         }
 

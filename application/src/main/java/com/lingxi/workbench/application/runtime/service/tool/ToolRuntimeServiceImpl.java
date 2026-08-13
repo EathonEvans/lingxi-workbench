@@ -140,7 +140,12 @@ public class ToolRuntimeServiceImpl implements ToolRuntimeService {
                 .build();
     }
 
-    /** 将控制面模型契约和运行端执行回调组合为不可变工具。 */
+    /**
+     * 将控制面模型契约和运行端执行回调组合为不可变工具。
+     *
+     * @param definition 模型可见的工具契约定义
+     * @param callback   实际执行回调
+     */
     private record ManagedAgentTool(AgentToolDefinition definition, ToolCallback callback) implements AgentTool {
     }
 

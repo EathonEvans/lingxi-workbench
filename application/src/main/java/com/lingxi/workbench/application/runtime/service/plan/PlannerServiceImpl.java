@@ -112,8 +112,9 @@ public class PlannerServiceImpl implements PlannerService {
         PromptRuntimeSnapshot prompt = promptRuntimeService.resolvePublished(definition.getSystemPromptVersionId());
         String renderedPrompt = promptTemplateRenderer.renderSystemPrompt(prompt, context.getRuntimeVariables()).trim();
         List<PlannerCapabilityDescriptor> capabilityDescriptors = capabilityDescriptors(request);
-        String capabilityJson = JSON.toJSONString(capabilityDescriptors);
-        String routingEvidenceJson = JSON.toJSONString(request.getPlanExecutor().getRoutingEvidence());
+        // untrusted 段序列化后转义闭合标签，防止业务填写的内容提前闭合隔离段、逃逸出模型隔离边界
+        String capabilityJson = escapeClosingTags(JSON.toJSONString(capabilityDescriptors));
+        String routingEvidenceJson = escapeClosingTags(JSON.toJSONString(request.getPlanExecutor().getRoutingEvidence()));
         validateSectionBudgets(context, renderedPrompt, capabilityJson + routingEvidenceJson, request.getFailureObservation());
         String systemPrompt = renderedPrompt + PLATFORM_CONTRACT + CAPABILITY_PREFIX + capabilityJson + CAPABILITY_SUFFIX
                 + routingEvidenceSection(routingEvidenceJson);
@@ -270,6 +271,14 @@ public class PlannerServiceImpl implements PlannerService {
                 .outputSchema(capability.getOutputSchema())
                 .riskLevel(capability.getRiskLevel())
                 .build();
+    }
+
+    /**
+     * 转义 JSON 文本中的闭合标签序列，防止 untrusted 隔离段被业务填写的内容提前闭合。
+     * {@code <\/} 是合法 JSON 转义，反序列化后仍是 {@code </}，不影响下游消费。
+     */
+    private static String escapeClosingTags(String json) {
+        return json.replace("</", "<\\/");
     }
 
     /**

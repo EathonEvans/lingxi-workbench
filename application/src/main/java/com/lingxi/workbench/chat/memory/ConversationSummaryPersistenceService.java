@@ -29,7 +29,7 @@ public class ConversationSummaryPersistenceService {
      * @return true 表示新快照生效，false 表示结果已经过期
      */
     @Transactional
-    public boolean saveIfCurrent(AssistantCompletedEvent event, ConversationSummarySource source, String summary,
+    public boolean isSavedIfCurrent(AssistantCompletedEvent event, ConversationSummarySource source, String summary,
                                  ConversationSummaryMemoryConfig config) {
         ConversationEntity conversation = conversationRepo.lockOwnedById(event.turn().conversationId(), event.userId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "会话不存在"));
@@ -47,7 +47,7 @@ public class ConversationSummaryPersistenceService {
         snapshot.setModelInstanceId(config.getChatModelInstanceId());
         snapshotRepo.insert(snapshot);
 
-        boolean promoted = conversationRepo.promoteSummary(event.turn().conversationId(),
+        boolean promoted = conversationRepo.isSummaryPromoted(event.turn().conversationId(),
                 source.previousCoveredUserSequenceNo(), source.coveredUserSequenceNo(), summary);
         if (!promoted) {
             throw new IllegalStateException("会话摘要投影推进失败");

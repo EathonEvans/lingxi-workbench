@@ -28,7 +28,7 @@ public interface AgentDraftMapper extends BaseMapper<AgentDraftEntity> {
              WHERE id = #{entity.id}
                AND revision = #{expectedRevision}
             """)
-    int updateWithRevision(
+    int isUpdatedWithRevision(
             @Param("entity") AgentDraftEntity entity,
             @Param("expectedRevision") Long expectedRevision);
 }

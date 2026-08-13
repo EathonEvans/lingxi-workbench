@@ -1,9 +1,10 @@
-package com.lingxi.workbench.infra.ai.tool.model;
+package com.lingxi.workbench.agentexecute.loop;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.infra.ai.tool.AgentToolException;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -26,7 +27,9 @@ public final class AgentToolExecutionLedger {
 
     private final Map<String, String> completedResults = new HashMap<>();
 
-    /** 查询同一工具与规范化参数是否已有成功结果。 */
+    /**
+     * 查询同一工具与规范化参数是否已有成功结果。
+     */
     public synchronized Optional<String> findReusableResult(AgentToolDefinition definition, String toolInput) {
         if (!definition.getExecutionMode().canReuseResult()) {
             return Optional.empty();
@@ -34,14 +37,18 @@ public final class AgentToolExecutionLedger {
         return Optional.ofNullable(completedResults.get(fingerprint(definition.getCode(), toolInput)));
     }
 
-    /** 记录一次可安全复用的成功结果。 */
+    /**
+     * 记录一次可安全复用的成功结果。
+     */
     public synchronized void recordSuccessfulResult(AgentToolDefinition definition, String toolInput, String result) {
         if (definition.getExecutionMode().canReuseResult()) {
             completedResults.put(fingerprint(definition.getCode(), toolInput), result);
         }
     }
 
-    /** 将已有结果包装为模型可识别的复用响应，并要求停止重复调用。 */
+    /**
+     * 将已有结果包装为模型可识别的复用响应，并要求停止重复调用。
+     */
     public String reuseResponse() {
         JSONObject response = new JSONObject();
         response.put("status", "REUSED");
@@ -62,7 +69,9 @@ public final class AgentToolExecutionLedger {
         }
     }
 
-    /** 递归排序 JSON 结构：对象按字段名升序，数组保持原顺序，保证相同语义输入产生相同指纹。 */
+    /**
+     * 递归排序 JSON 结构：对象按字段名升序，数组保持原顺序，保证相同语义输入产生相同指纹。
+     */
     private static Object sort(Object node) {
         if (node instanceof JSONObject object) {
             JSONObject sorted = new JSONObject();

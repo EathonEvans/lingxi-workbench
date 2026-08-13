@@ -67,7 +67,7 @@ public enum FileBasePath {
     /**
      * 校验对象是否属于指定用户的头像路径，防止用户绑定其他账号或其他业务的文件。
      */
-    public boolean ownsAvatar(String objectKey, Long userId) {
+    public boolean hasAvatar(String objectKey, Long userId) {
         if (this != AVATAR || CharSequenceUtil.isBlank(objectKey) || userId == null) {
             return false;
         }

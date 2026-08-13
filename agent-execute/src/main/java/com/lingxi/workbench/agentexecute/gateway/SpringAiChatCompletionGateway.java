@@ -1,4 +1,4 @@
-package com.lingxi.workbench.infra.ai.chat.openai;
+package com.lingxi.workbench.agentexecute.gateway;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
@@ -7,6 +7,7 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.ChatCompletionResult;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatCompletionCommand;
+import com.lingxi.workbench.infra.ai.chat.openai.OpenAiCompatibleChatModelFactory;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;

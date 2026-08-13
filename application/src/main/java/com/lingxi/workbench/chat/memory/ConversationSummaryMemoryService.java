@@ -38,7 +38,7 @@ public class ConversationSummaryMemoryService {
                 config.getPromptVersionId(),
                 config.getChatModelInstanceId(),
                 Map.of("conversation_history", buildRollingHistory(source)));
-        persistenceService.saveIfCurrent(event, source, summary, config);
+        persistenceService.isSavedIfCurrent(event, source, summary, config);
     }
 
     private static String buildRollingHistory(ConversationSummarySource source) {

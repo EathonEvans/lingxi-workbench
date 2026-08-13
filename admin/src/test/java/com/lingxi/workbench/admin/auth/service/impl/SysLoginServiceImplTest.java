@@ -10,6 +10,7 @@ import com.lingxi.workbench.admin.auth.model.vo.SysLoginVO;
 import com.lingxi.workbench.admin.sys.user.repo.SysUserRepo;
 import com.lingxi.workbench.framework.exceptions.AuthException;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
+import com.lingxi.workbench.framework.auth.login.LoginFailureGuard;
 import com.lingxi.workbench.framework.auth.password.BCryptPasswordHasher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,6 +48,9 @@ class SysLoginServiceImplTest {
     private AvatarUrlService avatarUrlService;
 
     @Mock
+    private LoginFailureGuard loginFailureGuard;
+
+    @Mock
     private SaTokenInfo tokenInfo;
 
     private SysLoginServiceImpl sysLoginService;
@@ -58,7 +62,8 @@ class SysLoginServiceImplTest {
                 sysUserConverter,
                 passwordHasher,
                 stpLogicDefinition,
-                avatarUrlService
+                avatarUrlService,
+                loginFailureGuard
         );
     }
 
@@ -136,6 +141,19 @@ class SysLoginServiceImplTest {
         );
 
         verify(stpLogicDefinition, never()).login(anyLong());
+    }
+
+    @Test
+    void shouldRejectLoginWhenLockedByFailureGuard() {
+        when(loginFailureGuard.isLocked("admin", "admin")).thenReturn(true);
+
+        AuthException exception = assertThrows(
+                AuthException.class,
+                () -> sysLoginService.login(new SysLoginRequest("admin", "correct-password"))
+        );
+
+        assertEquals("登录失败次数过多，账号已被临时锁定，请稍后再试", exception.getMessage());
+        verify(sysUserRepo, never()).findByUsername(anyString());
     }
 
     private static SysUserBO user(SysUserStatus status, boolean adminAccessEnabled) {

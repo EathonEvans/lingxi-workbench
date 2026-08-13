@@ -6,6 +6,9 @@ import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.admin.model.model.bo.ModelConnectionTestResult;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import com.lingxi.workbench.admin.model.service.ModelConnectionTester;
+import com.lingxi.workbench.infra.ai.outbound.ModelOutboundAddressPolicy;
+import com.lingxi.workbench.infra.ai.outbound.ModelOutboundSecurityException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -26,17 +29,24 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
     private static final int MAX_MESSAGE_LENGTH = 255;
 
     private final HttpClient httpClient;
+    private final ModelOutboundAddressPolicy outboundAddressPolicy;
 
-    public HttpModelConnectionTester() {
-        this(HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .connectTimeout(Duration.ofSeconds(10))
-                .build());
+    @Autowired
+    public HttpModelConnectionTester(ModelOutboundAddressPolicy outboundAddressPolicy) {
+        this(defaultHttpClient(), outboundAddressPolicy);
     }
 
     /** 包级构造器仅供测试注入可控 HTTP 客户端。 */
-    HttpModelConnectionTester(HttpClient httpClient) {
+    HttpModelConnectionTester(HttpClient httpClient, ModelOutboundAddressPolicy outboundAddressPolicy) {
         this.httpClient = httpClient;
+        this.outboundAddressPolicy = outboundAddressPolicy;
+    }
+
+    private static HttpClient defaultHttpClient() {
+        return HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
     }
 
     @Override
@@ -74,6 +84,12 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
             JSONObject extensionParameters,
             int timeoutSeconds) {
         long startedAt = System.nanoTime();
+        try {
+            // 出站地址安全校验：私网、回环和链路本地地址默认拒绝，需在服务端配置显式放行。
+            outboundAddressPolicy.validateOutboundAddress(baseUrl);
+        } catch (ModelOutboundSecurityException exception) {
+            return ModelConnectionTestResult.failed(0, "INVALID_BASE_URL", exception.getMessage());
+        }
         try {
             HttpRequest request = HttpRequest.newBuilder(buildModelUri(baseUrl, modelType))
                     .timeout(Duration.ofSeconds(timeoutSeconds))

@@ -43,8 +43,8 @@ public class IntentTreeDraftRepo {
         mapper.insert(entity);
     }
 
-    public boolean updateWithRevision(IntentTreeDraftEntity entity, Long expectedRevision) {
-        return mapper.updateWithRevision(entity, expectedRevision) == 1;
+    public boolean isUpdatedWithRevision(IntentTreeDraftEntity entity, Long expectedRevision) {
+        return mapper.isUpdatedWithRevision(entity, expectedRevision) == 1;
     }
 
     /** 发布成功后更新草稿基线版本和 revision。 */

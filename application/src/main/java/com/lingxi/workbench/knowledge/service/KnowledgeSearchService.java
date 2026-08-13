@@ -11,18 +11,16 @@ import java.util.List;
 public interface KnowledgeSearchService {
 
     /**
-     * 使用 AgentVersion 冻结的检索契约，在指定知识库中召回相关 Chunk。
+     * 使用 AgentVersion 冻结的检索契约，在发布快照锁定的知识索引版本中召回相关 Chunk。
      *
      * @param query               检索问题
      * @param knowledgeBaseId     AgentVersion 绑定的知识库主键
+     * @param indexVersionId      发布快照锁定的知识索引版本主键
      * @param embeddingConfig     AgentVersion 绑定的 Embedding 模型运行配置
      * @param topK                AgentVersion 配置的最大召回条数
      * @param similarityThreshold AgentVersion 配置的最低相似度
      * @return 按相似度降序排列的检索结果
      */
-    List<KnowledgeSearchResultVO> search(String query, Long knowledgeBaseId, EmbeddingModelRuntimeConfig embeddingConfig, int topK, double similarityThreshold);
-
-    /** 在发布快照锁定的知识索引版本中检索。 */
     default List<KnowledgeSearchResultVO> searchVersion(String query, Long knowledgeBaseId, Long indexVersionId, EmbeddingModelRuntimeConfig embeddingConfig, int topK, double similarityThreshold) {
         throw new UnsupportedOperationException("当前知识搜索实现不支持版本化检索");
     }

@@ -45,8 +45,8 @@ public class AgentDraftRepo {
     }
 
     /** 以 revision 乐观锁更新草稿字段，避免并发覆盖。 */
-    public boolean updateWithRevision(AgentDraftEntity entity, Long expectedRevision) {
-        return mapper.updateWithRevision(entity, expectedRevision) == 1;
+    public boolean isUpdatedWithRevision(AgentDraftEntity entity, Long expectedRevision) {
+        return mapper.isUpdatedWithRevision(entity, expectedRevision) == 1;
     }
 
     /** 发布后同步更新草稿基线版本号和 revision。 */

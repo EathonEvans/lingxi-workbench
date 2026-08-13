@@ -32,7 +32,7 @@ public class WorkflowDraftRepo {
     }
 
     /** 乐观锁更新草稿，revision 必须匹配。 */
-    public boolean updateWithRevision(WorkflowDraftEntity entity, Long expectedRevision) {
+    public boolean isUpdatedWithRevision(WorkflowDraftEntity entity, Long expectedRevision) {
         entity.setRevision(expectedRevision + 1);
         entity.setUpdatedAt(OffsetDateTime.now());
         return mapper.update(entity, Wrappers.<WorkflowDraftEntity>lambdaUpdate()

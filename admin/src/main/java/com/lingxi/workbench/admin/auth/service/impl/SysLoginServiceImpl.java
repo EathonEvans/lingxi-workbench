@@ -10,6 +10,7 @@ import com.lingxi.workbench.admin.sys.user.model.bo.SysUserBO;
 import com.lingxi.workbench.admin.sys.user.model.converter.SysUserConverter;
 import com.lingxi.workbench.admin.sys.user.repo.SysUserRepo;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
+import com.lingxi.workbench.framework.auth.login.LoginFailureGuard;
 import com.lingxi.workbench.framework.auth.password.BCryptPasswordHasher;
 import com.lingxi.workbench.framework.exceptions.AuthException;
 import lombok.RequiredArgsConstructor;
@@ -28,16 +29,21 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class SysLoginServiceImpl implements SysLoginService {
 
+    /** 与 sa-token.login-type 保持一致，用于防爆破按端隔离计数。 */
+    private static final String LOGIN_TYPE = "admin";
+
     private final SysUserRepo sysUserRepo;
     private final SysUserConverter sysUserConverter;
     private final BCryptPasswordHasher passwordHasher;
     private final StpLogicDefinition stpLogicDefinition;
     private final AvatarUrlService avatarUrlService;
+    private final LoginFailureGuard loginFailureGuard;
 
     /**
      * 执行账号密码登录流程：校验账号存在性、密码匹配、账号状态，登录成功后签发令牌。
      *
-     * <p>账号不存在时仍执行一次 BCrypt 哈希校验，防止通过响应耗时推断有效账号。</p>
+     * <p>账号不存在时仍执行一次 BCrypt 哈希校验，防止通过响应耗时推断有效账号。
+     * 连续失败超过阈值时临时锁定，防止口令爆破。</p>
      *
      * @param request 登录请求参数
      * @return 登录响应
@@ -45,11 +51,16 @@ public class SysLoginServiceImpl implements SysLoginService {
     @Override
     @Transactional(readOnly = true)
     public SysLoginVO login(SysLoginRequest request) {
-        Optional<SysUserBO> userOpt = sysUserRepo.findByUsername(normalizeUsername(request.username()));
+        String username = normalizeUsername(request.username());
+        if (loginFailureGuard.isLocked(LOGIN_TYPE, username)) {
+            throw AuthException.loginLocked("登录失败次数过多，账号已被临时锁定，请稍后再试");
+        }
+        Optional<SysUserBO> userOpt = sysUserRepo.findByUsername(username);
 
         if (userOpt.isEmpty()) {
             // 账号不存在时执行常量时间虚拟比对，防止通过响应耗时探测有效账号
             passwordHasher.timingSafeDummyMatch(request.password());
+            loginFailureGuard.recordFailure(LOGIN_TYPE, username);
             throw AuthException.invalidCredentials();
         }
 
@@ -57,6 +68,7 @@ public class SysLoginServiceImpl implements SysLoginService {
 
         // 密码校验
         if (!passwordHasher.matches(request.password(), user.getPasswordHash())) {
+            loginFailureGuard.recordFailure(LOGIN_TYPE, username);
             throw AuthException.invalidCredentials();
         }
 
@@ -68,6 +80,9 @@ public class SysLoginServiceImpl implements SysLoginService {
         if (!user.canAccessAdmin()) {
             throw AuthException.userDisabled("账号未开通管理端访问权限");
         }
+
+        // 登录成功，清除历史失败计数
+        loginFailureGuard.clear(LOGIN_TYPE, username);
 
         // 通过 Sa-Token 签发登录令牌
         SaTokenInfo tokenInfo = stpLogicDefinition.login(user.getId());

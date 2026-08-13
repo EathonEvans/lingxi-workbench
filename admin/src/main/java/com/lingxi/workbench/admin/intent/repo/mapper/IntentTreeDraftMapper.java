@@ -23,5 +23,5 @@ public interface IntentTreeDraftMapper extends BaseMapper<IntentTreeDraftEntity>
              WHERE id = #{entity.id}
                AND revision = #{expectedRevision}
             """)
-    int updateWithRevision(@Param("entity") IntentTreeDraftEntity entity, @Param("expectedRevision") Long expectedRevision);
+    int isUpdatedWithRevision(@Param("entity") IntentTreeDraftEntity entity, @Param("expectedRevision") Long expectedRevision);
 }

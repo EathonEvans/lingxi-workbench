@@ -3,6 +3,7 @@ package com.lingxi.workbench.chat.memory;
 import com.alibaba.fastjson2.JSON;
 import com.lingxi.workbench.chat.memory.config.MemoryEmbeddingModelResolver;
 import com.lingxi.workbench.chat.memory.event.AssistantCompletedEvent;
+import com.lingxi.workbench.chat.memory.model.MemoryData;
 import com.lingxi.workbench.chat.memory.model.bo.InteractionMemoryWrite;
 import com.lingxi.workbench.infra.ai.embedding.EmbeddingGateway;
 import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig;
@@ -53,7 +54,7 @@ public class InteractionRecordMemoryService {
                 .conversationId(event.turn().conversationId())
                 .assistantMessageId(event.turn().assistantMessageId())
                 .summary(extraction.summary.trim())
-                .entities(extraction.entities == null ? Map.of() : extraction.entities)
+                .entities(MemoryData.from(extraction.entities))
                 .embeddingModelInstanceId(config.getEmbeddingModelInstanceId())
                 .embedding(vectors.getFirst())
                 .build());

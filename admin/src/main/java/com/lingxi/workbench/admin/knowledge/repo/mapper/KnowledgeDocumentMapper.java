@@ -25,7 +25,7 @@ public interface KnowledgeDocumentMapper extends BaseMapper<KnowledgeDocumentEnt
                    updated_at = CURRENT_TIMESTAMP
              WHERE id = #{id} AND status <> 'RUNNING'
             """)
-    int claimProcessing(@Param("id") Long id,
+    int canClaimProcessing(@Param("id") Long id,
                         @Param("strategy") String strategy,
                         @Param("chunkSize") Integer chunkSize,
                         @Param("chunkOverlap") Integer chunkOverlap,

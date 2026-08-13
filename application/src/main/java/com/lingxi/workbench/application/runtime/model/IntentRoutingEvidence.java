@@ -9,7 +9,10 @@ import lombok.Getter;
 import java.util.List;
 import java.util.Objects;
 
-/** fallback Agent 可选消费的结构化路由证据。 */
+/**
+ * 路由决策证据：fallback Agent 可选消费，同时作为 INTENT_ROUTE 观测事件
+ * 的质量数据（候选编码 + 相似度 + 门控原因），用于意图树调优。
+ */
 @Getter
 @Builder
 @AllArgsConstructor(access = AccessLevel.PRIVATE)

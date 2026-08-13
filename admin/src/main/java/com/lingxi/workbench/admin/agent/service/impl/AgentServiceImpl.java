@@ -213,7 +213,7 @@ public class AgentServiceImpl implements AgentService {
         draft.setGenerationPolicy(request.getGenerationPolicy());
         draft.setChangeNote(trimToNull(request.getChangeNote()));
         draft.setUpdatedBy(operatorId);
-        if (!draftRepo.updateWithRevision(draft, request.getExpectedRevision())) {
+        if (!draftRepo.isUpdatedWithRevision(draft, request.getExpectedRevision())) {
             throw new BusinessException(
                     HttpStatusEnum.CONFLICT, "Agent草稿已被其他操作修改，请刷新后重试");
         }

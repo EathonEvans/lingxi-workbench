@@ -58,7 +58,7 @@ class ConversationSummaryMemoryServiceTest {
         assertTrue(history.contains("已有会话摘要"));
         assertTrue(history.contains("用户正在处理退款"));
         assertTrue(history.contains("USER: 订单号是A100"));
-        verify(persistenceService).saveIfCurrent(event, source, "退款已提交", config);
+        verify(persistenceService).isSavedIfCurrent(event, source, "退款已提交", config);
     }
 
     @Test
@@ -76,7 +76,7 @@ class ConversationSummaryMemoryServiceTest {
 
         verify(completionService, never()).complete(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), anyMap());
-        verify(persistenceService, never()).saveIfCurrent(
+        verify(persistenceService, never()).isSavedIfCurrent(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }

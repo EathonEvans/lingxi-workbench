@@ -55,7 +55,7 @@ public class KnowledgeChunkTaskConsumer implements RocketMQListener<KnowledgeChu
             });
         } catch (Exception exception) {
             log.error("知识库文档处理失败，taskId={}", taskId, exception);
-            boolean retrying = pipelineService.handleFailure(taskId, KnowledgeChunkTaskStatus.PENDING,
+            boolean retrying = pipelineService.isRetryable(taskId, KnowledgeChunkTaskStatus.PENDING,
                     "DOCUMENT_PROCESS_FAILED", exception);
             if (retrying) {
                 throw new IllegalStateException("文档处理失败，等待RocketMQ重试", exception);

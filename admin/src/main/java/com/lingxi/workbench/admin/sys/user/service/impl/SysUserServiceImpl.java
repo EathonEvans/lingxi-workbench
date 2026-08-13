@@ -101,7 +101,7 @@ public class SysUserServiceImpl implements SysUserService {
         Long userId = UserContext.userId();
         requireUser(userId);
         String normalizedObjectKey = avatarObjectKey.trim();
-        if (!FileBasePath.AVATAR.ownsAvatar(normalizedObjectKey, userId)) {
+        if (!FileBasePath.AVATAR.hasAvatar(normalizedObjectKey, userId)) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "头像文件不属于当前用户");
         }
         sysUserRepo.updateAvatar(userId, normalizedObjectKey);

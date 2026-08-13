@@ -64,6 +64,8 @@ public class SystemCurrentTimeAgentTool implements AgentTool {
 
     /**
      * Spring AI 根据参数类型自动生成 Function parameters JSON Schema。
+     *
+     * @param zoneId IANA 时区，例如 Asia/Shanghai；不传时使用系统时区
      */
     public record CurrentTimeInput(
             @ToolParam(description = "IANA时区，例如Asia/Shanghai；不传时使用系统时区", required = false) String zoneId) {
@@ -71,6 +73,10 @@ public class SystemCurrentTimeAgentTool implements AgentTool {
 
     /**
      * Spring AI 将返回对象自动序列化为 Tool 消息 content。
+     *
+     * @param currentTime 当前时间的时分秒部分
+     * @param currentDate 当前日期的年月日部分
+     * @param zoneId      实际使用的 IANA 时区
      */
     public record CurrentTimeOutput(String currentTime, String currentDate, String zoneId) {
     }

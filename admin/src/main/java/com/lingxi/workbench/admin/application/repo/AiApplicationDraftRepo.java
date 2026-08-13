@@ -45,8 +45,8 @@ public class AiApplicationDraftRepo {
     }
 
     /** 以 revision 乐观锁更新草稿字段，避免并发覆盖。 */
-    public boolean updateWithRevision(AiApplicationDraftEntity entity, Long expectedRevision) {
-        return mapper.updateWithRevision(entity, expectedRevision) == 1;
+    public boolean isUpdatedWithRevision(AiApplicationDraftEntity entity, Long expectedRevision) {
+        return mapper.isUpdatedWithRevision(entity, expectedRevision) == 1;
     }
 
     /** 发布后同步更新草稿基线版本号和 revision。 */

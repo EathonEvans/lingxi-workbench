@@ -1,4 +1,4 @@
-package com.lingxi.workbench.infra.ai.chat.openai;
+package com.lingxi.workbench.agentexecute.loop;
 
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.AgentToolException;
@@ -25,7 +25,7 @@ import static com.lingxi.workbench.infra.ai.tool.common.constants.AgentToolError
  * <p>参数解析、Schema 生成与 Tool 消息协议仍全部由 Spring AI 负责。</p>
  */
 @Slf4j
-final class BoundedToolCallback implements ToolCallback {
+public final class BoundedToolCallback implements ToolCallback {
 
     private final AgentTool tool;
     private final AgentToolExecutionContext executionContext;
@@ -33,8 +33,8 @@ final class BoundedToolCallback implements ToolCallback {
     private final AgentToolEventPublisher eventPublisher;
     private final AgentLoopState loopState;
 
-    BoundedToolCallback(AgentTool tool, AgentToolExecutionContext executionContext, int maxResultCharacters, AgentToolEventPublisher eventPublisher,
-                        AgentLoopState loopState) {
+    public BoundedToolCallback(AgentTool tool, AgentToolExecutionContext executionContext, int maxResultCharacters, AgentToolEventPublisher eventPublisher,
+                               AgentLoopState loopState) {
         this.tool = tool;
         this.executionContext = executionContext;
         this.maxResultCharacters = maxResultCharacters;

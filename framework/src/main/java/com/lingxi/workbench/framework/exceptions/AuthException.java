@@ -40,6 +40,16 @@ public final class AuthException extends BusinessException {
     }
 
     /**
+     * 登录失败次数过多被临时锁定异常。
+     *
+     * @param message 锁定提示
+     * @return 认证异常，HTTP 状态 429
+     */
+    public static AuthException loginLocked(String message) {
+        return new AuthException(HttpStatusEnum.TOO_MANY_REQUESTS, message);
+    }
+
+    /**
      * 用户不存在异常，通常用于 Token 解析后的用户查找失败。
      *
      * @return 认证异常，HTTP 状态 401

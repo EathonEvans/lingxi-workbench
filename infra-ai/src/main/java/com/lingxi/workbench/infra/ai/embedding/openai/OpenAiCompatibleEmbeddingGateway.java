@@ -2,6 +2,7 @@ package com.lingxi.workbench.infra.ai.embedding.openai;
 
 import com.lingxi.workbench.infra.ai.embedding.EmbeddingGateway;
 import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig;
+import com.lingxi.workbench.infra.ai.outbound.ModelOutboundAddressPolicy;
 import org.springframework.ai.openai.OpenAiEmbeddingModel;
 import org.springframework.ai.openai.OpenAiEmbeddingOptions;
 import org.springframework.stereotype.Component;
@@ -13,6 +14,12 @@ import java.util.List;
 @Component
 public class OpenAiCompatibleEmbeddingGateway implements EmbeddingGateway {
 
+    private final ModelOutboundAddressPolicy outboundAddressPolicy;
+
+    public OpenAiCompatibleEmbeddingGateway(ModelOutboundAddressPolicy outboundAddressPolicy) {
+        this.outboundAddressPolicy = outboundAddressPolicy;
+    }
+
     /**
      * 对文本列表进行向量化，按输入顺序返回向量数组。
      *
@@ -22,6 +29,8 @@ public class OpenAiCompatibleEmbeddingGateway implements EmbeddingGateway {
      */
     @Override
     public List<float[]> embed(List<String> texts, EmbeddingModelRuntimeConfig config) {
+        // 出站地址安全校验：配置即使绕过管理端保存校验被篡改，运行端连接前也会被拦截。
+        outboundAddressPolicy.validateOutboundAddress(config.getBaseUrl());
         OpenAiEmbeddingOptions options = OpenAiEmbeddingOptions.builder()
                 .baseUrl(config.getBaseUrl())
                 .apiKey(config.getApiKey())

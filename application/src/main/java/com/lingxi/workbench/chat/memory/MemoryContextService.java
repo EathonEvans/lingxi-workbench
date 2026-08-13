@@ -1,7 +1,7 @@
 package com.lingxi.workbench.chat.memory;
 
-import com.alibaba.fastjson2.JSON;
 import com.lingxi.workbench.chat.memory.config.MemoryEmbeddingModelResolver;
+import com.lingxi.workbench.chat.memory.model.MemoryData;
 import com.lingxi.workbench.chat.memory.model.entity.InteractionRecordEntity;
 import com.lingxi.workbench.chat.memory.repo.InteractionRecordVectorRepo;
 import com.lingxi.workbench.chat.memory.repo.UserProfileRepo;
@@ -14,7 +14,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Map;
 
 /** 读取用户画像和相关交互记录，构建本轮可注入的长期记忆上下文。 */
 @Slf4j
@@ -40,12 +39,13 @@ public class MemoryContextService {
 
     private void appendProfile(Long userId, StringBuilder context) {
         profileRepo.findByUserId(userId).ifPresent(profile -> {
-            Map<String, Object> data = profile.getProfile();
-            if (data == null || data.isEmpty()) {
+            MemoryData data = MemoryData.from(profile.getProfile());
+            if (data.isEmpty()) {
                 return;
             }
+            // 有界序列化：画像超长或字段异常时截断，防止失控内容进入提示词
             context.append("【用户画像】\n")
-                    .append(JSON.toJSONString(data))
+                    .append(data.toPromptJson())
                     .append("\n");
         });
     }

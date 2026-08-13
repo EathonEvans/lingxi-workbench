@@ -44,12 +44,13 @@ public class ToolRepo {
         return Optional.ofNullable(mapper.selectById(id));
     }
 
-    /** 查询所有启用 Tool，供 Agent 配置下拉选择。 */
+    /** 查询启用 Tool 列表（上限 1000 防止字典表失控），供 Agent 配置下拉选择。 */
     public List<ToolEntity> findAllActive() {
         return mapper.selectList(Wrappers.<ToolEntity>lambdaQuery()
                 .eq(ToolEntity::getStatus, EnableStatus.ACTIVE)
                 .orderByAsc(ToolEntity::getName)
-                .orderByAsc(ToolEntity::getId));
+                .orderByAsc(ToolEntity::getId)
+                .last("LIMIT 1000"));
     }
 
     /** 批量查询给定编码中处于启用状态的编码，供 Agent 发布校验。 */

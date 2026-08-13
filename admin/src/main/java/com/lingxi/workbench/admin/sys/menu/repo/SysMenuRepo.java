@@ -23,14 +23,15 @@ public class SysMenuRepo {
     private final SysMenuMapper sysMenuMapper;
 
     /**
-     * 查询全部菜单，按排序序号和主键升序排列。
+     * 查询菜单列表（上限 1000 防止字典表失控），按排序序号和主键升序排列。
      *
-     * @return 全部菜单列表
+     * @return 菜单列表
      */
     public List<SysMenuEntity> findAll() {
         return sysMenuMapper.selectList(
                 Wrappers.<SysMenuEntity>lambdaQuery()
                         .orderByAsc(SysMenuEntity::getSortOrder, SysMenuEntity::getId)
+                        .last("LIMIT 1000")
         );
     }
 

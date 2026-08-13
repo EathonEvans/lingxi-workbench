@@ -27,6 +27,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -55,9 +56,15 @@ public class KnowledgeIndexVersionService {
         KnowledgeBaseEntity knowledgeBase = knowledgeBaseRepo.findByIdForUpdate(knowledgeBaseId)
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "知识库不存在"));
         IndexCandidate candidate = inspect(knowledgeBase, embeddingModelInstanceId);
-        KnowledgeIndexVersionEntity version = indexVersionRepo
-                .findByBaseAndChecksum(knowledgeBaseId, candidate.checksum())
-                .orElseGet(() -> insertVersion(knowledgeBase, candidate, operatorId));
+        Optional<KnowledgeIndexVersionEntity> existingVersion = indexVersionRepo
+                .findByBaseAndChecksum(knowledgeBaseId, candidate.checksum());
+        KnowledgeIndexVersionEntity version;
+        if (existingVersion.isPresent()) {
+            // 相同内容复用既有版本，避免产生重复快照
+            version = existingVersion.get();
+        } else {
+            version = insertVersion(knowledgeBase, candidate, operatorId);
+        }
         if (!Objects.equals(knowledgeBase.getPublishedIndexVersionId(), version.getId())) {
             knowledgeBase.setPublishedIndexVersionId(version.getId());
             knowledgeBase.setUpdatedBy(operatorId);

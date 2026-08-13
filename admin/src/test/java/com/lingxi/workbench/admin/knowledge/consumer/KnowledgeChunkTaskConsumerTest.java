@@ -115,7 +115,7 @@ class KnowledgeChunkTaskConsumerTest {
         verify(pipelineService).updateVectorizeProgress(vectorInput, 2);
         verify(pipelineService).completeProcessing(eq(vectorInput),
                 argThat(vectors -> vectors.size() == 2));
-        verify(pipelineService, never()).handleFailure(any(), any(), any(), any());
+        verify(pipelineService, never()).isRetryable(any(), any(), any(), any());
     }
 
     @Test
@@ -126,7 +126,7 @@ class KnowledgeChunkTaskConsumerTest {
         consumer.onMessage(new KnowledgeChunkTaskMessage(taskId));
 
         verify(pipelineService, never()).parse(any());
-        verify(pipelineService, never()).handleFailure(any(), eq(KnowledgeChunkTaskStatus.PENDING),
+        verify(pipelineService, never()).isRetryable(any(), eq(KnowledgeChunkTaskStatus.PENDING),
                 any(), any());
     }
 

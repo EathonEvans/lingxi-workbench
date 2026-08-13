@@ -1,9 +1,9 @@
-package com.lingxi.workbench.infra.ai.chat.openai;
+package com.lingxi.workbench.agentexecute.loop;
 
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
-import com.lingxi.workbench.infra.ai.tool.AgentLoopLimitException;
-import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionLedger;
+import com.lingxi.workbench.agentexecute.loop.AgentLoopLimitException;
+import com.lingxi.workbench.agentexecute.loop.AgentToolExecutionLedger;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolRuntimeConfig;
 
 import java.util.Objects;
@@ -11,7 +11,7 @@ import java.util.Objects;
 /**
  * 单次 ReAct 回答的循环状态，统一维护调用次数、Token 用量和工具执行账本。
  */
-final class AgentLoopState {
+public final class AgentLoopState {
 
     private final AgentToolRuntimeConfig runtimeConfig;
     private final TokenUsageAccumulator tokenUsage = new TokenUsageAccumulator();
@@ -20,14 +20,14 @@ final class AgentLoopState {
     private int completedToolCalls;
     private boolean finalResponseRequested;
 
-    AgentLoopState(AgentToolRuntimeConfig runtimeConfig) {
+    public AgentLoopState(AgentToolRuntimeConfig runtimeConfig) {
         this.runtimeConfig = Objects.requireNonNull(runtimeConfig, "工具运行配置不能为空");
     }
 
     /**
      * 工作模型调用前校验软边界并占用一次调用额度。
      */
-    void beginModelCall() {
+    public void beginModelCall() {
         if (completedModelCalls >= runtimeConfig.getMaxModelCalls() - 1) {
             throw new AgentLoopLimitException("AGENT_MODEL_CALL_LIMIT", "处理步骤已达到上限，请缩小问题范围后重试",
                     "Agent工作模型额度已用尽，已保留最终回答调用，limit=" + runtimeConfig.getMaxModelCalls());
@@ -52,7 +52,7 @@ final class AgentLoopState {
     /**
      * 禁用工具的最终回答调用只校验硬边界，并使用Application预留额度。
      */
-    void beginFinalModelCall() {
+    public void beginFinalModelCall() {
         if (completedModelCalls >= runtimeConfig.getMaxModelCalls()) {
             throw new AgentLoopLimitException("AGENT_MODEL_CALL_LIMIT", "本次处理已达到模型调用硬上限",
                     "Agent最终回答没有可用模型调用额度，limit=" + runtimeConfig.getMaxModelCalls());
@@ -69,14 +69,14 @@ final class AgentLoopState {
     /**
      * 记录一轮模型调用的真实 Token 用量。
      */
-    void recordUsage(TokenUsage usage) {
+    public void recordUsage(TokenUsage usage) {
         tokenUsage.add(usage);
     }
 
     /**
      * 尝试占用模型本轮请求的工具数量；额度不足时由调用方直接进入最终回答。
      */
-    boolean tryRecordToolCalls(int requestedToolCalls) {
+    public boolean tryRecordToolCalls(int requestedToolCalls) {
         if (completedToolCalls + requestedToolCalls > runtimeConfig.getMaxToolCalls()) {
             return false;
         }
@@ -99,7 +99,7 @@ final class AgentLoopState {
     /**
      * 判断下一轮是否必须禁用工具并收敛为最终回答。
      */
-    boolean shouldFinalize() {
+    public boolean shouldFinalize() {
         return finalResponseRequested || completedModelCalls >= runtimeConfig.getMaxModelCalls() - 1
                 || hasReached(tokenUsage.snapshot().totalTokens(), runtimeConfig.getMaxTotalTokens());
     }
@@ -107,7 +107,7 @@ final class AgentLoopState {
     /**
      * Token软上限命中后不再执行模型刚请求的新工具，避免继续扩大上下文。
      */
-    boolean shouldFinalizeBeforeToolExecution() {
+    public boolean shouldFinalizeBeforeToolExecution() {
         return hasReached(tokenUsage.snapshot().totalTokens(), runtimeConfig.getMaxTotalTokens());
     }
 

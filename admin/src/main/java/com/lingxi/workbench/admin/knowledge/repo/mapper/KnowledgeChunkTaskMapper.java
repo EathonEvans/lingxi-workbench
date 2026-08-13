@@ -23,21 +23,21 @@ public interface KnowledgeChunkTaskMapper extends BaseMapper<KnowledgeChunkTaskE
                    error_code = NULL, error_message = NULL, updated_at = CURRENT_TIMESTAMP
              WHERE id = #{id} AND status = 'PENDING'
             """)
-    int claimParsing(@Param("id") Long id, @Param("startedAt") OffsetDateTime startedAt);
+    int canClaimParsing(@Param("id") Long id, @Param("startedAt") OffsetDateTime startedAt);
 
     @Update("""
             UPDATE lingxi_core.ai_knowledge_chunk_task
                SET status = 'CHUNKING', progress = 20, updated_at = CURRENT_TIMESTAMP
              WHERE id = #{id} AND status = 'PARSING'
             """)
-    int markChunking(@Param("id") Long id);
+    int isChunkingMarked(@Param("id") Long id);
 
     @Update("""
             UPDATE lingxi_core.ai_knowledge_chunk_task
                SET status = 'VECTORIZING', progress = 55, updated_at = CURRENT_TIMESTAMP
              WHERE id = #{id} AND status = 'CHUNKING'
             """)
-    int markVectorizing(@Param("id") Long id);
+    int isVectorizingMarked(@Param("id") Long id);
 
     @Select("""
             SELECT id FROM lingxi_core.ai_knowledge_chunk_task

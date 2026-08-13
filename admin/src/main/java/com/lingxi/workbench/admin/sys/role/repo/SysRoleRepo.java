@@ -22,10 +22,11 @@ public class SysRoleRepo {
     private final SysRoleMapper sysRoleMapper;
     private final SysRoleRelationMapper relationMapper;
 
-    /** 查询全部角色，按排序序号和主键升序。 */
+    /** 查询角色列表（上限 1000 防止字典表失控），按排序序号和主键升序。 */
     public List<SysRoleEntity> findAll() {
         return sysRoleMapper.selectList(Wrappers.<SysRoleEntity>lambdaQuery()
-                .orderByAsc(SysRoleEntity::getSortOrder, SysRoleEntity::getId));
+                .orderByAsc(SysRoleEntity::getSortOrder, SysRoleEntity::getId)
+                .last("LIMIT 1000"));
     }
 
     /** 按主键查询角色。 */
@@ -59,7 +60,7 @@ public class SysRoleRepo {
     }
 
     /** 判断系统用户是否存在。 */
-    public boolean userExists(Long userId) {
+    public boolean hasUser(Long userId) {
         return relationMapper.countUser(userId) > 0;
     }
 

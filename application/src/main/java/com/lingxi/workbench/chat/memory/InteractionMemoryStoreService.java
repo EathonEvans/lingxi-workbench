@@ -26,7 +26,7 @@ public class InteractionMemoryStoreService {
 
     @Transactional
     public Long save(InteractionMemoryWrite write) {
-        Long recordId = recordRepo.insert(write.getUserId(), write.getConversationId(), write.getAssistantMessageId(), write.getSummary(), write.getEntities());
+        Long recordId = recordRepo.insert(write.getUserId(), write.getConversationId(), write.getAssistantMessageId(), write.getSummary(), write.getEntities().asObjectMap());
         vectorRepo.insert(recordId, write.getEmbeddingModelInstanceId(), write.getEmbedding());
         return recordId;
     }

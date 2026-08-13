@@ -84,11 +84,22 @@ lingxi:
       max-events: 2000
       ttl-hours: 24
   security:
-    secret-master-key: YU1xZXA1T21TTkRlQVl4TkU2Zm5YSGRHd3dINzhVcjQ=
+    # 敏感配置（MCP Token、模型 API Key）加密主密钥，必须由部署环境提供，
+    # 缺失时服务启动失败；生成方式：openssl rand -base64 32
+    secret-master-key: ${LINGXI_SECRET_MASTER_KEY:}
+    login-protection:
+      # 窗口内连续登录失败达到阈值后临时锁定账号，防止口令爆破
+      max-failures: ${LINGXI_LOGIN_MAX_FAILURES:5}
+      failure-window: ${LINGXI_LOGIN_FAILURE_WINDOW:10m}
+      lock-duration: ${LINGXI_LOGIN_LOCK_DURATION:10m}
   mcp:
     security:
       # 私网和本机地址默认拒绝；开发环境只显式开放本机 MCP Server。
       allowed-private-hosts: ${LINGXI_MCP_ALLOWED_PRIVATE_HOSTS:localhost,127.0.0.1,::1}
+  model:
+    security:
+      # 模型/Embedding 地址默认拒绝私网与本机；本地或内网部署模型时在此显式放行对应主机。
+      allowed-private-hosts: ${LINGXI_MODEL_ALLOWED_PRIVATE_HOSTS:localhost,127.0.0.1,::1}
 
 rocketmq:
   name-server: ${LINGXI_ROCKETMQ_NAMESRV:192.168.86.2:9876}

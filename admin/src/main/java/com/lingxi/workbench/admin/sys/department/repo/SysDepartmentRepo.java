@@ -21,14 +21,15 @@ public class SysDepartmentRepo {
     private final SysDepartmentMapper sysDepartmentMapper;
 
     /**
-     * 查询全部部门，按排序序号和主键升序排列。
+     * 查询部门列表（上限 1000 防止字典表失控），按排序序号和主键升序排列。
      *
-     * @return 全部部门列表
+     * @return 部门列表
      */
     public List<SysDepartmentEntity> findAll() {
         return sysDepartmentMapper.selectList(
                 Wrappers.<SysDepartmentEntity>lambdaQuery()
                         .orderByAsc(SysDepartmentEntity::getSortOrder, SysDepartmentEntity::getId)
+                        .last("LIMIT 1000")
         );
     }
 

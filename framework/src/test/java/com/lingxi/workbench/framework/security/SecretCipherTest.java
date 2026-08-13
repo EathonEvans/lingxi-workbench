@@ -37,9 +37,16 @@ class SecretCipherTest {
     }
 
     @Test
-    void shouldRejectMissingMasterKeyWhenSecretIsUsed() {
-        SecretCipher cipher = new SecretCipher("");
+    void shouldFailFastWhenMasterKeyIsMissing() {
+        // 主密钥必须来自部署环境，缺失时启动即失败，不允许使用空密钥运行。
+        assertThrows(IllegalStateException.class, () -> new SecretCipher(""));
+    }
 
-        assertThrows(IllegalStateException.class, () -> cipher.encrypt("secret"));
+    @Test
+    void shouldFailFastWhenMasterKeyHasInvalidLength() {
+        String shortKey = Base64.getEncoder()
+                .encodeToString("too-short".getBytes(StandardCharsets.UTF_8));
+
+        assertThrows(IllegalStateException.class, () -> new SecretCipher(shortKey));
     }
 }

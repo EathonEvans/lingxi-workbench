@@ -84,6 +84,13 @@ public class MemoryEmbeddingModelResolver {
         return new Bundle(instance, provider, credential);
     }
 
+    /**
+     * 解析出的 Embedding 模型运行三元组（数据库只读视图）。
+     *
+     * @param instance   模型实例视图
+     * @param provider   模型供应商视图
+     * @param credential 模型凭证视图
+     */
     private record Bundle(ModelInstanceView instance, ModelProviderView provider,
                           ModelCredentialView credential) {
     }

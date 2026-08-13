@@ -1,10 +1,11 @@
-package com.lingxi.workbench.infra.ai.chat.openai;
+package com.lingxi.workbench.agentexecute.gateway;
 
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatStreamCommand;
+import com.lingxi.workbench.infra.ai.chat.openai.OpenAiCompatibleChatModelFactory;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionMode;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
@@ -22,6 +23,8 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.DefaultToolCallingManager;
+import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
@@ -58,7 +61,7 @@ class SpringAiStreamingChatGatewayTest {
         OpenAiCompatibleChatModelFactory factory = mock(OpenAiCompatibleChatModelFactory.class);
         when(factory.create(config)).thenReturn(chatModel);
         SpringAiStreamingChatGateway gateway =
-                new SpringAiStreamingChatGateway(factory, ObservationRegistry.NOOP);
+                new SpringAiStreamingChatGateway(factory, ObservationRegistry.NOOP, toolCallingManager());
 
         List<ChatStreamChunk> chunks = gateway.stream(new ChatStreamCommand(
                         "你好",
@@ -94,7 +97,7 @@ class SpringAiStreamingChatGatewayTest {
         when(chatModel.stream(any(Prompt.class))).thenReturn(responseStream);
         OpenAiCompatibleChatModelFactory factory = mock(OpenAiCompatibleChatModelFactory.class);
         when(factory.create(config)).thenReturn(chatModel);
-        SpringAiStreamingChatGateway gateway = new SpringAiStreamingChatGateway(factory, ObservationRegistry.NOOP);
+        SpringAiStreamingChatGateway gateway = new SpringAiStreamingChatGateway(factory, ObservationRegistry.NOOP, toolCallingManager());
 
         List<ChatStreamChunk> chunks = gateway.stream(new ChatStreamCommand("你好", List.of(), config))
                 .collectList()
@@ -155,7 +158,7 @@ class SpringAiStreamingChatGatewayTest {
                         .eventPublisher(toolEvents::add)
                         .build();
         SpringAiStreamingChatGateway gateway =
-                new SpringAiStreamingChatGateway(factory, ObservationRegistry.NOOP);
+                new SpringAiStreamingChatGateway(factory, ObservationRegistry.NOOP, toolCallingManager());
 
         Flux<ChatStreamChunk> answer = gateway.stream(
                 ChatStreamCommand.builder()
@@ -242,7 +245,7 @@ class SpringAiStreamingChatGatewayTest {
                 .maxResultCharacters(1000)
                 .eventPublisher(toolEvents::add)
                 .build();
-        SpringAiStreamingChatGateway gateway = new SpringAiStreamingChatGateway(factory, ObservationRegistry.NOOP);
+        SpringAiStreamingChatGateway gateway = new SpringAiStreamingChatGateway(factory, ObservationRegistry.NOOP, toolCallingManager());
 
         List<ChatStreamChunk> chunks = gateway.stream(ChatStreamCommand.builder()
                         .prompt("查询时间")
@@ -302,7 +305,7 @@ class SpringAiStreamingChatGatewayTest {
                 .maxFinalizationTokens(1100)
                 .maxResultCharacters(1000)
                 .build();
-        SpringAiStreamingChatGateway gateway = new SpringAiStreamingChatGateway(factory, ObservationRegistry.NOOP);
+        SpringAiStreamingChatGateway gateway = new SpringAiStreamingChatGateway(factory, ObservationRegistry.NOOP, toolCallingManager());
 
         List<ChatStreamChunk> chunks = gateway.stream(ChatStreamCommand.builder()
                         .prompt("查询两个时区")
@@ -326,6 +329,15 @@ class SpringAiStreamingChatGatewayTest {
 
     private static AgentTool tool(ToolCallback callback) {
         return tool(callback, AgentToolExecutionMode.SIDE_EFFECT);
+    }
+
+    /**
+     * 使用默认解析器构建真实工具调用管理器，使测试中的工具回调能够被实际执行。
+     */
+    private static ToolCallingManager toolCallingManager() {
+        return DefaultToolCallingManager.builder()
+                .observationRegistry(ObservationRegistry.NOOP)
+                .build();
     }
 
     private static AgentTool tool(ToolCallback callback, AgentToolExecutionMode executionMode) {

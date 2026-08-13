@@ -63,7 +63,7 @@ public class KnowledgeChunkPipelineService {
      */
     @Transactional
     public Optional<ProcessingInput> startProcessing(Long taskId) {
-        if (!taskRepo.claimParsing(taskId, OffsetDateTime.now())) {
+        if (!taskRepo.canClaimParsing(taskId, OffsetDateTime.now())) {
             return Optional.empty();
         }
         KnowledgeChunkTaskEntity task = requireTask(taskId);
@@ -98,7 +98,7 @@ public class KnowledgeChunkPipelineService {
      */
     @Transactional
     public ChunkInput startChunking(ProcessingInput input, KnowledgeDocumentParser.ParsedDocument parsedDocument) {
-        if (!taskRepo.markChunking(input.getTaskId())) {
+        if (!taskRepo.isChunkingMarked(input.getTaskId())) {
             throw new IllegalStateException("文档任务状态已变化，无法开始分块：" + input.getTaskId());
         }
         KnowledgeDocumentEntity document = requireDocument(input.getDocumentId());
@@ -139,7 +139,7 @@ public class KnowledgeChunkPipelineService {
         if (chunks.isEmpty()) {
             throw new IllegalStateException("文档解析后没有生成有效Chunk");
         }
-        if (!taskRepo.markVectorizing(input.getTaskId())) {
+        if (!taskRepo.isVectorizingMarked(input.getTaskId())) {
             throw new IllegalStateException("文档任务状态已变化，无法开始向量化：" + input.getTaskId());
         }
         List<KnowledgeChunkEntity> entities = new ArrayList<>(chunks.size());
@@ -272,7 +272,7 @@ public class KnowledgeChunkPipelineService {
      * @return true表示仍可重试，false表示已经终止
      */
     @Transactional
-    public boolean handleFailure(Long taskId, KnowledgeChunkTaskStatus retryStatus,
+    public boolean isRetryable(Long taskId, KnowledgeChunkTaskStatus retryStatus,
                                   String errorCode, Exception exception) {
         KnowledgeChunkTaskEntity task = requireTask(taskId);
         int retryCount = task.getRetryCount() == null ? 0 : task.getRetryCount();

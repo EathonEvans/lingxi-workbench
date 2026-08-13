@@ -2,7 +2,7 @@ package com.lingxi.workbench.application.runtime.service.execution;
 
 import com.lingxi.workbench.application.runtime.model.ExecutionFailure;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
-import com.lingxi.workbench.infra.ai.tool.AgentLoopLimitException;
+import com.lingxi.workbench.agentexecute.loop.AgentLoopLimitException;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;

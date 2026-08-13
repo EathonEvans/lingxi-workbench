@@ -1,4 +1,4 @@
-package com.lingxi.workbench.infra.ai.chat.openai;
+package com.lingxi.workbench.agentexecute.loop;
 
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.tool.model.AgentExecutionBudget;
@@ -57,7 +57,7 @@ class AgentLoopStateTest {
         state.recordUsage(TokenUsage.of(100, 5, 105));
 
         org.junit.jupiter.api.Assertions.assertThrows(
-                com.lingxi.workbench.infra.ai.tool.AgentLoopLimitException.class, state::beginModelCall);
+                com.lingxi.workbench.agentexecute.loop.AgentLoopLimitException.class, state::beginModelCall);
     }
 
     @Test

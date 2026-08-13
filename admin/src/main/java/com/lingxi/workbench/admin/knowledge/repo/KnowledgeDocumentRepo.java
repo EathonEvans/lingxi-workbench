@@ -73,9 +73,9 @@ public class KnowledgeDocumentRepo {
     /**
      * 原子标记文档为处理中，同时持久化本次分块配置。
      */
-    public boolean claimProcessing(Long id, KnowledgeChunkStrategy strategy,
+    public boolean canClaimProcessing(Long id, KnowledgeChunkStrategy strategy,
                                    Integer chunkSize, Integer chunkOverlap, Long operatorId) {
-        return mapper.claimProcessing(id, strategy.getCode(), chunkSize, chunkOverlap, operatorId) == 1;
+        return mapper.canClaimProcessing(id, strategy.getCode(), chunkSize, chunkOverlap, operatorId) == 1;
     }
 
     /**

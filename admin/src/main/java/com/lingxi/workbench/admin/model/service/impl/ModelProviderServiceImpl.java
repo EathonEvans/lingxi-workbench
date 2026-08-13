@@ -14,6 +14,8 @@ import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageResult;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.infra.ai.outbound.ModelOutboundAddressPolicy;
+import com.lingxi.workbench.infra.ai.outbound.ModelOutboundSecurityException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +35,7 @@ public class ModelProviderServiceImpl implements ModelProviderService {
     private final ModelInstanceRepo instanceRepo;
     private final AuditService auditService;
     private final ModelConverter modelConverter;
+    private final ModelOutboundAddressPolicy outboundAddressPolicy;
 
     /**
      * 按名称、编码和状态分页查询模型供应商。
@@ -118,8 +121,11 @@ public class ModelProviderServiceImpl implements ModelProviderService {
                         HttpStatusEnum.NOT_FOUND, "模型供应商不存在"));
     }
 
-    /** 归一化 Base URL：校验协议仅支持 HTTP/HTTPS，去除尾部斜杠，拒绝包含用户信息、查询参数和片段的地址。 */
-    private static String normalizeUrl(String value) {
+    /**
+     * 归一化 Base URL：校验协议仅支持 HTTP/HTTPS、出站地址安全，去除尾部斜杠，
+     * 拒绝包含用户信息、查询参数和片段的地址。
+     */
+    private String normalizeUrl(String value) {
         try {
             URI uri = URI.create(value.trim());
             boolean invalidScheme = !List.of("http", "https").contains(uri.getScheme());
@@ -130,10 +136,14 @@ public class ModelProviderServiceImpl implements ModelProviderService {
             if (invalidScheme || containsUnsafePart) {
                 throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "Base URL 格式不合法");
             }
+            // 私网、回环和链路本地地址默认拒绝；本地或内网部署模型需在服务端配置显式放行。
+            outboundAddressPolicy.validateOutboundAddress(value);
             String normalized = uri.toString();
             return normalized.endsWith("/")
                     ? normalized.substring(0, normalized.length() - 1)
                     : normalized;
+        } catch (ModelOutboundSecurityException exception) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, exception.getMessage());
         } catch (IllegalArgumentException exception) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "Base URL 格式不合法");
         }

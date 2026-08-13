@@ -60,18 +60,18 @@ public class KnowledgeChunkTaskRepo {
     }
 
     /** 原子抢占解析阶段，仅 PENDING 任务可被抢占。 */
-    public boolean claimParsing(Long id, OffsetDateTime startedAt) {
-        return mapper.claimParsing(id, startedAt) == 1;
+    public boolean canClaimParsing(Long id, OffsetDateTime startedAt) {
+        return mapper.canClaimParsing(id, startedAt) == 1;
     }
 
     /** 原子推进到分块阶段，仅 PARSING 任务可推进。 */
-    public boolean markChunking(Long id) {
-        return mapper.markChunking(id) == 1;
+    public boolean isChunkingMarked(Long id) {
+        return mapper.isChunkingMarked(id) == 1;
     }
 
     /** 原子推进到向量化阶段，仅 CHUNKING 任务可推进。 */
-    public boolean markVectorizing(Long id) {
-        return mapper.markVectorizing(id) == 1;
+    public boolean isVectorizingMarked(Long id) {
+        return mapper.isVectorizingMarked(id) == 1;
     }
 
     /** 按状态查询任务 ID 列表，用于补偿投递。 */

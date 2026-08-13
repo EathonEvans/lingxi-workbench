@@ -33,10 +33,11 @@ public class ModelProviderRepo {
         return PageResult.convert(page);
     }
 
-    /** 查询全部模型供应商，供关联配置选择。 */
+    /** 查询模型供应商列表（上限 1000 防止字典表失控），供关联配置选择。 */
     public List<ModelProviderEntity> findAll() {
         return mapper.selectList(Wrappers.<ModelProviderEntity>lambdaQuery()
-                .orderByAsc(ModelProviderEntity::getId));
+                .orderByAsc(ModelProviderEntity::getId)
+                .last("LIMIT 1000"));
     }
 
     public Optional<ModelProviderEntity> findById(Long id) {

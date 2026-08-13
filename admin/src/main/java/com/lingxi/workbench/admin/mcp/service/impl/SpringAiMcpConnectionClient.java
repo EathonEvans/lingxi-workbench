@@ -17,7 +17,6 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.TimeoutException;
 
 import static com.lingxi.workbench.admin.mcp.common.constants.McpServerConstants.CONNECTION_ERROR_CODE;
@@ -79,10 +78,14 @@ public class SpringAiMcpConnectionClient implements McpConnectionClient {
         String cursor = null;
         int pageCount = 0;
         do {
-            McpSchema.ListToolsResult page = Optional.ofNullable(cursor)
-                    .filter(value -> !value.isBlank())
-                    .map(client::listTools)
-                    .orElseGet(client::listTools);
+            McpSchema.ListToolsResult page;
+            if (Objects.nonNull(cursor) && !cursor.isBlank()) {
+                // 游标非空时按游标继续分页
+                page = client.listTools(cursor);
+            } else {
+                // 首次调用获取第一页
+                page = client.listTools();
+            }
             page.tools().stream().map(SpringAiMcpConnectionClient::toDiscoveredTool).forEach(tools::add);
             if (tools.size() > MAX_DISCOVERED_TOOL_COUNT) {
                 throw new IllegalStateException("MCP Server 工具数量超过平台发现上限");

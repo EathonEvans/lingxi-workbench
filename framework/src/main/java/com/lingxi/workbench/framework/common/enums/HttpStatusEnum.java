@@ -28,6 +28,8 @@ public enum HttpStatusEnum {
     NOT_FOUND(404, "资源不存在"),
     /** 资源状态冲突 */
     CONFLICT(409, "资源状态冲突"),
+    /** 请求过于频繁，已被限流或锁定 */
+    TOO_MANY_REQUESTS(429, "请求过于频繁"),
     /** 服务器内部错误 */
     INTERNAL_SERVER_ERROR(500, "服务器内部错误");
 

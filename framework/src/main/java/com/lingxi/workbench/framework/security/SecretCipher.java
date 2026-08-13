@@ -27,6 +27,9 @@ public class SecretCipher {
     private final SecureRandom secureRandom = new SecureRandom();
 
     public SecretCipher(@Value("${lingxi.security.secret-master-key:}") String encodedMasterKey) {
+        // 启动即校验主密钥：缺失或长度非法时拒绝启动，
+        // 避免未配置密钥的服务带病运行、到首次解密时才失败。
+        decodeMasterKey(encodedMasterKey);
         this.encodedMasterKey = encodedMasterKey;
     }
 

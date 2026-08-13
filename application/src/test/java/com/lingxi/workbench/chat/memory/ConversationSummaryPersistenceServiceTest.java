@@ -38,9 +38,9 @@ class ConversationSummaryPersistenceServiceTest {
         AssistantCompletedEvent event = event();
         ConversationSummarySource source = source();
         when(conversationRepo.lockOwnedById(10L, 7L)).thenReturn(Optional.of(conversation));
-        when(conversationRepo.promoteSummary(10L, 3, 7, "新摘要")).thenReturn(true);
+        when(conversationRepo.isSummaryPromoted(10L, 3, 7, "新摘要")).thenReturn(true);
 
-        boolean saved = service.saveIfCurrent(event, source, "新摘要", event.memoryConfig().summary());
+        boolean saved = service.isSavedIfCurrent(event, source, "新摘要", event.memoryConfig().summary());
 
         ArgumentCaptor<ConversationSummarySnapshotEntity> snapshotCaptor =
                 ArgumentCaptor.forClass(ConversationSummarySnapshotEntity.class);
@@ -52,7 +52,7 @@ class ConversationSummaryPersistenceServiceTest {
         assertEquals(7, snapshot.getCoveredUserSequenceNo());
         assertEquals(30L, snapshot.getPromptVersionId());
         assertEquals(21L, snapshot.getModelInstanceId());
-        verify(conversationRepo).promoteSummary(10L, 3, 7, "新摘要");
+        verify(conversationRepo).isSummaryPromoted(10L, 3, 7, "新摘要");
     }
 
     @Test
@@ -65,11 +65,11 @@ class ConversationSummaryPersistenceServiceTest {
         conversation.setSummarySequenceNo(9);
         when(conversationRepo.lockOwnedById(10L, 7L)).thenReturn(Optional.of(conversation));
 
-        boolean saved = service.saveIfCurrent(event(), source(), "过期摘要", event().memoryConfig().summary());
+        boolean saved = service.isSavedIfCurrent(event(), source(), "过期摘要", event().memoryConfig().summary());
 
         assertFalse(saved);
         verify(snapshotRepo, never()).insert(org.mockito.ArgumentMatchers.any());
-        verify(conversationRepo, never()).promoteSummary(
+        verify(conversationRepo, never()).isSummaryPromoted(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }

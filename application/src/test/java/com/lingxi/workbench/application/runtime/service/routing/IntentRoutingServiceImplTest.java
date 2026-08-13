@@ -97,6 +97,11 @@ class IntentRoutingServiceImplTest {
         assertThat(result.getAction()).isEqualTo(IntentRoutingAction.EXECUTE_WORKFLOW);
         assertThat(result.getIntentCode()).isEqualTo("refund");
         assertThat(result.getExecutionQuery()).isEqualTo("我要退款");
+        // 路由决策证据携带门控原因与命中相似度，供 INTENT_ROUTE 观测
+        assertThat(result.getRoutingEvidence().getReason().name()).isEqualTo("ROUTED_BY_VECTOR");
+        assertThat(result.getRoutingEvidence().candidates())
+                .extracting(candidate -> candidate.getIntentCode() + ":" + candidate.getConfidence())
+                .containsExactly("refund:0.91");
     }
 
     @Test
@@ -135,6 +140,11 @@ class IntentRoutingServiceImplTest {
         assertThat(result.getClarification().getOptions())
                 .extracting(ChatClarificationEventBO.ClarificationOptionBO::code)
                 .containsExactly("refund", "exchange");
+        // 同能力歧义的证据同样进入观测：门控原因 + 全部候选相似度
+        assertThat(result.getRoutingEvidence().getReason().name()).isEqualTo("AMBIGUOUS_WITHIN_CAPABILITY");
+        assertThat(result.getRoutingEvidence().candidates())
+                .extracting(candidate -> candidate.getIntentCode() + ":" + candidate.getConfidence())
+                .containsExactly("refund:0.91", "exchange:0.87");
     }
 
     @Test
@@ -195,6 +205,120 @@ class IntentRoutingServiceImplTest {
         assertThat(result.getAction()).isEqualTo(IntentRoutingAction.EXECUTE_WORKFLOW);
         assertThat(result.getExecutionQuery()).isEqualTo("我要退款\n已确认参数：orderNo=A10086");
         assertThat(session.getStatus()).isEqualTo(IntentRoutingSessionStatus.COMPLETED);
+    }
+
+    @Test
+    void shouldRejectInvalidSlotValueAndReaskWithFormatHint() {
+        IntentNodeDefinition refund = leaf("refund", "申请退款");
+        refund.setSlots(List.of(IntentSlotDefinition.builder()
+                .code("orderNo")
+                .name("订单号")
+                .valueType(IntentSlotValueType.NUMBER)
+                .required(true)
+                .build()));
+        stubVersion(List.of(refund));
+        IntentRoutingSessionEntity session = pendingSession(
+                101L,
+                IntentClarificationType.MISSING_SLOT,
+                IntentClarificationContext.builder()
+                        .originalQuery("我要退款")
+                        .intentCode("refund")
+                        .missingSlotCodes(List.of("orderNo"))
+                        .collectedSlots(new LinkedHashMap<>())
+                        .build());
+        when(sessionRepo.findOwned(101L, 10L, 7L)).thenReturn(Optional.of(session));
+        ClarificationResponseRequest response = new ClarificationResponseRequest();
+        response.setClarificationId("101");
+        response.setValue("A10086");
+
+        IntentRoutingResult result = route(
+                optionalSnapshot(List.of(optionalWorkflowMapping("refund"))),
+                "A10086",
+                response);
+
+        // 非法值不写入槽位，重问并提示数字格式
+        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.CLARIFICATION);
+        assertThat(result.getClarification().getQuestion()).contains("数字");
+        assertThat(session.getRoundNo()).isEqualTo(2);
+        assertThat(session.getContext().getCollectedSlots()).doesNotContainKey("orderNo");
+        assertThat(session.getStatus()).isEqualTo(IntentRoutingSessionStatus.PENDING);
+    }
+
+    @Test
+    void shouldAcceptValidDateAndBooleanSlotValues() {
+        IntentNodeDefinition refund = leaf("refund", "申请退款");
+        refund.setSlots(List.of(
+                IntentSlotDefinition.builder()
+                        .code("orderDate")
+                        .name("下单日期")
+                        .valueType(IntentSlotValueType.DATE)
+                        .required(true)
+                        .build(),
+                IntentSlotDefinition.builder()
+                        .code("urgent")
+                        .name("是否加急")
+                        .valueType(IntentSlotValueType.BOOLEAN)
+                        .required(true)
+                        .build()));
+        stubVersion(List.of(refund));
+        IntentRoutingSessionEntity session = pendingSession(
+                102L,
+                IntentClarificationType.MISSING_SLOT,
+                IntentClarificationContext.builder()
+                        .originalQuery("我要退款")
+                        .intentCode("refund")
+                        .missingSlotCodes(List.of("orderDate", "urgent"))
+                        .collectedSlots(new LinkedHashMap<>())
+                        .build());
+        when(sessionRepo.findOwned(102L, 10L, 7L)).thenReturn(Optional.of(session));
+        ClarificationResponseRequest response = new ClarificationResponseRequest();
+        response.setClarificationId("102");
+        response.setValue("2026/1/5");
+
+        IntentRoutingResult result = route(
+                optionalSnapshot(List.of(optionalWorkflowMapping("refund"))),
+                "2026/1/5",
+                response);
+
+        // DATE 合法 → 继续询问下一个槽位（BOOLEAN），且日期已入收集集合
+        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.CLARIFICATION);
+        assertThat(session.getContext().getCollectedSlots()).containsEntry("orderDate", "2026/1/5");
+        assertThat(session.getContext().getMissingSlotCodes()).containsExactly("urgent");
+    }
+
+    @Test
+    void shouldFailSlotCollectionAfterMaxInvalidAttempts() {
+        IntentNodeDefinition refund = leaf("refund", "申请退款");
+        refund.setSlots(List.of(IntentSlotDefinition.builder()
+                .code("orderNo")
+                .name("订单号")
+                .valueType(IntentSlotValueType.NUMBER)
+                .required(true)
+                .build()));
+        stubVersion(List.of(refund));
+        IntentRoutingSessionEntity session = pendingSession(
+                103L,
+                IntentClarificationType.MISSING_SLOT,
+                IntentClarificationContext.builder()
+                        .originalQuery("我要退款")
+                        .intentCode("refund")
+                        .missingSlotCodes(List.of("orderNo"))
+                        .collectedSlots(new LinkedHashMap<>())
+                        .build());
+        when(sessionRepo.findOwned(103L, 10L, 7L)).thenReturn(Optional.of(session));
+        ClarificationResponseRequest response = new ClarificationResponseRequest();
+        response.setClarificationId("103");
+        response.setValue("abc");
+        // 已是第 2 轮（达到上限），再次格式错误直接失败兜底
+        session.setRoundNo(2);
+
+        IntentRoutingResult result = route(
+                optionalSnapshot(List.of(optionalWorkflowMapping("refund"))),
+                "abc",
+                response);
+
+        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.NO_MATCH);
+        assertThat(session.getStatus()).isEqualTo(IntentRoutingSessionStatus.FAILED);
     }
 
     @Test

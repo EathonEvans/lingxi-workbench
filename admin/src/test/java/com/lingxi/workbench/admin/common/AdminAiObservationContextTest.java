@@ -1,6 +1,8 @@
 package com.lingxi.workbench.admin.common;
 
 import com.lingxi.workbench.infra.ai.chat.openai.OpenAiCompatibleChatModelFactory;
+import com.lingxi.workbench.infra.ai.outbound.ModelOutboundAddressPolicy;
+import com.lingxi.workbench.infra.ai.outbound.config.ModelOutboundSecurityProperties;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -14,6 +16,8 @@ class AdminAiObservationContextTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(ObservationAutoConfiguration.class))
+            .withBean(ModelOutboundAddressPolicy.class,
+                    () -> new ModelOutboundAddressPolicy(new ModelOutboundSecurityProperties()))
             .withBean(OpenAiCompatibleChatModelFactory.class);
 
     @Test

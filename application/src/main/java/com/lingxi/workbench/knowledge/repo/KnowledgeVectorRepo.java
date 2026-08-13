@@ -14,27 +14,13 @@ import java.util.List;
 public class KnowledgeVectorRepo {
 
     /**
-     * pgvector 余弦相似度检索 SQL。
+     * 版本化 pgvector 余弦相似度检索 SQL。
      *
      * <p>{@code embedding <=> ?::vector} 是 pgvector 余弦距离运算符，返回值 [0, 2]，
      * 0 表示完全相同。{@code 1 - distance} 将其转换为余弦相似度 [0, 1]，1 为完全匹配。
-     * 子查询避免在 SELECT 和 WHERE 中重复计算距离表达式。</p>
+     * 子查询避免在 SELECT 和 WHERE 中重复计算距离表达式。
+     * 检索范围限定在发布索引版本冻结的分块任务集合，且按模型实例过滤，防止跨模型维度混检。</p>
      */
-    private static final String SEARCH_SQL = """
-            SELECT chunk_id, similarity
-            FROM (
-                SELECT
-                    c.id AS chunk_id,
-                    1 - (v.embedding <=> ?::vector) AS similarity
-                FROM lingxi_vector.knowledge_chunk_vector v
-                JOIN lingxi_core.ai_knowledge_chunk c ON c.id = v.chunk_id
-                WHERE c.knowledge_base_id = ?
-                  AND c.enabled = TRUE
-            ) t
-            WHERE similarity >= ?
-            ORDER BY similarity DESC
-            LIMIT ?
-            """;
     private static final String VERSION_SEARCH_SQL = """
             SELECT chunk_id, similarity
             FROM (
@@ -60,25 +46,6 @@ public class KnowledgeVectorRepo {
             """;
 
     private final JdbcTemplate jdbcTemplate;
-
-    /**
-     * 在指定知识库中检索与查询向量语义最相近的 Top-K Chunk。
-     *
-     * @param queryVector     查询文本的向量表示
-     * @param knowledgeBaseId 目标知识库 ID
-     * @param topK            返回条数
-     * @param threshold       最低余弦相似度阈值（0~1）
-     * @return 按相似度降序排列的 (chunkId, similarity)
-     */
-    public List<VectorSearchRow> search(float[] queryVector, Long knowledgeBaseId, int topK, double threshold) {
-        String vectorLiteral = toVectorLiteral(queryVector);
-        return jdbcTemplate.query(SEARCH_SQL,
-                (rs, rowNum) -> new VectorSearchRow(
-                        rs.getLong("chunk_id"),
-                        rs.getDouble("similarity")
-                ),
-                vectorLiteral, knowledgeBaseId, threshold, topK);
-    }
 
     /** 仅在发布版本冻结的分块任务集合中执行相似度检索。 */
     public List<VectorSearchRow> searchVersion(float[] queryVector, Long knowledgeBaseId, Long indexVersionId, Long embeddingModelInstanceId, int topK, double threshold) {

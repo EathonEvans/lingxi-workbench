@@ -21,10 +21,10 @@ class FileBasePathTest {
     void shouldOnlyAcceptAvatarOwnedByCurrentUser() {
         String objectKey = "avatars/7/5b6f3f30-e19e-4d02-81d7-5f044575147f.webp";
 
-        assertThat(FileBasePath.AVATAR.ownsAvatar(objectKey, 7L)).isTrue();
-        assertThat(FileBasePath.AVATAR.ownsAvatar(objectKey, 8L)).isFalse();
-        assertThat(FileBasePath.AVATAR.ownsAvatar("avatars/7/not-a-uuid.webp", 7L)).isFalse();
-        assertThat(FileBasePath.AVATAR.ownsAvatar(
+        assertThat(FileBasePath.AVATAR.hasAvatar(objectKey, 7L)).isTrue();
+        assertThat(FileBasePath.AVATAR.hasAvatar(objectKey, 8L)).isFalse();
+        assertThat(FileBasePath.AVATAR.hasAvatar("avatars/7/not-a-uuid.webp", 7L)).isFalse();
+        assertThat(FileBasePath.AVATAR.hasAvatar(
                 "avatars/7/5b6f3f30-e19e-4d02-81d7-5f044575147f.svg", 7L)).isFalse();
     }
 }

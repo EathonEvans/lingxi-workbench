@@ -1,4 +1,4 @@
-package com.lingxi.workbench.admin.role.service.impl;
+package com.lingxi.workbench.admin.sys.role.service.impl;
 
 import com.lingxi.workbench.admin.sys.role.service.impl.SysRoleServiceImpl;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
@@ -114,7 +114,7 @@ class SysRoleServiceImplTest {
     @Test
     void shouldRejectRemovingTheLastRootSysistrator() {
         SysRoleEntity rootRole = role(1L, RoleDataScope.ALL, true);
-        when(sysRoleRepo.userExists(100L)).thenReturn(true);
+        when(sysRoleRepo.hasUser(100L)).thenReturn(true);
         when(sysRoleRepo.existsAll(Set.of())).thenReturn(true);
         when(sysRoleRepo.findByCodeForUpdate("ROOT")).thenReturn(Optional.of(rootRole));
         when(sysRoleRepo.findRoleCodesByUserId(100L)).thenReturn(List.of("ROOT"));

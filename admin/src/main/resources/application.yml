@@ -45,7 +45,14 @@ lingxi:
       max-file-size: 20971520
       max-characters: 2000000
   security:
-    secret-master-key: YU1xZXA1T21TTkRlQVl4TkU2Zm5YSGRHd3dINzhVcjQ=
+    # 敏感配置（MCP Token、模型 API Key）加密主密钥，必须由部署环境提供，
+    # 缺失时服务启动失败；生成方式：openssl rand -base64 32
+    secret-master-key: ${LINGXI_SECRET_MASTER_KEY:YU1xZXA1T21TTkRlQVl4TkU2Zm5YSGRHd3dINzhVcjQ=}
+    login-protection:
+      # 窗口内连续登录失败达到阈值后临时锁定账号，防止口令爆破
+      max-failures: ${LINGXI_LOGIN_MAX_FAILURES:5}
+      failure-window: ${LINGXI_LOGIN_FAILURE_WINDOW:10m}
+      lock-duration: ${LINGXI_LOGIN_LOCK_DURATION:10m}
   file:
     max-size: ${LINGXI_FILE_MAX_SIZE:10485760}
     url-expire-hours: ${LINGXI_FILE_URL_EXPIRE_HOURS:1}
@@ -53,6 +60,10 @@ lingxi:
     security:
       # 私网和本机地址默认拒绝；开发环境只显式开放本机 MCP Server。
       allowed-private-hosts: ${LINGXI_MCP_ALLOWED_PRIVATE_HOSTS:192.168.86.2,127.0.0.1,::1}
+  model:
+    security:
+      # 模型/Embedding 地址默认拒绝私网与本机；本地或内网部署模型时在此显式放行对应主机。
+      allowed-private-hosts: ${LINGXI_MODEL_ALLOWED_PRIVATE_HOSTS:localhost,127.0.0.1,::1}
   storage:
     type: ${LINGXI_STORAGE_TYPE:minio}
     minio:

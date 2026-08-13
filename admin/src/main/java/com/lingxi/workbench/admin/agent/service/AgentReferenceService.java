@@ -28,7 +28,13 @@ public interface AgentReferenceService {
     record AgentReference(AgentIdentity identity, boolean active, Long publishedVersionId) {
     }
 
-    /** 发布快照的最小跨模块协议元数据。 */
+    /**
+     * 发布快照的最小跨模块协议元数据。
+     *
+     * @param id           Agent 版本主键
+     * @param schemaVersion 发布时冻结的版本 Schema 号
+     * @param agentType     Agent 类型
+     */
     record AgentVersionReference(Long id, int schemaVersion, AgentType agentType) {
     }
 }

@@ -107,6 +107,12 @@ public class KnowledgeChunkVectorRepo {
         return builder.append(']').toString();
     }
 
+    /**
+     * 知识块与其向量的一行检索结果。
+     *
+     * @param chunk  知识块实体
+     * @param vector 余弦相似度检索命中的向量
+     */
     private record VectorRow(KnowledgeChunkEntity chunk, float[] vector) {
     }
 }

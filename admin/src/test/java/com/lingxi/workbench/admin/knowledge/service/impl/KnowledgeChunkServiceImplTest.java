@@ -73,7 +73,7 @@ class KnowledgeChunkServiceImplTest {
         knowledgeBase.setStatus(EnableStatus.ACTIVE);
         when(documentRepo.findById(11L)).thenReturn(Optional.of(document));
         when(baseRepo.findById(1L)).thenReturn(Optional.of(knowledgeBase));
-        when(documentRepo.claimProcessing(11L, KnowledgeChunkStrategy.PARAGRAPH, 600, 80, 9L))
+        when(documentRepo.canClaimProcessing(11L, KnowledgeChunkStrategy.PARAGRAPH, 600, 80, 9L))
                 .thenReturn(true);
         when(taskRepo.nextVersion(11L)).thenReturn(2);
         doAnswer(invocation -> {

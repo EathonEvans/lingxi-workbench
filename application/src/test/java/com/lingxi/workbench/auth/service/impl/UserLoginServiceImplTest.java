@@ -10,6 +10,7 @@ import com.lingxi.workbench.auth.repo.UserRepo;
 import com.lingxi.workbench.auth.service.UserAvatarUrlService;
 import com.lingxi.workbench.framework.exceptions.AuthException;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
+import com.lingxi.workbench.framework.auth.login.LoginFailureGuard;
 import com.lingxi.workbench.framework.auth.password.BCryptPasswordHasher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,9 @@ class UserLoginServiceImplTest {
     private UserAvatarUrlService userAvatarUrlService;
 
     @Mock
+    private LoginFailureGuard loginFailureGuard;
+
+    @Mock
     private SaTokenInfo tokenInfo;
 
     private UserLoginServiceImpl userLoginService;
@@ -56,7 +60,8 @@ class UserLoginServiceImplTest {
                 userConverter,
                 passwordHasher,
                 stpLogicDefinition,
-                userAvatarUrlService
+                userAvatarUrlService,
+                loginFailureGuard
         );
     }
 
@@ -144,6 +149,19 @@ class UserLoginServiceImplTest {
         );
 
         verify(stpLogicDefinition, never()).login(org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void shouldRejectLoginWhenLockedByFailureGuard() {
+        when(loginFailureGuard.isLocked("user", "alice")).thenReturn(true);
+
+        AuthException exception = assertThrows(
+                AuthException.class,
+                () -> userLoginService.login(new UserLoginRequest("alice", "correct-password"))
+        );
+
+        assertEquals("登录失败次数过多，账号已被临时锁定，请稍后再试", exception.getMessage());
+        verify(userRepo, never()).findByUsername(anyString());
     }
 
     private static UserBO user(UserStatus status, String avatarUrl) {

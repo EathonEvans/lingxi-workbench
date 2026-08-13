@@ -1,5 +1,6 @@
-package com.lingxi.workbench.infra.ai.tool;
+package com.lingxi.workbench.agentexecute.loop;
 
+import com.lingxi.workbench.infra.ai.tool.AgentToolException;
 import lombok.Getter;
 
 /**

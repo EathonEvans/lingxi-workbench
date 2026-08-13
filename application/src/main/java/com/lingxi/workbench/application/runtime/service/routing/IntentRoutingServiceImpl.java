@@ -32,16 +32,22 @@ import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.intent.IntentNodeDefinition;
 import com.lingxi.workbench.workflow.model.intent.IntentSlotDefinition;
+import com.lingxi.workbench.workflow.model.intent.IntentSlotValueType;
 import com.lingxi.workbench.workflow.model.intent.IntentTreeDefinition;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -275,7 +281,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
             // 消歧成功 → 继续检查该意图的槽位是否完整
             return resolveSlotsOrTarget(
                     session, originalQuery(session.getContext(), query), configuration,
-                    configuration.getNodesByCode().get(intentCode));
+                    configuration.getNodesByCode().get(intentCode), null);
         }
         // MISSING_SLOT 类型：采集用户填入的槽位值
         return collectSlot(session, suppliedValue, query, configuration);
@@ -338,7 +344,8 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
                     turn, loginUser, configuration, IntentClarificationType.INTENT_DISAMBIGUATION,
                     clarificationContext);
             return clarification(session, ambiguityQuestion(candidateCodes, configuration.getNodesByCode()),
-                    candidateCodes, configuration.getNodesByCode());
+                    candidateCodes, configuration.getNodesByCode(),
+                    evidence(IntentRoutingFallbackReason.AMBIGUOUS_WITHIN_CAPABILITY, recognition.candidates()));
         }
         if (!hasMapping(configuration, topCandidate.intentCode())) {
             return IntentRoutingResult.noMatch(query);
@@ -351,7 +358,8 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         }
         // 创建临时会话壳（不持久化，用于槽位检查的上下文传递）
         IntentRoutingSessionEntity transientSession = sessionShell(turn, loginUser, configuration, intentCode, query);
-        return resolveSlotsOrTarget(transientSession, query, configuration, node);
+        return resolveSlotsOrTarget(transientSession, query, configuration, node,
+                evidence(IntentRoutingFallbackReason.ROUTED_BY_VECTOR, List.of(topCandidate)));
     }
 
     /**
@@ -366,10 +374,12 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
      * @param query   原始查询文本（保留完整意图上下文）
      * @param configuration 已锁定的路由配置
      * @param node    确定的叶子意图节点
+     * @param evidence 路由决策证据（fresh 识别路径传入用于观测；恢复路径传 null）
      * @return 执行目标结果 或 槽位澄清事件
      */
     private IntentRoutingResult resolveSlotsOrTarget(IntentRoutingSessionEntity session, String query,
-                                                     RouteConfiguration configuration, IntentNodeDefinition node) {
+                                                     RouteConfiguration configuration, IntentNodeDefinition node,
+                                                     IntentRoutingEvidence evidence) {
         if (!hasMapping(configuration, node.getCode())) {
             return IntentRoutingResult.noMatch(query);
         }
@@ -393,10 +403,10 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
             } else {
                 sessionRepo.update(session);
             }
-            return slotClarification(session, node);
+            return slotClarification(session, node, evidence);
         }
         // 无必填槽位 → 直接返回执行目标
-        return target(configuration, node.getCode(), query);
+        return target(configuration, node.getCode(), query, evidence);
     }
 
     /**
@@ -427,8 +437,14 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         }
         // FIFO：取出第一个待收集的槽位
         String slotCode = missing.removeFirst();
+        IntentSlotDefinition slotDefinition = findSlotDefinition(configuration, context.getIntentCode(), slotCode);
+        String normalizedValue = value.trim();
+        if (Objects.nonNull(slotDefinition) && !isValidSlotValue(slotDefinition, normalizedValue)) {
+            // 格式校验失败：不写入槽位，轮次内重问并提示格式要求，避免脏数据进入执行链路
+            return repeatSlotQuestion(session, slotDefinition, configuration);
+        }
         Map<String, String> collected = new LinkedHashMap<>(Objects.requireNonNullElse(context.getCollectedSlots(), Map.of()));
-        collected.put(slotCode, value.trim());
+        collected.put(slotCode, normalizedValue);
         context.setCollectedSlots(collected);
         context.setMissingSlotCodes(missing);
         // 还有剩余槽位 → 检查轮次
@@ -443,13 +459,106 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
             session.setRoundNo(session.getRoundNo() + 1);
             session.setExpiresAt(OffsetDateTime.now().plusMinutes(CLARIFICATION_TTL_MINUTES));
             sessionRepo.update(session);
-            return slotClarification(session, configuration.getNodesByCode().get(context.getIntentCode()));
+            return slotClarification(session, configuration.getNodesByCode().get(context.getIntentCode()), null);
         }
         // 所有槽位采集完成 → 拼接 enrichedQuery，返回执行目标
         session.setStatus(IntentRoutingSessionStatus.COMPLETED);
         sessionRepo.update(session);
         return target(configuration, context.getIntentCode(),
-                enrichedQuery(originalQuery(context, originalQuery), collected));
+                enrichedQuery(originalQuery(context, originalQuery), collected), null);
+    }
+
+    /**
+     * 槽位值格式校验失败：轮次内重问并提示格式要求，超限标记失败兜底。
+     *
+     * @param session        澄清会话
+     * @param slotDefinition 校验失败的槽位定义（用于格式提示）
+     * @param configuration  已锁定的路由配置
+     * @return 继续澄清 或 失败兜底结果
+     */
+    private IntentRoutingResult repeatSlotQuestion(IntentRoutingSessionEntity session, IntentSlotDefinition slotDefinition,
+                                                   RouteConfiguration configuration) {
+        if (session.getRoundNo() >= MAX_CLARIFICATION_ROUNDS) {
+            session.setStatus(IntentRoutingSessionStatus.FAILED);
+            sessionRepo.update(session);
+            return clarificationFailureResult(session.getContext().getOriginalQuery());
+        }
+        session.setRoundNo(session.getRoundNo() + 1);
+        session.setExpiresAt(OffsetDateTime.now().plusMinutes(CLARIFICATION_TTL_MINUTES));
+        sessionRepo.update(session);
+        String question = "「" + slotDefinition.getName() + "」格式不正确，请按"
+                + slotDefinition.getValueType().getDescribe() + "格式重新输入。";
+        ChatClarificationEventBO event = ChatClarificationEventBO.builder()
+                .clarificationId(String.valueOf(session.getId()))
+                .question(question)
+                .options(List.of())
+                .round(session.getRoundNo())
+                .expiresAt(session.getExpiresAt())
+                .build();
+        return IntentRoutingResult.builder()
+                .action(IntentRoutingAction.CLARIFICATION)
+                .response(question)
+                .clarification(event)
+                .build();
+    }
+
+    /**
+     * 在叶子节点定义中查找指定编码的槽位定义；节点或槽位不存在时返回空。
+     */
+    private static IntentSlotDefinition findSlotDefinition(RouteConfiguration configuration, String intentCode, String slotCode) {
+        IntentNodeDefinition node = configuration.getNodesByCode().get(intentCode);
+        if (Objects.isNull(node) || Objects.isNull(node.getSlots())) {
+            return null;
+        }
+        return node.getSlots().stream()
+                .filter(slot -> Objects.equals(slot.getCode(), slotCode))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * 按槽位声明的值类型校验用户输入；未声明类型时视为自由文本不校验。
+     */
+    private static boolean isValidSlotValue(IntentSlotDefinition slot, String value) {
+        IntentSlotValueType type = slot.getValueType();
+        if (Objects.isNull(type)) {
+            return true;
+        }
+        return switch (type) {
+            case STRING -> true;
+            case NUMBER -> isNumber(value);
+            case DATE -> isDate(value);
+            case BOOLEAN -> isBoolean(value);
+        };
+    }
+
+    /** 数字：可解析为 BigDecimal 视为合法。 */
+    private static boolean isNumber(String value) {
+        try {
+            new BigDecimal(value);
+            return true;
+        } catch (NumberFormatException exception) {
+            return false;
+        }
+    }
+
+    /** 日期：支持 2026-01-01、2026/1/5 等常见分隔格式，且必须是真实存在的日期。 */
+    private static final DateTimeFormatter SLOT_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-M-d");
+
+    private static boolean isDate(String value) {
+        try {
+            // 将 / 分隔符归一为 -，yyyy-M-d 允许月日不补零
+            LocalDate.parse(value.trim().replace('/', '-'), SLOT_DATE_FORMAT);
+            return true;
+        } catch (DateTimeParseException exception) {
+            return false;
+        }
+    }
+
+    /** 布尔：接受英文、中文及 1/0 表达。 */
+    private static boolean isBoolean(String value) {
+        return Set.of("true", "false", "是", "否", "1", "0", "开", "关")
+                .contains(value.toLowerCase(Locale.ROOT));
     }
 
     /**
@@ -474,7 +583,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         sessionRepo.update(session);
         List<String> codes = session.getContext().getCandidateCodes();
         return clarification(session, ambiguityQuestion(codes, configuration.getNodesByCode()),
-                codes, configuration.getNodesByCode());
+                codes, configuration.getNodesByCode(), null);
     }
 
     /**
@@ -551,9 +660,11 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
      * @param configuration 已锁定的路由配置
      * @param intentCode 叶子意图编码
      * @param query      执行时使用的查询（原始请求或拼接了槽位的增强版）
+     * @param evidence   路由决策证据（fresh 识别路径传入用于观测；恢复路径传 null）
      * @return 包含执行动作、映射和目标查询的结果
      */
-    private static IntentRoutingResult target(RouteConfiguration configuration, String intentCode, String query) {
+    private static IntentRoutingResult target(RouteConfiguration configuration, String intentCode, String query,
+                                              IntentRoutingEvidence evidence) {
         Optional<ApplicationIntentMapping> resolvedMapping = configuration.getBinding().mappings().stream()
                 .filter(item -> Objects.equals(item.getIntentCode(), intentCode))
                 .findFirst();
@@ -573,6 +684,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
                 .mapping(mapping)
                 .executionQuery(query)
                 .response(mapping.getFixedResponse())
+                .routingEvidence(evidence)
                 .build();
     }
 
@@ -640,9 +752,11 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
      * @param question    向用户展示的澄清问题文本
      * @param optionCodes 候选意图编码列表（歧义场景）；空列表（槽位场景）
      * @param nodesByCode code → 节点映射（用于获取节点名称作为选项 label）
+     * @param evidence    路由决策证据（fresh 识别路径传入用于观测；恢复路径传 null）
      * @return CLARIFICATION 动作的路由结果
      */
-    private static IntentRoutingResult clarification(IntentRoutingSessionEntity session, String question, List<String> optionCodes, Map<String, IntentNodeDefinition> nodesByCode) {
+    private static IntentRoutingResult clarification(IntentRoutingSessionEntity session, String question, List<String> optionCodes, Map<String, IntentNodeDefinition> nodesByCode,
+                                                     IntentRoutingEvidence evidence) {
         List<ChatClarificationEventBO.ClarificationOptionBO> options = optionCodes.stream()
                 .map(code -> new ChatClarificationEventBO.ClarificationOptionBO(code, Optional.ofNullable(nodesByCode.get(code))
                         .map(IntentNodeDefinition::getName)
@@ -659,6 +773,24 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
                 .action(IntentRoutingAction.CLARIFICATION)
                 .response(question)
                 .clarification(event)
+                .routingEvidence(evidence)
+                .build();
+    }
+
+    /**
+     * 将识别候选转换为路由决策证据，候选仅保留编码与相似度。
+     */
+    private static IntentRoutingEvidence evidence(IntentRoutingFallbackReason reason,
+                                                  List<IntentRecognitionCandidate> candidates) {
+        List<IntentRoutingEvidenceCandidate> evidenceCandidates = candidates.stream()
+                .map(candidate -> IntentRoutingEvidenceCandidate.builder()
+                        .intentCode(candidate.intentCode())
+                        .confidence(candidate.confidence())
+                        .build())
+                .toList();
+        return IntentRoutingEvidence.builder()
+                .reason(reason)
+                .candidates(evidenceCandidates)
                 .build();
     }
 
@@ -673,7 +805,8 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
      * @param node    叶子意图节点（用于查找槽位定义和澄清模板）
      * @return 槽位澄清事件
      */
-    private static IntentRoutingResult slotClarification(IntentRoutingSessionEntity session, IntentNodeDefinition node) {
+    private static IntentRoutingResult slotClarification(IntentRoutingSessionEntity session, IntentNodeDefinition node,
+                                                         IntentRoutingEvidence evidence) {
         String slotCode = session.getContext().getMissingSlotCodes().getFirst();
         String slotName = Optional.ofNullable(node.getSlots()).orElse(List.of()).stream()
                 .filter(slot -> Objects.equals(slot.getCode(), slotCode))
@@ -683,7 +816,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         String question = CharSequenceUtil.isNotBlank(node.getClarificationQuestion())
                 ? node.getClarificationQuestion().trim()
                 : "请补充\u201C" + slotName + "\u201D。";
-        return clarification(session, question, List.of(), Map.of());
+        return clarification(session, question, List.of(), Map.of(), evidence);
     }
 
     /**
