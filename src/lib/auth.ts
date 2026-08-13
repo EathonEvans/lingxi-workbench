@@ -74,3 +74,18 @@ export async function login(credentials: LoginCredentials): Promise<AuthSession>
 export function isSessionValid(session: AuthSession | null): session is AuthSession {
   return Boolean(session?.tokenValue && session.expiresAt > Date.now());
 }
+
+// ─── 401 统一处理 ────────────────────────────────────────────
+
+/** 后端判定登录失效时的统一回调，由 AuthProvider 注册为「清空本地会话」。 */
+let unauthorizedHandler: (() => void) | null = null;
+
+/** 注册 401 处理回调；传入 null 取消注册。 */
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  unauthorizedHandler = handler;
+}
+
+/** 请求层收到 401 时调用，清空本地 token 缓存并让界面回到登录态。 */
+export function notifyUnauthorized() {
+  unauthorizedHandler?.();
+}

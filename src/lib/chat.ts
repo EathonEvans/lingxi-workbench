@@ -1,4 +1,4 @@
-import { API_BASE_URL, type AuthSession } from "./auth";
+import { API_BASE_URL, notifyUnauthorized, type AuthSession } from "./auth";
 
 // ─── 类型定义 ───────────────────────────────────────────────
 
@@ -129,7 +129,7 @@ type ChatErrorPayload = {
   msg?: string;
 };
 
-type StreamChatOptions = {
+export type StreamChatOptions = {
   applicationCode: string;
   clientMessageId: string;
   clarificationResponse?: ClarificationResponse;
@@ -187,7 +187,7 @@ type ParsedBlock = {
   event: string;
 };
 
-function parseEventBlock(block: string): ParsedBlock {
+export function parseEventBlock(block: string): ParsedBlock {
   let event = "message";
   const dataLines: string[] = [];
 
@@ -297,7 +297,7 @@ function dispatchEvent(
 }
 
 /** SSE 流读取器：正确处理跨 chunk 边界的行分割。 */
-async function consumeEventStream(
+export async function consumeEventStream(
   response: Response,
   options: StreamChatOptions,
 ): Promise<void> {
@@ -339,8 +339,11 @@ type ApiEnvelope<T> = {
   msg?: string;
 };
 
-/** 读取 JSON body。 */
+/** 读取 JSON body；后端判定登录失效时先清空本地会话。 */
 async function readApiBody(response: Response): Promise<ApiEnvelope<unknown>> {
+  if (response.status === 401) {
+    notifyUnauthorized();
+  }
   try {
     return (await response.json()) as ApiEnvelope<unknown>;
   } catch {
@@ -484,6 +487,10 @@ async function resumeStream(
   });
 
   if (!response.ok) {
+    // 后端判定登录失效时先清空本地会话，再由统一错误处理跳转登录页
+    if (response.status === 401) {
+      notifyUnauthorized();
+    }
     // 先尝试解析业务错误信息
     try {
       const payload = await response.json() as ChatErrorPayload;
@@ -571,17 +578,7 @@ export async function createConversation(
       method: "POST",
     },
   );
-  const payload = await response
-    .json()
-    .catch(() => ({})) as { code?: number; data?: Conversation; msg?: string }
-    | null;
-  if (!response.ok || payload?.code !== 200 || !payload?.data) {
-    throw new ChatStreamError(
-      payload?.msg || "创建会话失败，请稍后重试",
-      { status: payload?.code || response.status },
-    );
-  }
-  return payload.data;
+  return readApiData(response, "创建会话失败，请稍后重试");
 }
 
 /** 分页查询当前账号的会话记录。 */

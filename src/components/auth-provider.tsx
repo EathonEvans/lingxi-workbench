@@ -12,6 +12,7 @@ import {
   type LoginCredentials,
   isSessionValid,
   login as requestLogin,
+  setUnauthorizedHandler,
 } from "@/lib/auth";
 
 type AuthContextValue = {
@@ -57,6 +58,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => window.cancelAnimationFrame(animationFrame);
+  }, []);
+
+  // 后端返回 401 时统一清空本地 token 缓存；页面由会话驱动的守卫自动跳回登录页。
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      removeStoredSession();
+      setSession(null);
+    });
+    return () => setUnauthorizedHandler(null);
   }, []);
 
   const value = useMemo<AuthContextValue>(
