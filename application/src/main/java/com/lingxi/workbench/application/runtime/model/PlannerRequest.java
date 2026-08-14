@@ -16,7 +16,7 @@ public class PlannerRequest {
     private Integer planNo;
     private String failureObservation;
     private Set<String> confirmedCapabilityCodes;
-    private PlanExecutorRuntimeContext planExecutor;
+    private SupervisorRuntimeContext supervisor;
 
     public Set<String> confirmedCapabilityCodes() {
         return confirmedCapabilityCodes == null ? Set.of() : Set.copyOf(confirmedCapabilityCodes);

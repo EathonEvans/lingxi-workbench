@@ -12,8 +12,7 @@ import java.util.Set;
 /**
  * 将 Planner 的纯 JSON 输出解析为受控执行决策。
  * <p>
- * 解析过程设置两层防线：先对 JSON 逐层做字段白名单校验（decision/plan/step/inputs/clarification
- * 五级结构各有独立的允许字段集合），再做结构类型校验（对象、数组及元素类型），
+ * 解析过程设置两层防线：先对 JSON 逐层做字段白名单校验，再做结构类型校验，
  * 确保未声明字段与畸形结构在进入执行链路前被拦截，并统一以 409 协议错误抛出。
  */
 @Component
@@ -21,8 +20,7 @@ public class ExecutionDecisionParser {
 
     private static final Set<String> DECISION_FIELDS = Set.of("action", "capabilityCode", "plan", "clarification");
     private static final Set<String> PLAN_FIELDS = Set.of("title", "steps");
-    private static final Set<String> STEP_FIELDS = Set.of("id", "name", "capabilityCode", "dependsOn", "inputs");
-    private static final Set<String> INPUT_FIELDS = Set.of("name", "source", "stepId", "value");
+    private static final Set<String> STEP_FIELDS = Set.of("id", "name", "capabilityCode", "dependsOn");
     private static final Set<String> CLARIFICATION_FIELDS = Set.of(
             "question", "options", "interactionType", "capabilityCodes");
 
@@ -59,7 +57,7 @@ public class ExecutionDecisionParser {
      * 校验 plan 字段的结构：必须为 JSON 对象且字段命中 plan 白名单。
      * <p>
      * plan 为可选字段，为 null 时直接放行；steps 为可选数组，存在时逐个校验每个 step
-     * 的字段白名单，并递归校验 step.inputs 的结构。
+     * 的字段白名单。
      *
      * @param value plan 字段的原始值
      */
@@ -80,37 +78,12 @@ public class ExecutionDecisionParser {
         if (!(stepsValue instanceof JSONArray steps)) {
             throw invalid("plan.steps必须是数组");
         }
-        // 逐步骤校验：每个 step 必须是 JSON 对象、字段命中白名单，并递归校验其 inputs
+        // 逐步骤校验：每个 step 必须是 JSON 对象且字段命中白名单
         for (Object stepValue : steps) {
             if (!(stepValue instanceof JSONObject step)) {
                 throw invalid("plan.steps中的元素必须是JSON对象");
             }
             requireKnownFields(step, STEP_FIELDS, "plan.step");
-            validateInputsShape(step.get("inputs"));
-        }
-    }
-
-    /**
-     * 校验 plan.step.inputs 的结构：必须为 JSON 数组，且每个元素都是字段命中白名单的 JSON 对象。
-     * <p>
-     * inputs 为可选字段，为 null 时直接放行。
-     *
-     * @param value inputs 字段的原始值
-     */
-    private static void validateInputsShape(Object value) {
-        // inputs 为可选字段：未提供时跳过校验
-        if (value == null) {
-            return;
-        }
-        if (!(value instanceof JSONArray inputs)) {
-            throw invalid("plan.step.inputs必须是数组");
-        }
-        // 逐输入校验：每个 input 必须是 JSON 对象且字段命中白名单
-        for (Object inputValue : inputs) {
-            if (!(inputValue instanceof JSONObject input)) {
-                throw invalid("plan.step.inputs中的元素必须是JSON对象");
-            }
-            requireKnownFields(input, INPUT_FIELDS, "plan.step.input");
         }
     }
 

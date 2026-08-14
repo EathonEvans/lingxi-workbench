@@ -68,12 +68,12 @@ public class FinalSynthesisServiceImpl implements FinalSynthesisService {
     public FinalSynthesisResult synthesize(FinalSynthesisRequest request) {
         // 请求完整性校验：上下文、执行上下文、计划执行器或步骤结果任一缺失即拒绝综合
         if (request == null || request.getConversationContext() == null || request.getExecutionContext() == null
-                || request.getPlanExecutor() == null
+                || request.getSupervisor() == null
                 || request.stepResults().isEmpty()) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "最终综合请求不完整");
         }
         ConversationContext context = request.getConversationContext();
-        AgentRuntimeDefinition definition = request.getPlanExecutor().getAgent().definition();
+        AgentRuntimeDefinition definition = request.getSupervisor().getAgent().definition();
         ApplicationRuntimePolicy runtimePolicy = context.getApplicationSnapshot().definition().runtimePolicy();
         PromptRuntimeSnapshot prompt = promptRuntimeService.resolvePublished(definition.getSystemPromptVersionId());
         String systemPrompt = promptTemplateRenderer

@@ -18,6 +18,8 @@ import lombok.Setter;
 public class ApplicationContextPolicy {
 
     private ContextualizationPolicy contextualization;
+    /** 运营侧选择的场景预设，CUSTOM 时使用自定义预算。 */
+    private ContextBudgetPreset preset;
     private ContextBudgetPolicy budget;
 
     public ContextualizationPolicy contextualization() {
@@ -25,12 +27,17 @@ public class ApplicationContextPolicy {
     }
 
     public ContextBudgetPolicy budget() {
-        return budget == null ? ContextBudgetPolicy.defaults() : budget;
+        return budget == null ? preset().toBudget() : budget;
+    }
+
+    public ContextBudgetPreset preset() {
+        return preset == null ? ContextBudgetPreset.BALANCED : preset;
     }
 
     public static ApplicationContextPolicy defaults() {
         return ApplicationContextPolicy.builder()
                 .contextualization(ContextualizationPolicy.disabled())
+                .preset(ContextBudgetPreset.BALANCED)
                 .budget(ContextBudgetPolicy.defaults())
                 .build();
     }

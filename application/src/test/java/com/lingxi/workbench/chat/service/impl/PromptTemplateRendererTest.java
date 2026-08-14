@@ -58,6 +58,41 @@ class PromptTemplateRendererTest {
     }
 
     @Test
+    void shouldPreserveNestedJsonInSystemPrompt() {
+        String prompt = """
+                输出示例：
+                {"action":"EXECUTE_PLAN","plan":{
+                  "title":"职位分析",
+                  "steps":[]
+                }}
+                """;
+        PromptRuntimeSnapshot snapshot = new PromptRuntimeSnapshot(
+                92L,
+                prompt,
+                List.of(),
+                PromptRole.SYSTEM);
+
+        String rendered = renderer.renderSystemPrompt(snapshot, runtimeVariables());
+
+        assertEquals(prompt, rendered);
+    }
+
+    @Test
+    void shouldRejectMalformedVariableOpening() {
+        PromptRuntimeSnapshot snapshot = new PromptRuntimeSnapshot(
+                93L,
+                "请回答{{user.query}",
+                List.of(),
+                PromptRole.SYSTEM);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> renderer.renderSystemPrompt(snapshot, runtimeVariables()));
+
+        assertTrue(exception.getMessage().contains("无法识别的变量占位符"));
+    }
+
+    @Test
     void shouldRejectUserControlledVariableInSystemPrompt() {
         PromptRuntimeSnapshot snapshot = new PromptRuntimeSnapshot(
                 88L,

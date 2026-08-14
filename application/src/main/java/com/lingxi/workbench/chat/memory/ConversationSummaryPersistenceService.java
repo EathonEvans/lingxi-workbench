@@ -9,6 +9,7 @@ import com.lingxi.workbench.chat.repo.ConversationRepo;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.model.ConversationSummaryMemoryConfig;
+import com.lingxi.workbench.workflow.model.MemoryConfig;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,7 +31,8 @@ public class ConversationSummaryPersistenceService {
      */
     @Transactional
     public boolean isSavedIfCurrent(AssistantCompletedEvent event, ConversationSummarySource source, String summary,
-                                 ConversationSummaryMemoryConfig config) {
+                                    MemoryConfig memoryConfig) {
+        ConversationSummaryMemoryConfig config = memoryConfig.summary();
         ConversationEntity conversation = conversationRepo.lockOwnedById(event.turn().conversationId(), event.userId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "会话不存在"));
         if (!Objects.equals(conversation.getSummarySequenceNo(), source.previousCoveredUserSequenceNo())) {
@@ -44,7 +46,7 @@ public class ConversationSummaryPersistenceService {
         snapshot.setCoveredUserSequenceNo(source.coveredUserSequenceNo());
         snapshot.setSummary(summary);
         snapshot.setPromptVersionId(config.getPromptVersionId());
-        snapshot.setModelInstanceId(config.getChatModelInstanceId());
+        snapshot.setModelInstanceId(memoryConfig.getChatModelInstanceId());
         snapshotRepo.insert(snapshot);
 
         boolean promoted = conversationRepo.isSummaryPromoted(event.turn().conversationId(),

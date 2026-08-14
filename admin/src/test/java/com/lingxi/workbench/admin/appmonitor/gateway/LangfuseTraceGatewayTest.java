@@ -25,7 +25,7 @@ class LangfuseTraceGatewayTest {
                 "0123456789abcdef", OffsetDateTime.now().minusMinutes(1), OffsetDateTime.now());
 
         assertThat(result.status()).isEqualTo(TraceSourceStatus.UNAVAILABLE);
-        assertThat(result.message()).isEqualTo("Langfuse服务地址未配置");
+        assertThat(result.message()).isEqualTo("完整链路数据源未配置");
     }
 
     @Test

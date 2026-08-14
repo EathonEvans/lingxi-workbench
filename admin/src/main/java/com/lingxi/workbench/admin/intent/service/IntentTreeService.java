@@ -54,8 +54,8 @@ public interface IntentTreeService {
      * @param intentTreeId       意图树主键
      * @param active             是否启用
      * @param publishedVersionId 当前生效版本主键
-     * @param name               意图树名称
+     * @param domainId           所属领域主键
      */
-    record IntentTreeReference(Long intentTreeId, boolean active, Long publishedVersionId, String name) {
+    record IntentTreeReference(Long intentTreeId, boolean active, Long publishedVersionId, Long domainId) {
     }
 }

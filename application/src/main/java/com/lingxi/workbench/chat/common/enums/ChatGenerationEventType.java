@@ -11,6 +11,8 @@ public enum ChatGenerationEventType {
     CHUNK("CHUNK", "文本增量"),
     /** Agent 工具执行状态。 */
     TOOL("TOOL", "工具状态"),
+    /** Agent 不包含思维链的安全阶段进度。 */
+    PROGRESS("PROGRESS", "Agent进度"),
     /** 需要用户补充意图或槽位。 */
     CLARIFICATION("CLARIFICATION", "澄清问题"),
     /** Planner开始构建执行决策。 */

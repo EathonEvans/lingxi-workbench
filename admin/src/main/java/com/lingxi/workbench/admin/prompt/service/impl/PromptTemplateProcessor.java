@@ -11,9 +11,10 @@ import com.lingxi.workbench.admin.prompt.model.vo.AvailablePromptVariableCatalog
 import com.lingxi.workbench.admin.prompt.model.vo.AvailablePromptVariableGroupVO;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
-import com.lingxi.workbench.infra.ai.variable.common.enums.BuiltInRuntimeVariable;
-import com.lingxi.workbench.infra.ai.variable.RuntimeVariableCatalog;
+import com.lingxi.workbench.infra.ai.prompt.common.PromptTemplateSyntax;
 import com.lingxi.workbench.infra.ai.prompt.common.constants.PromptVariableConstants;
+import com.lingxi.workbench.infra.ai.variable.RuntimeVariableCatalog;
+import com.lingxi.workbench.infra.ai.variable.common.enums.BuiltInRuntimeVariable;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -53,13 +54,10 @@ public class PromptTemplateProcessor {
         // 步骤2：正则提取模板中引用的所有变量名
         Matcher matcher = VARIABLE_PATTERN.matcher(promptContent);
         Set<String> referencedNames = new LinkedHashSet<>();
-        StringBuilder unmatched = new StringBuilder();
         while (matcher.find()) {
             referencedNames.add(matcher.group(1));
-            matcher.appendReplacement(unmatched, "");
         }
-        matcher.appendTail(unmatched);
-        if (unmatched.indexOf("{{") >= 0 || unmatched.indexOf("}}") >= 0) {
+        if (PromptTemplateSyntax.hasInvalidVariable(promptContent)) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "Prompt中存在格式不正确的变量");
         }
 

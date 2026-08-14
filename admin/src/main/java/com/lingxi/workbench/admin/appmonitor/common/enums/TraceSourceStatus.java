@@ -7,10 +7,10 @@ import lombok.RequiredArgsConstructor;
 @Getter
 @RequiredArgsConstructor
 public enum TraceSourceStatus {
-    AVAILABLE("AVAILABLE", "Langfuse数据可用"),
-    DISABLED("DISABLED", "Langfuse查询未启用"),
-    EMPTY("EMPTY", "Langfuse暂未返回数据"),
-    UNAVAILABLE("UNAVAILABLE", "Langfuse查询不可用");
+    AVAILABLE("AVAILABLE", "完整链路数据可用"),
+    DISABLED("DISABLED", "完整链路查询未启用"),
+    EMPTY("EMPTY", "完整链路暂未返回数据"),
+    UNAVAILABLE("UNAVAILABLE", "完整链路查询不可用");
 
     private final String code;
     private final String describe;

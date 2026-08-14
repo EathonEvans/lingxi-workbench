@@ -17,6 +17,7 @@ public class AiApplicationEntity extends TimeEntity {
     private String name;
     private String code;
     private String description;
+    private Long domainId;
     private EnableStatus status;
     private Long publishedVersionId;
     private Long createdBy;

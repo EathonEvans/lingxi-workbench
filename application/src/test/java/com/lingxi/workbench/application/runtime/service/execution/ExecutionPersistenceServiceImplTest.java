@@ -19,8 +19,8 @@ import com.lingxi.workbench.application.runtime.repo.ExecutionRunRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionStepAttemptRepo;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
-import com.lingxi.workbench.infra.ai.agent.model.PlanExecutorPolicy;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
+import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -51,7 +51,7 @@ class ExecutionPersistenceServiceImplTest {
                 .turn(new ChatTurnBO(20L, 21L, 22L, 1))
                 .userId(23L)
                 .runId(runId)
-                .orchestratorAgent(planExecutor())
+                .orchestratorAgent(supervisor())
                 .build());
 
         ArgumentCaptor<ExecutionRunEntity> runCaptor = ArgumentCaptor.forClass(ExecutionRunEntity.class);
@@ -100,14 +100,14 @@ class ExecutionPersistenceServiceImplTest {
                 mock(ExecutionStepAttemptRepo.class), eventRepo, new ExecutionDecisionChecksum());
     }
 
-    private static AgentRuntimeSnapshot planExecutor() {
+    private static AgentRuntimeSnapshot supervisor() {
         return new AgentRuntimeSnapshot(40L, 41L, AgentRuntimeDefinition.builder()
-                .schemaVersion(6)
-                .agentType(AgentType.PLAN_EXECUTOR)
+                .schemaVersion(com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION)
+                .role(AgentRole.SUPERVISOR)
                 .chatModelInstanceId(31L)
                 .systemPromptVersionId(32L)
                 .toolCodes(java.util.List.of())
-                .planExecutorPolicy(PlanExecutorPolicy.defaults())
+                .planPolicy(PlanPolicy.defaults())
                 .build());
     }
 }

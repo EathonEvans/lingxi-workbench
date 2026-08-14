@@ -92,7 +92,7 @@ class RuntimeVariablesTest {
         variables.put(RuntimeVariableAccessors.COLLABORATION_MAX_DELEGATIONS, 3);
         variables.put(RuntimeVariableAccessors.SESSION_HISTORY, List.of(new ChatHistoryMessage(ChatHistoryMessage.Role.USER, "父Agent历史")));
 
-        RuntimeVariables child = variables.forkForAgentTask("独立子任务");
+        RuntimeVariables child = variables.forkForQuery("独立子任务");
 
         assertEquals(7L, child.require(RuntimeVariableAccessors.USER_ID));
         assertEquals("独立子任务", child.require(RuntimeVariableAccessors.USER_QUERY));

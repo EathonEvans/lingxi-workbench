@@ -22,8 +22,6 @@ public class ConversationSummaryMemoryConfig {
 
     /** 是否启用滚动摘要。 */
     private boolean enabled;
-    /** Chat 模型实例主键。 */
-    private Long chatModelInstanceId;
     /** 已发布 PromptVersion 主键。 */
     private Long promptVersionId;
     /** 触发摘要的最小新增轮次数，默认 12。 */

@@ -10,7 +10,6 @@ import com.lingxi.workbench.application.runtime.model.InteractionResolution;
 import com.lingxi.workbench.application.runtime.model.InteractionResumeTarget;
 import com.lingxi.workbench.application.runtime.model.entity.InteractionSessionEntity;
 import com.lingxi.workbench.application.runtime.repo.InteractionSessionRepo;
-import com.lingxi.workbench.application.runtime.service.interaction.InteractionSessionService;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.request.ClarificationResponseRequest;
@@ -87,7 +86,7 @@ public class InteractionSessionServiceImpl implements InteractionSessionService 
                 .originalQuery(session.getContext().getOriginalQuery())
                 .response(suppliedValue)
                 .type(session.getInteractionType())
-                .confirmedCapabilityCodes(session.getInteractionType() == InteractionSessionType.RISK_CONFIRMATION
+                .confirmCapCodes(session.getInteractionType() == InteractionSessionType.RISK_CONFIRMATION
                         ? Set.copyOf(session.getContext().capabilityCodes())
                         : Set.of())
                 .resumeTarget(new InteractionResumeTarget(

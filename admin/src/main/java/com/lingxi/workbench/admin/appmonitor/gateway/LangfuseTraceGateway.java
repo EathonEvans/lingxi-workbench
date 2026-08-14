@@ -41,31 +41,31 @@ public class LangfuseTraceGateway {
 
     public LangfuseTraceResult findTrace(String traceId, OffsetDateTime from, OffsetDateTime to) {
         if (!properties.isApiEnabled()) {
-            return result(TraceSourceStatus.DISABLED, "Langfuse只读查询未启用", List.of());
+            return result(TraceSourceStatus.DISABLED, "完整链路查询未启用", List.of());
         }
         if (CharSequenceUtil.isBlank(properties.getBaseUrl())) {
-            return result(TraceSourceStatus.UNAVAILABLE, "Langfuse服务地址未配置", List.of());
+            return result(TraceSourceStatus.UNAVAILABLE, "完整链路数据源未配置", List.of());
         }
         if (CharSequenceUtil.isBlank(properties.getPublicKey()) || CharSequenceUtil.isBlank(properties.getSecretKey())) {
-            return result(TraceSourceStatus.UNAVAILABLE, "Langfuse API Key未配置", List.of());
+            return result(TraceSourceStatus.UNAVAILABLE, "完整链路访问凭据未配置", List.of());
         }
         try {
             HttpResponse<String> response = httpClient.send(request(traceId, from, to), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) {
                 log.warn("Langfuse Trace查询失败，traceId={}，statusCode={}", traceId, response.statusCode());
-                return result(TraceSourceStatus.UNAVAILABLE, "Langfuse查询失败，HTTP " + response.statusCode(), List.of());
+                return result(TraceSourceStatus.UNAVAILABLE, "完整链路查询失败，HTTP " + response.statusCode(), List.of());
             }
             List<LangfuseObservationBO> observations = parse(response.body());
             if (observations.isEmpty()) {
-                return result(TraceSourceStatus.EMPTY, "Langfuse暂未返回该Trace，可能仍在摄取", List.of());
+                return result(TraceSourceStatus.EMPTY, "完整链路暂未就绪，数据可能仍在同步", List.of());
             }
-            return result(TraceSourceStatus.AVAILABLE, "Langfuse链路数据已同步", observations);
+            return result(TraceSourceStatus.AVAILABLE, "完整链路数据已同步", observations);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            return result(TraceSourceStatus.UNAVAILABLE, "Langfuse查询被中断", List.of());
+            return result(TraceSourceStatus.UNAVAILABLE, "完整链路查询被中断", List.of());
         } catch (RuntimeException | java.io.IOException exception) {
             log.warn("Langfuse Trace查询不可用，traceId={}，errorType={}", traceId, exception.getClass().getSimpleName());
-            return result(TraceSourceStatus.UNAVAILABLE, "Langfuse查询不可用", List.of());
+            return result(TraceSourceStatus.UNAVAILABLE, "完整链路数据暂不可用", List.of());
         }
     }
 

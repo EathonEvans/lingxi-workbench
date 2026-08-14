@@ -40,7 +40,7 @@ class ConversationSummaryPersistenceServiceTest {
         when(conversationRepo.lockOwnedById(10L, 7L)).thenReturn(Optional.of(conversation));
         when(conversationRepo.isSummaryPromoted(10L, 3, 7, "新摘要")).thenReturn(true);
 
-        boolean saved = service.isSavedIfCurrent(event, source, "新摘要", event.memoryConfig().summary());
+        boolean saved = service.isSavedIfCurrent(event, source, "新摘要", event.memoryConfig());
 
         ArgumentCaptor<ConversationSummarySnapshotEntity> snapshotCaptor =
                 ArgumentCaptor.forClass(ConversationSummarySnapshotEntity.class);
@@ -65,7 +65,8 @@ class ConversationSummaryPersistenceServiceTest {
         conversation.setSummarySequenceNo(9);
         when(conversationRepo.lockOwnedById(10L, 7L)).thenReturn(Optional.of(conversation));
 
-        boolean saved = service.isSavedIfCurrent(event(), source(), "过期摘要", event().memoryConfig().summary());
+        AssistantCompletedEvent event = event();
+        boolean saved = service.isSavedIfCurrent(event, source(), "过期摘要", event.memoryConfig());
 
         assertFalse(saved);
         verify(snapshotRepo, never()).insert(org.mockito.ArgumentMatchers.any());
@@ -76,9 +77,9 @@ class ConversationSummaryPersistenceServiceTest {
 
     private static AssistantCompletedEvent event() {
         MemoryConfig config = MemoryConfig.builder()
+                .chatModelInstanceId(21L)
                 .summary(ConversationSummaryMemoryConfig.builder()
                         .enabled(true)
-                        .chatModelInstanceId(21L)
                         .promptVersionId(30L)
                         .build())
                 .build();

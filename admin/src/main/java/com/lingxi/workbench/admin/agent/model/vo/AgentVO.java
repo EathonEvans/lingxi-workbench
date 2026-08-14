@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.agent.model.vo;
 
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -20,7 +20,8 @@ public class AgentVO {
     private String name;
     private String code;
     private String description;
-    private AgentType agentType;
+    private AgentRole role;
+    private String domainId;
     private EnableStatus status;
     private String publishedVersionId;
     private Integer publishedVersionNo;

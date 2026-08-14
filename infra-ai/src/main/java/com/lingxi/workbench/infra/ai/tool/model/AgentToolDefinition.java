@@ -17,6 +17,8 @@ import java.util.Objects;
 @EqualsAndHashCode
 public final class AgentToolDefinition {
 
+    private static final int PLATFORM_MAX_CALLS = 2;
+
     /**
      * 稳定工具编码，同时作为模型 Function name。
      */
@@ -33,13 +35,42 @@ public final class AgentToolDefinition {
      * 工具执行语义；未声明时按存在副作用处理，禁止自动复用结果。
      */
     private final AgentToolExecutionMode executionMode;
+    /**
+     * 单轮模型响应允许请求该工具的最大次数；小于等于零时使用平台上限。
+     */
+    private final int maxCallsPerRound;
+    /**
+     * 单次 Agent 执行允许调用该工具的最大次数；小于等于零时使用平台上限。
+     */
+    private final int maxCallsPerExecution;
 
     @Builder
-    private AgentToolDefinition(String code, String displayName, String description, AgentToolExecutionMode executionMode) {
+    private AgentToolDefinition(String code, String displayName, String description, AgentToolExecutionMode executionMode,
+                                int maxCallsPerRound, int maxCallsPerExecution) {
         this.code = requireText(code, "工具编码");
         this.displayName = requireText(displayName, "工具展示名称");
         this.description = requireText(description, "工具描述");
         this.executionMode = Objects.requireNonNullElse(executionMode, AgentToolExecutionMode.SIDE_EFFECT);
+        this.maxCallsPerRound = maxCallsPerRound;
+        this.maxCallsPerExecution = maxCallsPerExecution;
+    }
+
+    /** 返回单轮生效上限。 */
+    public int effectiveMaxCallsPerRound() {
+        return effectiveLimit(maxCallsPerRound);
+    }
+
+    /** 返回单次执行生效上限。 */
+    public int effectiveMaxCallsPerExecution() {
+        return effectiveLimit(maxCallsPerExecution);
+    }
+
+    /** 平台统一限制每个工具最多调用两次，工具定义只允许进一步收紧。 */
+    private static int effectiveLimit(int configuredLimit) {
+        if (configuredLimit <= 0) {
+            return PLATFORM_MAX_CALLS;
+        }
+        return Math.min(configuredLimit, PLATFORM_MAX_CALLS);
     }
 
     private static String requireText(String value, String fieldName) {

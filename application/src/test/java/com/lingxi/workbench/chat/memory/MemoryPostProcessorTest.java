@@ -60,7 +60,7 @@ class MemoryPostProcessorTest {
 
         assertDoesNotThrow(() -> processor.onAssistantCompleted(event));
 
-        verify(summaryService).generate(event, event.memoryConfig().summary());
+        verify(summaryService).generate(event, event.memoryConfig());
         verifyNoInteractions(profileService, interactionService);
     }
 
@@ -77,20 +77,18 @@ class MemoryPostProcessorTest {
 
     private static AssistantCompletedEvent event() {
         MemoryConfig config = MemoryConfig.builder()
+                .chatModelInstanceId(21L)
+                .embeddingModelInstanceId(20L)
                 .profile(UserProfileMemoryConfig.builder()
                         .enabled(true)
-                        .chatModelInstanceId(21L)
                         .promptVersionId(31L)
                         .build())
                 .interactionRecord(InteractionRecordMemoryConfig.builder()
                         .enabled(true)
-                        .embeddingModelInstanceId(20L)
-                        .chatModelInstanceId(21L)
                         .promptVersionId(32L)
                         .build())
                 .summary(ConversationSummaryMemoryConfig.builder()
                         .enabled(true)
-                        .chatModelInstanceId(21L)
                         .promptVersionId(30L)
                         .build())
                 .build();

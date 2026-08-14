@@ -30,6 +30,7 @@ public class IntentTreeRepo {
                                 .or()
                                 .like(IntentTreeEntity::getCode, query.getKeyword()))
                         .eq(Objects.nonNull(query.getStatus()), IntentTreeEntity::getStatus, query.getStatus())
+                        .eq(Objects.nonNull(query.getDomainId()), IntentTreeEntity::getDomainId, query.getDomainId())
                         .orderByDesc(IntentTreeEntity::getUpdatedAt)
                         .orderByDesc(IntentTreeEntity::getId));
         return PageResult.convert(page);

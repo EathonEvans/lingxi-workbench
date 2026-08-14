@@ -52,6 +52,8 @@ class KnowledgeSearchAgentToolFactoryTest {
                 .contains("query")
                 .doesNotContain("knowledgeBaseId", "knowledgeIndexVersionId", "embeddingModelInstanceId");
         assertThat(tool.definition().getExecutionMode()).isEqualTo(DETERMINISTIC_READ_ONLY);
+        assertThat(tool.definition().effectiveMaxCallsPerRound()).isEqualTo(2);
+        assertThat(tool.definition().effectiveMaxCallsPerExecution()).isEqualTo(2);
         assertThat(output).contains("支持七天退款", "产品手册", "第3页");
         verify(knowledgeSearchService).searchVersion("退款条件", 1L, 81L, embeddingConfig(), 5, 0.65D);
     }
@@ -92,10 +94,12 @@ class KnowledgeSearchAgentToolFactoryTest {
 
         AgentTool tool = factory.create(capability());
         String first = tool.callback().call("{\"query\":\"退款条件\"}");
+        assertThat(tool.shouldFinalizeAfterSuccess()).isFalse();
         String second = tool.callback().call("{\"query\":\"退款政策\"}");
 
         assertThat(first).contains("\"status\":\"FOUND\"", "\"newEvidenceCount\":1");
         assertThat(second).contains("\"status\":\"SATURATED\"", "\"newEvidenceCount\":0", "停止调用知识搜索");
+        assertThat(tool.shouldFinalizeAfterSuccess()).isTrue();
     }
 
     @Test
@@ -112,6 +116,7 @@ class KnowledgeSearchAgentToolFactoryTest {
 
         assertThat(first).contains("\"status\":\"EMPTY\"");
         assertThat(second).contains("\"status\":\"SATURATED\"", "停止调用知识搜索");
+        assertThat(tool.shouldFinalizeAfterSuccess()).isTrue();
     }
 
     private void prepareTokenEstimator() {

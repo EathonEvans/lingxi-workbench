@@ -4,7 +4,7 @@ import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
 import jakarta.validation.Valid;
-import com.lingxi.workbench.infra.ai.agent.model.PlanExecutorPolicy;
+import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -40,7 +40,7 @@ public class SaveAgentDraftRequest {
     @Valid
     private GenerationPolicy generationPolicy;
     @Valid
-    private PlanExecutorPolicy planExecutorPolicy;
+    private PlanPolicy planPolicy;
     @NotNull(message = "缺少草稿revision")
     @Min(value = 0, message = "草稿revision不能小于0")
     private Long expectedRevision;

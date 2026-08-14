@@ -7,7 +7,7 @@ import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
 import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
 import com.lingxi.workbench.framework.persistence.model.TimeEntity;
-import com.lingxi.workbench.infra.ai.agent.model.PlanExecutorPolicy;
+import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.apache.ibatis.type.JdbcType;
@@ -38,9 +38,9 @@ public class AgentDraftEntity extends TimeEntity {
     private RetrievalPolicy retrievalPolicy;
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private GenerationPolicy generationPolicy;
-    /** Plan Executor 专属结构限制，其他 Agent 类型必须为空。 */
+    /** 主Agent专属规划边界，领域专家必须为空。 */
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
-    private PlanExecutorPolicy planExecutorPolicy;
+    private PlanPolicy planPolicy;
     private Long revision;
     private String changeNote;
     private Long createdBy;

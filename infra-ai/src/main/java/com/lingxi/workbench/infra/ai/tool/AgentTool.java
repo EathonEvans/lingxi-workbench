@@ -20,4 +20,13 @@ public interface AgentTool {
      * 返回交给 Spring AI 执行的工具回调。
      */
     ToolCallback callback();
+
+    /**
+     * 工具成功后是否应强制进入最终回答。
+     *
+     * <p>用于知识检索饱和等由工具结果才能确定的收敛条件，默认不改变 Agent 循环。</p>
+     */
+    default boolean shouldFinalizeAfterSuccess() {
+        return false;
+    }
 }

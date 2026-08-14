@@ -1,7 +1,7 @@
 package com.lingxi.workbench.application.runtime.service.capability;
 
 import com.lingxi.workbench.application.runtime.service.agent.AgentExecutorRegistry;
-import com.lingxi.workbench.application.runtime.service.agent.ConversationalAgentExecutor;
+import com.lingxi.workbench.application.runtime.service.agent.SpecialistAgentExecutor;
 
 import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
@@ -14,7 +14,7 @@ import com.lingxi.workbench.application.runtime.repo.WorkflowRuntimeRepo;
 import com.lingxi.workbench.application.runtime.service.agent.AgentChatService;
 import com.lingxi.workbench.application.runtime.service.agent.AgentRuntimeService;
 import com.lingxi.workbench.application.runtime.service.tool.ToolRuntimeService;
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
@@ -31,6 +31,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -141,7 +142,7 @@ class CapabilityExecutionServiceImplTest {
                                                           ApplicationCapabilityChecksum checksum,
                                                           TokenCountEstimator estimator) {
         AgentExecutorRegistry registry = mock(AgentExecutorRegistry.class);
-        when(registry.require(AgentType.REACT)).thenReturn(new ConversationalAgentExecutor(agentChatService));
+        when(registry.require(AgentRole.SPECIALIST)).thenReturn(new SpecialistAgentExecutor(agentChatService));
         @SuppressWarnings("unchecked")
         ObjectProvider<AgentExecutorRegistry> registryProvider = mock(ObjectProvider.class);
         when(registryProvider.getObject()).thenReturn(registry);
@@ -174,8 +175,8 @@ class CapabilityExecutionServiceImplTest {
 
     private static AgentRuntimeSnapshot agentSnapshot() {
         return new AgentRuntimeSnapshot(60L, 70L, AgentRuntimeDefinition.builder()
-                .schemaVersion(6)
-                .agentType(AgentType.REACT)
+                .schemaVersion(AGENT_SCHEMA_VERSION)
+                .role(AgentRole.SPECIALIST)
                 .chatModelInstanceId(99L)
                 .toolCodes(List.of())
                 .build());

@@ -34,7 +34,7 @@ import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.InteractionRecordMemoryConfig;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
 import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
@@ -103,9 +103,9 @@ class ApplicationChatExecutionServiceImplTest {
         ApplicationCapabilityDefinition capability = capability(
                 "refund_workflow", ApplicationCapabilityType.WORKFLOW, 40L, 50L);
         MemoryConfig memory = MemoryConfig.builder()
+                .embeddingModelInstanceId(70L)
                 .interactionRecord(InteractionRecordMemoryConfig.builder()
                         .enabled(true)
-                        .embeddingModelInstanceId(70L)
                         .build())
                 .build();
         AppRuntimeSnapshot snapshot = routedSnapshot(mapping, capability, memory, false);
@@ -115,7 +115,7 @@ class ApplicationChatExecutionServiceImplTest {
             executionId.set(request.getContext().getExecutionId());
             assertEquals("refund_workflow", request.getCapability().getCode());
             assertEquals("退款问题", request.getInputs().getString("query"));
-            assertEquals(70L, request.getContext().getMemoryConfig().interactionRecord().getEmbeddingModelInstanceId());
+            assertEquals(70L, request.getContext().getMemoryConfig().getEmbeddingModelInstanceId());
             assertEquals("测试用户", registry.require(request.getContext().getExecutionId())
                     .getRuntimeVariables().require(RuntimeVariableAccessors.USER_NAME));
             request.getContext().recordUsage(TokenUsage.of(5, 1, 6));
@@ -431,8 +431,8 @@ class ApplicationChatExecutionServiceImplTest {
 
     private static AgentRuntimeSnapshot agentSnapshot(Long agentId, Long agentVersionId) {
         return new AgentRuntimeSnapshot(agentId, agentVersionId, AgentRuntimeDefinition.builder()
-                .schemaVersion(6)
-                .agentType(AgentType.REACT)
+                .schemaVersion(com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION)
+                .role(AgentRole.SPECIALIST)
                 .chatModelInstanceId(80L)
                 .toolCodes(List.of())
                 .build());

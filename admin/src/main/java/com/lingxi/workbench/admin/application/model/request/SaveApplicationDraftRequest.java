@@ -5,7 +5,6 @@ import com.lingxi.workbench.workflow.model.MemoryConfig;
 import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
-import com.lingxi.workbench.workflow.model.FallbackAgent;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -28,10 +27,7 @@ public class SaveApplicationDraftRequest {
     /** 路由前问题重写与共享上下文分区预算。 */
     @Valid
     private ApplicationContextPolicy contextPolicy;
-    /** fallback 角色对能力目录的引用。 */
-    @Valid
-    private FallbackAgent fallback;
-    /** Application 可见的 Agent、Workflow 与 Tool 能力。 */
+    /** Application 显式绑定的 Workflow 能力；Agent 能力由领域范围自动生成。 */
     @Valid
     private CapabilityCatalogSnapshot capabilityCatalog;
     /** 单轮 Application 执行总预算。 */

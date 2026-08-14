@@ -6,6 +6,7 @@ import com.lingxi.workbench.chat.model.bo.ChatErrorBO;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatStepOutputEventBO;
 import com.lingxi.workbench.chat.model.vo.ChatChunkVO;
+import com.lingxi.workbench.chat.model.vo.ChatAgentProgressVO;
 import com.lingxi.workbench.chat.model.vo.ChatErrorVO;
 import com.lingxi.workbench.chat.model.vo.ChatExecutionTimelineVO;
 import com.lingxi.workbench.chat.model.vo.ChatSnapshotVO;
@@ -14,6 +15,7 @@ import com.lingxi.workbench.chat.model.vo.ChatSubAgentEventVO;
 import com.lingxi.workbench.chat.model.vo.ChatToolEventVO;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
+import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
 import org.springframework.http.codec.ServerSentEvent;
 
 import java.util.Objects;
@@ -41,6 +43,7 @@ public final class ChatGenerationSseEventRouter {
         return switch (event.type()) {
             case CHUNK -> messageEvent(event);
             case TOOL -> executionEvent(event);
+            case PROGRESS -> progressEvent(event);
             case CLARIFICATION -> clarificationEvent(event);
             case PLANNING, PLAN, STEP, REPLANNING -> timelineEvent(event);
             case STEP_OUTPUT -> stepOutputEvent(event);
@@ -49,6 +52,22 @@ public final class ChatGenerationSseEventRouter {
             case FAILED -> errorEvent(event);
             case CANCELLED -> cancelledEvent();
         };
+    }
+
+    private static ServerSentEvent<ChatAgentProgressVO> progressEvent(ChatGenerationEventBO event) {
+        AgentProgressEvent progress = Objects.requireNonNull(event.progress(), "Agent进度内容不能为空");
+        ChatAgentProgressVO payload = ChatAgentProgressVO.builder()
+                .sequence(event.sequence())
+                .phase(progress.phase().getCode())
+                .message(progress.message())
+                .roundNo(progress.roundNo())
+                .toolCallCount(progress.toolCallCount())
+                .build();
+        return ServerSentEvent.<ChatAgentProgressVO>builder()
+                .id(String.valueOf(event.sequence()))
+                .event("agent_progress")
+                .data(payload)
+                .build();
     }
 
     private static ServerSentEvent<ChatExecutionTimelineVO> timelineEvent(ChatGenerationEventBO event) {

@@ -2,6 +2,7 @@ package com.lingxi.workbench.chat.model.bo;
 
 import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
+import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -17,6 +18,7 @@ public final class ChatGenerationEventBO {
     private final long sequence;
     private final String content;
     private final AgentToolExecutionEvent tool;
+    private final AgentProgressEvent progress;
     private final ChatClarificationEventBO clarification;
     private final ChatExecutionTimelineEventBO execution;
     private final ChatStepOutputEventBO stepOutput;
@@ -35,6 +37,14 @@ public final class ChatGenerationEventBO {
                 .type(ChatGenerationEventType.TOOL)
                 .sequence(sequence)
                 .tool(tool)
+                .build();
+    }
+
+    public static ChatGenerationEventBO progress(long sequence, AgentProgressEvent progress) {
+        return ChatGenerationEventBO.builder()
+                .type(ChatGenerationEventType.PROGRESS)
+                .sequence(sequence)
+                .progress(progress)
                 .build();
     }
 
@@ -107,6 +117,10 @@ public final class ChatGenerationEventBO {
 
     public AgentToolExecutionEvent tool() {
         return tool;
+    }
+
+    public AgentProgressEvent progress() {
+        return progress;
     }
 
     public ChatClarificationEventBO clarification() {

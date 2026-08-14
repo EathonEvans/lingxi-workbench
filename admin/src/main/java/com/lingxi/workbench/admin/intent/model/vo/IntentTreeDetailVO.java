@@ -18,6 +18,7 @@ public class IntentTreeDetailVO {
     private final String name;
     private final String code;
     private final String description;
+    private final String domainId;
     private final EnableStatus status;
     private final String publishedVersionId;
     private final Integer publishedVersionNo;

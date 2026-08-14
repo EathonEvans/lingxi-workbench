@@ -23,6 +23,6 @@ public record AgentRuntimeSnapshot(
         if (!Objects.equals(definition.getSchemaVersion(), AGENT_SCHEMA_VERSION)) {
             throw new IllegalArgumentException("AgentVersion运行定义版本不受支持");
         }
-        Objects.requireNonNull(definition.getAgentType(), "AgentVersion类型不能为空");
+        Objects.requireNonNull(definition.getRole(), "AgentVersion类型不能为空");
     }
 }

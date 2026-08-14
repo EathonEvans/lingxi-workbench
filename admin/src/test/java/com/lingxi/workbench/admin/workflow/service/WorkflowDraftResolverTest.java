@@ -3,7 +3,7 @@ package com.lingxi.workbench.admin.workflow.service;
 import com.lingxi.workbench.admin.agent.service.AgentReferenceService;
 import com.lingxi.workbench.admin.intent.service.IntentTreeService;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowEdgeDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowNodeDefinition;
@@ -48,7 +48,7 @@ class WorkflowDraftResolverTest {
     @Test
     void shouldRejectIntentTreeWithoutPublishedVersion() {
         when(intentTreeService.findReference(20L))
-                .thenReturn(Optional.of(new IntentTreeService.IntentTreeReference(20L, true, null, "售后意图")));
+                .thenReturn(Optional.of(new IntentTreeService.IntentTreeReference(20L, true, null, 1L)));
 
         assertThatThrownBy(() -> resolver.resolveForPublish(draftDefinition()))
                 .isInstanceOf(BusinessException.class)
@@ -56,13 +56,13 @@ class WorkflowDraftResolverTest {
     }
 
     private void stubPublishedResources() {
-        AgentReferenceService.AgentIdentity identity = new AgentReferenceService.AgentIdentity(10L, "售后Agent", "处理售后请求", AgentType.REACT);
+        AgentReferenceService.AgentIdentity identity = new AgentReferenceService.AgentIdentity(10L, "售后Agent", "处理售后请求", AgentRole.SPECIALIST);
         when(agentReferenceService.findAgent(10L))
-                .thenReturn(Optional.of(new AgentReferenceService.AgentReference(identity, true, 12L)));
+                .thenReturn(Optional.of(new AgentReferenceService.AgentReference(identity, true, 12L, 1L)));
         when(agentReferenceService.findVersion(10L, 12L)).thenReturn(Optional.of(
-                new AgentReferenceService.AgentVersionReference(12L, AGENT_SCHEMA_VERSION, AgentType.REACT)));
+                new AgentReferenceService.AgentVersionReference(12L, AGENT_SCHEMA_VERSION, AgentRole.SPECIALIST)));
         when(intentTreeService.findReference(20L))
-                .thenReturn(Optional.of(new IntentTreeService.IntentTreeReference(20L, true, 22L, "售后意图")));
+                .thenReturn(Optional.of(new IntentTreeService.IntentTreeReference(20L, true, 22L, 1L)));
         when(intentTreeService.findVersion(20L, 22L)).thenReturn(Optional.of(new IntentTreeDefinition(
                 1, 30L, new IntentRoutingPolicy(5, new BigDecimal("0.65"), new BigDecimal("0.08")), List.of())));
     }

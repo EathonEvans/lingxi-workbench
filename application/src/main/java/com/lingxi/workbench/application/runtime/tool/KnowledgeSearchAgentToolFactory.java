@@ -60,7 +60,7 @@ public class KnowledgeSearchAgentToolFactory {
                 .description(definition.getDescription())
                 .inputType(KnowledgeSearchInput.class)
                 .build();
-        return new KnowledgeSearchAgentTool(definition, callback);
+        return new KnowledgeSearchAgentTool(definition, callback, evidenceTracker);
     }
 
     private KnowledgeSearchOutput execute(AgentRuntimeDefinition.KnowledgeSearchCapability capability, KnowledgeSearchInput input,
@@ -173,7 +173,34 @@ public class KnowledgeSearchAgentToolFactory {
         }
     }
 
-    private record KnowledgeSearchAgentTool(AgentToolDefinition definition, ToolCallback callback) implements AgentTool {
+    /** 将检索证据收敛状态反馈给平台 Agent 循环。 */
+    private static final class KnowledgeSearchAgentTool implements AgentTool {
+
+        private final AgentToolDefinition definition;
+        private final ToolCallback callback;
+        private final KnowledgeSearchEvidenceTracker evidenceTracker;
+
+        private KnowledgeSearchAgentTool(AgentToolDefinition definition, ToolCallback callback,
+                                         KnowledgeSearchEvidenceTracker evidenceTracker) {
+            this.definition = definition;
+            this.callback = callback;
+            this.evidenceTracker = evidenceTracker;
+        }
+
+        @Override
+        public AgentToolDefinition definition() {
+            return definition;
+        }
+
+        @Override
+        public ToolCallback callback() {
+            return callback;
+        }
+
+        @Override
+        public boolean shouldFinalizeAfterSuccess() {
+            return evidenceTracker.isSaturated();
+        }
     }
 
     @Getter
@@ -213,6 +240,7 @@ public class KnowledgeSearchAgentToolFactory {
 
         private final Set<Long> seenChunkIds = new HashSet<>();
         private int emptyAttempts;
+        private boolean saturated;
 
         private synchronized KnowledgeSearchProgress record(List<Long> chunkIds) {
             List<Long> validChunkIds = chunkIds.stream().filter(Objects::nonNull).distinct().toList();
@@ -222,6 +250,7 @@ public class KnowledgeSearchAgentToolFactory {
                 if (emptyAttempts > 1) {
                     status = KnowledgeSearchStatus.SATURATED;
                 }
+                saturated = status == KnowledgeSearchStatus.SATURATED;
                 return new KnowledgeSearchProgress(status, 0);
             }
             int newEvidenceCount = (int) validChunkIds.stream().filter(seenChunkIds::add).count();
@@ -230,7 +259,12 @@ public class KnowledgeSearchAgentToolFactory {
             if (newEvidenceCount == 0 || newEvidenceRatio < MIN_NEW_EVIDENCE_RATIO) {
                 status = KnowledgeSearchStatus.SATURATED;
             }
+            saturated = status == KnowledgeSearchStatus.SATURATED;
             return new KnowledgeSearchProgress(status, newEvidenceCount);
+        }
+
+        private synchronized boolean isSaturated() {
+            return saturated;
         }
     }
 

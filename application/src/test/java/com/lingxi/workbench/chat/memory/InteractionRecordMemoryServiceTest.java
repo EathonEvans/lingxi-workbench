@@ -30,7 +30,7 @@ class InteractionRecordMemoryServiceTest {
                 7L, new ChatTurnBO(10L, 11L, 12L, 8), 30L, MemoryConfig.disabled());
         when(storeService.findExistingRecordId(12L)).thenReturn(Optional.of(99L));
 
-        Long recordId = service.extract(event, "USER: hello", InteractionRecordMemoryConfig.disabled());
+        Long recordId = service.extract(event, "USER: hello", event.memoryConfig());
 
         assertEquals(99L, recordId);
         verify(storeService).findExistingRecordId(12L);

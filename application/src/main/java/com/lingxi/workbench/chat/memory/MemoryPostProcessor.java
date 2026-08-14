@@ -58,7 +58,7 @@ public class MemoryPostProcessor {
         MemoryConfig config = event.memoryConfig();
         // 会话摘要：按开关独立执行，不依赖后续的消息窗口加载
         if (config.summary().isEnabled()) {
-            run("会话摘要", event, () -> summaryService.generate(event, config.summary()));
+            run("会话摘要", event, () -> summaryService.generate(event, config));
         }
         boolean profileEnabled = config.profile().isEnabled();
         boolean interactionEnabled = config.interactionRecord().isEnabled();
@@ -86,10 +86,10 @@ public class MemoryPostProcessor {
         // 画像与交互记录共享同一份历史文本，按开关分别触发提取
         String history = buildHistory(messages);
         if (profileEnabled) {
-            run("用户画像", event, () -> profileService.extract(event, history, config.profile()));
+            run("用户画像", event, () -> profileService.extract(event, history, config));
         }
         if (interactionEnabled) {
-            run("交互记录", event, () -> interactionService.extract(event, history, config.interactionRecord()));
+            run("交互记录", event, () -> interactionService.extract(event, history, config));
         }
     }
 

@@ -8,8 +8,7 @@ import lombok.RequiredArgsConstructor;
 @Getter
 @RequiredArgsConstructor
 public enum ExecutionDecisionAction {
-    EXECUTE_REACT("EXECUTE_REACT", "执行ReAct Agent"),
-    EXECUTE_WORKFLOW("EXECUTE_WORKFLOW", "执行Workflow"),
+    EXECUTE_AGENT("EXECUTE_AGENT", "执行领域专家"),
     EXECUTE_PLAN("EXECUTE_PLAN", "执行计划"),
     CLARIFY("CLARIFY", "请求用户澄清");
 

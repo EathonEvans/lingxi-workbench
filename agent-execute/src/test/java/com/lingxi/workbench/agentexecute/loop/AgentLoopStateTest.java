@@ -1,17 +1,21 @@
 package com.lingxi.workbench.agentexecute.loop;
 
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
+import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.model.AgentExecutionBudget;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionContext;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolRuntimeConfig;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.tool.ToolCallback;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 class AgentLoopStateTest {
 
@@ -61,11 +65,16 @@ class AgentLoopStateTest {
     }
 
     @Test
-    void shouldRejectToolBatchBeyondRemainingBudget() {
-        AgentLoopState state = new AgentLoopState(runtimeConfig(10, 2, 100, 100));
-        assertTrue(state.tryRecordToolCalls(1));
+    void shouldOnlyApproveTwoCallsForSameToolPerExecution() {
+        AgentLoopState state = new AgentLoopState(runtimeConfig(10, 10, 100, 100));
+        AgentLoopState.ToolCallSelection first = state.selectToolCalls(List.of(toolCall("call-1")));
+        AgentLoopState.ToolCallSelection second = state.selectToolCalls(List.of(
+                toolCall("call-2"), toolCall("call-3")));
 
-        assertFalse(state.tryRecordToolCalls(2));
+        assertEquals(1, first.approvedCalls().size());
+        assertEquals(1, second.approvedCalls().size());
+        assertTrue(second.limited());
+        assertTrue(state.shouldFinalize());
     }
 
     @Test
@@ -87,8 +96,10 @@ class AgentLoopStateTest {
 
         state.beginModelCall();
         state.beginModelCall();
-        assertTrue(state.tryRecordToolCalls(2));
+        AgentLoopState.ToolCallSelection selection = state.selectToolCalls(List.of(
+                toolCall("call-1"), toolCall("call-2")));
 
+        assertEquals(2, selection.approvedCalls().size());
         assertEquals(2, modelCalls.get());
         assertEquals(2, toolCalls.get());
     }
@@ -108,7 +119,7 @@ class AgentLoopStateTest {
                                                         int maxFinalizationTokens,
                                                         AgentExecutionBudget executionBudget) {
         return AgentToolRuntimeConfig.builder()
-                .tools(List.of())
+                .tools(List.of(tool()))
                 .executionContext(AgentToolExecutionContext.builder()
                         .executionId("loop-test")
                         .userId(1L)
@@ -124,5 +135,29 @@ class AgentLoopStateTest {
                 .maxResultCharacters(1000)
                 .executionBudget(executionBudget)
                 .build();
+    }
+
+    private static AssistantMessage.ToolCall toolCall(String id) {
+        return new AssistantMessage.ToolCall(id, "function", "test_tool", "{}");
+    }
+
+    private static AgentTool tool() {
+        AgentToolDefinition definition = AgentToolDefinition.builder()
+                .code("test_tool")
+                .displayName("测试工具")
+                .description("测试工具调用边界")
+                .build();
+        ToolCallback callback = mock(ToolCallback.class);
+        return new AgentTool() {
+            @Override
+            public AgentToolDefinition definition() {
+                return definition;
+            }
+
+            @Override
+            public ToolCallback callback() {
+                return callback;
+            }
+        };
     }
 }

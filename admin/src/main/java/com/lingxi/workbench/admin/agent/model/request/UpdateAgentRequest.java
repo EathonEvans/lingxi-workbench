@@ -8,7 +8,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/** 修改 Agent 元信息请求；编码和类型创建后不可变。 */
+/** 修改 Agent 元信息请求；编码和角色创建后不可变。 */
 @Data
 @Builder
 @NoArgsConstructor
@@ -19,4 +19,5 @@ public class UpdateAgentRequest {
     private String name;
     @Size(max = 500, message = "Agent描述不能超过500个字符")
     private String description;
+    private Long domainId;
 }

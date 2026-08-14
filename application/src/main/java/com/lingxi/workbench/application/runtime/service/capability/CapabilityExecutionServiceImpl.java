@@ -19,7 +19,7 @@ import com.lingxi.workbench.application.runtime.service.tool.ToolRuntimeService;
 import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
@@ -151,8 +151,8 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
     /**
      * 执行 AGENT 类型能力。
      * <p>前置校验锁定版本存在、预解析 Agent 与能力锁定目标一致、checksum 与发布快照一致；
-     * PLAN_EXECUTOR 类型 Agent 仅允许作为 Application fallback 入口执行；
-     * 最终按 Agent 类型从执行器注册表取对应执行器执行。
+     * 主Agent仅允许作为 Application fallback 入口执行，领域专家可由快速路由或计划步骤调用；
+     * 最终按 Agent 角色从执行器注册表取对应执行器执行。
      * @param request 能力执行请求
      * @return 能力执行结果
      */
@@ -168,20 +168,20 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
                 || !Objects.equals(agent.agentVersionId(), capability.getTargetVersionId())) {
             throw invalid("预解析AgentVersion与能力锁定目标不一致");
         }
-        // PLAN_EXECUTOR 类型 Agent 只能作为 Application fallback 入口执行
-        if (agent.definition().getAgentType() == AgentType.PLAN_EXECUTOR) {
+        // 主Agent只能作为Application fallback入口，防止计划把另一个主Agent作为业务步骤递归执行
+        if (agent.definition().getRole() == AgentRole.SUPERVISOR) {
             ConversationContext conversationContext = request.getContext().getConversationContext();
             if (conversationContext == null || conversationContext.getApplicationSnapshot().definition() == null || !Objects.equals(
                     capability.getCode(),
                     conversationContext.getApplicationSnapshot().definition().fallback().cap())) {
-                throw invalid("Plan Executor只能作为Application fallback入口执行");
+                throw invalid("主Agent只能作为Application fallback入口执行");
             }
         }
         // checksum 校验：锁定版本配置必须与 Application 发布快照一致
         requireChecksum(capability, checksum.calculate(capability.getTargetVersionId()));
-        // 按 Agent 类型从执行器注册表取对应执行器并分发执行
+        // 按 Agent 角色从执行器注册表取对应执行器并分发执行
         return agentExecutorRegistryProvider.getObject()
-                .require(agent.definition().getAgentType())
+                .require(agent.definition().getRole())
                 .execute(AgentExecutionRequest.builder()
                         .capability(capability)
                         .agent(agent)

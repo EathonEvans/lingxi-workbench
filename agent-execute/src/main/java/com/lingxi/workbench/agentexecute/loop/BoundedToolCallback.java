@@ -66,7 +66,7 @@ public final class BoundedToolCallback implements ToolCallback {
         String invocationId = UUID.randomUUID().toString();
         Optional<String> reusableResult = loopState.toolLedger().findReusableResult(tool.definition(), toolInput);
         if (reusableResult.isPresent()) {
-            loopState.requestFinalResponse();
+            loopState.requestFinalResponse("确定性工具已复用相同结果");
             publishToolEvent(invocationId, AgentToolExecutionStatus.REUSED, 0L, null);
             log.info("Agent工具复用已有结果，executionId={}，toolCode={}", executionContext.getExecutionId(), getToolDefinition().name());
             return loopState.toolLedger().reuseResponse();
@@ -82,6 +82,9 @@ public final class BoundedToolCallback implements ToolCallback {
                 throw new AgentToolException("工具返回结果超过字符上限：" + getToolDefinition().name() + "，limit=" + maxResultCharacters);
             }
             loopState.toolLedger().recordSuccessfulResult(tool.definition(), toolInput, result);
+            if (tool.shouldFinalizeAfterSuccess()) {
+                loopState.requestFinalResponse("工具结果已达到有效信息收敛边界");
+            }
             long durationMillis = elapsedMillis(startedAt);
             publishToolEvent(invocationId, AgentToolExecutionStatus.SUCCEEDED, durationMillis, null);
             log.info("Agent工具执行完成，executionId={}，toolCode={}，resultCharacters={}，durationMs={}", executionContext.getExecutionId(), getToolDefinition().name(), result.length(), durationMillis);

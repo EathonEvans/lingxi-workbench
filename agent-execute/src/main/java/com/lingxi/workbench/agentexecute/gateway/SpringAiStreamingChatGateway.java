@@ -2,6 +2,8 @@ package com.lingxi.workbench.agentexecute.gateway;
 
 import com.lingxi.workbench.agentexecute.loop.AgentLoopState;
 import com.lingxi.workbench.agentexecute.loop.BoundedToolCallback;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentProgressPhase;
+import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
@@ -14,10 +16,12 @@ import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import io.micrometer.observation.contextpropagation.ObservationThreadLocalAccessor;
 import lombok.RequiredArgsConstructor;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.model.MessageAggregator;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingManager;
@@ -56,7 +60,6 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
     private final ObservationRegistry observationRegistry;
     private final ToolCallingManager toolCallingManager;
     private final MessageAggregator messageAggregator = new MessageAggregator();
-
 
     /**
      * 将业务层对话命令转换为 Spring AI Prompt 并发起流式模型调用。
@@ -162,7 +165,11 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
      */
     private Flux<ChatStreamChunk> streamAnswer(OpenAiChatModel chatModel, Prompt prompt, AgentToolRuntimeConfig runtimeConfig, AgentLoopState loopState) {
         return Flux.defer(() -> {
+            AgentProgressPhase phase = loopState.completedModelCalls() == 0
+                    ? AgentProgressPhase.ANALYZING
+                    : AgentProgressPhase.EVALUATING;
             loopState.beginModelCall();
+            publishProgress(runtimeConfig, loopState, phase);
 
             AtomicReference<ChatResponse> aggregatedResponse = new AtomicReference<>();
             // 消息聚合：MessageAggregator 透传原始分片的同时，把整轮流聚合成完整 ChatResponse 存入引用，
@@ -187,21 +194,25 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
 
         // 工具循环预算控制：执行工具前先完成本轮调用记账，预算或额度边界命中时立即收敛为最终回答，
         // 避免为注定终止的循环再消耗一次模型调用。
-        int requestedToolCalls = Objects.requireNonNull(completedResponse.getResult()).getOutput().getToolCalls().size();
         if (loopState.shouldFinalizeBeforeToolExecution()) {
-            return streamFinalAnswer(chatModel, prompt, loopState, "模型工作预算已到边界");
+            return streamFinalAnswer(chatModel, prompt, runtimeConfig, loopState, "模型工作预算已到边界");
         }
-        if (!loopState.tryRecordToolCalls(requestedToolCalls)) {
-            return streamFinalAnswer(chatModel, prompt, loopState, "工具调用额度已用尽");
+        List<AssistantMessage.ToolCall> requestedCalls = Objects.requireNonNull(
+                completedResponse.getResult()).getOutput().getToolCalls();
+        AgentLoopState.ToolCallSelection selection = loopState.selectToolCalls(requestedCalls);
+        if (selection.approvedCalls().isEmpty()) {
+            return streamFinalAnswer(chatModel, prompt, runtimeConfig, loopState, selection.reason());
         }
+        publishProgress(runtimeConfig, loopState, AgentProgressPhase.USING_TOOLS);
+        ChatResponse approvedResponse = restrictToolCalls(completedResponse, selection.approvedCalls());
 
         // 工具循环主体：执行模型请求的工具，把“Assistant tool_calls + 工具结果”回填进消息历史后，
         // 携带新历史再次请求模型，形成“模型→工具→模型”迭代，直到模型不再请求工具。
-        return executeToolCalling(prompt, completedResponse)
+        return executeToolCalling(prompt, approvedResponse)
                 .flatMapMany(result -> {
                     Prompt answerPrompt = new Prompt(result.conversationHistory(), prompt.getOptions());
                     if (loopState.shouldFinalize()) {
-                        return streamFinalAnswer(chatModel, answerPrompt, loopState, "运行预算已到边界或工具结果已经重复");
+                        return streamFinalAnswer(chatModel, answerPrompt, runtimeConfig, loopState, loopState.finalizationReason());
                     }
                     return streamAnswer(chatModel, answerPrompt, runtimeConfig, loopState);
                 });
@@ -210,10 +221,12 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
     /**
      * 预算接近上限或命中重复调用时，保留一次禁用工具的模型调用用于整理已有证据。
      */
-    private Flux<ChatStreamChunk> streamFinalAnswer(OpenAiChatModel chatModel, Prompt prompt, AgentLoopState loopState,
+    private Flux<ChatStreamChunk> streamFinalAnswer(OpenAiChatModel chatModel, Prompt prompt,
+                                                    AgentToolRuntimeConfig runtimeConfig, AgentLoopState loopState,
                                                     String reason) {
         return Flux.defer(() -> {
             loopState.beginFinalModelCall();
+            publishProgress(runtimeConfig, loopState, AgentProgressPhase.FINALIZING);
             List<Message> messages = new ArrayList<>(prompt.getInstructions());
             // 终答阶段：把终止原因写入系统提示词并清空全部工具（tool_choice=none），
             // 强制模型基于已有证据收敛答案，防止再次进入工具循环。
@@ -224,6 +237,29 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
                     .build();
             return streamAnswer(chatModel, new Prompt(messages, options));
         });
+    }
+
+    /**
+     * 只保留平台批准的工具调用，防止供应商忽略串行选项后批量执行过多工具。
+     */
+    private static ChatResponse restrictToolCalls(ChatResponse response, List<AssistantMessage.ToolCall> approvedCalls) {
+        Generation original = Objects.requireNonNull(response.getResult(), "工具响应结果不能为空");
+        AssistantMessage output = original.getOutput();
+        AssistantMessage approvedOutput = AssistantMessage.builder()
+                .content(output.getText())
+                .properties(output.getMetadata())
+                .toolCalls(approvedCalls)
+                .media(output.getMedia())
+                .build();
+        Generation approvedGeneration = new Generation(approvedOutput, original.getMetadata());
+        return new ChatResponse(List.of(approvedGeneration), response.getMetadata());
+    }
+
+    /** 发布平台生成的安全阶段状态，不传递模型思维链。 */
+    private static void publishProgress(AgentToolRuntimeConfig runtimeConfig, AgentLoopState loopState,
+                                        AgentProgressPhase phase) {
+        runtimeConfig.resolveProgressPublisher().publish(new AgentProgressEvent(
+                phase, phase.getDescribe(), loopState.completedModelCalls(), loopState.completedToolCalls()));
     }
 
     /**

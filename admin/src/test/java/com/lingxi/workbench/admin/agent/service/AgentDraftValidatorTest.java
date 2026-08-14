@@ -1,7 +1,7 @@
 package com.lingxi.workbench.admin.agent.service;
 
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
-import com.lingxi.workbench.infra.ai.agent.model.PlanExecutorPolicy;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
+import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
@@ -11,6 +11,8 @@ import com.lingxi.workbench.admin.agent.model.entity.AgentEntity;
 import com.lingxi.workbench.admin.agent.model.vo.AgentValidationIssueVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentValidationResultVO;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
+import com.lingxi.workbench.admin.domain.model.entity.DomainEntity;
+import com.lingxi.workbench.admin.domain.repo.DomainRepo;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeBaseEntity;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeBaseRepo;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeIndexVersionService;
@@ -48,6 +50,9 @@ import java.util.Set;
 import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class AgentDraftValidatorTest {
 
@@ -72,6 +77,13 @@ class AgentDraftValidatorTest {
         ToolParameterSchemaFactory parameterSchemaFactory = new ToolParameterSchemaFactory();
         ToolService toolService = new ToolServiceImpl(new InMemoryToolRepo(), new ToolConverter(parameterSchemaFactory), parameterSchemaFactory, null, null);
         knowledgeIndexVersionService = new StubKnowledgeIndexVersionService();
+        DomainRepo domainRepo = mock(DomainRepo.class);
+        DomainEntity domain = new DomainEntity();
+        domain.setId(1L);
+        domain.setRootId(1L);
+        domain.setDepth(1);
+        domain.setStatus(EnableStatus.ACTIVE);
+        when(domainRepo.findById(anyLong())).thenReturn(Optional.of(domain));
         validator = new AgentDraftValidator(
                 modelRepo,
                 promptRepo,
@@ -79,7 +91,8 @@ class AgentDraftValidatorTest {
                 knowledgeBaseRepo,
                 Validation.buildDefaultValidatorFactory().getValidator(),
                 toolService,
-                knowledgeIndexVersionService);
+                knowledgeIndexVersionService,
+                domainRepo);
         prepareModelsAndKnowledge();
         preparePrompt(
                 SYSTEM_VERSION_ID,
@@ -94,7 +107,7 @@ class AgentDraftValidatorTest {
                 USER_VERSION_ID,
                 31L,
                 PromptRole.USER,
-                reactUserVariables());
+                specialistUserVariables());
 
         AgentValidationResultVO result = validator.validate(
                 activeAgent(),
@@ -118,7 +131,7 @@ class AgentDraftValidatorTest {
                 USER_VERSION_ID,
                 31L,
                 PromptRole.USER,
-                reactUserVariables());
+                specialistUserVariables());
 
         AgentValidationResultVO result = validator.validate(
                 activeAgent(),
@@ -158,7 +171,7 @@ class AgentDraftValidatorTest {
                 USER_VERSION_ID,
                 31L,
                 PromptRole.USER,
-                reactUserVariables());
+                specialistUserVariables());
         AgentDraftEntity draft = validDraft();
         draft.setToolCodes(List.of("system_current_time"));
 
@@ -176,26 +189,7 @@ class AgentDraftValidatorTest {
     }
 
     @Test
-    void shouldAcceptSupervisorWithoutKnowledgeAndRetrievalVariables() {
-        preparePrompt(
-                USER_VERSION_ID,
-                31L,
-                PromptRole.USER,
-                List.of(
-                        variable("user.query", PromptVariableType.STRING, true),
-                        variable("collaboration.max_delegations", PromptVariableType.INTEGER, true)));
-        ModelInstanceEntity chatModel = model(CHAT_MODEL_ID, ModelType.CHAT, List.of(ModelCapability.STREAMING, ModelCapability.TOOL_CALLING));
-        chatModel.setMaxTokens(4096);
-        chatModel.setContextWindow(16000);
-        modelRepo.put(chatModel);
-
-        AgentValidationResultVO result = validator.validate(activeAgent(AgentType.SUPERVISOR), validDraft(), null);
-
-        assertTrue(result.valid());
-    }
-
-    @Test
-    void shouldRejectCollaborationVariableForReactAgent() {
+    void shouldRejectCollaborationVariableForSpecialist() {
         preparePrompt(
                 USER_VERSION_ID,
                 31L,
@@ -205,7 +199,7 @@ class AgentDraftValidatorTest {
                         variable("collaboration.max_delegations", PromptVariableType.INTEGER, true)));
 
         AgentValidationResultVO result = validator.validate(
-                activeAgent(AgentType.REACT),
+                activeAgent(AgentRole.SPECIALIST),
                 validDraft(),
                 null);
         List<String> issueCodes = result.issues().stream()
@@ -217,47 +211,21 @@ class AgentDraftValidatorTest {
     }
 
     @Test
-    void shouldRequireToolCallingCapabilityForSupervisor() {
-        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, List.of(variable("user.query", PromptVariableType.STRING, true)));
-
-        AgentValidationResultVO result = validator.validate(activeAgent(AgentType.SUPERVISOR), validDraft(), null);
-        List<String> issueCodes = result.issues().stream().map(AgentValidationIssueVO::code).toList();
-
-        assertFalse(result.valid());
-        assertTrue(issueCodes.contains("CHAT_MODEL_TOOL_CALLING_REQUIRED"));
-    }
-
-    @Test
-    void shouldRejectRemovedKnowledgeVariableInSupervisorUserPrompt() {
-        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, userVariablesWithRemovedKnowledgeContext());
-        ModelInstanceEntity chatModel = model(CHAT_MODEL_ID, ModelType.CHAT, List.of(ModelCapability.STREAMING, ModelCapability.TOOL_CALLING));
-        chatModel.setMaxTokens(4096);
-        chatModel.setContextWindow(16000);
-        modelRepo.put(chatModel);
-
-        AgentValidationResultVO result = validator.validate(activeAgent(AgentType.SUPERVISOR), validDraft(), null);
-        List<String> issueCodes = result.issues().stream().map(AgentValidationIssueVO::code).toList();
-
-        assertFalse(result.valid());
-        assertTrue(issueCodes.contains("USER_PROMPT_VARIABLE_UNSUPPORTED"));
-    }
-
-    @Test
-    void shouldAcceptReactAgentWithoutKnowledgeSearch() {
-        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, reactUserVariables());
+    void shouldAcceptSpecialistWithoutKnowledgeSearch() {
+        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, specialistUserVariables());
         AgentDraftEntity draft = validDraft();
         draft.setRetrievalPolicy(null);
 
-        AgentValidationResultVO result = validator.validate(activeAgent(AgentType.REACT), draft, null);
+        AgentValidationResultVO result = validator.validate(activeAgent(AgentRole.SPECIALIST), draft, null);
 
         assertTrue(result.valid());
     }
 
     @Test
-    void shouldRequireToolCallingAndValidateIndexWhenReactBindsKnowledge() {
-        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, reactUserVariables());
+    void shouldRequireToolCallingAndValidateIndexWhenSpecialistBindsKnowledge() {
+        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, specialistUserVariables());
 
-        AgentValidationResultVO result = validator.validate(activeAgent(AgentType.REACT), validDraft(), knowledgeBinding());
+        AgentValidationResultVO result = validator.validate(activeAgent(AgentRole.SPECIALIST), validDraft(), knowledgeBinding());
         List<String> issueCodes = result.issues().stream().map(AgentValidationIssueVO::code).toList();
 
         assertFalse(result.valid());
@@ -266,24 +234,24 @@ class AgentDraftValidatorTest {
     }
 
     @Test
-    void shouldAcceptPublishableReactKnowledgeSearch() {
-        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, reactUserVariables());
+    void shouldAcceptPublishableSpecialistKnowledgeSearch() {
+        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, specialistUserVariables());
         ModelInstanceEntity chatModel = model(CHAT_MODEL_ID, ModelType.CHAT, List.of(ModelCapability.STREAMING, ModelCapability.TOOL_CALLING));
         chatModel.setMaxTokens(4096);
         chatModel.setContextWindow(16000);
         modelRepo.put(chatModel);
 
-        AgentValidationResultVO result = validator.validate(activeAgent(AgentType.REACT), validDraft(), knowledgeBinding());
+        AgentValidationResultVO result = validator.validate(activeAgent(AgentRole.SPECIALIST), validDraft(), knowledgeBinding());
 
         assertTrue(result.valid());
         assertTrue(knowledgeIndexVersionService.wasValidated(40L, EMBEDDING_MODEL_ID));
     }
 
     @Test
-    void shouldRejectRemovedKnowledgeContextVariableForReact() {
+    void shouldRejectRemovedKnowledgeContextVariableForSpecialist() {
         preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, userVariablesWithRemovedKnowledgeContext());
 
-        AgentValidationResultVO result = validator.validate(activeAgent(AgentType.REACT), validDraft(), null);
+        AgentValidationResultVO result = validator.validate(activeAgent(AgentRole.SPECIALIST), validDraft(), null);
         List<String> issueCodes = result.issues().stream().map(AgentValidationIssueVO::code).toList();
 
         assertFalse(result.valid());
@@ -292,14 +260,14 @@ class AgentDraftValidatorTest {
 
     @Test
     void shouldReturnKnowledgeIndexFailureAsValidationIssue() {
-        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, reactUserVariables());
+        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, specialistUserVariables());
         ModelInstanceEntity chatModel = model(CHAT_MODEL_ID, ModelType.CHAT, List.of(ModelCapability.STREAMING, ModelCapability.TOOL_CALLING));
         chatModel.setMaxTokens(4096);
         chatModel.setContextWindow(16000);
         modelRepo.put(chatModel);
         knowledgeIndexVersionService.failWith("知识索引向量缺失或维度不一致");
 
-        AgentValidationResultVO result = validator.validate(activeAgent(AgentType.REACT), validDraft(), knowledgeBinding());
+        AgentValidationResultVO result = validator.validate(activeAgent(AgentRole.SPECIALIST), validDraft(), knowledgeBinding());
         List<String> issueCodes = result.issues().stream().map(AgentValidationIssueVO::code).toList();
 
         assertFalse(result.valid());
@@ -307,13 +275,13 @@ class AgentDraftValidatorTest {
     }
 
     @Test
-    void shouldAcceptValidPlanExecutorContract() {
+    void shouldAcceptValidSupervisorContract() {
         AgentDraftEntity draft = validDraft();
         draft.setUserPromptVersionId(null);
-        draft.setPlanExecutorPolicy(PlanExecutorPolicy.defaults());
+        draft.setPlanPolicy(PlanPolicy.defaults());
 
         AgentValidationResultVO result = validator.validate(
-                activeAgent(AgentType.PLAN_EXECUTOR),
+                activeAgent(AgentRole.SUPERVISOR),
                 draft,
                 null);
 
@@ -321,17 +289,17 @@ class AgentDraftValidatorTest {
     }
 
     @Test
-    void shouldRejectPlanExecutorUserPromptToolsKnowledgeAndInvalidPolicy() {
+    void shouldRejectSupervisorUserPromptToolsKnowledgeAndInvalidPolicy() {
         AgentDraftEntity draft = validDraft();
         draft.setToolCodes(List.of("system_current_time"));
-        draft.setPlanExecutorPolicy(PlanExecutorPolicy.builder()
+        draft.setPlanPolicy(PlanPolicy.builder()
                 .maxSteps(21)
                 .maxReplans(4)
                 .maxProtocolRepairAttempts(4)
                 .build());
 
         AgentValidationResultVO result = validator.validate(
-                activeAgent(AgentType.PLAN_EXECUTOR),
+                activeAgent(AgentRole.SUPERVISOR),
                 draft,
                 knowledgeBinding());
         List<String> issueCodes = result.issues().stream()
@@ -342,28 +310,28 @@ class AgentDraftValidatorTest {
         assertTrue(issueCodes.contains("USER_PROMPT_UNSUPPORTED"));
         assertTrue(issueCodes.contains("TOOL_CODES_UNSUPPORTED"));
         assertTrue(issueCodes.contains("KNOWLEDGE_UNSUPPORTED"));
-        assertTrue(issueCodes.contains("PLAN_EXECUTOR_POLICY_INVALID"));
+        assertTrue(issueCodes.contains("PLAN_POLICY_INVALID"));
     }
 
     @Test
-    void shouldRejectPlanExecutorPolicyOnConversationalAgent() {
+    void shouldRejectPlanPolicyOnConversationalAgent() {
         preparePrompt(
                 USER_VERSION_ID,
                 31L,
                 PromptRole.USER,
-                reactUserVariables());
+                specialistUserVariables());
         AgentDraftEntity draft = validDraft();
-        draft.setPlanExecutorPolicy(PlanExecutorPolicy.defaults());
+        draft.setPlanPolicy(PlanPolicy.defaults());
 
         AgentValidationResultVO result = validator.validate(
-                activeAgent(AgentType.REACT),
+                activeAgent(AgentRole.SPECIALIST),
                 draft,
                 null);
 
         assertFalse(result.valid());
         assertTrue(result.issues().stream()
                 .map(AgentValidationIssueVO::code)
-                .anyMatch("PLAN_EXECUTOR_POLICY_UNSUPPORTED"::equals));
+                .anyMatch("PLAN_POLICY_UNSUPPORTED"::equals));
     }
 
     private void prepareModelsAndKnowledge() {
@@ -419,13 +387,16 @@ class AgentDraftValidatorTest {
     }
 
     private static AgentEntity activeAgent() {
-        return activeAgent(AgentType.REACT);
+        return activeAgent(AgentRole.SPECIALIST);
     }
 
-    private static AgentEntity activeAgent(AgentType agentType) {
+    private static AgentEntity activeAgent(AgentRole role) {
         AgentEntity agent = new AgentEntity();
         agent.setStatus(EnableStatus.ACTIVE);
-        agent.setAgentType(agentType);
+        agent.setRole(role);
+        if (role == AgentRole.SPECIALIST) {
+            agent.setDomainId(1L);
+        }
         return agent;
     }
 
@@ -455,7 +426,7 @@ class AgentDraftValidatorTest {
                 variable("knowledge.context", PromptVariableType.STRING, false));
     }
 
-    private static List<PromptVariableDefinition> reactUserVariables() {
+    private static List<PromptVariableDefinition> specialistUserVariables() {
         return List.of(variable("user.query", PromptVariableType.STRING, true));
     }
 

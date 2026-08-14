@@ -19,13 +19,8 @@ public class PlanStep {
     private String name;
     private String capabilityCode;
     private List<String> dependsOn;
-    private List<StepInputReference> inputs;
 
     public List<String> dependsOn() {
         return dependsOn == null ? List.of() : List.copyOf(dependsOn);
-    }
-
-    public List<StepInputReference> inputs() {
-        return inputs == null ? List.of() : List.copyOf(inputs);
     }
 }

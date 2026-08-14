@@ -9,7 +9,7 @@ import lombok.Getter;
 import java.util.List;
 import java.util.Objects;
 
-/** 使用锁定 Plan Executor AgentVersion 对已完成步骤结果进行最终综合。 */
+/** 使用锁定的主Agent版本对已完成步骤结果进行最终综合。 */
 @Getter
 @Builder
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
@@ -18,7 +18,7 @@ public class FinalSynthesisRequest {
     private final ChatExecutionContext executionContext;
     private final List<PlanStepResult> stepResults;
     private final String limitation;
-    private final PlanExecutorRuntimeContext planExecutor;
+    private final SupervisorRuntimeContext supervisor;
 
     public List<PlanStepResult> stepResults() {
         return List.copyOf(Objects.requireNonNullElse(stepResults, List.of()));

@@ -3,6 +3,7 @@ package com.lingxi.workbench.chat.model.bo;
 import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
+import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -36,6 +37,7 @@ public class ChatGenerationEventCacheBO {
     private ChatClarificationEventBO clarification;
     private ChatExecutionTimelineEventBO execution;
     private ChatStepOutputEventBO stepOutput;
+    private AgentProgressEvent progress;
 
     /**
      * 将运行时事件转换为可安全缓存的结构。
@@ -47,7 +49,8 @@ public class ChatGenerationEventCacheBO {
                 .sequence(event.sequence())
                 .content(event.content())
                 .execution(event.execution())
-                .stepOutput(event.stepOutput());
+                .stepOutput(event.stepOutput())
+                .progress(event.progress());
         if (Objects.nonNull(event.clarification())) {
             builder.clarification(event.clarification());
         }
@@ -76,6 +79,8 @@ public class ChatGenerationEventCacheBO {
                     .durationMillis(durationMillis)
                     .errorCode(errorCode)
                     .build());
+            case PROGRESS -> ChatGenerationEventBO.progress(
+                    sequence, Objects.requireNonNull(progress, "Agent进度缓存内容不能为空"));
             case CLARIFICATION -> ChatGenerationEventBO.clarification(
                     sequence,
                     Objects.requireNonNull(clarification, "澄清事件缓存内容不能为空"));

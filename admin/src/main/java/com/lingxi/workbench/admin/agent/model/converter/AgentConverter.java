@@ -30,7 +30,8 @@ public class AgentConverter {
                 .name(agent.getName())
                 .code(agent.getCode())
                 .description(agent.getDescription())
-                .agentType(agent.getAgentType())
+                .role(agent.getRole())
+                .domainId(stringId(agent.getDomainId()))
                 .status(agent.getStatus())
                 .publishedVersionId(stringId(agent.getPublishedVersionId()))
                 .publishedVersionNo(Objects.isNull(publishedVersion)
@@ -52,7 +53,8 @@ public class AgentConverter {
                 .name(agent.getName())
                 .code(agent.getCode())
                 .description(agent.getDescription())
-                .agentType(agent.getAgentType())
+                .role(agent.getRole())
+                .domainId(stringId(agent.getDomainId()))
                 .status(agent.getStatus())
                 .publishedVersionId(stringId(agent.getPublishedVersionId()))
                 .publishedVersionNo(Objects.isNull(publishedVersion)
@@ -79,7 +81,7 @@ public class AgentConverter {
                 .knowledge(toKnowledgeVO(knowledge))
                 .retrievalPolicy(draft.getRetrievalPolicy())
                 .generationPolicy(draft.getGenerationPolicy())
-                .planExecutorPolicy(draft.getPlanExecutorPolicy())
+                .planPolicy(draft.getPlanPolicy())
                 .revision(draft.getRevision())
                 .changeNote(draft.getChangeNote())
                 .build();
@@ -118,7 +120,7 @@ public class AgentConverter {
     private AgentDefinitionVO toDefinitionVO(AgentDefinition definition) {
         return AgentDefinitionVO.builder()
                 .schemaVersion(definition.getSchemaVersion())
-                .agentType(definition.getAgentType())
+                .role(definition.getRole())
                 .chatModelInstanceId(stringId(definition.getChatModelInstanceId()))
                 .systemPromptVersionId(stringId(definition.getSystemPromptVersionId()))
                 .userPromptVersionId(stringId(definition.getUserPromptVersionId()))
@@ -126,7 +128,7 @@ public class AgentConverter {
                 .toolPolicy(definition.getToolPolicy())
                 .knowledgeSearch(definition.getKnowledgeSearch())
                 .generationPolicy(definition.getGenerationPolicy())
-                .planExecutorPolicy(definition.getPlanExecutorPolicy())
+                .planPolicy(definition.getPlanPolicy())
                 .build();
     }
 
@@ -151,6 +153,6 @@ public class AgentConverter {
                 && Objects.equals(version.getSchemaVersion(), AGENT_SCHEMA_VERSION)
                 && Objects.nonNull(version.getDefinitionSnapshot())
                 && Objects.equals(version.getDefinitionSnapshot().getSchemaVersion(), AGENT_SCHEMA_VERSION)
-                && version.getDefinitionSnapshot().getAgentType() == agent.getAgentType();
+                && version.getDefinitionSnapshot().getRole() == agent.getRole();
     }
 }

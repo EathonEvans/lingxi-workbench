@@ -71,8 +71,8 @@ public class WorkflowDraftResolver {
         if (!agent.active()) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "节点" + nodeId + "引用的Agent已停用");
         }
-        if (agent.identity().agentType() == com.lingxi.workbench.infra.ai.agent.common.enums.AgentType.PLAN_EXECUTOR) {
-            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "节点" + nodeId + "不能引用PLAN_EXECUTOR Agent");
+        if (agent.identity().role() != com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole.SPECIALIST) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "节点" + nodeId + "只能引用领域专家Agent");
         }
         Long versionId = Optional.ofNullable(config.agentVersionId()).orElse(agent.publishedVersionId());
         AgentReferenceService.AgentVersionReference version = Objects.isNull(versionId)
@@ -80,7 +80,7 @@ public class WorkflowDraftResolver {
                 : agentReferenceService.findVersion(config.agentId(), versionId).orElse(null);
         if (Objects.isNull(version)
                 || version.schemaVersion() != AGENT_SCHEMA_VERSION
-                || version.agentType() != agent.identity().agentType()) {
+                || version.role() != agent.identity().role()) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "节点" + nodeId + "没有可用的Agent正式版本");
         }
         return new AgentNodeConfig(config.agentId(), version.id(), config.inputMapping(), config.outputMapping());

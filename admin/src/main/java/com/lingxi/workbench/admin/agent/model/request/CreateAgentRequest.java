@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.agent.model.request;
 
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -27,6 +27,7 @@ public class CreateAgentRequest {
     private String code;
     @Size(max = 500, message = "Agent描述不能超过500个字符")
     private String description;
-    @NotNull(message = "请选择Agent类型")
-    private AgentType agentType;
+    @NotNull(message = "请选择Agent角色")
+    private AgentRole role;
+    private Long domainId;
 }

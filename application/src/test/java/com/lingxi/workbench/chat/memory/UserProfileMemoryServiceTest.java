@@ -66,12 +66,14 @@ class UserProfileMemoryServiceTest {
                 7L, new ChatTurnBO(10L, 11L, 12L, 8), 40L, MemoryConfig.disabled());
     }
 
-    private static UserProfileMemoryConfig config(UserProfileUpdateStrategy strategy) {
-        return UserProfileMemoryConfig.builder()
-                .enabled(true)
+    private static MemoryConfig config(UserProfileUpdateStrategy strategy) {
+        return MemoryConfig.builder()
                 .chatModelInstanceId(21L)
-                .promptVersionId(30L)
-                .updateStrategy(strategy)
+                .profile(UserProfileMemoryConfig.builder()
+                        .enabled(true)
+                        .promptVersionId(30L)
+                        .updateStrategy(strategy)
+                        .build())
                 .build();
     }
 }

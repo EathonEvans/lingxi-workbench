@@ -68,7 +68,7 @@ class WorkflowDefinitionJsonTest {
         ApplicationAgentReference supervisor = new ApplicationAgentReference(9007199254740993L, 9007199254740995L, "协调Agent", "负责规划与汇总");
         ApplicationAgentReference member = new ApplicationAgentReference(9007199254740997L, 9007199254740999L, "售后专家", "处理售后问题");
         AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(
-                true, supervisor, List.of(member), new AgentCollaborationLimits(1));
+                supervisor, List.of(member), List.of(100L), List.of(200L));
         ApplicationCapabilityDefinition fallbackCap = ApplicationCapabilityDefinition.builder()
                 .code("default_agent")
                 .type(ApplicationCapabilityType.AGENT)
@@ -89,6 +89,8 @@ class WorkflowDefinitionJsonTest {
         assertThat(restored).isEqualTo(source);
         assertThat(json).contains("\"agentId\":\"9007199254740993\"");
         assertThat(restored.collaboration().members().getFirst().agentId()).isEqualTo(9007199254740997L);
+        assertThat(restored.collaboration().excludedDomainIds()).containsExactly(100L);
+        assertThat(restored.collaboration().excludedAgentIds()).containsExactly(200L);
         assertThat(json).contains("\"agentVersionId\":\"9007199254740999\"");
     }
 

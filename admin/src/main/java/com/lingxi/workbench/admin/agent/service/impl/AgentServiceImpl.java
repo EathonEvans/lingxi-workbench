@@ -1,8 +1,8 @@
 package com.lingxi.workbench.admin.agent.service.impl;
 
 import cn.hutool.core.text.CharSequenceUtil;
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
-import com.lingxi.workbench.infra.ai.agent.model.PlanExecutorPolicy;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
+import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
 import com.lingxi.workbench.admin.agent.common.enums.KnowledgeBindingMode;
 import com.lingxi.workbench.admin.agent.model.config.AgentDefinition;
 import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
@@ -40,6 +40,8 @@ import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeBaseEntity;
 import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeIndexVersionEntity;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeBaseRepo;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeIndexVersionService;
+import com.lingxi.workbench.admin.domain.model.entity.DomainEntity;
+import com.lingxi.workbench.admin.domain.service.DomainService;
 import com.lingxi.workbench.admin.tool.service.ToolService;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
@@ -77,6 +79,7 @@ public class AgentServiceImpl implements AgentService {
     private final AgentConverter converter;
     private final AuditService auditService;
     private final ToolService toolService;
+    private final DomainService domainService;
 
     @Override
     @Transactional(readOnly = true)
@@ -148,7 +151,8 @@ public class AgentServiceImpl implements AgentService {
         agent.setName(request.getName().trim());
         agent.setCode(code);
         agent.setDescription(trimToNull(request.getDescription()));
-        agent.setAgentType(request.getAgentType());
+        agent.setRole(request.getRole());
+        agent.setDomainId(resolveDomain(request.getRole(), request.getDomainId()));
         agent.setStatus(EnableStatus.ACTIVE);
         agent.setCreatedBy(operatorId);
         agent.setUpdatedBy(operatorId);
@@ -161,8 +165,8 @@ public class AgentServiceImpl implements AgentService {
         draft.setGenerationPolicy(GenerationPolicy.defaults());
         draft.setToolCodes(List.of());
         draft.setToolPolicy(AgentToolPolicy.defaults());
-        draft.setPlanExecutorPolicy(request.getAgentType() == AgentType.PLAN_EXECUTOR
-                ? PlanExecutorPolicy.defaults()
+        draft.setPlanPolicy(request.getRole() == AgentRole.SUPERVISOR
+                ? PlanPolicy.defaults()
                 : null);
         draft.setRevision(0L);
         draft.setCreatedBy(operatorId);
@@ -171,7 +175,7 @@ public class AgentServiceImpl implements AgentService {
 
         auditService.record(
                 "AGENT", "AGENT", agent.getId(), operatorId, "AGENT_CREATE",
-                "Agent编码=" + code + "，类型=" + request.getAgentType().getCode());
+                "Agent编码=" + code + "，角色=" + request.getRole().getCode());
         return detail(agent.getId());
     }
 
@@ -183,6 +187,7 @@ public class AgentServiceImpl implements AgentService {
         AgentEntity agent = requireAgent(id);
         agent.setName(request.getName().trim());
         agent.setDescription(trimToNull(request.getDescription()));
+        agent.setDomainId(resolveDomain(agent.getRole(), request.getDomainId()));
         agent.setUpdatedBy(operatorId);
         agentRepo.save(agent);
         auditService.record(
@@ -209,7 +214,7 @@ public class AgentServiceImpl implements AgentService {
         draft.setUserPromptVersionId(request.getUserPromptVersionId());
         draft.setToolCodes(request.getToolCodes().stream().distinct().toList());
         draft.setToolPolicy(request.getToolPolicy());
-        applyTypeSpecificDraft(agent.getAgentType(), draft, request);
+        applyTypeSpecificDraft(agent.getRole(), draft, request);
         draft.setGenerationPolicy(request.getGenerationPolicy());
         draft.setChangeNote(trimToNull(request.getChangeNote()));
         draft.setUpdatedBy(operatorId);
@@ -217,7 +222,7 @@ public class AgentServiceImpl implements AgentService {
             throw new BusinessException(
                     HttpStatusEnum.CONFLICT, "Agent草稿已被其他操作修改，请刷新后重试");
         }
-        saveKnowledgeBinding(agent.getAgentType(), draft, request.getKnowledgeBaseId());
+        saveKnowledgeBinding(agent.getRole(), draft, request.getKnowledgeBaseId());
         auditService.record(
                 "AGENT", "AGENT_DRAFT", draft.getId(), operatorId, "AGENT_DRAFT_SAVE",
                 "Agent主键=" + id + "，revision=" + (request.getExpectedRevision() + 1));
@@ -309,10 +314,10 @@ public class AgentServiceImpl implements AgentService {
         AgentVersionEntity version = requireVersion(id, versionId);
         if (!Objects.equals(version.getSchemaVersion(), AGENT_SCHEMA_VERSION)
                 || version.getDefinitionSnapshot() == null
-                || version.getDefinitionSnapshot().getAgentType() != agent.getAgentType()) {
+                || version.getDefinitionSnapshot().getRole() != agent.getRole()) {
             throw new BusinessException(
                     HttpStatusEnum.CONFLICT,
-                    "只能激活与当前Agent类型一致的V6正式版本");
+                    "只能激活与当前Agent角色一致的正式版本");
         }
         agent.setPublishedVersionId(versionId);
         agent.setUpdatedBy(operatorId);
@@ -335,17 +340,17 @@ public class AgentServiceImpl implements AgentService {
                 "Agent编码=" + agent.getCode() + "，状态=" + status.getCode());
     }
 
-    private static void applyTypeSpecificDraft(AgentType agentType, AgentDraftEntity draft, SaveAgentDraftRequest request) {
-        draft.setRetrievalPolicy(agentType == AgentType.REACT
+    private static void applyTypeSpecificDraft(AgentRole role, AgentDraftEntity draft, SaveAgentDraftRequest request) {
+        draft.setRetrievalPolicy(role == AgentRole.SPECIALIST
                 ? request.getRetrievalPolicy()
                 : RetrievalPolicy.defaults());
-        draft.setPlanExecutorPolicy(agentType == AgentType.PLAN_EXECUTOR
-                ? request.getPlanExecutorPolicy()
+        draft.setPlanPolicy(role == AgentRole.SUPERVISOR
+                ? request.getPlanPolicy()
                 : null);
     }
 
-    private void saveKnowledgeBinding(AgentType agentType, AgentDraftEntity draft, Long knowledgeBaseId) {
-        if (agentType != AgentType.REACT) {
+    private void saveKnowledgeBinding(AgentRole role, AgentDraftEntity draft, Long knowledgeBaseId) {
+        if (role != AgentRole.SPECIALIST) {
             draftKnowledgeRepo.deleteByDraftId(draft.getId());
             return;
         }
@@ -371,7 +376,7 @@ public class AgentServiceImpl implements AgentService {
     }
 
     private KnowledgeIndexVersionEntity publishKnowledgeIndex(AgentEntity agent, AgentDraftKnowledgeEntity knowledge, Long operatorId) {
-        if (agent.getAgentType() != AgentType.REACT || Objects.isNull(knowledge)) {
+        if (agent.getRole() != AgentRole.SPECIALIST || Objects.isNull(knowledge)) {
             return null;
         }
         return knowledgeIndexVersionService.publishCurrent(
@@ -381,15 +386,15 @@ public class AgentServiceImpl implements AgentService {
     private static AgentDefinition buildDefinition(AgentEntity agent, AgentDraftEntity draft, AgentDraftKnowledgeEntity knowledge, KnowledgeIndexVersionEntity knowledgeIndex) {
         AgentDefinition.AgentDefinitionBuilder builder = AgentDefinition.builder()
                 .schemaVersion(draft.getSchemaVersion())
-                .agentType(agent.getAgentType())
+                .role(agent.getRole())
                 .chatModelInstanceId(draft.getChatModelInstanceId())
                 .systemPromptVersionId(draft.getSystemPromptVersionId())
                 .userPromptVersionId(draft.getUserPromptVersionId())
                 .toolCodes(List.copyOf(draft.getToolCodes()))
                 .toolPolicy(draft.getToolPolicy())
                 .generationPolicy(draft.getGenerationPolicy())
-                .planExecutorPolicy(draft.getPlanExecutorPolicy());
-        if (agent.getAgentType() != AgentType.REACT) {
+                .planPolicy(draft.getPlanPolicy());
+        if (agent.getRole() != AgentRole.SPECIALIST) {
             return builder.build();
         }
         return builder
@@ -402,7 +407,7 @@ public class AgentServiceImpl implements AgentService {
             return null;
         }
         if (Objects.isNull(index) || Objects.isNull(retrieval)) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "ReAct Agent知识搜索快照构建失败");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "领域专家知识搜索快照构建失败");
         }
         return KnowledgeSearchCapabilitySnapshot.builder()
                 .knowledgeBaseId(knowledge.getKnowledgeBaseId())
@@ -456,5 +461,20 @@ public class AgentServiceImpl implements AgentService {
 
     private static String trimToNull(String value) {
         return CharSequenceUtil.isBlank(value) ? null : value.trim();
+    }
+
+    /** 领域专家必须归属领域；全局主Agent可不绑定，绑定时只能选择一级领域。 */
+    private Long resolveDomain(AgentRole role, Long domainId) {
+        if (role == AgentRole.SPECIALIST) {
+            if (Objects.isNull(domainId)) {
+                throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "领域专家必须选择所属领域");
+            }
+            return domainService.requireActive(domainId).getId();
+        }
+        if (Objects.isNull(domainId)) {
+            return null;
+        }
+        DomainEntity domain = domainService.requireRoot(domainId);
+        return domain.getId();
     }
 }

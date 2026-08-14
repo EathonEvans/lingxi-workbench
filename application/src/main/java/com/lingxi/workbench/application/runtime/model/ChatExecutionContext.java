@@ -10,7 +10,6 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
 import com.lingxi.workbench.infra.ai.tool.model.AgentExecutionBudget;
-import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
@@ -20,7 +19,6 @@ import lombok.Getter;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -74,11 +72,6 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
     private final ChatExecutionEventPublisher eventPublisher;
 
     /**
-     * 可选的 Application 级多 Agent 协作作用域。
-     */
-    private final AgentCollaborationScope collaborationScope;
-
-    /**
      * 当前 ApplicationVersion 冻结的长期记忆配置。
      */
     @Getter
@@ -120,9 +113,13 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
      */
     private final AtomicInteger modelCallCounter;
     /**
-     * 直接Tool步骤与Agent内部工具共享的调用计数。
+     * 全部领域专家共享的工具调用计数。
      */
     private final AtomicInteger toolCallCounter;
+    /**
+     * Supervisor委派领域专家时共享的调用计数。
+     */
+    private final AtomicInteger delegationCounter;
 
     /**
      * 创建一次 Agent 对话专属的执行上下文。
@@ -133,12 +130,11 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
      * @param eventPublisher   本次执行的文本和工具状态发布器
      */
     @Builder
-    private ChatExecutionContext(String executionId, RuntimeVariables runtimeVariables, ChatTurnBO turn, ChatExecutionEventPublisher eventPublisher, AgentCollaborationScope collaborationScope, MemoryConfig memoryConfig, ConversationContext conversationContext, ApplicationRuntimePolicy runtimePolicy, ContextBudgetPolicy contextBudget, Instant startedAt, TokenUsageAccumulator tokenUsageAccumulator, AtomicInteger modelCallCounter, AtomicInteger toolCallCounter) {
+    private ChatExecutionContext(String executionId, RuntimeVariables runtimeVariables, ChatTurnBO turn, ChatExecutionEventPublisher eventPublisher, MemoryConfig memoryConfig, ConversationContext conversationContext, ApplicationRuntimePolicy runtimePolicy, ContextBudgetPolicy contextBudget, Instant startedAt, TokenUsageAccumulator tokenUsageAccumulator, AtomicInteger modelCallCounter, AtomicInteger toolCallCounter, AtomicInteger delegationCounter) {
         this.executionId = executionId;
         this.runtimeVariables = Objects.requireNonNull(runtimeVariables, "运行时变量不能为空");
         this.turn = Objects.requireNonNull(turn, "对话轮次不能为空");
         this.eventPublisher = Objects.requireNonNullElseGet(eventPublisher, ChatExecutionEventPublisher::noop);
-        this.collaborationScope = collaborationScope;
         this.memoryConfig = Objects.requireNonNullElseGet(memoryConfig, MemoryConfig::disabled);
         this.conversationContext = conversationContext;
         this.runtimePolicy = Objects.requireNonNullElseGet(runtimePolicy, ApplicationRuntimePolicy::defaults);
@@ -147,40 +143,7 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
         this.tokenUsageAccumulator = Objects.requireNonNullElseGet(tokenUsageAccumulator, TokenUsageAccumulator::new);
         this.modelCallCounter = Objects.requireNonNullElseGet(modelCallCounter, AtomicInteger::new);
         this.toolCallCounter = Objects.requireNonNullElseGet(toolCallCounter, AtomicInteger::new);
-    }
-
-    /**
-     * 返回当前 Application 的协作作用域；普通单 Agent 请求为空。
-     */
-    public Optional<AgentCollaborationScope> collaborationScope() {
-        return Optional.ofNullable(collaborationScope);
-    }
-
-    /**
-     * 为成员 Agent 构建隔离的子执行上下文。
-     *
-     * <p>父子上下文共享 executionId、持久化轮次和 Token 累加器；变量容器、调用路径
-     * 与文本发布策略相互隔离。</p>
-     */
-    public ChatExecutionContext forkForDelegation(ApplicationAgentReference target, String task) {
-        AgentCollaborationScope childScope = collaborationScope()
-                .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "当前执行未启用Agent协作"))
-                .delegateTo(target);
-        return ChatExecutionContext.builder()
-                .executionId(executionId)
-                .runtimeVariables(runtimeVariables.forkForAgentTask(task))
-                .turn(turn)
-                .eventPublisher(ChatExecutionEventPublisher.suppressText(eventPublisher))
-                .collaborationScope(childScope)
-                .memoryConfig(memoryConfig)
-                .conversationContext(conversationContext)
-                .runtimePolicy(runtimePolicy)
-                .contextBudget(contextBudget)
-                .startedAt(startedAt)
-                .tokenUsageAccumulator(tokenUsageAccumulator)
-                .modelCallCounter(modelCallCounter)
-                .toolCallCounter(toolCallCounter)
-                .build();
+        this.delegationCounter = Objects.requireNonNullElseGet(delegationCounter, AtomicInteger::new);
     }
 
     /**
@@ -209,7 +172,6 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
                 .runtimeVariables(runtimeVariables.forkForQuery(query))
                 .turn(turn)
                 .eventPublisher(scopedPublisher)
-                .collaborationScope(collaborationScope)
                 .memoryConfig(memoryConfig)
                 .conversationContext(conversationContext)
                 .runtimePolicy(runtimePolicy)
@@ -218,6 +180,7 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
                 .tokenUsageAccumulator(tokenUsageAccumulator)
                 .modelCallCounter(modelCallCounter)
                 .toolCallCounter(toolCallCounter)
+                .delegationCounter(delegationCounter)
                 .build();
     }
 
@@ -278,12 +241,21 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
         reserveCalls(toolCallCounter, calls, runtimePolicy.getMaxToolCalls(), "Application单轮Tool调用次数已达到上限");
     }
 
+    /** Supervisor每次调用领域专家前占用一次Application委派额度。 */
+    public void reserveDelegation() {
+        reserveCalls(delegationCounter, 1, runtimePolicy.getMaxDelegations(), "Application单轮Agent委派次数已达到上限");
+    }
+
     public int remainingModelCalls() {
         return Math.max(runtimePolicy.getMaxModelCalls() - modelCallCounter.get(), 0);
     }
 
     public int remainingToolCalls() {
         return Math.max(runtimePolicy.getMaxToolCalls() - toolCallCounter.get(), 0);
+    }
+
+    public int remainingDelegations() {
+        return Math.max(runtimePolicy.getMaxDelegations() - delegationCounter.get(), 0);
     }
 
     private static void reserveCalls(AtomicInteger counter, int calls, int limit, String message) {

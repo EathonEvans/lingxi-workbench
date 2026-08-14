@@ -1,13 +1,11 @@
 package com.lingxi.workbench.application.runtime.service.plan;
 
-import com.lingxi.workbench.application.runtime.common.enums.StepInputSource;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
 import com.lingxi.workbench.application.runtime.model.ExecutionDecision;
 import com.lingxi.workbench.application.runtime.model.ExecutionDecisionValidationContext;
 import com.lingxi.workbench.application.runtime.model.ExecutionPlan;
 import com.lingxi.workbench.application.runtime.model.PlanStep;
 import com.lingxi.workbench.application.runtime.model.PlannerClarification;
-import com.lingxi.workbench.application.runtime.model.StepInputReference;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
@@ -23,16 +21,15 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-/** 校验模型决策是否严格受发布快照和当前确认范围约束。 */
+/**
+ * 校验模型决策是否严格受发布快照和当前确认范围约束。
+ */
 @Component
 public class ExecutionDecisionValidator {
 
     private static final Pattern STEP_ID = Pattern.compile("[A-Za-z][A-Za-z0-9_-]{0,31}");
     private static final int MAX_TITLE_LENGTH = 128;
     private static final int MAX_STEP_NAME_LENGTH = 80;
-    private static final int MAX_INPUT_NAME_LENGTH = 64;
-    private static final int MAX_LITERAL_LENGTH = 2000;
-    private static final int MAX_OUTPUT_SELECTOR_LENGTH = 128;
     private static final int MAX_CLARIFICATION_LENGTH = 500;
     private static final int MAX_CLARIFICATION_OPTIONS = 5;
 
@@ -42,8 +39,7 @@ public class ExecutionDecisionValidator {
         }
         Map<String, ApplicationCapabilityDefinition> capabilities = capabilityIndex(context);
         switch (decision.getAction()) {
-            case EXECUTE_REACT -> validateDirect(decision, capabilities, ApplicationCapabilityType.AGENT, context);
-            case EXECUTE_WORKFLOW -> validateDirect(decision, capabilities, ApplicationCapabilityType.WORKFLOW, context);
+            case EXECUTE_AGENT -> validateDirect(decision, capabilities, context);
             case EXECUTE_PLAN -> validatePlanDecision(decision, capabilities, context);
             case CLARIFY -> validateClarificationDecision(decision, capabilities);
         }
@@ -51,13 +47,12 @@ public class ExecutionDecisionValidator {
 
     private static void validateDirect(ExecutionDecision decision,
                                        Map<String, ApplicationCapabilityDefinition> capabilities,
-                                       ApplicationCapabilityType expectedType,
                                        ExecutionDecisionValidationContext context) {
         requireAbsent(decision.getPlan(), "直接执行决策不能包含plan");
         requireAbsent(decision.getClarification(), "直接执行决策不能包含clarification");
         ApplicationCapabilityDefinition capability = requireCapability(decision.getCapabilityCode(), capabilities);
-        if (capability.getType() != expectedType) {
-            throw invalid("能力类型与Planner动作不匹配：" + capability.getCode());
+        if (capability.getType() != ApplicationCapabilityType.AGENT) {
+            throw invalid("主Agent只能直接执行领域专家：" + capability.getCode());
         }
         requireConfirmedRisk(capability, context.confirmedCapabilityCodes());
     }
@@ -73,8 +68,8 @@ public class ExecutionDecisionValidator {
         }
         requireText(plan.getTitle(), MAX_TITLE_LENGTH, "plan.title");
         List<PlanStep> steps = plan.steps();
-        if (steps.isEmpty() || steps.size() > context.planExecutorPolicy().getMaxSteps()) {
-            throw invalid("计划步骤数量必须在1到" + context.planExecutorPolicy().getMaxSteps() + "之间");
+        if (steps.isEmpty() || steps.size() > context.planPolicy().getMaxSteps()) {
+            throw invalid("计划步骤数量必须在1到" + context.planPolicy().getMaxSteps() + "之间");
         }
         Set<String> completedStepIds = new HashSet<>();
         for (PlanStep step : steps) {
@@ -93,6 +88,9 @@ public class ExecutionDecisionValidator {
         }
         requireText(step.getName(), MAX_STEP_NAME_LENGTH, "plan.step.name");
         ApplicationCapabilityDefinition capability = requireCapability(step.getCapabilityCode(), capabilities);
+        if (capability.getType() != ApplicationCapabilityType.AGENT) {
+            throw invalid("计划步骤只能引用领域专家：" + capability.getCode());
+        }
         requireConfirmedRisk(capability, confirmedCapabilityCodes);
         Set<String> dependencies = new HashSet<>();
         for (String dependency : step.dependsOn()) {
@@ -103,48 +101,9 @@ public class ExecutionDecisionValidator {
                 throw invalid("计划步骤只能依赖此前步骤：" + dependency);
             }
         }
-        validateInputs(step, capability, completedStepIds, dependencies);
     }
 
-    private static void validateInputs(PlanStep step, ApplicationCapabilityDefinition capability,
-                                       Set<String> completedStepIds, Set<String> dependencies) {
-        if (capability.getType() != ApplicationCapabilityType.TOOL && !step.inputs().isEmpty()) {
-            throw invalid("Agent或Workflow计划步骤不得声明inputs");
-        }
-        Set<String> names = new HashSet<>();
-        for (StepInputReference input : step.inputs()) {
-            if (input == null || input.getSource() == null) {
-                throw invalid("计划步骤输入缺少source");
-            }
-            requireText(input.getName(), MAX_INPUT_NAME_LENGTH, "plan.step.input.name");
-            if (!names.add(input.getName())) {
-                throw invalid("计划步骤输入名称重复：" + input.getName());
-            }
-            validateInputSource(input, completedStepIds, dependencies);
-        }
-    }
-
-    private static void validateInputSource(StepInputReference input, Set<String> completedStepIds,
-                                            Set<String> dependencies) {
-        if (input.getSource() == StepInputSource.USER_QUERY) {
-            requireBlank(input.getStepId(), "USER_QUERY输入不能指定stepId");
-            requireBlank(input.getValue(), "USER_QUERY输入不能指定value");
-            return;
-        }
-        if (input.getSource() == StepInputSource.LITERAL) {
-            requireBlank(input.getStepId(), "LITERAL输入不能指定stepId");
-            requireText(input.getValue(), MAX_LITERAL_LENGTH, "LITERAL输入value");
-            return;
-        }
-        requireText(input.getStepId(), 32, "STEP_OUTPUT输入stepId");
-        requireText(input.getValue(), MAX_OUTPUT_SELECTOR_LENGTH, "STEP_OUTPUT输入value");
-        if (!completedStepIds.contains(input.getStepId()) || !dependencies.contains(input.getStepId())) {
-            throw invalid("STEP_OUTPUT输入必须引用已声明依赖：" + input.getStepId());
-        }
-    }
-
-    private static void validateClarificationDecision(
-            ExecutionDecision decision, Map<String, ApplicationCapabilityDefinition> capabilities) {
+    private static void validateClarificationDecision(ExecutionDecision decision, Map<String, ApplicationCapabilityDefinition> capabilities) {
         requireBlank(decision.getCapabilityCode(), "澄清决策不能包含capabilityCode");
         requireAbsent(decision.getPlan(), "澄清决策不能包含plan");
         PlannerClarification clarification = decision.getClarification();
@@ -190,7 +149,11 @@ public class ExecutionDecisionValidator {
             if (capability == null || capability.getCode() == null || capability.getCode().isBlank()) {
                 throw invalid("Application能力目录存在无效能力");
             }
-            if (Objects.equals(capability.getCode(), context.getOrchestratorCapabilityCode())) {
+            if (Objects.equals(capability.getCode(), context.getSupervisorCap())) {
+                continue;
+            }
+            if (capability.getType() != ApplicationCapabilityType.AGENT
+                    || !context.specialistIds().contains(capability.getTargetId())) {
                 continue;
             }
             if (capabilities.putIfAbsent(capability.getCode(), capability) != null) {

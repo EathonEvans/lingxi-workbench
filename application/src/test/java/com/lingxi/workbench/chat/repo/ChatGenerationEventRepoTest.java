@@ -13,6 +13,8 @@ import com.lingxi.workbench.chat.model.bo.ChatStepOutputEventBO;
 import com.lingxi.workbench.framework.cache.RedisUtil;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentProgressPhase;
+import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -107,6 +109,23 @@ class ChatGenerationEventRepoTest {
         assertEquals(2, restored.stepOutput().planNo());
         assertEquals("collect", restored.stepOutput().stepId());
         assertEquals("已获取资料", restored.stepOutput().content());
+    }
+
+    @Test
+    void shouldRoundTripAgentProgressThroughReplayCache() {
+        RedisUtil redisUtil = mock(RedisUtil.class);
+        ChatGenerationEventRepo repo = new ChatGenerationEventRepo(redisUtil, properties());
+        ChatGenerationEventBO source = ChatGenerationEventBO.progress(
+                5, new AgentProgressEvent(AgentProgressPhase.FINALIZING, "正在整理回答", 3, 4));
+        when(redisUtil.lRange(EVENT_KEY, 0, -1)).thenReturn(List.of(
+                JSON.toJSONString(ChatGenerationEventCacheBO.from(source))));
+
+        ChatGenerationEventBO restored = repo.findAfter(12L, 4).getFirst();
+
+        assertEquals(ChatGenerationEventType.PROGRESS, restored.type());
+        assertEquals(AgentProgressPhase.FINALIZING, restored.progress().phase());
+        assertEquals("正在整理回答", restored.progress().message());
+        assertEquals(4, restored.progress().toolCallCount());
     }
 
     private static ChatGenerationEventProperties properties() {

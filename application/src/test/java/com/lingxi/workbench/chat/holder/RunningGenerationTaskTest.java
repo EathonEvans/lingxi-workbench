@@ -8,6 +8,8 @@ import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentProgressPhase;
+import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
 import com.lingxi.workbench.observability.service.AiTraceRun;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
 import org.junit.jupiter.api.Test;
@@ -31,6 +33,8 @@ class RunningGenerationTaskTest {
                 .traceRun(mock(AiTraceRun.class))
                 .build();
         task.publishTool(toolEvent(AgentToolExecutionStatus.RUNNING, null));
+        task.publishProgress(new AgentProgressEvent(
+                AgentProgressPhase.USING_TOOLS, "正在执行所需操作", 1, 1));
         task.publishText(new ChatStreamChunk("回答"));
         task.publishTool(toolEvent(AgentToolExecutionStatus.SUCCEEDED, 25L));
         assertTrue(task.beginTerminal());
@@ -38,13 +42,15 @@ class RunningGenerationTaskTest {
 
         List<ChatGenerationEventBO> events = task.eventsAfter(1).collectList().block();
 
-        assertEquals(3, events.size());
-        assertEquals(ChatGenerationEventType.CHUNK, events.get(0).type());
+        assertEquals(4, events.size());
+        assertEquals(ChatGenerationEventType.PROGRESS, events.get(0).type());
         assertEquals(2, events.get(0).sequence());
-        assertEquals(ChatGenerationEventType.TOOL, events.get(1).type());
+        assertEquals(ChatGenerationEventType.CHUNK, events.get(1).type());
         assertEquals(3, events.get(1).sequence());
-        assertEquals(AgentToolExecutionStatus.SUCCEEDED, events.get(1).tool().getStatus());
-        assertEquals(ChatGenerationEventType.COMPLETED, events.get(2).type());
+        assertEquals(ChatGenerationEventType.TOOL, events.get(2).type());
+        assertEquals(4, events.get(2).sequence());
+        assertEquals(AgentToolExecutionStatus.SUCCEEDED, events.get(2).tool().getStatus());
+        assertEquals(ChatGenerationEventType.COMPLETED, events.get(3).type());
         assertEquals("回答", task.answer());
     }
 

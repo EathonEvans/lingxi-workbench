@@ -13,4 +13,5 @@ public class ApplicationPageQuery extends PageQuery {
     @Size(max = 64, message = "查询关键字不能超过64个字符")
     private String keyword;
     private EnableStatus status;
+    private Long domainId;
 }

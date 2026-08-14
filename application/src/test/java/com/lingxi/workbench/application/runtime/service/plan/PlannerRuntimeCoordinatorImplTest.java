@@ -7,7 +7,7 @@ import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
 import com.lingxi.workbench.application.runtime.model.PlanExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.PlanExecutionResult;
-import com.lingxi.workbench.application.runtime.model.PlanExecutorRuntimeContext;
+import com.lingxi.workbench.application.runtime.model.SupervisorRuntimeContext;
 import com.lingxi.workbench.application.runtime.model.PlannerRuntimeRequest;
 import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionEventPublisher;
 import com.lingxi.workbench.application.runtime.service.execution.ExecutionFailureClassifier;
@@ -59,7 +59,7 @@ class PlannerRuntimeCoordinatorImplTest {
                 .runId("run-1")
                 .conversationContext(context)
                 .executionContext(executionContext)
-                .planExecutor(planExecutor())
+                .supervisor(supervisor())
                 .build();
 
         assertThrows(BusinessException.class, () -> coordinator.execute(request));
@@ -93,7 +93,7 @@ class PlannerRuntimeCoordinatorImplTest {
                 .runId("run-budget")
                 .conversationContext(context)
                 .executionContext(executionContext)
-                .planExecutor(planExecutor())
+                .supervisor(supervisor())
                 .build();
 
         PlanExecutionResult result = coordinator.execute(request);
@@ -105,8 +105,8 @@ class PlannerRuntimeCoordinatorImplTest {
         verify(plannerService, never()).decide(any());
     }
 
-    private static PlanExecutorRuntimeContext planExecutor() {
-        return PlanExecutorRuntimeContext.builder()
+    private static SupervisorRuntimeContext supervisor() {
+        return SupervisorRuntimeContext.builder()
                 .capability(mock(ApplicationCapabilityDefinition.class))
                 .agent(mock(AgentRuntimeSnapshot.class))
                 .build();

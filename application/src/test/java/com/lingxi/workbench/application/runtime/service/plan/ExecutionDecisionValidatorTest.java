@@ -2,19 +2,17 @@ package com.lingxi.workbench.application.runtime.service.plan;
 
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionDecisionAction;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
-import com.lingxi.workbench.application.runtime.common.enums.StepInputSource;
 import com.lingxi.workbench.application.runtime.model.ExecutionDecision;
 import com.lingxi.workbench.application.runtime.model.ExecutionDecisionValidationContext;
 import com.lingxi.workbench.application.runtime.model.ExecutionPlan;
 import com.lingxi.workbench.application.runtime.model.PlanStep;
 import com.lingxi.workbench.application.runtime.model.PlannerClarification;
-import com.lingxi.workbench.application.runtime.model.StepInputReference;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
-import com.lingxi.workbench.infra.ai.agent.model.PlanExecutorPolicy;
+import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -29,22 +27,22 @@ class ExecutionDecisionValidatorTest {
 
     @Test
     void shouldAcceptSerialPlanWithPublishedCapabilities() {
-        PlanStep collect = step("collect", "support_agent", List.of(), List.of());
-        PlanStep submit = step("submit", "submit_tool", List.of("collect"), List.of(stepOutput("collect")));
+        PlanStep collect = step("collect", "support_agent", List.of());
+        PlanStep submit = step("submit", "submit_agent", List.of("collect"));
         ExecutionDecision decision = ExecutionDecision.builder()
                 .action(ExecutionDecisionAction.EXECUTE_PLAN)
                 .plan(ExecutionPlan.builder().title("提交申请").steps(List.of(collect, submit)).build())
                 .build();
 
-        assertDoesNotThrow(() -> validator.validate(decision, context(Set.of("submit_tool"))));
+        assertDoesNotThrow(() -> validator.validate(decision, context(Set.of("submit_agent"))));
     }
 
     @Test
     void shouldRejectForwardDependencyAndUnconfirmedWrite() {
-        PlanStep forward = step("first", "support_agent", List.of("later"), List.of());
-        PlanStep later = step("later", "support_agent", List.of(), List.of());
+        PlanStep forward = step("first", "support_agent", List.of("later"));
+        PlanStep later = step("later", "support_agent", List.of());
         ExecutionDecision invalidDependency = plan(forward, later);
-        ExecutionDecision unconfirmedWrite = plan(step("submit", "submit_tool", List.of(), List.of(userQuery())));
+        ExecutionDecision unconfirmedWrite = plan(step("submit", "submit_agent", List.of()));
 
         assertThrows(BusinessException.class, () -> validator.validate(invalidDependency, context(Set.of())));
         assertThrows(BusinessException.class, () -> validator.validate(unconfirmedWrite, context(Set.of())));
@@ -53,16 +51,16 @@ class ExecutionDecisionValidatorTest {
     @Test
     void shouldRejectActionCapabilityTypeMismatch() {
         ExecutionDecision decision = ExecutionDecision.builder()
-                .action(ExecutionDecisionAction.EXECUTE_WORKFLOW)
-                .capabilityCode("support_agent")
+                .action(ExecutionDecisionAction.EXECUTE_AGENT)
+                .capabilityCode("submit_tool")
                 .build();
 
         assertThrows(BusinessException.class, () -> validator.validate(decision, context(Set.of())));
     }
 
     @Test
-    void shouldRejectModelManagedInputsForAgentPlanStep() {
-        ExecutionDecision decision = plan(step("agent", "support_agent", List.of(), List.of(userQuery())));
+    void shouldRejectUndeclaredSpecialistCapability() {
+        ExecutionDecision decision = plan(step("agent", "unknown_agent", List.of()));
 
         assertThrows(BusinessException.class, () -> validator.validate(decision, context(Set.of())));
     }
@@ -89,26 +87,12 @@ class ExecutionDecisionValidatorTest {
                 .build();
     }
 
-    private static PlanStep step(String id, String capabilityCode, List<String> dependencies, List<StepInputReference> inputs) {
+    private static PlanStep step(String id, String capabilityCode, List<String> dependencies) {
         return PlanStep.builder()
                 .id(id)
                 .name(id)
                 .capabilityCode(capabilityCode)
                 .dependsOn(dependencies)
-                .inputs(inputs)
-                .build();
-    }
-
-    private static StepInputReference userQuery() {
-        return StepInputReference.builder().name("query").source(StepInputSource.USER_QUERY).build();
-    }
-
-    private static StepInputReference stepOutput(String stepId) {
-        return StepInputReference.builder()
-                .name("payload")
-                .source(StepInputSource.STEP_OUTPUT)
-                .stepId(stepId)
-                .value("result")
                 .build();
     }
 
@@ -116,20 +100,30 @@ class ExecutionDecisionValidatorTest {
         ApplicationCapabilityDefinition agent = ApplicationCapabilityDefinition.builder()
                 .code("support_agent")
                 .type(ApplicationCapabilityType.AGENT)
+                .targetId(10L)
                 .riskLevel(CapabilityRiskLevel.READ_ONLY)
+                .build();
+        ApplicationCapabilityDefinition writeAgent = ApplicationCapabilityDefinition.builder()
+                .code("submit_agent")
+                .type(ApplicationCapabilityType.AGENT)
+                .targetId(11L)
+                .riskLevel(CapabilityRiskLevel.WRITE)
                 .build();
         ApplicationCapabilityDefinition tool = ApplicationCapabilityDefinition.builder()
                 .code("submit_tool")
                 .type(ApplicationCapabilityType.TOOL)
+                .targetId(12L)
                 .riskLevel(CapabilityRiskLevel.WRITE)
                 .build();
         return ExecutionDecisionValidationContext.builder()
-                .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(agent, tool)).build())
-                .planExecutorPolicy(PlanExecutorPolicy.builder()
+                .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(agent, writeAgent, tool)).build())
+                .planPolicy(PlanPolicy.builder()
                         .maxSteps(4)
                         .maxReplans(1)
                         .maxProtocolRepairAttempts(1)
                         .build())
+                .supervisorCap("supervisor")
+                .specialistIds(Set.of(10L, 11L))
                 .confirmedCapabilityCodes(confirmedCodes)
                 .build();
     }

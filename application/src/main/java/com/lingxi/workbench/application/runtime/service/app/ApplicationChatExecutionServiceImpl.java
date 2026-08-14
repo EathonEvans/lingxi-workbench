@@ -3,7 +3,6 @@ package com.lingxi.workbench.application.runtime.service.app;
 import cn.hutool.core.lang.Assert;
 import cn.hutool.core.util.IdUtil;
 import com.alibaba.fastjson2.JSONObject;
-import com.lingxi.workbench.application.runtime.model.AgentCollaborationScope;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
@@ -17,7 +16,6 @@ import com.lingxi.workbench.application.runtime.model.InteractionResumeTarget;
 import com.lingxi.workbench.application.runtime.model.IntentRoutingEvidence;
 import com.lingxi.workbench.application.runtime.model.IntentRoutingResult;
 import com.lingxi.workbench.application.runtime.service.agent.AgentRuntimeService;
-import com.lingxi.workbench.application.runtime.service.app.ApplicationChatExecutionService;
 import com.lingxi.workbench.application.runtime.service.capability.CapabilityExecutionService;
 import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionContextRegistry;
 import com.lingxi.workbench.application.runtime.service.routing.IntentRoutingService;
@@ -29,12 +27,11 @@ import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
 import com.lingxi.workbench.chat.service.ConversationContextService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
 import com.lingxi.workbench.observability.common.enums.AiObservationStage;
 import com.lingxi.workbench.observability.service.AiStageObserver;
-import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
@@ -139,13 +136,14 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         Optional<InteractionResolution> interaction = interactionSessionService.resolve(
                 snapshot, request.getTurn(), request.getLoginUser().id(),
                 preparedContext.getOriginalQuery(), request.getClarificationResponse());
+
+        // 澄清会话内容补充，无需澄清则无需对原始问题进行补充
         ConversationContext context = interaction
-                .map(resolution -> preparedContext.withRoutingQuery(resolution.getOriginalQuery() + "\n补充信息：" + resolution.getResponse()))
+                .map(resolution -> preparedContext.copyAndAppendClarificationSup(resolution.getOriginalQuery(),resolution.getResponse()))
                 .orElse(preparedContext);
 
         // ④ 恢复请求跳过 fresh route；其他请求按 Application 配置执行可选快速路由。
-        IntentRoutingResult routing = aiStageObserver.observe(AiObservationStage.INTENT_ROUTE,
-                ApplicationChatExecutionServiceImpl::recordRoutingEvidence,
+        IntentRoutingResult routing = aiStageObserver.observe(AiObservationStage.INTENT_ROUTE,  ApplicationChatExecutionServiceImpl::recordRoutingEvidence,
                 () -> fastRoute(request, context, interaction.isPresent()));
 
         // ⑤ 调度合并和目标执行统一归入EXECUTION阶段，固定回复与澄清也保留完整链路。
@@ -223,8 +221,8 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
             throw new BusinessException(HttpStatusEnum.CONFLICT, "交互会话恢复目标与ApplicationVersion不一致");
         }
         ChatDispatch.Capability dispatch = capabilityDispatch(query, capability, null, interaction.confirmedCapabilityCodes());
-        if (dispatch.hints().agent().definition().getAgentType() != AgentType.PLAN_EXECUTOR) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "交互会话恢复目标不是Plan Executor Agent");
+        if (dispatch.hints().agent().definition().getRole() != AgentRole.SUPERVISOR) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "交互会话恢复目标不是主Agent");
         }
         return dispatch;
     }
@@ -256,7 +254,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
     private ApplicationChatResult executeExecutable(ApplicationChatExecutionRequest request, ConversationContext conversationContext, ChatDispatch.Executable dispatch, Instant startedAt) {
         AppRuntimeSnapshot snapshot = request.getApplication();
 
-        // ① 所有能力路径统一创建 executionId；Plan Executor 直接将它作为 runId。
+        // ① 所有能力路径统一创建 executionId；主Agent规划链直接将它作为 runId。
         String executionId = IdUtil.getSnowflakeNextIdStr();
 
         // ② 基于最终执行问题派生运行时变量，并构建本轮唯一的可写执行上下文
@@ -306,18 +304,11 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         AppRuntimeSnapshot snapshot = request.getApplication();
         // 每种执行路径都从已准备变量派生独立副本，避免执行期修改污染ConversationContext
         RuntimeVariables runtimeVariables = conversationContext.getRuntimeVariables().forkForQuery(executionQuery);
-        // 多Agent协作未启用时不创建协作作用域，普通ReAct与Workflow保持最小运行状态
-        AgentCollaborationScope collaborationScope = Optional.ofNullable(snapshot.definition().collaboration())
-                .filter(AgentCollaborationDefinition::enabled)
-                .map(definition -> AgentCollaborationScope.root(
-                        definition, snapshot.definition().runtimePolicy().getMaxDelegations()))
-                .orElse(null);
         return ChatExecutionContext.builder()
                 .executionId(executionId)
                 .runtimeVariables(runtimeVariables)
                 .turn(request.getTurn())
                 .eventPublisher(request.getEventPublisher())
-                .collaborationScope(collaborationScope)
                 .memoryConfig(snapshot.definition().memoryConf())
                 .conversationContext(conversationContext)
                 .runtimePolicy(snapshot.definition().runtimePolicy())
@@ -325,6 +316,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                 .startedAt(startedAt)
                 .tokenUsageAccumulator(initialUsage(conversationContext.getPreparationTokenUsage()))
                 .modelCallCounter(new AtomicInteger(conversationContext.getPreparationModelCalls()))
+                .delegationCounter(new AtomicInteger())
                 .build();
     }
 
@@ -365,7 +357,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         ChatDispatch.Capability capability = (ChatDispatch.Capability) dispatch;
         return capability.hints().agent() == null
                 ? capability.capability().getType().name()
-                : capability.hints().agent().definition().getAgentType().name();
+                : capability.hints().agent().definition().getRole().name();
     }
 
     /**
@@ -374,8 +366,8 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
     private static String executionMode(ChatDispatch.Executable dispatch) {
         ChatDispatch.Capability capability = (ChatDispatch.Capability) dispatch;
         return switch (capability.capability().getType()) {
-            case AGENT -> capability.hints().agent().definition().getAgentType()
-                    == com.lingxi.workbench.infra.ai.agent.common.enums.AgentType.PLAN_EXECUTOR
+            case AGENT -> capability.hints().agent().definition().getRole()
+                    == AgentRole.SUPERVISOR
                     ? "PLAN_EXECUTE"
                     : "REACT";
             case WORKFLOW -> "WORKFLOW";

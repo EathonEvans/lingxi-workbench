@@ -5,6 +5,8 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatStreamCommand;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentProgressPhase;
+import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
 import com.lingxi.workbench.infra.ai.chat.openai.OpenAiCompatibleChatModelFactory;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionMode;
@@ -277,7 +279,6 @@ class SpringAiStreamingChatGatewayTest {
         AtomicInteger modelCalls = new AtomicInteger();
         when(chatModel.stream(any(Prompt.class))).thenAnswer(invocation -> switch (modelCalls.getAndIncrement()) {
             case 0 -> Flux.just(toolCallResponse("call-1", "{\"zoneId\":\"Asia/Shanghai\"}"));
-            case 1 -> Flux.just(toolCallResponse("call-2", "{\"zoneId\":\"Asia/Tokyo\"}"));
             default -> Flux.just(response("已根据第一次查询结果完成回答", usage(7, 4, 11)));
         });
         OpenAiCompatibleChatModelFactory factory = mock(OpenAiCompatibleChatModelFactory.class);
@@ -318,13 +319,86 @@ class SpringAiStreamingChatGatewayTest {
                 .block();
 
         assertEquals(1, executions.get());
-        assertEquals(3, modelCalls.get());
+        assertEquals(2, modelCalls.get());
         assertTrue(chunks.stream().anyMatch(chunk -> chunk.content().contains("第一次查询结果")));
         ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
-        verify(chatModel, times(3)).stream(promptCaptor.capture());
+        verify(chatModel, times(2)).stream(promptCaptor.capture());
         OpenAiChatOptions finalOptions = (OpenAiChatOptions) promptCaptor.getAllValues().getLast().getOptions();
         assertTrue(finalOptions.getToolCallbacks().isEmpty());
         assertEquals("none", finalOptions.getToolChoice());
+    }
+
+    @Test
+    void shouldRestrictProviderToolBatchAndPublishSafeProgress() {
+        ChatModelRuntimeConfig config = config();
+        OpenAiChatModel chatModel = mock(OpenAiChatModel.class);
+        when(chatModel.getOptions()).thenReturn(OpenAiChatOptions.builder().model("test-model").build());
+        AtomicInteger modelCalls = new AtomicInteger();
+        when(chatModel.stream(any(Prompt.class))).thenAnswer(invocation -> {
+            if (modelCalls.getAndIncrement() == 0) {
+                return Flux.just(toolCallResponse(5));
+            }
+            return Flux.just(response("已基于获批检索结果回答", usage(9, 4, 13)));
+        });
+        OpenAiCompatibleChatModelFactory factory = mock(OpenAiCompatibleChatModelFactory.class);
+        when(factory.create(config)).thenReturn(chatModel);
+        AtomicInteger executions = new AtomicInteger();
+        List<AgentProgressEvent> progressEvents = new ArrayList<>();
+        ToolCallback callback = FunctionToolCallback
+                .builder("system_current_time", (TimeInput input) -> {
+                    executions.incrementAndGet();
+                    return Map.of("zoneId", input.zoneId(), "currentTime", "2026-07-29T14:30:00+08:00");
+                })
+                .description("查询当前时间")
+                .inputType(TimeInput.class)
+                .build();
+        AgentToolRuntimeConfig toolConfig = AgentToolRuntimeConfig.builder()
+                .tools(List.of(tool(callback, AgentToolExecutionMode.DETERMINISTIC_READ_ONLY)))
+                .executionContext(AgentToolExecutionContext.builder()
+                        .executionId("execution-batch-limit")
+                        .userId(1L)
+                        .conversationId(2L)
+                        .assistantMessageId(3L)
+                        .build())
+                .maxToolCalls(20)
+                .maxModelCalls(4)
+                .maxTotalTokens(1000)
+                .maxFinalizationTokens(1100)
+                .maxResultCharacters(1000)
+                .progressPublisher(progressEvents::add)
+                .build();
+        SpringAiStreamingChatGateway gateway = new SpringAiStreamingChatGateway(
+                factory, ObservationRegistry.NOOP, toolCallingManager());
+
+        List<ChatStreamChunk> chunks = gateway.stream(ChatStreamCommand.builder()
+                        .prompt("批量查询多个时区")
+                        .systemPrompt("")
+                        .history(List.of())
+                        .modelConfig(config)
+                        .toolRuntimeConfig(toolConfig)
+                        .build())
+                .collectList()
+                .block();
+
+        assertEquals(2, executions.get());
+        assertEquals(2, modelCalls.get());
+        assertTrue(chunks.stream().anyMatch(chunk -> chunk.content().contains("获批检索结果")));
+        assertEquals(List.of(
+                        AgentProgressPhase.ANALYZING,
+                        AgentProgressPhase.USING_TOOLS,
+                        AgentProgressPhase.FINALIZING),
+                progressEvents.stream().map(AgentProgressEvent::phase).toList());
+        ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
+        verify(chatModel, times(2)).stream(promptCaptor.capture());
+        List<AssistantMessage.ToolCall> approvedCalls = promptCaptor.getAllValues().getLast().getInstructions()
+                .stream()
+                .filter(AssistantMessage.class::isInstance)
+                .map(AssistantMessage.class::cast)
+                .filter(AssistantMessage::hasToolCalls)
+                .findFirst()
+                .orElseThrow()
+                .getToolCalls();
+        assertEquals(2, approvedCalls.size());
     }
 
     private static AgentTool tool(ToolCallback callback) {
@@ -341,11 +415,18 @@ class SpringAiStreamingChatGatewayTest {
     }
 
     private static AgentTool tool(ToolCallback callback, AgentToolExecutionMode executionMode) {
+        return tool(callback, executionMode, 0, 0);
+    }
+
+    private static AgentTool tool(ToolCallback callback, AgentToolExecutionMode executionMode,
+                                  int maxCallsPerRound, int maxCallsPerExecution) {
         AgentToolDefinition definition = AgentToolDefinition.builder()
                 .code("system_current_time")
                 .displayName("查询当前时间")
                 .description("查询当前时间")
                 .executionMode(executionMode)
+                .maxCallsPerRound(maxCallsPerRound)
+                .maxCallsPerExecution(maxCallsPerExecution)
                 .build();
         return new AgentTool() {
             @Override
@@ -402,6 +483,23 @@ class SpringAiStreamingChatGatewayTest {
                 ChatResponseMetadata.builder()
                         .usage(usage(5, 2, 7))
                         .build());
+    }
+
+    private static ChatResponse toolCallResponse(int count) {
+        List<AssistantMessage.ToolCall> calls = java.util.stream.IntStream.range(0, count)
+                .mapToObj(index -> new AssistantMessage.ToolCall(
+                        "call-" + index,
+                        "function",
+                        "system_current_time",
+                        "{\"zoneId\":\"Zone-" + index + "\"}"))
+                .toList();
+        AssistantMessage assistantMessage = AssistantMessage.builder()
+                .content("")
+                .toolCalls(calls)
+                .build();
+        return new ChatResponse(
+                List.of(new Generation(assistantMessage)),
+                ChatResponseMetadata.builder().usage(usage(5, 2, 7)).build());
     }
 
     private static Usage usage(

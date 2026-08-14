@@ -1,7 +1,8 @@
 package com.lingxi.workbench.infra.ai.tool.model;
 
-import com.lingxi.workbench.infra.ai.tool.AgentToolEventPublisher;
+import com.lingxi.workbench.infra.ai.agent.AgentProgressPublisher;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
+import com.lingxi.workbench.infra.ai.tool.AgentToolEventPublisher;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -56,11 +57,13 @@ public class AgentToolRuntimeConfig {
      * 工具执行状态发布器；未提供时使用空实现，不影响工具主流程。
      */
     private final AgentToolEventPublisher eventPublisher;
+    /** Agent安全阶段进度发布器；未提供时使用空实现。 */
+    private final AgentProgressPublisher progressPublisher;
     /** 跨Planner、Workflow和成员Agent共享的Application调用预算。 */
     private final AgentExecutionBudget executionBudget;
 
     @Builder
-    private AgentToolRuntimeConfig(List<AgentTool> tools, AgentToolExecutionContext executionContext, int maxToolCalls, int maxModelCalls, int maxInputTokens, int maxOutputTokens, int maxTotalTokens, int maxFinalizationTokens, int maxResultCharacters, AgentToolEventPublisher eventPublisher, AgentExecutionBudget executionBudget) {
+    private AgentToolRuntimeConfig(List<AgentTool> tools, AgentToolExecutionContext executionContext, int maxToolCalls, int maxModelCalls, int maxInputTokens, int maxOutputTokens, int maxTotalTokens, int maxFinalizationTokens, int maxResultCharacters, AgentToolEventPublisher eventPublisher, AgentProgressPublisher progressPublisher, AgentExecutionBudget executionBudget) {
         this.tools = List.copyOf(Objects.requireNonNull(tools, "运行时工具列表不能为空"));
         this.executionContext = Objects.requireNonNull(executionContext, "工具执行上下文不能为空");
         this.maxToolCalls = maxToolCalls;
@@ -71,6 +74,7 @@ public class AgentToolRuntimeConfig {
         this.maxFinalizationTokens = maxFinalizationTokens;
         this.maxResultCharacters = maxResultCharacters;
         this.eventPublisher = eventPublisher;
+        this.progressPublisher = progressPublisher;
         this.executionBudget = Objects.requireNonNullElseGet(executionBudget, AgentExecutionBudget::noop);
     }
 
@@ -86,5 +90,10 @@ public class AgentToolRuntimeConfig {
      */
     public AgentToolEventPublisher resolveEventPublisher() {
         return Objects.requireNonNullElseGet(eventPublisher, AgentToolEventPublisher::noop);
+    }
+
+    /** 返回始终可调用的 Agent 阶段进度发布器。 */
+    public AgentProgressPublisher resolveProgressPublisher() {
+        return Objects.requireNonNullElseGet(progressPublisher, AgentProgressPublisher::noop);
     }
 }

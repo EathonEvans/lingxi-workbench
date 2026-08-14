@@ -6,6 +6,7 @@ import com.lingxi.workbench.chat.model.bo.ConversationSummarySource;
 import com.lingxi.workbench.chat.model.bo.ConversationSummaryTrigger;
 import com.lingxi.workbench.chat.service.ConversationMemoryService;
 import com.lingxi.workbench.workflow.model.ConversationSummaryMemoryConfig;
+import com.lingxi.workbench.workflow.model.MemoryConfig;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -27,7 +28,8 @@ public class ConversationSummaryMemoryService {
      * 在上一份摘要基础上生成滚动摘要。
      * 若本轮新增轮次不满足触发阈值则跳过，否则通过 MemoryCompletionService 生成摘要并持久化。
      */
-    public void generate(AssistantCompletedEvent event, ConversationSummaryMemoryConfig config) {
+    public void generate(AssistantCompletedEvent event, MemoryConfig memoryConfig) {
+        ConversationSummaryMemoryConfig config = memoryConfig.summary();
         ConversationSummaryTrigger trigger = new ConversationSummaryTrigger(config.effectiveMinRounds(), config.effectiveMinTokens(), SUMMARY_INPUT_TOKEN_BUDGET);
         Optional<ConversationSummarySource> optionalSource = conversationMemoryService.loadSummarySource(event.userId(), event.turn(), trigger);
         if (optionalSource.isEmpty()) {
@@ -36,9 +38,9 @@ public class ConversationSummaryMemoryService {
         ConversationSummarySource source = optionalSource.get();
         String summary = completionService.complete(
                 config.getPromptVersionId(),
-                config.getChatModelInstanceId(),
+                memoryConfig.getChatModelInstanceId(),
                 Map.of("conversation_history", buildRollingHistory(source)));
-        persistenceService.isSavedIfCurrent(event, source, summary, config);
+        persistenceService.isSavedIfCurrent(event, source, summary, memoryConfig);
     }
 
     private static String buildRollingHistory(ConversationSummarySource source) {

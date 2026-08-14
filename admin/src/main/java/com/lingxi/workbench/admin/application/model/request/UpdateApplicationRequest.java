@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.application.model.request;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -12,4 +13,6 @@ public class UpdateApplicationRequest {
     private String name;
     @Size(max = 500, message = "应用描述不能超过500个字符")
     private String description;
+    @NotNull(message = "请选择一级领域")
+    private Long domainId;
 }

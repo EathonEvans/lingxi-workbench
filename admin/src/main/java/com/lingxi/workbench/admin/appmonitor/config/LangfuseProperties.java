@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
 
-/** Langfuse 只读 Public API 配置，密钥只能通过环境变量注入。 */
+/** Langfuse Public API 配置，密钥只能通过环境变量注入。 */
 @Getter
 @Setter
 @ConfigurationProperties(prefix = "lingxi.langfuse")

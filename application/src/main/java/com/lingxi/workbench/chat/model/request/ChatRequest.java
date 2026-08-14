@@ -56,4 +56,9 @@ public class ChatRequest {
      * agent标识
      */
     String agentCode;
+
+
+    public String getQuery() {
+        return query.trim();
+    }
 }

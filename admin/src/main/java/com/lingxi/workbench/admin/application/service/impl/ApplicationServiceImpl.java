@@ -24,6 +24,7 @@ import com.lingxi.workbench.admin.application.service.ApplicationDraftValidator;
 import com.lingxi.workbench.admin.application.service.ApplicationService;
 import com.lingxi.workbench.admin.application.service.ApplicationSnapshotChecksum;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
+import com.lingxi.workbench.admin.domain.service.DomainService;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageResult;
@@ -55,6 +56,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     private final ApplicationSnapshotChecksum snapshotChecksum;
     private final ApplicationConverter converter;
     private final AuditService auditService;
+    private final DomainService domainService;
 
     @Override
     @Transactional(readOnly = true)
@@ -126,6 +128,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         application.setName(request.getName().trim());
         application.setCode(code);
         application.setDescription(trimToNull(request.getDescription()));
+        application.setDomainId(domainService.requireRoot(request.getDomainId()).getId());
         application.setStatus(EnableStatus.ACTIVE);
         application.setCreatedBy(operatorId);
         application.setUpdatedBy(operatorId);
@@ -158,6 +161,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         AiApplicationEntity application = requireApplication(id);
         application.setName(request.getName().trim());
         application.setDescription(trimToNull(request.getDescription()));
+        application.setDomainId(domainService.requireRoot(request.getDomainId()).getId());
         application.setUpdatedBy(operatorId);
         applicationRepo.save(application);
         auditService.record(
@@ -191,7 +195,6 @@ public class ApplicationServiceImpl implements ApplicationService {
                 .optionalFastRoutes(request.getOptionalFastRoutes())
                 .memoryConf(Objects.requireNonNullElseGet(request.getMemory(), com.lingxi.workbench.workflow.model.MemoryConfig::disabled))
                 .contextPolicy(Objects.requireNonNullElseGet(request.getContextPolicy(), com.lingxi.workbench.workflow.model.ApplicationContextPolicy::defaults))
-                .fallback(request.getFallback())
                 .capabilityCatalog(Objects.requireNonNullElseGet(request.getCapabilityCatalog(), com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot::empty))
                 .runtimePolicy(Objects.requireNonNullElseGet(request.getRuntimePolicy(), com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy::defaults))
                 .build());
@@ -219,9 +222,9 @@ public class ApplicationServiceImpl implements ApplicationService {
     @Override
     @Transactional(readOnly = true)
     public ApplicationValidationResultVO validate(Long id) {
-        requireApplication(id);
+        AiApplicationEntity application = requireApplication(id);
         ApplicationDefinitionResolution resolution =
-                draftValidator.resolveForPublish(requireDraft(id).getDefinition());
+                draftValidator.resolveForPublish(requireDraft(id).getDefinition(), application.getDomainId());
         return new ApplicationValidationResultVO(
                 resolution.valid(), resolution.issues());
     }
@@ -246,7 +249,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         }
 
         ApplicationDefinitionResolution resolution =
-                draftValidator.resolveForPublish(draft.getDefinition());
+                draftValidator.resolveForPublish(draft.getDefinition(), application.getDomainId());
         if (!resolution.valid()) {
             String message = resolution.issues().stream()
                     .map(ApplicationValidationIssueVO::message)

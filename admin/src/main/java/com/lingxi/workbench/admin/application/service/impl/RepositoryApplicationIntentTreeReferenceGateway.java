@@ -41,4 +41,9 @@ public class RepositoryApplicationIntentTreeReferenceGateway
                 Objects.isNull(version) ? null : version.getId(),
                 Objects.isNull(version) ? null : version.getDefinitionSnapshot()));
     }
+
+    @Override
+    public Optional<Long> findDomainId(Long intentTreeId) {
+        return intentTreeRepo.findById(intentTreeId).map(IntentTreeEntity::getDomainId);
+    }
 }

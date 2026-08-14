@@ -31,6 +31,8 @@ public class AiApplicationRepo {
                                 .like(AiApplicationEntity::getCode, query.getKeyword()))
                         .eq(Objects.nonNull(query.getStatus()),
                                 AiApplicationEntity::getStatus, query.getStatus())
+                        .eq(Objects.nonNull(query.getDomainId()),
+                                AiApplicationEntity::getDomainId, query.getDomainId())
                         .orderByDesc(AiApplicationEntity::getUpdatedAt)
                         .orderByDesc(AiApplicationEntity::getId));
         return PageResult.convert(page);

@@ -1,9 +1,11 @@
 package com.lingxi.workbench.admin.application.service;
 
 import com.alibaba.fastjson2.JSONObject;
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.admin.application.model.vo.ApplicationValidationIssueVO;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
+import com.lingxi.workbench.admin.domain.model.entity.DomainEntity;
+import com.lingxi.workbench.admin.domain.repo.DomainRepo;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import com.lingxi.workbench.admin.model.model.bo.ModelInstanceReferenceBO;
 import com.lingxi.workbench.admin.model.service.ModelInstanceService;
@@ -21,9 +23,9 @@ import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
 import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
-import com.lingxi.workbench.workflow.model.AgentCollaborationLimits;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ConversationSummaryMemoryConfig;
+import com.lingxi.workbench.workflow.model.ContextBudgetPreset;
 import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.workflow.model.ContextualizationPolicy;
 import com.lingxi.workbench.workflow.model.InteractionRecordMemoryConfig;
@@ -47,11 +49,16 @@ import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
 import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class ApplicationDraftValidatorTest {
     private final StubAgentReferenceGateway gateway = new StubAgentReferenceGateway();
@@ -64,114 +71,75 @@ class ApplicationDraftValidatorTest {
     private final ModelInstanceService modelInstanceService = modelInstanceService();
     private final PromptService promptService = promptService();
     private final ToolService toolService = toolService();
+    private final DomainRepo domainRepo = domainRepo();
     private final ApplicationDraftValidator validator =
             new ApplicationDraftValidator(
                     gateway,
-                    intentTreeId -> Optional.empty(),
+                    intentGateway(intentTreeId -> Optional.empty()),
                     workflowService,
                     modelInstanceService,
                     promptService,
-                    toolService);
+                    domainRepo);
 
     @Test
-    void shouldLockCurrentPublishedFallbackAgentVersion() {
+    void shouldResolveSupervisorAndDomainSpecialists() {
         gateway.addAgent(40L, true, 402L);
         gateway.addVersion(40L, 402L);
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(definition(null));
+        ApplicationDefinitionResolution result = resolve(validator, definition());
 
         assertThat(result.valid()).isTrue();
-        assertThat(result.definition().fallback().cap()).isEqualTo("fallback_agent");
-        assertThat(resolvedCapability(result.definition(), "fallback_agent").getTargetVersionId())
+        assertThat(result.definition().fallback().cap()).isEqualTo("default_agent");
+        assertThat(resolvedCapability(result.definition(), "default_agent").getTargetVersionId())
                 .isEqualTo(402L);
+        assertThat(result.definition().collaboration().members())
+                .extracting(ApplicationAgentReference::agentId)
+                .containsExactly(20L);
+        assertThat(resolvedCapability(result.definition(), "agent_20").getTargetVersionId()).isEqualTo(201L);
     }
 
     @Test
-    void shouldKeepExplicitPublishedFallbackAgentVersion() {
-        gateway.addAgent(40L, true, 402L);
-        gateway.addVersion(40L, 401L);
-
-        ApplicationDefinitionResolution result = validator.resolveForPublish(definition(401L));
-
-        assertThat(result.valid()).isTrue();
-        assertThat(resolvedCapability(result.definition(), "fallback_agent").getTargetVersionId())
-                .isEqualTo(401L);
-    }
-
-    @Test
-    void shouldRejectDisabledFallbackAgent() {
+    void shouldRejectDisabledSupervisor() {
         gateway.addAgent(40L, false, 401L);
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(definition(null));
+        ApplicationDefinitionResolution result = resolve(validator, definition());
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
-                .containsExactly("CAPABILITY_AGENT_UNAVAILABLE");
+                .contains("COLLABORATION_AGENT_DISABLED");
     }
 
     @Test
-    void shouldRejectUnavailableFallbackAgentVersion() {
-        gateway.addAgent(40L, true, 401L);
+    void shouldExcludeSelectedSpecialistFromPublishedSnapshot() {
+        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(
+                new ApplicationAgentReference(40L, null, null, null), List.of(), List.of(), List.of(20L));
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(definition(999L));
-
-        assertThat(result.valid()).isFalse();
-        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
-                .containsExactly("CAPABILITY_AGENT_VERSION_UNAVAILABLE");
-    }
-
-    @Test
-    void shouldResolveSupervisorAndMemberPublishedVersions() {
-        gateway.addAgent(10L, true, 101L, AgentType.SUPERVISOR);
-        gateway.addVersion(10L, 101L);
-        gateway.addAgent(20L, true, 201L);
-        gateway.addVersion(20L, 201L);
-        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true,
-                new ApplicationAgentReference(10L, null, null, null),
-                List.of(new ApplicationAgentReference(20L, null, null, null)), new AgentCollaborationLimits(1));
-
-        ApplicationDefinitionResolution result = validator.resolveForPublish(fallbackDefinitionBuilder()
+        ApplicationDefinitionResolution result = resolve(validator, fallbackDefinitionBuilder()
                 .collaboration(collaboration)
                 .build());
 
         assertThat(result.valid()).isTrue();
-        assertThat(result.definition().collaboration().supervisor().agentVersionId()).isEqualTo(101L);
-        assertThat(result.definition().collaboration().members().getFirst().agentVersionId()).isEqualTo(201L);
-        assertThat(result.definition().collaboration().members().getFirst().name()).isEqualTo("Agent-20");
+        assertThat(result.definition().collaboration().members()).isEmpty();
+        assertThat(result.definition().collaboration().excludedAgentIds()).containsExactly(20L);
+        assertThat(result.definition().capabilityCatalog().capabilities())
+                .extracting(ApplicationCapabilityDefinition::getCode)
+                .containsExactly("default_agent");
     }
 
     @Test
-    void shouldRejectSupervisorDuplicatedAsMember() {
-        gateway.addAgent(10L, true, 101L, AgentType.SUPERVISOR);
+    void shouldRejectSpecialistUsedAsSupervisor() {
+        gateway.addAgent(10L, true, 101L, AgentRole.SPECIALIST);
         gateway.addVersion(10L, 101L);
-        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true,
-                new ApplicationAgentReference(10L, null, null, null),
-                List.of(new ApplicationAgentReference(10L, null, null, null)), new AgentCollaborationLimits(1));
+        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(
+                new ApplicationAgentReference(10L, null, null, null), List.of(), List.of(), List.of());
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(fallbackDefinitionBuilder()
+        ApplicationDefinitionResolution result = resolve(validator, fallbackDefinitionBuilder()
                 .collaboration(collaboration)
                 .build());
 
         assertThat(result.valid()).isFalse();
-        assertThat(result.issues()).extracting(issue -> issue.code()).contains("SUPERVISOR_AS_MEMBER");
-    }
-
-    @Test
-    void shouldRejectReactAgentUsedAsSupervisor() {
-        gateway.addAgent(10L, true, 101L, AgentType.REACT);
-        gateway.addVersion(10L, 101L);
-        gateway.addAgent(20L, true, 201L, AgentType.REACT);
-        gateway.addVersion(20L, 201L);
-        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(true,
-                new ApplicationAgentReference(10L, null, null, null),
-                List.of(new ApplicationAgentReference(20L, null, null, null)), new AgentCollaborationLimits(1));
-
-        ApplicationDefinitionResolution result = validator.resolveForPublish(fallbackDefinitionBuilder()
-                .collaboration(collaboration)
-                .build());
-
-        assertThat(result.valid()).isFalse();
-        assertThat(result.issues()).extracting(issue -> issue.code()).contains("COLLABORATION_AGENT_TYPE_INVALID");
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .contains("COLLABORATION_AGENT_ROLE_INVALID");
     }
 
     @Test
@@ -199,12 +167,12 @@ class ApplicationDraftValidatorTest {
                 List.of(leaf, exchangeLeaf));
         ApplicationDraftValidator intentValidator = new ApplicationDraftValidator(
                 gateway,
-                intentTreeId -> Optional.of(new ApplicationIntentTreeReferenceGateway.IntentTreeReference(
-                        intentTreeId, true, 200L, treeDefinition)),
+                intentGateway(intentTreeId -> Optional.of(new ApplicationIntentTreeReferenceGateway.IntentTreeReference(
+                        intentTreeId, true, 200L, treeDefinition))),
                 workflowService,
                 modelInstanceService,
                 promptService,
-                toolService);
+                domainRepo);
         workflows.put(30L, new WorkflowService.WorkflowReference(30L, true, 300L, "退款流程"));
         workflowVersions.put(key(30L, 300L), workflowDefinition());
         ApplicationIntentBinding binding = ApplicationIntentBinding.builder()
@@ -217,10 +185,9 @@ class ApplicationDraftValidatorTest {
                         .build()))
                 .build();
 
-        ApplicationDefinitionResolution result = intentValidator.resolveForPublish(
+        ApplicationDefinitionResolution result = resolve(intentValidator,
                 fallbackDefinitionBuilder()
                         .capabilityCatalog(catalog(
-                                fallbackCapability(null),
                                 ApplicationCapabilityDefinition.builder()
                                         .code("refund_workflow")
                                         .type(ApplicationCapabilityType.WORKFLOW)
@@ -240,16 +207,17 @@ class ApplicationDraftValidatorTest {
 
     @Test
     void shouldRejectApplicationWithoutExecutionEntry() {
-        ApplicationDefinitionResolution result = validator.resolveForPublish(
+        ApplicationDefinitionResolution result = resolve(validator,
                 ApplicationDefinition.builder().schemaVersion(APPLICATION_SCHEMA_VERSION).build());
 
         assertThat(result.valid()).isFalse();
-        assertThat(result.issues()).extracting(issue -> issue.code()).containsExactly("FALLBACK_AGENT_REQUIRED");
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .containsExactly("COLLABORATION_REQUIRED");
     }
 
     @Test
     void shouldRejectLegacyApplicationSchema() {
-        ApplicationDefinitionResolution result = validator.resolveForPublish(
+        ApplicationDefinitionResolution result = resolve(validator,
                 ApplicationDefinition.builder().schemaVersion(APPLICATION_SCHEMA_VERSION - 1).build());
 
         assertThat(result.valid()).isFalse();
@@ -258,28 +226,29 @@ class ApplicationDraftValidatorTest {
     }
 
     @Test
-    void shouldPublishFallbackReactAgentWithoutIntentTree() {
-        gateway.addAgent(40L, true, 401L, AgentType.REACT);
+    void shouldPublishSupervisorFallbackWithoutIntentTree() {
+        gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
         gateway.addVersion(40L, 401L);
         ApplicationDefinition draft = fallbackDefinitionBuilder().build();
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+        ApplicationDefinitionResolution result = resolve(validator, draft);
 
         assertThat(result.valid()).isTrue();
         assertThat(result.definition().schemaVersion()).isEqualTo(APPLICATION_SCHEMA_VERSION);
         assertThat(result.definition().optionalFastRoutes()).isNull();
-        assertThat(result.definition().fallback().cap()).isEqualTo("fallback_agent");
+        assertThat(result.definition().fallback().cap()).isEqualTo("default_agent");
         assertThat(result.definition().capabilityCatalog().capabilities())
+                .filteredOn(capability -> "default_agent".equals(capability.getCode()))
                 .singleElement()
                 .satisfies(capability -> {
-                    assertThat(capability.getCode()).isEqualTo("fallback_agent");
+                    assertThat(capability.getCode()).isEqualTo("default_agent");
                     assertThat(capability.getTargetVersionId()).isEqualTo(401L);
                 });
     }
 
     @Test
-    void shouldPreserveFallbackAgentCapabilityPolicy() {
-        gateway.addAgent(40L, true, 401L, AgentType.REACT);
+    void shouldRejectExplicitSupervisorCapability() {
+        gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
         gateway.addVersion(40L, 401L);
         ApplicationCapabilityDefinition fallbackCap = ApplicationCapabilityDefinition.builder()
                 .code("fallback_agent")
@@ -295,21 +264,16 @@ class ApplicationDraftValidatorTest {
                 .capabilityCatalog(catalog(fallbackCap))
                 .build();
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+        ApplicationDefinitionResolution result = resolve(validator, draft);
 
-        assertThat(result.valid()).isTrue();
-        assertThat(result.definition().capabilityCatalog().capabilities()).singleElement().satisfies(capability -> {
-            assertThat(capability.getDescription()).isEqualTo("处理需要综合判断的请求");
-            assertThat(capability.getRiskLevel()).isEqualTo(CapabilityRiskLevel.WRITE);
-            assertThat(capability.getTimeoutSeconds()).isEqualTo(240);
-            assertThat(capability.getMaxCalls()).isEqualTo(3);
-            assertThat(capability.getResultTokenBudget()).isEqualTo(12000);
-        });
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .contains("CAPABILITY_TYPE_MANAGED");
     }
 
     @Test
     void shouldRejectFallbackCodeOutsideCatalog() {
-        gateway.addAgent(40L, true, 401L, AgentType.REACT);
+        gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
         gateway.addVersion(40L, 401L);
         ApplicationCapabilityDefinition fallbackCap = ApplicationCapabilityDefinition.builder()
                 .code("other_agent")
@@ -320,28 +284,30 @@ class ApplicationDraftValidatorTest {
                 .capabilityCatalog(catalog(fallbackCap))
                 .build();
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+        ApplicationDefinitionResolution result = resolve(validator, draft);
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
-                .contains("FALLBACK_AGENT_UNAVAILABLE");
+                .contains("CAPABILITY_TYPE_MANAGED");
     }
 
     @Test
     void shouldRejectCapabilityDescriptionOverLimit() {
-        gateway.addAgent(40L, true, 401L, AgentType.REACT);
+        gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
         gateway.addVersion(40L, 401L);
+        workflows.put(30L, new WorkflowService.WorkflowReference(30L, true, 300L, "退款流程"));
+        workflowVersions.put(key(30L, 300L), workflowDefinition());
         ApplicationCapabilityDefinition fallbackCap = ApplicationCapabilityDefinition.builder()
-                .code("fallback_agent")
-                .type(ApplicationCapabilityType.AGENT)
-                .targetId(40L)
+                .code("refund_workflow")
+                .type(ApplicationCapabilityType.WORKFLOW)
+                .targetId(30L)
                 .description("x".repeat(501))
                 .build();
         ApplicationDefinition draft = fallbackDefinitionBuilder()
                 .capabilityCatalog(catalog(fallbackCap))
                 .build();
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+        ApplicationDefinitionResolution result = resolve(validator, draft);
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
@@ -349,15 +315,13 @@ class ApplicationDraftValidatorTest {
     }
 
     @Test
-    void shouldPreserveReactAgentCapabilityPolicy() {
-        gateway.addAgent(40L, true, 401L, AgentType.REACT);
+    void shouldRejectExplicitSpecialistCapability() {
+        gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
         gateway.addVersion(40L, 401L);
-        gateway.addAgent(41L, true, 411L, AgentType.REACT);
-        gateway.addVersion(41L, 411L);
         ApplicationCapabilityDefinition agentCapability = ApplicationCapabilityDefinition.builder()
                 .code("order_agent")
                 .type(ApplicationCapabilityType.AGENT)
-                .targetId(41L)
+                .targetId(20L)
                 .riskLevel(CapabilityRiskLevel.HIGH_RISK)
                 .timeoutSeconds(180)
                 .maxCalls(2)
@@ -367,23 +331,16 @@ class ApplicationDraftValidatorTest {
                 .capabilityCatalog(catalog(fallbackCapability(null), agentCapability))
                 .build();
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+        ApplicationDefinitionResolution result = resolve(validator, draft);
 
-        assertThat(result.valid()).isTrue();
-        assertThat(result.definition().capabilityCatalog().capabilities())
-                .filteredOn(capability -> "order_agent".equals(capability.getCode()))
-                .singleElement()
-                .satisfies(capability -> {
-                    assertThat(capability.getRiskLevel()).isEqualTo(CapabilityRiskLevel.HIGH_RISK);
-                    assertThat(capability.getTimeoutSeconds()).isEqualTo(180);
-                    assertThat(capability.getMaxCalls()).isEqualTo(2);
-                    assertThat(capability.getResultTokenBudget()).isEqualTo(6000);
-                });
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .contains("CAPABILITY_TYPE_MANAGED");
     }
 
     @Test
-    void shouldFreezeWorkflowAndToolCapabilities() {
-        gateway.addAgent(40L, true, 401L, AgentType.REACT);
+    void shouldRejectToolCapabilityManagedByAgent() {
+        gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
         gateway.addVersion(40L, 401L);
         workflows.put(30L, new WorkflowService.WorkflowReference(30L, true, 300L, "退款流程"));
         workflowVersions.put(key(30L, 300L), workflowDefinition());
@@ -412,39 +369,29 @@ class ApplicationDraftValidatorTest {
                 .capabilityCatalog(catalog)
                 .build();
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+        ApplicationDefinitionResolution result = resolve(validator, draft);
 
-        assertThat(result.valid()).isTrue();
-        assertThat(result.definition().capabilityCatalog().capabilities()).hasSize(3);
-        assertThat(result.definition().capabilityCatalog().capabilities())
-                .filteredOn(capability -> capability.getCode().equals("refund_workflow"))
-                .singleElement()
-                .satisfies(capability -> assertThat(capability.getTargetVersionId()).isEqualTo(300L));
-        assertThat(result.definition().capabilityCatalog().capabilities())
-                .filteredOn(capability -> capability.getCode().equals("order_lookup"))
-                .singleElement()
-                .satisfies(capability -> {
-                    assertThat(capability.getImplementationType()).isEqualTo("LOCAL_FUNCTION");
-                    assertThat(capability.getConfigurationChecksum()).hasSize(64);
-                });
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .contains("CAPABILITY_TYPE_MANAGED");
     }
 
     @Test
-    void shouldAllowPlanExecutorAsFallback() {
-        gateway.addAgent(40L, true, 401L, AgentType.PLAN_EXECUTOR);
+    void shouldAllowSupervisorAsFallback() {
+        gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
         gateway.addVersion(40L, 401L);
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(definition(null));
+        ApplicationDefinitionResolution result = resolve(validator, definition());
 
         assertThat(result.valid()).isTrue();
-        assertThat(result.definition().fallback().cap()).isEqualTo("fallback_agent");
+        assertThat(result.definition().fallback().cap()).isEqualTo("default_agent");
     }
 
     @Test
-    void shouldRejectNestedPlanExecutorCapability() {
-        gateway.addAgent(40L, true, 401L, AgentType.REACT);
+    void shouldRejectNestedSupervisorCapability() {
+        gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
         gateway.addVersion(40L, 401L);
-        gateway.addAgent(41L, true, 411L, AgentType.PLAN_EXECUTOR);
+        gateway.addAgent(41L, true, 411L, AgentRole.SUPERVISOR);
         gateway.addVersion(41L, 411L);
         ApplicationCapabilityDefinition nested = ApplicationCapabilityDefinition.builder()
                 .code("nested_planner")
@@ -455,28 +402,28 @@ class ApplicationDraftValidatorTest {
                 .capabilityCatalog(catalog(fallbackCapability(null), nested))
                 .build();
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+        ApplicationDefinitionResolution result = resolve(validator, draft);
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
-                .contains("PLAN_EXECUTOR_NESTING_FORBIDDEN");
+                .contains("CAPABILITY_TYPE_MANAGED");
     }
 
     @Test
     void shouldRejectAgentVersionWithLegacySchema() {
-        gateway.addAgent(40L, true, 401L, AgentType.REACT);
-        gateway.addVersion(40L, 401L, AGENT_SCHEMA_VERSION - 1, AgentType.REACT);
+        gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
+        gateway.addVersion(40L, 401L, AGENT_SCHEMA_VERSION - 1, AgentRole.SUPERVISOR);
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(definition(401L));
+        ApplicationDefinitionResolution result = resolve(validator, definition());
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
-                .containsExactly("CAPABILITY_AGENT_VERSION_UNAVAILABLE");
+                .containsExactly("COLLABORATION_AGENT_VERSION_NOT_FOUND");
     }
 
     @Test
     void shouldRejectCapabilityBoundaryExceedingApplicationRuntimeBudget() {
-        gateway.addAgent(40L, true, 401L, AgentType.REACT);
+        gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
         gateway.addVersion(40L, 401L);
         ApplicationCapabilityDefinition fallbackCap = ApplicationCapabilityDefinition.builder()
                 .code("fallback_agent")
@@ -497,7 +444,7 @@ class ApplicationDraftValidatorTest {
                 .runtimePolicy(runtimePolicy)
                 .build();
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+        ApplicationDefinitionResolution result = resolve(validator, draft);
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
@@ -506,7 +453,7 @@ class ApplicationDraftValidatorTest {
 
     @Test
     void shouldNormalizeAndValidateTokenFinalizationGrace() {
-        gateway.addAgent(40L, true, 401L, AgentType.REACT);
+        gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
         gateway.addVersion(40L, 401L);
         ApplicationRuntimePolicy runtimePolicy = ApplicationRuntimePolicy.defaults();
         runtimePolicy.setTokenGracePercent(31);
@@ -514,7 +461,7 @@ class ApplicationDraftValidatorTest {
                 .runtimePolicy(runtimePolicy)
                 .build();
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+        ApplicationDefinitionResolution result = resolve(validator, draft);
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
@@ -526,7 +473,7 @@ class ApplicationDraftValidatorTest {
         ApplicationDefinitionResolution result = resolveMemoryWithIntentTree(null);
 
         assertThat(result.valid()).isTrue();
-        assertThat(result.definition().memoryConf().interactionRecord().getEmbeddingModelInstanceId()).isEqualTo(88L);
+        assertThat(result.definition().memoryConf().getEmbeddingModelInstanceId()).isEqualTo(88L);
         assertThat(result.definition().memoryConf().summary().getPromptVersionId()).isEqualTo(501L);
         assertThat(result.definition().memoryConf().profile().getUpdateStrategy()).isEqualTo(UserProfileUpdateStrategy.MERGE);
         assertThat(result.definition().memoryConf().interactionRecord().getRetentionDays()).isEqualTo(365);
@@ -540,7 +487,7 @@ class ApplicationDraftValidatorTest {
         memory.getInteractionRecord().setRetentionDays(3651);
         memory.getSummary().setMinTokens(255);
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(fallbackDefinitionBuilder()
+        ApplicationDefinitionResolution result = resolve(validator, fallbackDefinitionBuilder()
                 .memoryConf(memory)
                 .build());
 
@@ -561,12 +508,12 @@ class ApplicationDraftValidatorTest {
     @Test
     void shouldAllowIndependentMemoryEmbeddingWithoutIntentTree() {
         addMemoryReferences();
-        ApplicationDefinitionResolution result = validator.resolveForPublish(fallbackDefinitionBuilder()
+        ApplicationDefinitionResolution result = resolve(validator, fallbackDefinitionBuilder()
                 .memoryConf(memoryConfig(401L))
                 .build());
 
         assertThat(result.valid()).isTrue();
-        assertThat(result.definition().memoryConf().interactionRecord().getEmbeddingModelInstanceId()).isEqualTo(401L);
+        assertThat(result.definition().memoryConf().getEmbeddingModelInstanceId()).isEqualTo(401L);
     }
 
     @Test
@@ -575,7 +522,7 @@ class ApplicationDraftValidatorTest {
         MemoryConfig memory = memoryConfig(null);
         memory.setInteractionRecord(InteractionRecordMemoryConfig.disabled());
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(fallbackDefinitionBuilder()
+        ApplicationDefinitionResolution result = resolve(validator, fallbackDefinitionBuilder()
                 .memoryConf(memory)
                 .build());
 
@@ -601,12 +548,12 @@ class ApplicationDraftValidatorTest {
                 List.of(leaf));
         ApplicationDraftValidator memoryValidator = new ApplicationDraftValidator(
                 gateway,
-                intentTreeId -> Optional.of(new ApplicationIntentTreeReferenceGateway.IntentTreeReference(
-                        intentTreeId, true, 200L, treeDefinition)),
+                intentGateway(intentTreeId -> Optional.of(new ApplicationIntentTreeReferenceGateway.IntentTreeReference(
+                        intentTreeId, true, 200L, treeDefinition))),
                 workflowService,
                 modelInstanceService,
                 promptService,
-                toolService);
+                domainRepo);
         addMemoryReferences();
         models.put(88L, new ModelInstanceReferenceBO(88L, ModelType.EMBEDDING, EnableStatus.ACTIVE));
         ApplicationIntentBinding binding = ApplicationIntentBinding.builder()
@@ -618,7 +565,7 @@ class ApplicationDraftValidatorTest {
                         .fixedResponse("你好，请问有什么可以帮你？")
                         .build()))
                 .build();
-        return memoryValidator.resolveForPublish(fallbackDefinitionBuilder()
+        return resolve(memoryValidator, fallbackDefinitionBuilder()
                 .optionalFastRoutes(binding)
                 .memoryConf(memoryConfig(memoryEmbeddingInstanceId))
                 .build());
@@ -634,21 +581,19 @@ class ApplicationDraftValidatorTest {
 
     private static MemoryConfig memoryConfig(Long embeddingInstanceId) {
         return MemoryConfig.builder()
+                .chatModelInstanceId(402L)
+                .embeddingModelInstanceId(embeddingInstanceId)
                 .profile(UserProfileMemoryConfig.builder()
                         .enabled(true)
-                        .chatModelInstanceId(402L)
                         .promptVersionId(502L)
                         .build())
                 .interactionRecord(InteractionRecordMemoryConfig.builder()
                         .enabled(true)
-                        .embeddingModelInstanceId(embeddingInstanceId)
-                        .chatModelInstanceId(402L)
                         .promptVersionId(503L)
                         .topK(5)
                         .build())
                 .summary(ConversationSummaryMemoryConfig.builder()
                         .enabled(true)
-                        .chatModelInstanceId(402L)
                         .promptVersionId(501L)
                         .minRounds(8)
                         .build())
@@ -678,7 +623,7 @@ class ApplicationDraftValidatorTest {
                         .build())
                 .build();
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+        ApplicationDefinitionResolution result = resolve(validator, draft);
 
         assertThat(result.valid()).isTrue();
         assertThat(result.definition().schemaVersion()).isEqualTo(APPLICATION_SCHEMA_VERSION);
@@ -696,11 +641,12 @@ class ApplicationDraftValidatorTest {
         ApplicationDefinition draft = fallbackDefinitionBuilder()
                 .contextPolicy(ApplicationContextPolicy.builder()
                         .contextualization(ContextualizationPolicy.builder().enabled(true).build())
+                        .preset(ContextBudgetPreset.CUSTOM)
                         .budget(invalidBudget)
                         .build())
                 .build();
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+        ApplicationDefinitionResolution result = resolve(validator, draft);
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
@@ -726,7 +672,7 @@ class ApplicationDraftValidatorTest {
                         .build())
                 .build();
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+        ApplicationDefinitionResolution result = resolve(validator, draft);
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
@@ -750,7 +696,7 @@ class ApplicationDraftValidatorTest {
                         .build())
                 .build();
 
-        ApplicationDefinitionResolution result = validator.resolveForPublish(draft);
+        ApplicationDefinitionResolution result = resolve(validator, draft);
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::message)
@@ -763,20 +709,19 @@ class ApplicationDraftValidatorTest {
                 new PromptService.PromptVariableReference("query.contextualization_history", PromptVariableType.MESSAGE_LIST));
     }
 
-    private static ApplicationDefinition definition(Long versionId) {
-        return fallbackDefinitionBuilder(versionId)
-                .build();
+    private static ApplicationDefinition definition() {
+        return fallbackDefinitionBuilder().build();
     }
 
     private static ApplicationDefinition.ApplicationDefinitionBuilder fallbackDefinitionBuilder() {
-        return fallbackDefinitionBuilder(null);
-    }
-
-    private static ApplicationDefinition.ApplicationDefinitionBuilder fallbackDefinitionBuilder(Long versionId) {
         return ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
-                .fallback(new FallbackAgent("fallback_agent"))
-                .capabilityCatalog(catalog(fallbackCapability(versionId)));
+                .collaboration(new AgentCollaborationDefinition(
+                        new ApplicationAgentReference(40L, null, null, null),
+                        List.of(),
+                        List.of(),
+                        List.of()))
+                .capabilityCatalog(catalog());
     }
 
     private static CapabilityCatalogSnapshot catalog(ApplicationCapabilityDefinition... capabilities) {
@@ -855,31 +800,65 @@ class ApplicationDraftValidatorTest {
         return resourceId + ":" + versionId;
     }
 
+    private static ApplicationDefinitionResolution resolve(ApplicationDraftValidator validator, ApplicationDefinition definition) {
+        return validator.resolveForPublish(definition, 1L);
+    }
+
+    private static ApplicationIntentTreeReferenceGateway intentGateway(
+            Function<Long, Optional<ApplicationIntentTreeReferenceGateway.IntentTreeReference>> finder) {
+        return new ApplicationIntentTreeReferenceGateway() {
+            @Override
+            public Optional<IntentTreeReference> findPublishedTree(Long intentTreeId) {
+                return finder.apply(intentTreeId);
+            }
+
+            @Override
+            public Optional<Long> findDomainId(Long intentTreeId) {
+                return Optional.of(1L);
+            }
+        };
+    }
+
+    private static DomainRepo domainRepo() {
+        DomainRepo repo = mock(DomainRepo.class);
+        DomainEntity domain = new DomainEntity();
+        domain.setId(1L);
+        domain.setRootId(1L);
+        domain.setDepth(1);
+        domain.setStatus(EnableStatus.ACTIVE);
+        when(repo.findById(anyLong())).thenReturn(Optional.of(domain));
+        when(repo.findActiveByRootId(anyLong())).thenReturn(List.of(domain));
+        return repo;
+    }
+
     private static final class StubAgentReferenceGateway
             implements com.lingxi.workbench.admin.agent.service.AgentReferenceService {
         private final Map<Long, AgentReference> agents = new HashMap<>();
         private final Map<String, AgentVersionReference> versions = new HashMap<>();
 
         private StubAgentReferenceGateway() {
-            addAgent(40L, true, 401L, AgentType.REACT);
+            addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
             addVersion(40L, 401L);
+            addAgent(20L, true, 201L, AgentRole.SPECIALIST);
+            addVersion(20L, 201L);
         }
 
         void addAgent(Long id, boolean active, Long publishedVersionId) {
-            addAgent(id, active, publishedVersionId, AgentType.REACT);
+            addAgent(id, active, publishedVersionId, id == 40L ? AgentRole.SUPERVISOR : AgentRole.SPECIALIST);
         }
 
-        void addAgent(Long id, boolean active, Long publishedVersionId, AgentType agentType) {
-            agents.put(id, new AgentReference(new AgentIdentity(id, "Agent-" + id, "Agent职责-" + id, agentType), active, publishedVersionId));
+        void addAgent(Long id, boolean active, Long publishedVersionId, AgentRole role) {
+            agents.put(id, new AgentReference(
+                    new AgentIdentity(id, "Agent-" + id, "Agent职责-" + id, role), active, publishedVersionId, 1L));
         }
 
         void addVersion(Long agentId, Long versionId) {
-            AgentType agentType = agents.get(agentId).identity().agentType();
-            addVersion(agentId, versionId, AGENT_SCHEMA_VERSION, agentType);
+            AgentRole role = agents.get(agentId).identity().role();
+            addVersion(agentId, versionId, AGENT_SCHEMA_VERSION, role);
         }
 
-        void addVersion(Long agentId, Long versionId, int schemaVersion, AgentType agentType) {
-            versions.put(key(agentId, versionId), new AgentVersionReference(versionId, schemaVersion, agentType));
+        void addVersion(Long agentId, Long versionId, int schemaVersion, AgentRole role) {
+            versions.put(key(agentId, versionId), new AgentVersionReference(versionId, schemaVersion, role));
         }
 
         @Override
@@ -890,6 +869,16 @@ class ApplicationDraftValidatorTest {
         @Override
         public Optional<AgentVersionReference> findVersion(Long agentId, Long versionId) {
             return Optional.ofNullable(versions.get(key(agentId, versionId)));
+        }
+
+        @Override
+        public List<AgentReference> listPublishedSpecialists(java.util.Set<Long> domainIds) {
+            return agents.values().stream()
+                    .filter(AgentReference::active)
+                    .filter(agent -> agent.identity().role() == AgentRole.SPECIALIST)
+                    .filter(agent -> agent.publishedVersionId() != null)
+                    .filter(agent -> domainIds.contains(agent.domainId()))
+                    .toList();
         }
 
     }

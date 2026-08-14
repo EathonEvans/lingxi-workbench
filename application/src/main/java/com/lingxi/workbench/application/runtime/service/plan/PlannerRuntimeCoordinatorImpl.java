@@ -62,7 +62,7 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
                 .turn(request.getExecutionContext().getTurn())
                 .userId(request.getConversationContext().getLoginUser().id())
                 .runId(request.getRunId())
-                .orchestratorAgent(request.getPlanExecutor().getAgent())
+                .orchestratorAgent(request.getSupervisor().getAgent())
                 .build());
         publishPlanning(request.getRunId(), request.getExecutionContext());
         // 上下文工作预算已耗尽：跳过 Planner 决策，直接以澄清会话结束本轮，避免预算不足时继续消耗模型调用。
@@ -77,7 +77,7 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
                     .executionContext(request.getExecutionContext())
                     .planNo(1)
                     .confirmedCapabilityCodes(request.confirmedCapabilityCodes())
-                    .planExecutor(request.getPlanExecutor())
+                    .supervisor(request.getSupervisor())
                     .build());
             // 将 Planner 决策消耗的 token 记入上下文，纳入本轮工作预算统计。
             request.getExecutionContext().recordUsage(plannerResult.tokenUsage());
@@ -109,7 +109,7 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
                 .conversationContext(request.getConversationContext())
                 .executionContext(request.getExecutionContext())
                 .confirmedCapabilityCodes(request.confirmedCapabilityCodes())
-                .planExecutor(request.getPlanExecutor())
+                .supervisor(request.getSupervisor())
                 .build();
     }
 

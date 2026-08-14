@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -55,6 +56,26 @@ class PromptTemplateProcessorTest {
         assertThrows(
                 BusinessException.class,
                 () -> processor.validate("请回答{{user.query}}", List.of()));
+    }
+
+    @Test
+    void shouldAcceptNestedJsonInFewShot() {
+        String prompt = """
+                输出示例：
+                {"action":"EXECUTE_PLAN","plan":{
+                  "title":"职位分析",
+                  "steps":[{"id":"collect","name":"整理证据","capabilityCode":"agent_9","dependsOn":[]}]
+                }}
+                """;
+
+        assertDoesNotThrow(() -> processor.validate(prompt, List.of()));
+    }
+
+    @Test
+    void shouldRejectMalformedVariableOpening() {
+        assertThrows(
+                BusinessException.class,
+                () -> processor.validate("请回答{{user.query}", List.of()));
     }
 
     @Test

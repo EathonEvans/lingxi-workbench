@@ -6,14 +6,11 @@ import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
-import com.lingxi.workbench.application.runtime.model.AgentCollaborationScope;
 import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.PromptRuntimeVariableDefinition;
 import com.lingxi.workbench.application.runtime.service.prompt.PromptRuntimeService;
 import com.lingxi.workbench.application.runtime.service.tool.ToolRuntimeService;
 import com.lingxi.workbench.application.runtime.tool.KnowledgeSearchAgentToolFactory;
-import com.lingxi.workbench.application.runtime.service.agent.strategy.ReactPreparationStrategy;
-import com.lingxi.workbench.application.runtime.service.agent.strategy.SupervisorPreparationStrategy;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
@@ -23,7 +20,7 @@ import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.infra.ai.chat.StreamingChatGateway;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
@@ -32,9 +29,6 @@ import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig
 import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
-import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
-import com.lingxi.workbench.workflow.model.AgentCollaborationLimits;
-import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
@@ -146,60 +140,6 @@ class AgentChatServiceImplTest {
         assertEquals(
                 "Agent查询与运行时变量作用域不一致",
                 exception.getMessage());
-    }
-
-    @Test
-    void shouldExposeApplicationMembersAsSupervisorTools() {
-        AgentRuntimeDefinition definition = supervisorDefinition();
-        AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
-        ApplicationAgentReference supervisor = new ApplicationAgentReference(10L, 20L, "协调Agent", "负责规划");
-        ApplicationAgentReference member = new ApplicationAgentReference(30L, 40L, "售后专家", "处理退款与售后政策");
-        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(
-                true, supervisor, List.of(member), new AgentCollaborationLimits(1));
-        ChatExecutionContext execution = ChatExecutionContext.builder()
-                .executionId("run-collaboration")
-                .runtimeVariables(runtimeVariables())
-                .turn(new ChatTurnBO(10L, 11L, 12L, 3))
-                .collaborationScope(AgentCollaborationScope.root(collaboration, 2))
-                .build();
-        AgentChatServiceImpl service = supervisorService(
-                definition,
-                AgentChatServiceImplTest::promptSnapshotByVersion,
-                command -> {
-                    captured.set(command);
-                    return Flux.just(new ChatStreamChunk("统一回答"));
-                },
-                toolCodes -> List.of());
-
-        String answer = service.chat(10L, 20L, "如何退款", execution);
-
-        assertEquals("统一回答", answer);
-        assertEquals(
-                2,
-                execution.getRuntimeVariables().require(
-                        RuntimeVariableAccessors.COLLABORATION_MAX_DELEGATIONS));
-        AgentTool delegationTool = captured.get().toolRuntimeConfig().orElseThrow().getTools().getFirst();
-        assertEquals("delegate_agent_30", delegationTool.definition().getCode());
-        assertTrue(delegationTool.definition().getDescription().contains("处理退款与售后政策"));
-        assertTrue(captured.get().systemPrompt().contains("多 Agent 协作规则"));
-        assertTrue(captured.get().systemPrompt().contains("成员返回的是中间工作结果"));
-    }
-
-    @Test
-    void shouldRejectSupervisorSnapshotContainingKnowledgeSearch() {
-        AgentRuntimeDefinition definition = supervisorDefinition();
-        definition.setKnowledgeSearch(reactDefinition().getKnowledgeSearch());
-        definition.setToolPolicy(new AgentRuntimeDefinition.ToolPolicy(1000));
-        AgentChatServiceImpl service = supervisorService(definition, AgentChatServiceImplTest::promptSnapshotByVersion, command -> Flux.empty(), toolCodes -> List.of());
-        ChatExecutionContext execution = ChatExecutionContext.builder()
-                .executionId("run-invalid-supervisor")
-                .runtimeVariables(runtimeVariables())
-                .turn(new ChatTurnBO(10L, 11L, 12L, 3))
-                .build();
-
-        BusinessException exception = assertThrows(BusinessException.class, () -> service.chat(10L, 20L, "如何退款", execution));
-
-        assertEquals("Supervisor AgentVersion不能绑定知识搜索", exception.getMessage());
     }
 
     @Test
@@ -337,11 +277,10 @@ class AgentChatServiceImplTest {
         KnowledgeSearchAgentToolFactory toolFactory = mock(KnowledgeSearchAgentToolFactory.class);
         when(toolFactory.create(definition.getKnowledgeSearch())).thenReturn(new KnowledgeSearchStubAgentTool());
         PromptRuntimeService promptRuntimeService = AgentChatServiceImplTest::promptSnapshotByVersion;
-        ReactPreparationStrategy strategy = new ReactPreparationStrategy(promptRuntimeService, modelRequestFactory());
-        AgentChatPreparationStrategyRegistry registry = new AgentChatPreparationStrategyRegistry(List.of(strategy));
         AgentChatServiceImpl service = new AgentChatServiceImpl(
                 (agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition),
-                registry,
+                promptRuntimeService,
+                modelRequestFactory(),
                 modelService(),
                 command -> {
                     captured.set(command);
@@ -365,16 +304,14 @@ class AgentChatServiceImplTest {
 
     private static AgentChatServiceImpl service(AgentRuntimeDefinition definition, PromptRuntimeService promptRuntimeService, StreamingChatGateway streamingChatGateway, ToolRuntimeService toolRuntimeService) {
         ModelRuntimeConfigService modelRuntimeConfigService = modelService();
-        ReactPreparationStrategy strategy = new ReactPreparationStrategy(promptRuntimeService, modelRequestFactory());
-        AgentChatPreparationStrategyRegistry registry = new AgentChatPreparationStrategyRegistry(List.of(strategy));
-        return new AgentChatServiceImpl((agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition), registry, modelRuntimeConfigService, streamingChatGateway, toolRuntimeService, mock(KnowledgeSearchAgentToolFactory.class));
-    }
-
-    private static AgentChatServiceImpl supervisorService(AgentRuntimeDefinition definition, PromptRuntimeService promptRuntimeService, StreamingChatGateway streamingChatGateway, ToolRuntimeService toolRuntimeService) {
-        ModelRuntimeConfigService modelRuntimeConfigService = modelService();
-        SupervisorPreparationStrategy strategy = new SupervisorPreparationStrategy(promptRuntimeService, modelRequestFactory());
-        AgentChatPreparationStrategyRegistry registry = new AgentChatPreparationStrategyRegistry(List.of(strategy));
-        return new AgentChatServiceImpl((agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition), registry, modelRuntimeConfigService, streamingChatGateway, toolRuntimeService, mock(KnowledgeSearchAgentToolFactory.class));
+        return new AgentChatServiceImpl(
+                (agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition),
+                promptRuntimeService,
+                modelRequestFactory(),
+                modelRuntimeConfigService,
+                streamingChatGateway,
+                toolRuntimeService,
+                mock(KnowledgeSearchAgentToolFactory.class));
     }
 
     private static ModelRuntimeConfigService modelService() {
@@ -414,22 +351,7 @@ class AgentChatServiceImplTest {
     private static AgentRuntimeDefinition definition() {
         return AgentRuntimeDefinition.builder()
                 .schemaVersion(AGENT_SCHEMA_VERSION)
-                .agentType(AgentType.REACT)
-                .chatModelInstanceId(99L)
-                .systemPromptVersionId(88L)
-                .userPromptVersionId(89L)
-                .toolCodes(List.of())
-                .generationPolicy(AgentRuntimeDefinition.GenerationPolicy.builder()
-                        .temperature(new BigDecimal("0.2"))
-                        .topP(new BigDecimal("0.9"))
-                        .build())
-                .build();
-    }
-
-    private static AgentRuntimeDefinition supervisorDefinition() {
-        return AgentRuntimeDefinition.builder()
-                .schemaVersion(AGENT_SCHEMA_VERSION)
-                .agentType(AgentType.SUPERVISOR)
+                .role(AgentRole.SPECIALIST)
                 .chatModelInstanceId(99L)
                 .systemPromptVersionId(88L)
                 .userPromptVersionId(89L)
@@ -444,7 +366,7 @@ class AgentChatServiceImplTest {
     private static AgentRuntimeDefinition reactDefinition() {
         return AgentRuntimeDefinition.builder()
                 .schemaVersion(AGENT_SCHEMA_VERSION)
-                .agentType(AgentType.REACT)
+                .role(AgentRole.SPECIALIST)
                 .chatModelInstanceId(99L)
                 .systemPromptVersionId(88L)
                 .userPromptVersionId(89L)

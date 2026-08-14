@@ -2,7 +2,7 @@ package com.lingxi.workbench.application.runtime.model;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONException;
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -15,8 +15,8 @@ class AgentRuntimeDefinitionJsonTest {
         AgentRuntimeDefinition definition = JSON.parseObject(
                 """
                         {
-                          "schemaVersion": 5,
-                          "agentType": "REACT",
+                          "schemaVersion": 7,
+                          "role": "SPECIALIST",
                           "chatModelInstanceId": 10,
                           "systemPromptVersionId": 20,
                           "userPromptVersionId": 21,
@@ -39,7 +39,7 @@ class AgentRuntimeDefinitionJsonTest {
                 AgentRuntimeDefinition.class);
 
         AgentRuntimeDefinition.KnowledgeSearchCapability capability = definition.getKnowledgeSearch();
-        assertEquals(AgentType.REACT, definition.getAgentType());
+        assertEquals(AgentRole.SPECIALIST, definition.getRole());
         assertEquals(20L, definition.getSystemPromptVersionId());
         assertEquals(21L, definition.getUserPromptVersionId());
         assertEquals("system_current_time", definition.resolveToolCodes().getFirst());
@@ -53,7 +53,7 @@ class AgentRuntimeDefinitionJsonTest {
     }
 
     @Test
-    void shouldRejectUnknownAgentType() {
-        assertThrows(JSONException.class, () -> JSON.parseObject("{\"agentType\":\"UNKNOWN\"}", AgentRuntimeDefinition.class));
+    void shouldRejectUnknownAgentRole() {
+        assertThrows(JSONException.class, () -> JSON.parseObject("{\"role\":\"UNKNOWN\"}", AgentRuntimeDefinition.class));
     }
 }

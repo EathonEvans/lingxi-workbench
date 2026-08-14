@@ -79,16 +79,6 @@ public final class RuntimeVariables {
     }
 
     /**
-     * 为受委派 Agent 创建独立的变量容器。
-     *
-     * <p>复制请求入口事实和已经统一准备的共享上下文，并将 user.query 替换为
-     * Supervisor 下发的明确任务。工具结果等执行期派生变量不会被复制。</p>
-     */
-    public synchronized RuntimeVariables forkForAgentTask(String task) {
-        return forkForQuery(task);
-    }
-
-    /**
      * 为路由结果创建新的执行变量，只替换当前任务问题。
      *
      * <p>共享历史、摘要和长期记忆已经在 ConversationContext 构建阶段准备完成，

@@ -32,7 +32,7 @@ public class MemoryContextService {
             appendProfile(userId, context);
         }
         if (config.interactionRecord().isEnabled()) {
-            appendRelevantRecords(userId, query, config.interactionRecord(), context);
+            appendRelevantRecords(userId, query, config, context);
         }
         return context.toString().trim();
     }
@@ -50,16 +50,18 @@ public class MemoryContextService {
         });
     }
 
-    private void appendRelevantRecords(Long userId, String query, InteractionRecordMemoryConfig config, StringBuilder context) {
+    private void appendRelevantRecords(Long userId, String query, MemoryConfig memoryConfig, StringBuilder context) {
         try {
-            EmbeddingModelRuntimeConfig embeddingConfig = embeddingResolver.resolve(config.getEmbeddingModelInstanceId());
+            InteractionRecordMemoryConfig config = memoryConfig.interactionRecord();
+            Long embeddingModelInstanceId = memoryConfig.getEmbeddingModelInstanceId();
+            EmbeddingModelRuntimeConfig embeddingConfig = embeddingResolver.resolve(embeddingModelInstanceId);
             List<float[]> vectors = embeddingGateway.embed(List.of(query), embeddingConfig);
             if (vectors.isEmpty()) {
                 return;
             }
             List<InteractionRecordEntity> records = vectorRepo.findSimilar(
                     userId,
-                    config.getEmbeddingModelInstanceId(),
+                    embeddingModelInstanceId,
                     vectors.getFirst(),
                     config.effectiveRetentionDays(),
                     config.effectiveTopK());

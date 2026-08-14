@@ -33,7 +33,7 @@ class ConversationSummaryMemoryServiceTest {
         ConversationSummaryMemoryService service = new ConversationSummaryMemoryService(
                 memoryService, completionService, persistenceService);
         AssistantCompletedEvent event = event();
-        ConversationSummaryMemoryConfig config = event.memoryConfig().summary();
+        MemoryConfig config = event.memoryConfig();
         ConversationSummarySource source = new ConversationSummarySource(
                 "用户正在处理退款", 3, 7, List.of(
                         new ChatMemoryMessageBO(5, MessageRole.USER, "订单号是A100"),
@@ -43,7 +43,7 @@ class ConversationSummaryMemoryServiceTest {
         when(memoryService.loadSummarySource(
                 7L, event.turn(), new ConversationSummaryTrigger(2, 500, 16_000))).thenReturn(Optional.of(source));
         when(completionService.complete(
-                org.mockito.ArgumentMatchers.eq(config.getPromptVersionId()),
+                org.mockito.ArgumentMatchers.eq(config.summary().getPromptVersionId()),
                 org.mockito.ArgumentMatchers.eq(config.getChatModelInstanceId()),
                 anyMap()))
                 .thenReturn("退款已提交");
@@ -72,7 +72,7 @@ class ConversationSummaryMemoryServiceTest {
         when(memoryService.loadSummarySource(
                 7L, event.turn(), new ConversationSummaryTrigger(2, 500, 16_000))).thenReturn(Optional.empty());
 
-        service.generate(event, event.memoryConfig().summary());
+        service.generate(event, event.memoryConfig());
 
         verify(completionService, never()).complete(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), anyMap());
@@ -83,9 +83,9 @@ class ConversationSummaryMemoryServiceTest {
 
     private static AssistantCompletedEvent event() {
         MemoryConfig config = MemoryConfig.builder()
+                .chatModelInstanceId(21L)
                 .summary(ConversationSummaryMemoryConfig.builder()
                         .enabled(true)
-                        .chatModelInstanceId(21L)
                         .minRounds(2)
                         .minTokens(500)
                         .promptVersionId(30L)

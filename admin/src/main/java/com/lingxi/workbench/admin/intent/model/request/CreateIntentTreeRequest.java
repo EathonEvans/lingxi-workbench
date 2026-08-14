@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.intent.model.request;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -19,4 +20,7 @@ public class CreateIntentTreeRequest {
 
     @Size(max = 500, message = "意图树描述不能超过500个字符")
     private String description;
+
+    @NotNull(message = "请选择所属领域")
+    private Long domainId;
 }

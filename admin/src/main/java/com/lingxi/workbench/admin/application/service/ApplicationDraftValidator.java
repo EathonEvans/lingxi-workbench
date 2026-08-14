@@ -2,16 +2,16 @@ package com.lingxi.workbench.admin.application.service;
 
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.admin.agent.service.AgentReferenceService;
 import com.lingxi.workbench.admin.application.model.vo.ApplicationValidationIssueVO;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
+import com.lingxi.workbench.admin.domain.model.entity.DomainEntity;
+import com.lingxi.workbench.admin.domain.repo.DomainRepo;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import com.lingxi.workbench.admin.model.model.bo.ModelInstanceReferenceBO;
 import com.lingxi.workbench.admin.model.service.ModelInstanceService;
 import com.lingxi.workbench.admin.prompt.service.PromptService;
-import com.lingxi.workbench.admin.tool.model.bo.ToolReferenceBO;
-import com.lingxi.workbench.admin.tool.service.ToolService;
 import com.lingxi.workbench.admin.workflow.service.WorkflowService;
 import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import com.lingxi.workbench.infra.ai.variable.RuntimeVariableCatalog;
@@ -23,10 +23,10 @@ import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
-import com.lingxi.workbench.workflow.model.AgentCollaborationLimits;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ConversationSummaryMemoryConfig;
 import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
+import com.lingxi.workbench.workflow.model.ContextBudgetPreset;
 import com.lingxi.workbench.workflow.model.ContextualizationPolicy;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.FallbackAgent;
@@ -48,17 +48,18 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.HexFormat;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
-import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.MAX_MEMBER_AGENTS;
+import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.MAX_RESOLVED_CAPABILITIES;
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.MIN_DELEGATIONS;
-import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.MIN_MEMBER_AGENTS;
-import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.SUPERVISOR_MAX_DEPTH;
 import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
 
 /**
@@ -69,6 +70,7 @@ import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaCo
 @Component
 @RequiredArgsConstructor
 public class ApplicationDraftValidator {
+    private static final String DEFAULT_AGENT_CAPABILITY_CODE = "default_agent";
     private static final int MIN_CONTEXT_PARTITION_TOKENS = 128;
     private static final int MAX_CONTEXT_PARTITION_TOKENS = 200000;
     private static final int MIN_CONTEXTUALIZATION_OUTPUT_TOKENS = 16;
@@ -87,12 +89,12 @@ public class ApplicationDraftValidator {
     private final WorkflowService workflowService;
     private final ModelInstanceService modelInstanceService;
     private final PromptService promptService;
-    private final ToolService toolService;
+    private final DomainRepo domainRepo;
 
     /**
      * 校验当前协议草稿并锁定全部资源版本，返回可发布的不可变定义。
      */
-    public ApplicationDefinitionResolution resolveForPublish(ApplicationDefinition draftDefinition) {
+    public ApplicationDefinitionResolution resolveForPublish(ApplicationDefinition draftDefinition, Long domainId) {
         List<ApplicationValidationIssueVO> issues = new ArrayList<>();
         if (draftDefinition == null) {
             issues.add(issue("DEFINITION_REQUIRED", "definition", "应用定义不能为空"));
@@ -106,15 +108,14 @@ public class ApplicationDraftValidator {
             return new ApplicationDefinitionResolution(null, issues);
         }
 
-        AgentCollaborationDefinition collaboration = resolveCollaboration(draftDefinition.collaboration(), issues);
+        DomainEntity root = resolveRootDomain(domainId, issues);
+        AgentCollaborationDefinition collaboration = resolveCollaboration(draftDefinition.collaboration(), root, issues);
         ApplicationContextPolicy contextPolicy = resolveContextPolicy(draftDefinition.contextPolicy(), issues);
-        CapabilityCatalogSnapshot capabilityCatalog = resolveCapabilityCatalog(
+        CapabilityCatalogSnapshot explicitCapabilities = resolveCapabilityCatalog(
                 draftDefinition.capabilityCatalog(), issues);
-        ApplicationCapabilityDefinition fallbackCapability = resolveFallback(
-                draftDefinition.fallback(), draftDefinition.capabilityCatalog(), capabilityCatalog, issues);
-        validateAgentCapabilityTopology(fallbackCapability, capabilityCatalog, issues);
+        CapabilityCatalogSnapshot capabilityCatalog = mergeResolvedCapabilities(collaboration, explicitCapabilities, issues);
         FastRouteResolution fastRouteResolution = resolveFastRoutes(
-                draftDefinition.optionalFastRoutes(), capabilityCatalog, issues);
+                draftDefinition.optionalFastRoutes(), capabilityCatalog, root, issues);
         MemoryConfig memoryConf = resolveMemory(draftDefinition.memoryConf(), fastRouteResolution.embeddingModelInstanceId(), issues);
         ApplicationRuntimePolicy runtimePolicy = resolveRuntimePolicy(draftDefinition.runtimePolicy(), issues);
         validateRuntimeBoundaries(
@@ -128,7 +129,7 @@ public class ApplicationDraftValidator {
                 .optionalFastRoutes(fastRouteResolution.binding())
                 .memoryConf(memoryConf)
                 .contextPolicy(contextPolicy)
-                .fallback(new FallbackAgent(fallbackCapability.getCode()))
+                .fallback(new FallbackAgent(DEFAULT_AGENT_CAPABILITY_CODE))
                 .capabilityCatalog(capabilityCatalog)
                 .runtimePolicy(runtimePolicy)
                 .build();
@@ -141,7 +142,7 @@ public class ApplicationDraftValidator {
         List<ApplicationCapabilityDefinition> resolved = new ArrayList<>();
         Set<String> codes = new HashSet<>();
         List<ApplicationCapabilityDefinition> capabilities = Objects.isNull(draft) ? List.of() : draft.capabilities();
-        if (capabilities.size() > 50) {
+        if (capabilities.size() > MAX_RESOLVED_CAPABILITIES) {
             issues.add(issue("CAPABILITY_COUNT_INVALID", "definition.capabilityCatalog.capabilities", "能力目录最多配置50项能力"));
             return CapabilityCatalogSnapshot.builder().capabilities(resolved).build();
         }
@@ -156,65 +157,62 @@ public class ApplicationDraftValidator {
         return CapabilityCatalogSnapshot.builder().capabilities(List.copyOf(resolved)).build();
     }
 
-    /** fallback 必须唯一指向已解析的 REACT 或 PLAN_EXECUTOR Agent 能力。 */
-    private ApplicationCapabilityDefinition resolveFallback(
-            FallbackAgent fallback,
-            CapabilityCatalogSnapshot draftCatalog,
-            CapabilityCatalogSnapshot resolvedCatalog,
+    /** 合并自动生成的 Agent 能力和管理员显式绑定的 Workflow 能力。 */
+    private static CapabilityCatalogSnapshot mergeResolvedCapabilities(
+            AgentCollaborationDefinition collaboration,
+            CapabilityCatalogSnapshot explicitCapabilities,
             List<ApplicationValidationIssueVO> issues) {
-        String field = "definition.fallback.cap";
-        String cap = Objects.isNull(fallback) ? null : fallback.cap();
-        if (isBlank(cap) || !CAPABILITY_CODE_PATTERN.matcher(cap).matches()) {
-            issues.add(issue("FALLBACK_AGENT_REQUIRED", field, "请选择能力目录中的fallback Agent能力"));
-            return null;
+        List<ApplicationCapabilityDefinition> capabilities = new ArrayList<>();
+        Set<String> codes = new HashSet<>();
+        if (Objects.nonNull(collaboration)) {
+            addAgentCapability(DEFAULT_AGENT_CAPABILITY_CODE, collaboration.supervisor(), capabilities, codes, issues);
+            for (ApplicationAgentReference member : collaboration.members()) {
+                addAgentCapability("agent_" + member.agentId(), member, capabilities, codes, issues);
+            }
         }
-        List<ApplicationCapabilityDefinition> configuredMatches = Objects.isNull(draftCatalog)
-                ? List.of()
-                : draftCatalog.capabilities().stream()
-                        .filter(Objects::nonNull)
-                        .filter(capability -> cap.equals(capability.getCode()))
-                        .toList();
-        if (configuredMatches.size() != 1 || configuredMatches.getFirst().getType() != ApplicationCapabilityType.AGENT) {
-            issues.add(issue("FALLBACK_AGENT_UNAVAILABLE", field, "fallback必须唯一指向能力目录中的AGENT能力"));
-            return null;
-        }
-        List<ApplicationCapabilityDefinition> matches = resolvedCatalog.capabilities().stream()
-                .filter(capability -> cap.equals(capability.getCode()))
-                .toList();
-        // 引用目标解析失败时，能力目录已经记录根因，避免再追加误导性的 fallback 级联错误。
-        if (matches.size() != 1) {
-            return null;
-        }
-        ApplicationCapabilityDefinition capability = matches.getFirst();
-        AgentReferenceService.AgentReference agent = agentReferenceService.findAgent(capability.getTargetId()).orElse(null);
-        if (Objects.isNull(agent)
-                || (agent.identity().agentType() != AgentType.REACT
-                && agent.identity().agentType() != AgentType.PLAN_EXECUTOR)) {
-            issues.add(issue("FALLBACK_AGENT_TYPE_INVALID", field, "fallback Agent类型只能是REACT或PLAN_EXECUTOR"));
-            return null;
-        }
-        return capability;
-    }
-
-    /** V2 只允许 fallback 使用唯一一个 Plan Executor，其他 Agent 能力必须是可编排的 ReAct 叶子。 */
-    private void validateAgentCapabilityTopology(
-            ApplicationCapabilityDefinition fallback,
-            CapabilityCatalogSnapshot catalog,
-            List<ApplicationValidationIssueVO> issues) {
-        for (ApplicationCapabilityDefinition capability : catalog.capabilities()) {
-            if (capability.getType() != ApplicationCapabilityType.AGENT) {
+        for (ApplicationCapabilityDefinition capability : explicitCapabilities.capabilities()) {
+            if (!codes.add(capability.getCode())) {
+                issues.add(issue("CAPABILITY_CODE_DUPLICATED", "definition.capabilityCatalog.capabilities",
+                        "Workflow能力编码与系统生成的Agent能力编码冲突：" + capability.getCode()));
                 continue;
             }
-            AgentReferenceService.AgentReference agent = agentReferenceService.findAgent(capability.getTargetId()).orElse(null);
-            if (Objects.nonNull(agent)
-                    && agent.identity().agentType() == AgentType.PLAN_EXECUTOR
-                    && (Objects.isNull(fallback) || !Objects.equals(capability.getCode(), fallback.getCode()))) {
-                issues.add(issue(
-                        "PLAN_EXECUTOR_NESTING_FORBIDDEN",
-                        "definition.capabilityCatalog.capabilities",
-                        "PLAN_EXECUTOR只能作为Application fallback，不能作为扩展能力或计划叶子"));
-            }
+            capabilities.add(capability);
         }
+        if (capabilities.size() > MAX_RESOLVED_CAPABILITIES) {
+            issues.add(issue("CAPABILITY_COUNT_INVALID", "definition.capabilityCatalog.capabilities",
+                    "发布快照最多包含" + MAX_RESOLVED_CAPABILITIES + "项Agent与Workflow能力，请排除部分领域或Agent"));
+        }
+        return CapabilityCatalogSnapshot.builder().capabilities(List.copyOf(capabilities)).build();
+    }
+
+    private static void addAgentCapability(
+            String code,
+            ApplicationAgentReference reference,
+            List<ApplicationCapabilityDefinition> capabilities,
+            Set<String> codes,
+            List<ApplicationValidationIssueVO> issues) {
+        if (Objects.isNull(reference) || !codes.add(code)) {
+            issues.add(issue("CAPABILITY_CODE_DUPLICATED", "definition.collaboration",
+                    "系统生成的Agent能力编码冲突：" + code));
+            return;
+        }
+        String description = isBlank(reference.description()) ? reference.name() : reference.description().trim();
+        capabilities.add(ApplicationCapabilityDefinition.builder()
+                .code(code)
+                .type(ApplicationCapabilityType.AGENT)
+                .name(reference.name())
+                .description(description)
+                .targetId(reference.agentId())
+                .targetVersionId(reference.agentVersionId())
+                .inputSchema(queryInputSchema())
+                .outputSchema(responseOutputSchema())
+                .implementationType("AGENT_VERSION")
+                .configurationChecksum(checksum(reference.agentVersionId()))
+                .riskLevel(CapabilityRiskLevel.READ_ONLY)
+                .timeoutSeconds(120)
+                .maxCalls(1)
+                .resultTokenBudget(8_192)
+                .build());
     }
 
     private ApplicationCapabilityDefinition resolveCapability(ApplicationCapabilityDefinition draft, String field, Set<String> codes,
@@ -227,16 +225,17 @@ public class ApplicationDraftValidator {
             issues.add(issue("CAPABILITY_CODE_DUPLICATED", field + ".code", "能力编码不能重复"));
             return null;
         }
-        if (Objects.isNull(draft.getType()) || Objects.isNull(draft.getTargetId())) {
-            issues.add(issue("CAPABILITY_TARGET_REQUIRED", field, "请选择能力类型和目标资源"));
+        if (draft.getType() != ApplicationCapabilityType.WORKFLOW) {
+            issues.add(issue("CAPABILITY_TYPE_MANAGED", field + ".type",
+                    "Application仅显式绑定Workflow；Agent能力由领域范围生成，Tool由Agent管理"));
+            return null;
+        }
+        if (Objects.isNull(draft.getTargetId())) {
+            issues.add(issue("CAPABILITY_TARGET_REQUIRED", field, "请选择Workflow目标资源"));
             return null;
         }
         validateCapabilityPolicy(draft, field, issues);
-        return switch (draft.getType()) {
-            case AGENT -> resolveAgentCapability(draft, field, issues);
-            case WORKFLOW -> resolveWorkflowCapability(draft, field, issues);
-            case TOOL -> resolveToolCapability(draft, field, issues);
-        };
+        return resolveWorkflowCapability(draft, field, issues);
     }
 
     private static void validateCapabilityPolicy(ApplicationCapabilityDefinition capability, String field,
@@ -250,27 +249,6 @@ public class ApplicationDraftValidator {
                 field + ".maxCalls", "能力调用次数", issues);
         validateOptionalRange(capability.getResultTokenBudget(), 128, 32000, "CAPABILITY_RESULT_BUDGET_INVALID",
                 field + ".resultTokenBudget", "能力结果Token预算", issues);
-    }
-
-    private ApplicationCapabilityDefinition resolveAgentCapability(ApplicationCapabilityDefinition draft, String field,
-                                                                   List<ApplicationValidationIssueVO> issues) {
-        AgentReferenceService.AgentReference agent = agentReferenceService.findAgent(draft.getTargetId()).orElse(null);
-        if (Objects.isNull(agent) || !agent.active()
-                || (agent.identity().agentType() != AgentType.REACT
-                && agent.identity().agentType() != AgentType.PLAN_EXECUTOR)) {
-            issues.add(issue("CAPABILITY_AGENT_UNAVAILABLE", field + ".targetId", "能力目标必须是已启用的REACT或PLAN_EXECUTOR Agent"));
-            return null;
-        }
-        Long versionId = Objects.requireNonNullElse(draft.getTargetVersionId(), agent.publishedVersionId());
-        AgentReferenceService.AgentVersionReference version = agentReferenceService.findVersion(draft.getTargetId(), versionId).orElse(null);
-        if (Objects.isNull(version)
-                || version.schemaVersion() != AGENT_SCHEMA_VERSION
-                || version.agentType() != agent.identity().agentType()) {
-            issues.add(issue("CAPABILITY_AGENT_VERSION_UNAVAILABLE", field + ".targetVersionId", "能力目标Agent没有可用正式版本"));
-            return null;
-        }
-        return agentCapability(
-                draft, agent.identity().name(), normalizedDescription(draft, agent.identity().description()), version.id());
     }
 
     private ApplicationCapabilityDefinition resolveWorkflowCapability(ApplicationCapabilityDefinition draft, String field,
@@ -290,29 +268,6 @@ public class ApplicationDraftValidator {
         }
         return baseCapability(draft, workflow.name(), draft.getDescription(), versionId, queryInputSchema(), responseOutputSchema(),
                 "WORKFLOW_VERSION", checksum(definition));
-    }
-
-    private ApplicationCapabilityDefinition resolveToolCapability(ApplicationCapabilityDefinition draft, String field,
-                                                                  List<ApplicationValidationIssueVO> issues) {
-        ToolReferenceBO tool = toolService.findReference(draft.getTargetId()).orElse(null);
-        if (Objects.isNull(tool) || tool.getStatus() != EnableStatus.ACTIVE) {
-            issues.add(issue("CAPABILITY_TOOL_UNAVAILABLE", field + ".targetId", "目标Tool不存在或已停用"));
-            return null;
-        }
-        JSONObject configuration = new JSONObject();
-        configuration.put("toolCode", tool.getCode());
-        configuration.put("sourceType", tool.getSourceType());
-        configuration.put("mcpServerId", tool.getMcpServerId());
-        configuration.put("remoteToolName", tool.getRemoteToolName());
-        configuration.put("inputSchema", tool.getParameterSchema());
-        return baseCapability(draft, tool.getName(), normalizedDescription(draft, tool.getDescription()), null,
-                tool.getParameterSchema(), genericObjectSchema(), tool.getSourceType().name(), checksum(configuration));
-    }
-
-    private static ApplicationCapabilityDefinition agentCapability(ApplicationCapabilityDefinition draft, String name, String description,
-                                                                    Long versionId) {
-        return baseCapability(draft, name, description, versionId, queryInputSchema(), responseOutputSchema(),
-                "AGENT_VERSION", checksum(versionId));
     }
 
     private static ApplicationCapabilityDefinition baseCapability(ApplicationCapabilityDefinition draft, String name, String description,
@@ -419,10 +374,6 @@ public class ApplicationDraftValidator {
                 "required", List.of("response"), "additionalProperties", false);
     }
 
-    private static JSONObject genericObjectSchema() {
-        return JSONObject.of("type", "object", "additionalProperties", true);
-    }
-
     private static String checksum(Object value) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -437,6 +388,7 @@ public class ApplicationDraftValidator {
      */
     private FastRouteResolution resolveFastRoutes(ApplicationIntentBinding draft,
                                                   CapabilityCatalogSnapshot capabilityCatalog,
+                                                  DomainEntity root,
                                                   List<ApplicationValidationIssueVO> issues) {
         if (Objects.isNull(draft) || !draft.isEnabled()) {
             return new FastRouteResolution(null, null);
@@ -455,6 +407,11 @@ public class ApplicationDraftValidator {
         }
         if (!tree.active()) {
             issues.add(issue("FAST_ROUTE_TREE_DISABLED", "definition.optionalFastRoutes.intentTreeId", "意图树已停用"));
+        }
+        Long treeDomainId = intentTreeReferenceGateway.findDomainId(draft.getIntentTreeId()).orElse(null);
+        if (Objects.nonNull(root) && !belongsToRoot(treeDomainId, root.getId())) {
+            issues.add(issue("FAST_ROUTE_TREE_DOMAIN_MISMATCH", "definition.optionalFastRoutes.intentTreeId",
+                    "意图树不属于Application选择的一级领域"));
         }
         if (Objects.isNull(tree.versionId()) || Objects.isNull(tree.definition())) {
             issues.add(issue("FAST_ROUTE_TREE_UNPUBLISHED", "definition.optionalFastRoutes.intentTreeId", "意图树尚无可用正式版本"));
@@ -529,8 +486,8 @@ public class ApplicationDraftValidator {
         }
         if (capability.getType() == ApplicationCapabilityType.AGENT) {
             AgentReferenceService.AgentReference agent = agentReferenceService.findAgent(capability.getTargetId()).orElse(null);
-            if (Objects.isNull(agent) || agent.identity().agentType() != AgentType.REACT) {
-                issues.add(issue("FAST_ROUTE_AGENT_TYPE_INVALID", field + ".capabilityCode", "快速路由只能指向REACT Agent能力"));
+            if (Objects.isNull(agent) || agent.identity().role() != AgentRole.SPECIALIST) {
+                issues.add(issue("FAST_ROUTE_AGENT_ROLE_INVALID", field + ".capabilityCode", "快速路由只能指向领域专家能力"));
                 return null;
             }
         }
@@ -559,9 +516,35 @@ public class ApplicationDraftValidator {
      */
     private MemoryConfig resolveMemory(MemoryConfig draft, Long intentEmbeddingModelInstanceId, List<ApplicationValidationIssueVO> issues) {
         MemoryConfig source = Objects.requireNonNullElseGet(draft, MemoryConfig::disabled);
+        boolean chatModelRequired = source.profile().isEnabled()
+                || source.interactionRecord().isEnabled()
+                || source.summary().isEnabled();
+        Long chatModelInstanceId = chatModelRequired ? source.getChatModelInstanceId() : null;
+        if (chatModelRequired) {
+            validateMemoryModel(chatModelInstanceId, ModelType.CHAT,
+                    "definition.memoryConf.chatModelInstanceId", issues);
+        }
+
+        Long embeddingModelInstanceId = null;
+        if (source.interactionRecord().isEnabled()) {
+            embeddingModelInstanceId = source.getEmbeddingModelInstanceId();
+            if (Objects.nonNull(intentEmbeddingModelInstanceId)) {
+                if (Objects.nonNull(embeddingModelInstanceId)
+                        && !Objects.equals(embeddingModelInstanceId, intentEmbeddingModelInstanceId)) {
+                    issues.add(issue("MEMORY_EMBEDDING_INTENT_MISMATCH",
+                            "definition.memoryConf.embeddingModelInstanceId",
+                            "交互记录Embedding模型必须与意图树正式版本一致"));
+                }
+                embeddingModelInstanceId = intentEmbeddingModelInstanceId;
+            }
+            validateMemoryModel(embeddingModelInstanceId, ModelType.EMBEDDING,
+                    "definition.memoryConf.embeddingModelInstanceId", issues);
+        }
         return MemoryConfig.builder()
+                .chatModelInstanceId(chatModelInstanceId)
+                .embeddingModelInstanceId(embeddingModelInstanceId)
                 .profile(resolveProfileMemory(source.profile(), issues))
-                .interactionRecord(resolveInteractionMemory(source.interactionRecord(), intentEmbeddingModelInstanceId, issues))
+                .interactionRecord(resolveInteractionMemory(source.interactionRecord(), issues))
                 .summary(resolveSummaryMemory(source.summary(), issues))
                 .build();
     }
@@ -570,35 +553,19 @@ public class ApplicationDraftValidator {
         if (!draft.isEnabled()) {
             return UserProfileMemoryConfig.disabled();
         }
-        validateMemoryModel(draft.getChatModelInstanceId(), ModelType.CHAT, "definition.memoryConf.profile.chatModelInstanceId", issues);
         validateMemoryPrompt(draft.getPromptVersionId(), PromptRole.SYSTEM, "definition.memoryConf.profile.promptVersionId", issues);
         return UserProfileMemoryConfig.builder()
                 .enabled(true)
-                .chatModelInstanceId(draft.getChatModelInstanceId())
                 .promptVersionId(draft.getPromptVersionId())
                 .updateStrategy(draft.effectiveUpdateStrategy())
                 .build();
     }
 
-    private InteractionRecordMemoryConfig resolveInteractionMemory(InteractionRecordMemoryConfig draft, Long intentEmbeddingModelInstanceId,
+    private InteractionRecordMemoryConfig resolveInteractionMemory(InteractionRecordMemoryConfig draft,
                                                                    List<ApplicationValidationIssueVO> issues) {
         if (!draft.isEnabled()) {
             return InteractionRecordMemoryConfig.disabled();
         }
-        Long embeddingModelInstanceId = draft.getEmbeddingModelInstanceId();
-        if (Objects.nonNull(intentEmbeddingModelInstanceId)) {
-            if (Objects.nonNull(embeddingModelInstanceId)
-                    && !Objects.equals(embeddingModelInstanceId, intentEmbeddingModelInstanceId)) {
-                issues.add(issue("MEMORY_EMBEDDING_INTENT_MISMATCH",
-                        "definition.memoryConf.interactionRecord.embeddingModelInstanceId",
-                        "交互记录Embedding模型必须与意图树正式版本一致"));
-            }
-            embeddingModelInstanceId = intentEmbeddingModelInstanceId;
-        }
-        validateMemoryModel(embeddingModelInstanceId, ModelType.EMBEDDING,
-                "definition.memoryConf.interactionRecord.embeddingModelInstanceId", issues);
-        validateMemoryModel(draft.getChatModelInstanceId(), ModelType.CHAT,
-                "definition.memoryConf.interactionRecord.chatModelInstanceId", issues);
         validateMemoryPrompt(draft.getPromptVersionId(), PromptRole.SYSTEM,
                 "definition.memoryConf.interactionRecord.promptVersionId", issues);
         if (draft.effectiveTopK() < 1 || draft.effectiveTopK() > 10) {
@@ -609,8 +576,6 @@ public class ApplicationDraftValidator {
                 "MEMORY_RETENTION_DAYS_INVALID", "definition.memoryConf.interactionRecord.retentionDays", "交互记录保留天数", issues);
         return InteractionRecordMemoryConfig.builder()
                 .enabled(true)
-                .embeddingModelInstanceId(embeddingModelInstanceId)
-                .chatModelInstanceId(draft.getChatModelInstanceId())
                 .promptVersionId(draft.getPromptVersionId())
                 .topK(draft.effectiveTopK())
                 .retentionDays(draft.effectiveRetentionDays())
@@ -621,8 +586,6 @@ public class ApplicationDraftValidator {
         if (!draft.isEnabled()) {
             return ConversationSummaryMemoryConfig.disabled();
         }
-        validateMemoryModel(draft.getChatModelInstanceId(), ModelType.CHAT,
-                "definition.memoryConf.summary.chatModelInstanceId", issues);
         validateMemoryPrompt(draft.getPromptVersionId(), PromptRole.SYSTEM,
                 "definition.memoryConf.summary.promptVersionId", issues);
         if (draft.effectiveMinRounds() < 4 || draft.effectiveMinRounds() > 50) {
@@ -633,7 +596,6 @@ public class ApplicationDraftValidator {
                 "MEMORY_SUMMARY_TOKENS_INVALID", "definition.memoryConf.summary.minTokens", "摘要Token阈值", issues);
         return ConversationSummaryMemoryConfig.builder()
                 .enabled(true)
-                .chatModelInstanceId(draft.getChatModelInstanceId())
                 .promptVersionId(draft.getPromptVersionId())
                 .minRounds(draft.effectiveMinRounds())
                 .minTokens(draft.effectiveMinTokens())
@@ -646,8 +608,19 @@ public class ApplicationDraftValidator {
     private ApplicationContextPolicy resolveContextPolicy(ApplicationContextPolicy draft, List<ApplicationValidationIssueVO> issues) {
         ApplicationContextPolicy source = Objects.requireNonNullElseGet(draft, ApplicationContextPolicy::defaults);
         ContextualizationPolicy contextualization = resolveContextualization(source.contextualization(), issues);
-        ContextBudgetPolicy budget = resolveContextBudget(source.budget(), issues);
-        return ApplicationContextPolicy.builder().contextualization(contextualization).budget(budget).build();
+        ContextBudgetPreset preset = source.preset();
+        ContextBudgetPolicy sourceBudget = preset == ContextBudgetPreset.CUSTOM ? source.getBudget() : preset.toBudget();
+        if (preset == ContextBudgetPreset.CUSTOM && Objects.isNull(sourceBudget)) {
+            issues.add(issue("CONTEXT_CUSTOM_BUDGET_REQUIRED", "definition.contextPolicy.budget",
+                    "自定义上下文模式必须配置完整Token分区"));
+            sourceBudget = ContextBudgetPolicy.defaults();
+        }
+        ContextBudgetPolicy budget = resolveContextBudget(sourceBudget, issues);
+        return ApplicationContextPolicy.builder()
+                .contextualization(contextualization)
+                .preset(preset)
+                .budget(budget)
+                .build();
     }
 
     private ContextualizationPolicy resolveContextualization(ContextualizationPolicy draft, List<ApplicationValidationIssueVO> issues) {
@@ -784,63 +757,139 @@ public class ApplicationDraftValidator {
         return value == null || value.isBlank();
     }
 
+    /** Application必须选择启用的一级领域。 */
+    private DomainEntity resolveRootDomain(Long domainId, List<ApplicationValidationIssueVO> issues) {
+        DomainEntity domain = Objects.isNull(domainId) ? null : domainRepo.findById(domainId).orElse(null);
+        if (Objects.isNull(domain) || domain.getStatus() != EnableStatus.ACTIVE
+                || domain.getDepth() != 1 || !Objects.equals(domain.getId(), domain.getRootId())) {
+            issues.add(issue("APP_DOMAIN_INVALID", "domainId", "Application必须选择启用的一级领域"));
+            return null;
+        }
+        return domain;
+    }
+
+    /** 全局主Agent可以服务任意领域，领域主Agent必须与Application一级领域一致。 */
+    private void validateSupervisorDomain(ApplicationAgentReference supervisor, DomainEntity root,
+                                          List<ApplicationValidationIssueVO> issues) {
+        if (Objects.isNull(supervisor) || Objects.isNull(root)) {
+            return;
+        }
+        AgentReferenceService.AgentReference agent = agentReferenceService.findAgent(supervisor.agentId()).orElse(null);
+        if (Objects.nonNull(agent) && Objects.nonNull(agent.domainId())
+                && !Objects.equals(agent.domainId(), root.getId())) {
+            issues.add(issue("SUPERVISOR_DOMAIN_MISMATCH", "definition.collaboration.supervisor",
+                    "主Agent所属领域与Application不一致"));
+        }
+    }
+
+    /** 只在配置发布阶段检查逻辑领域归属，不参与Chat运行时发现资源。 */
+    private boolean belongsToRoot(Long domainId, Long rootId) {
+        DomainEntity domain = Objects.isNull(domainId) ? null : domainRepo.findById(domainId).orElse(null);
+        return Objects.nonNull(domain)
+                && domain.getStatus() == EnableStatus.ACTIVE
+                && Objects.equals(domain.getRootId(), rootId);
+    }
+
     /**
      * 将草稿中的稳定 Agent 主键解析成不可变版本引用，并验证 Supervisor 拓扑。
      */
-    private AgentCollaborationDefinition resolveCollaboration(AgentCollaborationDefinition draft, List<ApplicationValidationIssueVO> issues) {
-        if (Objects.isNull(draft) || !draft.enabled()) {
+    private AgentCollaborationDefinition resolveCollaboration(AgentCollaborationDefinition draft, DomainEntity root,
+                                                              List<ApplicationValidationIssueVO> issues) {
+        int initialIssueCount = issues.size();
+        if (Objects.isNull(draft)) {
+            issues.add(issue("COLLABORATION_REQUIRED", "definition.collaboration", "请选择主Agent并确认能力范围"));
             return null;
         }
         if (Objects.isNull(draft.supervisor()) || Objects.isNull(draft.supervisor().agentId())) {
-            issues.add(issue("SUPERVISOR_REQUIRED", "definition.collaboration.supervisor", "协同模式必须选择Supervisor Agent"));
+            issues.add(issue("SUPERVISOR_REQUIRED", "definition.collaboration.supervisor", "请选择负责规划与汇总的主Agent"));
             return null;
         }
-        if (draft.members().isEmpty() || draft.members().size() > MAX_MEMBER_AGENTS) {
-            issues.add(issue("MEMBER_COUNT_INVALID", "definition.collaboration.members", "成员Agent数量必须在" + MIN_MEMBER_AGENTS + "到" + MAX_MEMBER_AGENTS + "之间"));
-        }
-        AgentCollaborationLimits limits = resolveLimits(draft.limits(), issues);
-        ApplicationAgentReference supervisor = resolveCollaborationAgent(draft.supervisor(), null, AgentType.SUPERVISOR, "definition.collaboration.supervisor", issues);
+        ApplicationAgentReference supervisor = resolveCollaborationAgent(
+                draft.supervisor(), null, AgentRole.SUPERVISOR, "definition.collaboration.supervisor", issues);
+        validateSupervisorDomain(supervisor, root, issues);
 
-        Set<Long> memberIds = new HashSet<>();
-        List<ApplicationAgentReference> members = new ArrayList<>(draft.members().size());
-        for (int index = 0; index < draft.members().size(); index++) {
-            ApplicationAgentReference member = draft.members().get(index);
-            String field = "definition.collaboration.members[" + index + "]";
-            if (Objects.isNull(member) || Objects.isNull(member.agentId())) {
-                issues.add(issue("MEMBER_REQUIRED", field, "成员Agent不能为空"));
+        List<DomainEntity> domains = Objects.isNull(root) ? List.of() : domainRepo.findActiveByRootId(root.getId());
+        Map<Long, DomainEntity> domainById = domains.stream()
+                .collect(java.util.stream.Collectors.toMap(DomainEntity::getId, domain -> domain));
+        Set<Long> excludedDomainIds = resolveExcludedDomains(draft.excludedDomainIds(), root, domainById, issues);
+        Set<Long> allDomainIds = new LinkedHashSet<>(domainById.keySet());
+        List<AgentReferenceService.AgentReference> candidates = agentReferenceService.listPublishedSpecialists(allDomainIds);
+        Set<Long> excludedAgentIds = resolveExcludedAgents(draft.excludedAgentIds(), candidates, issues);
+
+        List<ApplicationAgentReference> members = new ArrayList<>();
+        for (AgentReferenceService.AgentReference candidate : candidates) {
+            if (excludedDomainIds.contains(candidate.domainId()) || excludedAgentIds.contains(candidate.identity().id())) {
                 continue;
             }
-            if (!memberIds.add(member.agentId())) {
-                issues.add(issue("MEMBER_DUPLICATED", field, "成员Agent不能重复"));
-                continue;
-            }
-            if (Objects.equals(member.agentId(), draft.supervisor().agentId())) {
-                issues.add(issue("SUPERVISOR_AS_MEMBER", field, "Supervisor不能同时作为成员Agent"));
-                continue;
-            }
-            ApplicationAgentReference resolved = resolveCollaborationAgent(member, null, AgentType.REACT, field, issues);
+            ApplicationAgentReference reference = new ApplicationAgentReference(candidate.identity().id(), null, null, null);
+            ApplicationAgentReference resolved = resolveCollaborationAgent(
+                    reference, candidate.publishedVersionId(), AgentRole.SPECIALIST,
+                    "definition.collaboration.members", issues);
             if (Objects.nonNull(resolved)) {
                 members.add(resolved);
             }
         }
-        if (!issues.isEmpty() || Objects.isNull(supervisor) || Objects.isNull(limits)) {
+        members.sort(Comparator.comparing(ApplicationAgentReference::name)
+                .thenComparing(ApplicationAgentReference::agentId));
+        if (issues.size() > initialIssueCount || Objects.isNull(supervisor)) {
             return null;
         }
-        return new AgentCollaborationDefinition(true, supervisor, members, limits);
+        return new AgentCollaborationDefinition(
+                supervisor,
+                members,
+                excludedDomainIds.stream().sorted().toList(),
+                excludedAgentIds.stream().sorted().toList());
     }
 
-    private static AgentCollaborationLimits resolveLimits(AgentCollaborationLimits limits, List<ApplicationValidationIssueVO> issues) {
-        if (Objects.isNull(limits)) {
-            issues.add(issue("COLLABORATION_LIMITS_REQUIRED", "definition.collaboration.limits", "协同模式缺少运行边界"));
-            return null;
+    /** 排除父领域时自动排除其全部后代，避免发布快照出现半开放分支。 */
+    private static Set<Long> resolveExcludedDomains(List<Long> requestedIds, DomainEntity root,
+                                                    Map<Long, DomainEntity> domainById,
+                                                    List<ApplicationValidationIssueVO> issues) {
+        Set<Long> excludedIds = new LinkedHashSet<>();
+        for (Long domainId : requestedIds) {
+            if (Objects.isNull(domainId) || !domainById.containsKey(domainId)) {
+                issues.add(issue("EXCLUDED_DOMAIN_INVALID", "definition.collaboration.excludedDomainIds",
+                        "排除领域不属于Application一级领域"));
+                continue;
+            }
+            if (Objects.nonNull(root) && Objects.equals(domainId, root.getId())) {
+                issues.add(issue("ROOT_DOMAIN_EXCLUSION_FORBIDDEN", "definition.collaboration.excludedDomainIds",
+                        "不能排除Application选择的一级领域"));
+                continue;
+            }
+            excludedIds.add(domainId);
         }
-        if (limits.maxDepth() != SUPERVISOR_MAX_DEPTH) {
-            issues.add(issue("MAX_DEPTH_UNSUPPORTED", "definition.collaboration.limits.maxDepth", "当前阶段仅支持Supervisor到成员Agent的一层委派"));
-        }
-        return limits;
+        boolean changed;
+        do {
+            changed = false;
+            for (DomainEntity domain : domainById.values()) {
+                if (excludedIds.contains(domain.getParentId()) && excludedIds.add(domain.getId())) {
+                    changed = true;
+                }
+            }
+        } while (changed);
+        return excludedIds;
     }
 
-    private ApplicationAgentReference resolveCollaborationAgent(ApplicationAgentReference reference, Long lockedVersionId, AgentType expectedType, String field, List<ApplicationValidationIssueVO> issues) {
+    private static Set<Long> resolveExcludedAgents(List<Long> requestedIds,
+                                                   List<AgentReferenceService.AgentReference> candidates,
+                                                   List<ApplicationValidationIssueVO> issues) {
+        Set<Long> availableIds = candidates.stream()
+                .map(candidate -> candidate.identity().id())
+                .collect(java.util.stream.Collectors.toSet());
+        Set<Long> excludedIds = new LinkedHashSet<>();
+        for (Long agentId : requestedIds) {
+            if (Objects.isNull(agentId) || !availableIds.contains(agentId)) {
+                issues.add(issue("EXCLUDED_AGENT_INVALID", "definition.collaboration.excludedAgentIds",
+                        "排除Agent不是当前领域内可用的专家Agent"));
+                continue;
+            }
+            excludedIds.add(agentId);
+        }
+        return excludedIds;
+    }
+
+    private ApplicationAgentReference resolveCollaborationAgent(ApplicationAgentReference reference, Long lockedVersionId, AgentRole expectedType, String field, List<ApplicationValidationIssueVO> issues) {
         AgentReferenceService.AgentReference agent = agentReferenceService.findAgent(reference.agentId()).orElse(null);
         if (Objects.isNull(agent)) {
             issues.add(issue("COLLABORATION_AGENT_NOT_FOUND", field, "协作Agent不存在"));
@@ -850,11 +899,11 @@ public class ApplicationDraftValidator {
             issues.add(issue("COLLABORATION_AGENT_DISABLED", field, "协作Agent已停用"));
             return null;
         }
-        if (agent.identity().agentType() != expectedType) {
-            String message = expectedType == AgentType.SUPERVISOR
-                    ? "Supervisor必须选择SUPERVISOR类型的Agent"
-                    : "成员只能选择ReAct Agent";
-            issues.add(issue("COLLABORATION_AGENT_TYPE_INVALID", field, message));
+        if (agent.identity().role() != expectedType) {
+            String message = expectedType == AgentRole.SUPERVISOR
+                    ? "主Agent必须选择SUPERVISOR角色"
+                    : "协作成员只能选择领域专家";
+            issues.add(issue("COLLABORATION_AGENT_ROLE_INVALID", field, message));
             return null;
         }
         // 草稿只关联 Agent 主体，Application 发布时统一锁定当前正式版本。
@@ -867,7 +916,7 @@ public class ApplicationDraftValidator {
                 agentReferenceService.findVersion(reference.agentId(), versionId).orElse(null);
         if (Objects.isNull(resolvedVersion)
                 || resolvedVersion.schemaVersion() != AGENT_SCHEMA_VERSION
-                || resolvedVersion.agentType() != expectedType) {
+                || resolvedVersion.role() != expectedType) {
             issues.add(issue("COLLABORATION_AGENT_VERSION_NOT_FOUND", field, "协作Agent版本不存在或不属于所选Agent"));
             return null;
         }

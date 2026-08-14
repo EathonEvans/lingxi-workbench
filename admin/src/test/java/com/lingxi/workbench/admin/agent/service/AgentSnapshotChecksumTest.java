@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.agent.service;
 
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.admin.agent.model.config.AgentDefinition;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.KnowledgeSearchCapabilitySnapshot;
@@ -39,7 +39,7 @@ class AgentSnapshotChecksumTest {
     private static AgentDefinition definition(int topK) {
         return AgentDefinition.builder()
                 .schemaVersion(6)
-                .agentType(AgentType.REACT)
+                .role(AgentRole.SPECIALIST)
                 .chatModelInstanceId(10L)
                 .systemPromptVersionId(20L)
                 .userPromptVersionId(21L)

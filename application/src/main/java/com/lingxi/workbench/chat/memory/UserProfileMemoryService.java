@@ -4,6 +4,7 @@ import com.lingxi.workbench.chat.memory.event.AssistantCompletedEvent;
 import com.lingxi.workbench.chat.memory.model.MemoryData;
 import com.lingxi.workbench.chat.memory.model.entity.UserProfileEntity;
 import com.lingxi.workbench.chat.memory.repo.UserProfileRepo;
+import com.lingxi.workbench.workflow.model.MemoryConfig;
 import com.lingxi.workbench.workflow.model.UserProfileMemoryConfig;
 import com.lingxi.workbench.workflow.model.UserProfileUpdateStrategy;
 import lombok.RequiredArgsConstructor;
@@ -23,14 +24,15 @@ public class UserProfileMemoryService {
      * 从完整会话历史中提取用户画像并持久化。
      * 先加载既有画像，再调用 LLM 提取更新，根据策略 MERGE 或 REPLACE 后写入。
      */
-    public void extract(AssistantCompletedEvent event, String history, UserProfileMemoryConfig config) {
+    public void extract(AssistantCompletedEvent event, String history, MemoryConfig memoryConfig) {
+        UserProfileMemoryConfig config = memoryConfig.profile();
         MemoryData existing = profileRepo.findByUserId(event.userId())
                 .map(UserProfileEntity::getProfile)
                 .map(MemoryData::from)
                 .orElse(MemoryData.empty());
         String result = completionService.complete(
                 config.getPromptVersionId(),
-                config.getChatModelInstanceId(),
+                memoryConfig.getChatModelInstanceId(),
                 Map.of(
                         "existing_profile", existing.toPromptJson(),
                         "conversation_history", history));

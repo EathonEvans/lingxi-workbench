@@ -11,9 +11,12 @@ import com.lingxi.workbench.chat.model.vo.ChatErrorVO;
 import com.lingxi.workbench.chat.model.vo.ChatSubAgentEventVO;
 import com.lingxi.workbench.chat.model.vo.ChatStepOutputVO;
 import com.lingxi.workbench.chat.model.vo.ChatToolEventVO;
+import com.lingxi.workbench.chat.model.vo.ChatAgentProgressVO;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentProgressPhase;
+import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.codec.ServerSentEvent;
 
@@ -60,6 +63,22 @@ class ChatGenerationSseEventRouterTest {
         ChatToolEventVO payload = assertInstanceOf(ChatToolEventVO.class, routed.data());
         assertEquals("system_calculator", payload.getToolCode());
         assertEquals(15L, payload.getDurationMillis());
+    }
+
+    @Test
+    void shouldRouteSafeAgentProgressWithoutReasoningContent() {
+        ChatGenerationEventBO event = ChatGenerationEventBO.progress(
+                9, new AgentProgressEvent(AgentProgressPhase.EVALUATING, "正在评估已获得的信息", 2, 2));
+
+        ServerSentEvent<?> routed = ChatGenerationSseEventRouter.rout(event);
+
+        assertEquals("agent_progress", routed.event());
+        assertEquals("9", routed.id());
+        ChatAgentProgressVO payload = assertInstanceOf(ChatAgentProgressVO.class, routed.data());
+        assertEquals("EVALUATING", payload.getPhase());
+        assertEquals("正在评估已获得的信息", payload.getMessage());
+        assertEquals(2, payload.getRoundNo());
+        assertEquals(2, payload.getToolCallCount());
     }
 
     @Test

@@ -12,7 +12,7 @@ import lombok.Setter;
 /**
  * Application 发布版本中的完整行为定义。
  *
- * <p>fallback Agent 能力和不可变能力目录构成执行边界，可选快速路由只负责确定性直达。</p>
+ * <p>主 Agent 与不可变能力目录构成执行边界，可选快速路由只负责确定性直达。</p>
  */
 @Getter
 @Setter
@@ -35,7 +35,7 @@ public class ApplicationDefinition {
 
     private ApplicationContextPolicy contextPolicy;
 
-    /** fallback 角色，只引用能力目录，不重复保存 Agent 主键或版本。 */
+    /** 发布时自动生成的主 Agent 执行入口，只引用能力目录。 */
     private FallbackAgent fallback;
 
     private CapabilityCatalogSnapshot capabilityCatalog;

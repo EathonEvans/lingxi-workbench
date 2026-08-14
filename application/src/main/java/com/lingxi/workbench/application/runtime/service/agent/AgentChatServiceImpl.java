@@ -3,24 +3,26 @@ package com.lingxi.workbench.application.runtime.service.agent;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
-import com.lingxi.workbench.application.runtime.service.agent.AgentChatService;
-import com.lingxi.workbench.application.runtime.service.agent.AgentRuntimeService;
+import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.service.prompt.PromptRuntimeService;
 import com.lingxi.workbench.application.runtime.service.tool.ToolRuntimeService;
-import com.lingxi.workbench.application.runtime.tool.AgentDelegationTool;
 import com.lingxi.workbench.application.runtime.tool.KnowledgeSearchAgentToolFactory;
 import com.lingxi.workbench.chat.model.bo.PromptPair;
 import com.lingxi.workbench.chat.model.ccontext.ModelChatContext;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;
+import com.lingxi.workbench.chat.service.impl.ModelRequestFactory;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.StreamingChatGateway;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatStreamCommand;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentProgressPhase;
+import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionContext;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolRuntimeConfig;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
-import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -32,8 +34,6 @@ import java.util.Objects;
 import java.util.Optional;
 
 import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.DEFAULT_DELEGATION_RESULT_CHARACTERS;
-import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.DELEGATE_AGENT_TOOL_PREFIX;
-import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.SUPERVISOR_COLLABORATION_PROMPT;
 import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.TOOL_AUGMENTED_SYSTEM_PROMPT;
 import static com.lingxi.workbench.infra.ai.tool.common.constants.AgentToolLimitConstants.MAX_RESULT_CHARACTERS;
 import static com.lingxi.workbench.infra.ai.tool.common.constants.AgentToolLimitConstants.MIN_RESULT_CHARACTERS;
@@ -58,7 +58,8 @@ public class AgentChatServiceImpl implements AgentChatService {
     private static final String FINALIZATION_ONLY_PROMPT = "运行工作预算已到边界，本次不再开放工具、委派或规划。请基于会话中已有事实直接回答；信息不足时只提出一个最关键的补充问题。";
 
     private final AgentRuntimeService agentRuntimeService;
-    private final AgentChatPreparationStrategyRegistry preparationStrategyRegistry;
+    private final PromptRuntimeService promptRuntimeService;
+    private final ModelRequestFactory modelRequestFactory;
     private final ModelRuntimeConfigService modelRuntimeConfigService;
     private final StreamingChatGateway streamingChatGateway;
     private final ToolRuntimeService toolRuntimeService;
@@ -69,7 +70,7 @@ public class AgentChatServiceImpl implements AgentChatService {
      *
      * <ol>
      *   <li>resolveVersion → 加载并校验发布后的 AgentVersion</li>
-     *   <li>prepare → 根据 agentType 选择策略，投影共享上下文构建 ModelChatContext</li>
+     *   <li>prepare → 根据 role 选择策略，投影共享上下文构建 ModelChatContext</li>
      *   <li>loadRuntimeTools → 按发布快照装配可调用工具列表</li>
      *   <li>generate → StreamingChatGateway 流式调用 + Token 用量累加</li>
      * </ol>
@@ -84,7 +85,7 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 执行一次 Agent 对话（基于已解析的发布快照）。
      *
      * <p>这是 Agent 执行循环的编排入口，按固定顺序完成：通用校验 → 入口查询一致性校验 →
-     * Supervisor 协作变量注入 → 按 agentType 选择策略准备模型上下文 → 加载运行时工具 →
+     * Supervisor 协作变量注入 → 按 role 选择策略准备模型上下文 → 加载运行时工具 →
      * 推导生成策略与剩余预算 → 调用模型生成回答。若共享预算已到边界（finalizationOnly），
      * 本次调用只做最终回答，不再开放工具。</p>
      *
@@ -100,15 +101,10 @@ public class AgentChatServiceImpl implements AgentChatService {
         validateCommon(definition);
         // ③ 校验 query 与运行时变量中的 USER_QUERY 一致
         validateEntryQuery(query, execution);
-        // ④ Supervisor 协作变量注入（仅根调用生效）
-        prepareCollaborationVariables(snapshot.agentId(), execution);
-
-        // ⑤ 准备模型上下文：Prompt 渲染 + 变量替换
-        ModelChatContext chatContext = preparationStrategyRegistry
-                .require(definition.getAgentType())
-                .prepare(definition, execution);
-        // ⑥ 加载运行时工具：内置工具 + 发布快照中配置的外部工具 + 知识库搜索工具
-        List<AgentTool> runtimeTools = this.loadRuntimeTools(execution, snapshot);
+        // ④ 领域专家按发布快照渲染Prompt；主Agent必须走独立规划链，不能进入普通对话循环
+        ModelChatContext chatContext = prepareSpecialist(definition, execution);
+        // ⑤ 只装配领域专家自己的业务工具和知识搜索工具
+        List<AgentTool> runtimeTools = this.loadRuntimeTools(snapshot);
 
         PromptPair prompt = chatContext.getPromptPair();
         Optional<AgentToolRuntimeConfig> toolRuntimeConfig = resolveToolRuntimeConfig(execution, definition, runtimeTools);
@@ -145,18 +141,19 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
-    /**
-     * 从Application发布快照注入仅属于Supervisor根调用的协作变量。
-     *
-     * <p>成员Agent的隔离变量容器不会继承该变量，防止普通Agent Prompt误用
-     * Supervisor的委派额度。</p>
-     */
-    private static void prepareCollaborationVariables(Long agentId, ChatExecutionContext execution) {
-        execution.collaborationScope()
-                .filter(scope -> scope.canDelegate(agentId))
-                .ifPresent(scope -> execution.getRuntimeVariables().put(
-                        RuntimeVariableAccessors.COLLABORATION_MAX_DELEGATIONS,
-                        scope.maxDelegations()));
+    /** 构建领域专家的直接模型上下文。 */
+    private ModelChatContext prepareSpecialist(AgentRuntimeDefinition definition, ChatExecutionContext execution) {
+        if (definition.getRole() != AgentRole.SPECIALIST) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "只有领域专家可以进入ReAct执行链");
+        }
+        PromptRuntimeSnapshot userPrompt = promptRuntimeService.resolvePublished(definition.getUserPromptVersionId());
+        ModelChatContext context = ModelChatContext.builder()
+                .runtimeVariables(execution.getRuntimeVariables())
+                .systemPrompt(promptRuntimeService.resolvePublished(definition.getSystemPromptVersionId()))
+                .userPrompt(userPrompt)
+                .build();
+        context.setPromptPair(modelRequestFactory.createDirectPrompt(context));
+        return context;
     }
 
     /**
@@ -188,6 +185,11 @@ public class AgentChatServiceImpl implements AgentChatService {
 
         // 无工具配置的调用计入最终模型调用预算（收尾额度），防止超预算继续生成
         if (toolRuntimeConfig.isEmpty()) {
+            AgentProgressPhase phase = finalizationOnly
+                    ? AgentProgressPhase.FINALIZING
+                    : AgentProgressPhase.ANALYZING;
+            execution.getEventPublisher().publishProgress(new AgentProgressEvent(
+                    phase, phase.getDescribe(), 1, 0));
             execution.reserveFinalModelCall();
         }
         // 流式消费：逐块累积回答文本、累加 Token 用量并转发文本事件，阻塞至完成或超时
@@ -216,14 +218,13 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .filter(value -> !value.isBlank())
                 .map(value -> value.trim() + "\n\n" + TOOL_AUGMENTED_SYSTEM_PROMPT)
                 .orElse(TOOL_AUGMENTED_SYSTEM_PROMPT);
-        boolean collaborationEnabled = runtimeTools.stream().anyMatch(tool -> tool.definition().getCode().startsWith(DELEGATE_AGENT_TOOL_PREFIX));
-        return collaborationEnabled ? base + "\n\n" + SUPERVISOR_COLLABORATION_PROMPT : base;
+        return base;
     }
 
     /**
-     * 合并 Agent 自身工具与 Application 动态成员 Agent 工具。
+     * 装配领域专家自身的业务工具和知识搜索工具。
      */
-    private List<AgentTool> loadRuntimeTools(ChatExecutionContext execution, AgentRuntimeSnapshot snapshot) {
+    private List<AgentTool> loadRuntimeTools(AgentRuntimeSnapshot snapshot) {
         List<AgentTool> tools = new ArrayList<>();
         if (!snapshot.definition().resolveToolCodes().isEmpty()) {
             tools.addAll(toolRuntimeService.resolveActiveTools(snapshot.definition().resolveToolCodes()));
@@ -231,32 +232,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         if (Objects.nonNull(snapshot.definition().getKnowledgeSearch())) {
             tools.add(knowledgeSearchToolFactory.create(snapshot.definition().getKnowledgeSearch()));
         }
-        // Supervisor 委派：将协作作用域中可委派的成员 Agent 逐个包装为委派工具
-        execution.collaborationScope()
-                .filter(scope -> scope.canDelegate(snapshot.agentId()))
-                .stream()
-                .flatMap(scope -> scope.members().stream())
-                .map(member -> delegationTool(execution, member))
-                .forEach(tools::add);
         return List.copyOf(tools);
-    }
-
-    /**
-     * 将协作作用域中的一个成员 Agent 包装为委派工具。
-     *
-     * <p>委派工具被模型调用时，会 fork 出隔离的子执行上下文（独立预算与变量作用域），
-     * 递归进入子 Agent 的完整执行循环；子 Agent 的回答由 AgentDelegationTool 负责裁剪后返回。</p>
-     *
-     * @param execution 父 Agent 的共享执行上下文
-     * @param member    需要被委派的成员 Agent 引用（含版本号）
-     * @return 可被模型调用的委派工具
-     */
-    private AgentTool delegationTool(ChatExecutionContext execution, ApplicationAgentReference member) {
-        return new AgentDelegationTool(member, input -> {
-            // 委派执行：fork 出隔离子上下文后递归进入子 Agent 的完整执行循环
-            ChatExecutionContext child = execution.forkForDelegation(member, input.getTask());
-            return chat(member.agentId(), member.agentVersionId(), input.getTask(), child);
-        });
     }
 
     /** 将本次已解析的全部工具装配为 Spring AI 工具运行配置。 */
@@ -291,6 +267,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .maxFinalizationTokens(execution.remainingFinalizationTokenBudget())
                 .maxResultCharacters(maxResultCharacters)
                 .eventPublisher(execution.getEventPublisher()::publishTool)
+                .progressPublisher(execution.getEventPublisher()::publishProgress)
                 .executionBudget(execution)
                 .build();
         return Optional.of(runtimeConfig);
@@ -363,7 +340,8 @@ public class AgentChatServiceImpl implements AgentChatService {
      * @param definition Agent 运行时定义（发布快照内容）
      */
     private static void validateCommon(AgentRuntimeDefinition definition) {
-        if (Objects.isNull(definition.getChatModelInstanceId())
+        if (definition.getRole() != AgentRole.SPECIALIST
+                || Objects.isNull(definition.getChatModelInstanceId())
                 || Objects.isNull(definition.getSystemPromptVersionId())
                 || Objects.isNull(definition.getUserPromptVersionId())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "AgentVersion缺少模型、SYSTEM Prompt或USER Prompt");

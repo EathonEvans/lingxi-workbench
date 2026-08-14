@@ -5,7 +5,6 @@ import com.lingxi.workbench.application.runtime.service.app.RuntimeVariablesInit
 import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionDecisionAction;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
-import com.lingxi.workbench.application.runtime.common.enums.StepInputSource;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
@@ -22,11 +21,10 @@ import com.lingxi.workbench.application.runtime.model.InteractionSessionOpenComm
 import com.lingxi.workbench.application.runtime.model.InteractionResolution;
 import com.lingxi.workbench.application.runtime.model.PlanExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.PlanExecutionResult;
-import com.lingxi.workbench.application.runtime.model.PlanExecutorRuntimeContext;
+import com.lingxi.workbench.application.runtime.model.SupervisorRuntimeContext;
 import com.lingxi.workbench.application.runtime.model.PlanStep;
 import com.lingxi.workbench.application.runtime.model.PlanStepResult;
 import com.lingxi.workbench.application.runtime.model.PlannerResult;
-import com.lingxi.workbench.application.runtime.model.StepInputReference;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionEventEntity;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionPlanSnapshotEntity;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionStepAttemptEntity;
@@ -46,8 +44,8 @@ import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
-import com.lingxi.workbench.infra.ai.agent.model.PlanExecutorPolicy;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
+import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
@@ -129,7 +127,7 @@ class PlanExecutionServiceImplTest {
         }, new RecordingPersistence(), interactionService(), new PlanInputCompiler(),
                 new ExecutionFailureClassifier(), ObservationRegistry.NOOP);
         ExecutionDecision decision = ExecutionDecision.builder()
-                .action(ExecutionDecisionAction.EXECUTE_REACT)
+                .action(ExecutionDecisionAction.EXECUTE_AGENT)
                 .capabilityCode("collect")
                 .build();
 
@@ -157,7 +155,7 @@ class PlanExecutionServiceImplTest {
         }, request -> {
             replans.incrementAndGet();
             return new PlannerResult(
-                    plan(step("unstable-again", "unstable", List.of(), userQuery())), TokenUsage.of(2, 1, 3), 1);
+                    plan(step("unstable-again", "unstable", List.of())), TokenUsage.of(2, 1, 3), 1);
         }, request -> {
             assertEquals(List.of("write"), request.stepResults().stream()
                     .map(PlanStepResult::getCapabilityCode).toList());
@@ -167,7 +165,7 @@ class PlanExecutionServiceImplTest {
                 ObservationRegistry.NOOP);
 
         PlanExecutionResult result = service.execute(request(
-                plan(step("write-once", "write", List.of(), userQuery()), step("unstable", "unstable", List.of("write-once"))),
+                plan(step("write-once", "write", List.of()), step("unstable", "unstable", List.of("write-once"))),
                 List.of(write, unstable), Set.of("write"), ChatExecutionEventPublisher.noop()));
 
         assertEquals("已基于写入结果完成收口", result.content());
@@ -308,7 +306,7 @@ class PlanExecutionServiceImplTest {
                 .conversationContext(conversation)
                 .executionContext(execution)
                 .confirmedCapabilityCodes(confirmed)
-                .planExecutor(planExecutor(conversation))
+                .supervisor(supervisor(conversation))
                 .build();
     }
 
@@ -317,19 +315,19 @@ class PlanExecutionServiceImplTest {
         ChatTurnBO turn = new ChatTurnBO(10L, 11L, 12L, 1);
         RuntimeVariables variables = new RuntimeVariablesInitializer("Lingxi Workbench").initialize(user, "整理资料", turn.conversationId());
         variables.put(RuntimeVariableAccessors.SESSION_HISTORY, List.of());
-        ApplicationCapabilityDefinition planExecutor = capability(
-                "plan_executor", ApplicationCapabilityType.AGENT, CapabilityRiskLevel.READ_ONLY, 1);
+        ApplicationCapabilityDefinition supervisor = capability(
+                "supervisor", ApplicationCapabilityType.AGENT, CapabilityRiskLevel.READ_ONLY, 1);
         List<ApplicationCapabilityDefinition> catalog = new ArrayList<>();
-        catalog.add(planExecutor);
+        catalog.add(supervisor);
         catalog.addAll(capabilities);
         ApplicationDefinition definition = ApplicationDefinition.builder()
                 .schemaVersion(com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION)
-                .fallback(new FallbackAgent("plan_executor"))
+                .fallback(new FallbackAgent("supervisor"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(catalog).build())
                 .runtimePolicy(com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy.builder()
                         .maxModelCalls(6)
                         .maxToolCalls(4)
-                        .maxDelegations(0)
+                        .maxDelegations(6)
                         .totalTokenBudget(12000)
                         .timeoutSeconds(60)
                         .build())
@@ -348,25 +346,25 @@ class PlanExecutionServiceImplTest {
                 .build();
     }
 
-    private static PlanExecutorRuntimeContext planExecutor(ConversationContext conversation) {
+    private static SupervisorRuntimeContext supervisor(ConversationContext conversation) {
         ApplicationCapabilityDefinition capability = conversation.getApplicationSnapshot().definition()
                 .capabilityCatalog().capabilities().stream()
-                .filter(item -> "plan_executor".equals(item.getCode()))
+                .filter(item -> "supervisor".equals(item.getCode()))
                 .findFirst()
                 .orElseThrow();
         AgentRuntimeDefinition definition = AgentRuntimeDefinition.builder()
                 .schemaVersion(com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION)
-                .agentType(AgentType.PLAN_EXECUTOR)
+                .role(AgentRole.SUPERVISOR)
                 .chatModelInstanceId(21L)
                 .systemPromptVersionId(22L)
                 .toolCodes(List.of())
-                .planExecutorPolicy(PlanExecutorPolicy.builder()
+                .planPolicy(PlanPolicy.builder()
                         .maxSteps(6)
                         .maxReplans(1)
                         .maxProtocolRepairAttempts(1)
                         .build())
                 .build();
-        return PlanExecutorRuntimeContext.builder()
+        return SupervisorRuntimeContext.builder()
                 .capability(capability)
                 .agent(new AgentRuntimeSnapshot(1L, 2L, definition))
                 .build();
@@ -395,22 +393,9 @@ class PlanExecutionServiceImplTest {
                 .build();
     }
 
-    private static PlanStep step(String id, String capabilityCode, List<String> dependencies, StepInputReference input) {
-        return PlanStep.builder().id(id).name(id).capabilityCode(capabilityCode)
-                .dependsOn(dependencies).inputs(List.of(input)).build();
-    }
-
     private static PlanStep step(String id, String capabilityCode, List<String> dependencies) {
         return PlanStep.builder().id(id).name(id).capabilityCode(capabilityCode)
-                .dependsOn(dependencies).inputs(List.of()).build();
-    }
-
-    private static StepInputReference userQuery() {
-        return StepInputReference.builder().name("query").source(StepInputSource.USER_QUERY).build();
-    }
-
-    private static StepInputReference stepOutput(String stepId, String field) {
-        return StepInputReference.builder().name(field).source(StepInputSource.STEP_OUTPUT).stepId(stepId).value(field).build();
+                .dependsOn(dependencies).build();
     }
 
     private static InteractionSessionService interactionService() {

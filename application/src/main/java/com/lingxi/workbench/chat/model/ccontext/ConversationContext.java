@@ -1,5 +1,6 @@
 package com.lingxi.workbench.chat.model.ccontext;
 
+import cn.hutool.core.text.CharSequenceUtil;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.chat.model.bo.ChatMemoryMessageBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
@@ -59,9 +60,15 @@ public final class ConversationContext {
     }
 
     /**
-     * 为跨消息Planner澄清恢复新的有效任务，同时保留同一份已准备上下文数据。
+     * 为跨消息Planner澄清恢复新的有效任务，同时保留同一份已准备上下文数据。 澄清补充
      */
-    public ConversationContext withRoutingQuery(String query) {
+    public ConversationContext copyAndAppendClarificationSup(String originalQuery, String clarificationSup) {
+
+        String query = CharSequenceUtil.builder(originalQuery)
+                .append("\n补充信息：")
+                .append(clarificationSup)
+                .toString();
+
         return ConversationContext.builder()
                 .applicationSnapshot(applicationSnapshot)
                 .loginUser(loginUser)

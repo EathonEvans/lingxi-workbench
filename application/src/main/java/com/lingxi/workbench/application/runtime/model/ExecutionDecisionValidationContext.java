@@ -1,7 +1,7 @@
 package com.lingxi.workbench.application.runtime.model;
 
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
-import com.lingxi.workbench.infra.ai.agent.model.PlanExecutorPolicy;
+import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -14,19 +14,24 @@ import java.util.Set;
 public class ExecutionDecisionValidationContext {
 
     private CapabilityCatalogSnapshot capabilityCatalog;
-    private PlanExecutorPolicy planExecutorPolicy;
-    private String orchestratorCapabilityCode;
+    private PlanPolicy planPolicy;
+    private String supervisorCap;
+    private Set<Long> specialistIds;
     private Set<String> confirmedCapabilityCodes;
 
     public CapabilityCatalogSnapshot capabilityCatalog() {
         return Objects.requireNonNullElseGet(capabilityCatalog, CapabilityCatalogSnapshot::empty);
     }
 
-    public PlanExecutorPolicy planExecutorPolicy() {
-        return Objects.requireNonNull(planExecutorPolicy, "Plan Executor策略不能为空");
+    public PlanPolicy planPolicy() {
+        return Objects.requireNonNull(planPolicy, "主Agent计划策略不能为空");
     }
 
     public Set<String> confirmedCapabilityCodes() {
         return confirmedCapabilityCodes == null ? Set.of() : Set.copyOf(confirmedCapabilityCodes);
+    }
+
+    public Set<Long> specialistIds() {
+        return specialistIds == null ? Set.of() : Set.copyOf(specialistIds);
     }
 }

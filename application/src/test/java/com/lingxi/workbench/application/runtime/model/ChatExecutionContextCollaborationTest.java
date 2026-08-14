@@ -8,9 +8,6 @@ import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
-import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
-import com.lingxi.workbench.workflow.model.AgentCollaborationLimits;
-import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import org.junit.jupiter.api.Test;
 
@@ -25,12 +22,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ChatExecutionContextCollaborationTest {
 
     @Test
-    void shouldIsolateChildTextAndShareTokenAccumulator() {
+    void shouldIsolatePlanStepTextAndShareTokenAccumulator() {
         AtomicInteger publishedTexts = new AtomicInteger();
         ChatExecutionContext parent = context(publishedTexts, 2);
-        ApplicationAgentReference member = member();
 
-        ChatExecutionContext child = parent.forkForDelegation(member, "核对退款规则");
+        ChatExecutionContext child = parent.forkForPlanStep("核对退款规则", "run-1", 1, "step-1");
         child.getEventPublisher().publishText(new ChatStreamChunk("专家草稿"));
         child.recordUsage(TokenUsage.of(10, 5, 15));
 
@@ -43,9 +39,11 @@ class ChatExecutionContextCollaborationTest {
     void shouldEnforceApplicationDelegationLimit() {
         ChatExecutionContext parent = context(new AtomicInteger(), 1);
 
-        parent.forkForDelegation(member(), "第一次委派");
+        ChatExecutionContext child = parent.forkForQuery("子任务");
+        parent.reserveDelegation();
 
-        assertThrows(BusinessException.class, () -> parent.forkForDelegation(member(), "第二次委派"));
+        assertEquals(0, child.remainingDelegations());
+        assertThrows(BusinessException.class, child::reserveDelegation);
     }
 
     @Test
@@ -95,10 +93,6 @@ class ChatExecutionContextCollaborationTest {
     }
 
     private static ChatExecutionContext context(AtomicInteger publishedTexts, int maxDelegations) {
-        ApplicationAgentReference supervisor = new ApplicationAgentReference(10L, 20L, "协调Agent", "负责规划");
-        ApplicationAgentReference member = member();
-        AgentCollaborationDefinition definition = new AgentCollaborationDefinition(
-                true, supervisor, List.of(member), new AgentCollaborationLimits(1));
         RuntimeVariables variables = new RuntimeVariables();
         variables.put(RuntimeVariableAccessors.USER_ID, 7L);
         variables.put(RuntimeVariableAccessors.USER_NAME, "测试用户");
@@ -108,6 +102,13 @@ class ChatExecutionContextCollaborationTest {
                 .executionId("execution-1")
                 .runtimeVariables(variables)
                 .turn(new ChatTurnBO(8L, 9L, 10L, 1))
+                .runtimePolicy(ApplicationRuntimePolicy.builder()
+                        .maxModelCalls(4)
+                        .maxToolCalls(4)
+                        .maxDelegations(maxDelegations)
+                        .totalTokenBudget(100)
+                        .timeoutSeconds(60)
+                        .build())
                 .eventPublisher(new ChatExecutionEventPublisher() {
                     @Override
                     public void publishText(ChatStreamChunk chunk) {
@@ -118,11 +119,6 @@ class ChatExecutionContextCollaborationTest {
                     public void publishTool(AgentToolExecutionEvent event) {
                     }
                 })
-                .collaborationScope(AgentCollaborationScope.root(definition, maxDelegations))
                 .build();
-    }
-
-    private static ApplicationAgentReference member() {
-        return new ApplicationAgentReference(30L, 40L, "售后专家", "核对售后规则");
     }
 }

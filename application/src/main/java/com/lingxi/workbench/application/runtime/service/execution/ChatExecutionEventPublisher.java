@@ -4,6 +4,7 @@ import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatStepOutputEventBO;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
+import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 
 /**
@@ -23,6 +24,10 @@ public interface ChatExecutionEventPublisher {
      * 发布工具执行状态。
      */
     void publishTool(AgentToolExecutionEvent event);
+
+    /** 发布不包含模型思维链的 Agent 阶段进度。 */
+    default void publishProgress(AgentProgressEvent event) {
+    }
 
     /**
      * 发布需要用户后续响应的结构化澄清事件。
@@ -77,6 +82,11 @@ public interface ChatExecutionEventPublisher {
             }
 
             @Override
+            public void publishProgress(AgentProgressEvent event) {
+                target.publishProgress(event);
+            }
+
+            @Override
             public void publishExecution(ChatExecutionTimelineEventBO event) {
                 target.publishExecution(event);
             }
@@ -112,6 +122,11 @@ public interface ChatExecutionEventPublisher {
             @Override
             public void publishTool(AgentToolExecutionEvent event) {
                 target.publishTool(event);
+            }
+
+            @Override
+            public void publishProgress(AgentProgressEvent event) {
+                target.publishProgress(event);
             }
 
             @Override

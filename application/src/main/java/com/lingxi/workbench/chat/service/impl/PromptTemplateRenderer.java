@@ -5,6 +5,7 @@ import com.lingxi.workbench.application.runtime.model.PromptRuntimeVariableDefin
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.infra.ai.prompt.common.PromptTemplateSyntax;
 import com.lingxi.workbench.infra.ai.prompt.common.constants.PromptVariableConstants;
 import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import com.lingxi.workbench.infra.ai.variable.RuntimeVariableCatalog;
@@ -78,7 +79,7 @@ public class PromptTemplateRenderer {
         }
         matcher.appendTail(rendered);
 
-        validateTemplateSyntax(snapshot.promptVersionId(), rendered);
+        validateTemplateSyntax(snapshot.promptVersionId(), snapshot.content());
         validateUnusedDefinitions(snapshot.promptVersionId(), definitions.keySet(), referencedNames);
         return rendered.toString();
     }
@@ -116,8 +117,8 @@ public class PromptTemplateRenderer {
         return renderedValue.orElse("");
     }
 
-    private static void validateTemplateSyntax(Long promptVersionId, StringBuilder rendered) {
-        if (rendered.indexOf("{{") >= 0 || rendered.indexOf("}}") >= 0) {
+    private static void validateTemplateSyntax(Long promptVersionId, String content) {
+        if (PromptTemplateSyntax.hasInvalidVariable(content)) {
             throw invalidSnapshot(promptVersionId, "模板中存在无法识别的变量占位符");
         }
     }

@@ -104,9 +104,10 @@
 ## 4. 项目模块与依赖边界
 
 - `framework`：共享工程能力，不依赖业务模块。
-- `infra-ai`：AI 公共契约、稳定网关、Prompt 内置变量和供应商适配，只依赖 `framework`。
+- `infra-ai`：AI 公共契约、Prompt 内置变量和供应商协议适配，只依赖 `framework`。
+- `agent-execute`：Agent 执行语义层，承载模型网关实现、Tool 循环、预算和执行台账；依赖 `infra-ai`，不承载管理端或用户端业务。
 - `admin`：独立管理端服务，承载管理员认证和配置管理；依赖 `framework`、`infra-ai`。
-- `application`：独立用户端服务和运行时业务；依赖 `framework`、`infra-ai`。
+- `application`：独立用户端服务和运行时业务；依赖 `framework`、`infra-ai`、`agent-execute`、`workflow-core`。
 - `mcp-server`：独立 MCP 协议服务，不依赖 `admin` 或 `application` 的业务实现。
 
 硬性约束：
@@ -382,7 +383,7 @@ new KnowledgeSearchConfig(id, query, null, true, 10, 0.5, null);
    - 上下文字段默认使用 `private`，只暴露业务需要的读取和状态操作；
    - `UserContext` 这类仅提供静态 ThreadLocal 访问能力、不承载单次构建数据的上下文持有器不适用 Builder。
 10. 模型 Token 用量统一使用 `TokenUsage` 和 `TokenUsageAccumulator`：
-   - Spring AI `Usage` 只允许存在于 `infra-ai` 供应商适配层，并在边界处转换为项目类型；
+   - Spring AI `Usage` 只允许存在于 `agent-execute` 模型执行边界，并在边界处转换为项目类型；
    - 运行时对象禁止重复声明 `inputTokens`、`outputTokens`、`totalTokens` 三个状态字段；
    - 多次模型调用的累计统一交给 `TokenUsageAccumulator`；
    - 数据库 Entity 和保持兼容的 API VO 可以保留三个离散字段，但不得承担累计逻辑。
@@ -439,7 +440,7 @@ public enum EnableStatus {
 
 ```text
 JDK 标准能力
--> framework / infra-ai 已有能力
+-> framework / infra-ai / agent-execute 已有能力
 -> Spring / MyBatis-Plus
 -> Hutool / Fastjson2 / MapStruct / Lombok
 -> 最后才自定义实现
@@ -588,6 +589,7 @@ JDK 标准能力
 12. Workflow Version、Run Snapshot、Step Attempt、Run Event 一经产生不得覆盖，只能追加或创建新版本。
 13. 密钥、Prompt 正文和 Tool 敏感参数默认不进入日志。
 14. 只有具备配置、校验、异常处理、可观测、测试和数据一致性后，功能才能标记为“基本可用”；仅链路跑通必须标记为“Demo”。
+15. 单次 Agent 执行中每个 Tool 最多调用两次；Tool 定义只允许进一步收紧，禁止放宽平台上限。该边界与 Application 全局工具预算分别校验。
 
 ---
 

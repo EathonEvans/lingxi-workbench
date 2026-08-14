@@ -32,9 +32,9 @@ class MemoryContextServiceTest {
         MemoryContextService service = new MemoryContextService(
                 profileRepo, vectorRepo, embeddingGateway, embeddingResolver);
         MemoryConfig config = MemoryConfig.builder()
+                .embeddingModelInstanceId(88L)
                 .interactionRecord(InteractionRecordMemoryConfig.builder()
                         .enabled(true)
-                        .embeddingModelInstanceId(88L)
                         .topK(5)
                         .retentionDays(90)
                         .build())

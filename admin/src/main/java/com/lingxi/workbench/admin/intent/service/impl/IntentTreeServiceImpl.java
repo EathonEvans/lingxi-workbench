@@ -2,6 +2,7 @@ package com.lingxi.workbench.admin.intent.service.impl;
 
 import cn.hutool.core.text.CharSequenceUtil;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
+import com.lingxi.workbench.admin.domain.service.DomainService;
 import com.lingxi.workbench.admin.intent.model.converter.IntentTreeConverter;
 import com.lingxi.workbench.admin.intent.model.entity.IntentTreeDraftEntity;
 import com.lingxi.workbench.admin.intent.model.entity.IntentTreeEntity;
@@ -101,6 +102,7 @@ public class IntentTreeServiceImpl implements IntentTreeService {
     private final IntentTreeVectorRepo vectorRepo;
     private final PlatformTransactionManager transactionManager;
     private final AuditService auditService;
+    private final DomainService domainService;
 
     @Override
     @Transactional(readOnly = true)
@@ -142,7 +144,7 @@ public class IntentTreeServiceImpl implements IntentTreeService {
     public Optional<IntentTreeReference> findReference(Long id) {
         return intentTreeRepo.findById(id).map(tree -> new IntentTreeReference(
                 tree.getId(), tree.getStatus() == EnableStatus.ACTIVE,
-                tree.getPublishedVersionId(), tree.getName()));
+                tree.getPublishedVersionId(), tree.getDomainId()));
     }
 
     @Override
@@ -163,6 +165,7 @@ public class IntentTreeServiceImpl implements IntentTreeService {
         tree.setName(request.getName().trim());
         tree.setCode(code);
         tree.setDescription(trimToNull(request.getDescription()));
+        tree.setDomainId(domainService.requireActive(request.getDomainId()).getId());
         tree.setStatus(EnableStatus.ACTIVE);
         tree.setCreatedBy(operatorId);
         tree.setUpdatedBy(operatorId);
@@ -189,6 +192,7 @@ public class IntentTreeServiceImpl implements IntentTreeService {
         IntentTreeEntity tree = requireTree(id);
         tree.setName(request.getName().trim());
         tree.setDescription(trimToNull(request.getDescription()));
+        tree.setDomainId(domainService.requireActive(request.getDomainId()).getId());
         tree.setUpdatedBy(operatorId);
         intentTreeRepo.save(tree);
         auditService.record("INTENT", "INTENT_TREE", id, operatorId, "INTENT_TREE_UPDATE", "意图树编码=" + tree.getCode());
@@ -225,7 +229,7 @@ public class IntentTreeServiceImpl implements IntentTreeService {
     @Override
     @Transactional(readOnly = true)
     public IntentTreeValidationResultVO validate(Long id) {
-        requireTree(id);
+        requireActiveDomain(requireTree(id));
         List<IntentTreeValidationIssueVO> issues = validateForPublish(requireDraft(id).getDefinition());
         return new IntentTreeValidationResultVO(issues.isEmpty(), issues);
     }
@@ -237,6 +241,7 @@ public class IntentTreeServiceImpl implements IntentTreeService {
         if (currentTree.getStatus() != EnableStatus.ACTIVE) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "停用的意图树不能发布");
         }
+        requireActiveDomain(currentTree);
         if (!Objects.equals(currentDraft.getRevision(), request.getExpectedRevision())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "意图树草稿已变化，请重新校验后发布");
         }
@@ -267,6 +272,7 @@ public class IntentTreeServiceImpl implements IntentTreeService {
         if (tree.getStatus() != EnableStatus.ACTIVE) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "停用的意图树不能发布");
         }
+        requireActiveDomain(tree);
         IntentTreeDraftEntity draft = draftRepo.findByIntentTreeIdForUpdate(id).orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "意图树草稿不存在"));
         if (!Objects.equals(draft.getRevision(), request.getExpectedRevision())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "意图树草稿已变化，请重新校验后发布");
@@ -343,6 +349,7 @@ public class IntentTreeServiceImpl implements IntentTreeService {
         if (tree.getStatus() != EnableStatus.ACTIVE) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "停用的意图树不能切换版本");
         }
+        requireActiveDomain(tree);
         IntentTreeVersionEntity version = requireVersion(id, versionId);
         tree.setPublishedVersionId(versionId);
         tree.setUpdatedBy(operatorId);
@@ -375,6 +382,11 @@ public class IntentTreeServiceImpl implements IntentTreeService {
             issues.add(new IntentTreeValidationIssueVO("EMBEDDING_MODEL_DISABLED", "definition.embeddingModelInstanceId", "Embedding模型已停用"));
         }
         return issues;
+    }
+
+    /** 意图树发布及版本切换前重新确认配置领域仍处于启用状态。 */
+    private void requireActiveDomain(IntentTreeEntity tree) {
+        domainService.requireActive(tree.getDomainId());
     }
 
     private IntentTreeEntity requireTree(Long id) {

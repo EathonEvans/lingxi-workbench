@@ -36,9 +36,8 @@ import com.lingxi.workbench.chat.model.bo.ChatPlanStepBO;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
-import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
-import com.lingxi.workbench.infra.ai.agent.model.PlanExecutorPolicy;
+import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
 import com.lingxi.workbench.workflow.model.WorkflowNodeTrace;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
@@ -130,7 +129,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
      * @return 计划执行结果
      */
     private PlanExecutionResult executePlan(PlanExecutionRequest request) {
-        PlanExecutorPolicy policy = request.getPlanExecutor().getAgent().definition().getPlanExecutorPolicy();
+        PlanPolicy policy = request.getSupervisor().getAgent().definition().getPlanPolicy();
         Map<String, ApplicationCapabilityDefinition> capabilities = capabilityIndex(request);
         ExecutionDecision decision = request.getInitialDecision();
         int planNo = 1;
@@ -237,7 +236,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
                         .planNo(planNo)
                         .failureObservation(failure.observation())
                         .confirmedCapabilityCodes(request.confirmedCapabilityCodes())
-                        .planExecutor(request.getPlanExecutor())
+                        .supervisor(request.getSupervisor())
                         .build());
                 request.getExecutionContext().recordUsage(replanned.tokenUsage());
                 decision = replanned.decision();
@@ -279,7 +278,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
                 .executionContext(request.getExecutionContext())
                 .stepResults(completedResults)
                 .limitation(limitation)
-                .planExecutor(request.getPlanExecutor())
+                .supervisor(request.getSupervisor())
                 .build());
         request.getExecutionContext().recordUsage(synthesis.tokenUsage());
         String completedMessage = limited ? "已基于现有信息完成回答" : null;
@@ -365,9 +364,9 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
                         .turn(request.getExecutionContext().getTurn())
                         .userId(request.getConversationContext().getLoginUser().id())
                         .runId(request.getRunId())
-                        .resumeCapabilityCode(request.getPlanExecutor().getCapability().getCode())
-                        .orchestratorAgentId(request.getPlanExecutor().getAgent().agentId())
-                        .orchestratorAgentVersionId(request.getPlanExecutor().getAgent().agentVersionId())
+                        .resumeCapabilityCode(request.getSupervisor().getCapability().getCode())
+                        .orchestratorAgentId(request.getSupervisor().getAgent().agentId())
+                        .orchestratorAgentVersionId(request.getSupervisor().getAgent().agentVersionId())
                         .interactionType(decision.getClarification().getInteractionType())
                         .context(sessionContext)
                         .build()));
@@ -378,7 +377,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
 
     /**
      * 单能力直执行：决策不需要计划（如直接调用某能力）时的快捷路径。
-     * <p>将决策引用的能力包装为 id 为 "direct" 的虚拟步骤（无依赖、无入参），
+     * <p>将决策引用的能力包装为 id 为 "direct" 的虚拟步骤（无依赖），
      * 复用步骤执行链路，且不发布步骤输出事件。</p>
      *
      * @param request      计划执行请求
@@ -395,7 +394,6 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
                 .name(capability.getName())
                 .capabilityCode(capability.getCode())
                 .dependsOn(List.of())
-                .inputs(List.of())
                 .build();
         return executeStep(request, planNo, step, capability, List.of(), false);
     }
@@ -452,11 +450,13 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
                 .planNo(planNo).stepId(step.getId()).displayName(step.getName())
                 .stepStatus(ExecutionStepStatus.RUNNING).build(), List.of());
         try {
+            // 每次计划调用领域专家都占用统一委派额度，重规划和重试同样计数。
+            request.getExecutionContext().reserveDelegation();
             // 编译步骤入参：解析命名入参与依赖步骤结果，得到能力实际执行的输入
-            JSONObject inputs = inputCompiler.compile(step, capability,
-                    request.getConversationContext().routingQuery(), completedResults);
+            JSONObject inputs = inputCompiler.compile(
+                    step, request.getConversationContext().routingQuery(), completedResults);
             ChatExecutionContext stepContext = resolveStepContext(
-                    request, planNo, step, capability, inputs, publishStepOutput);
+                    request, planNo, step, inputs, publishStepOutput);
             CapabilityExecutionResult result = capabilityExecutionService.execute(
                     CapabilityExecutionRequest.builder()
                             .capability(capability)
@@ -489,27 +489,20 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
     }
 
     /**
-     * 解析步骤的执行上下文：Agent/Workflow 步骤使用编译后的问题作用域，Tool 继续读取结构化命名入参。
-     * <p>Tool 能力直接复用父执行上下文（不 fork）；其余类型要求编译入参中存在非空 "query"，
-     * 并按是否需要发布步骤输出选择 fork 为“计划步骤作用域”或普通查询作用域，
-     * 避免各步骤的模型上下文相互污染。</p>
+     * 解析领域专家步骤的执行上下文。
+     * <p>编译入参必须包含非空 "query"。计划内步骤创建独立发布作用域，直接执行则只创建
+     * 问题作用域，避免中间步骤的模型上下文和文本污染最终回答。</p>
      *
      * @param request           计划执行请求
      * @param planNo            当前计划编号
      * @param step              待执行步骤
-     * @param capability        步骤对应的能力定义
      * @param inputs            编译后的步骤入参
      * @param publishStepOutput 是否发布步骤输出事件
      * @return 步骤执行上下文
      */
     private static ChatExecutionContext resolveStepContext(PlanExecutionRequest request, int planNo, PlanStep step,
-                                                           ApplicationCapabilityDefinition capability,
                                                            JSONObject inputs, boolean publishStepOutput) {
         ChatExecutionContext context = request.getExecutionContext();
-        // Tool 能力直接复用父上下文：其输入为结构化命名参数，无需问题作用域
-        if (capability.getType() == ApplicationCapabilityType.TOOL) {
-            return context;
-        }
         String query = inputs.getString("query");
         if (query == null || query.isBlank()) {
             throw invalid("计划步骤执行问题不能为空");
@@ -617,7 +610,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
                 .capabilities().stream()
                 // 排除编排器自身能力，防止计划步骤自调用编排器形成循环
                 .filter(capability -> !Objects.equals(
-                        capability.getCode(), request.getPlanExecutor().getCapability().getCode()))
+                        capability.getCode(), request.getSupervisor().getCapability().getCode()))
                 .collect(Collectors.toMap(ApplicationCapabilityDefinition::getCode, capability -> capability));
     }
 
@@ -659,7 +652,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
     private static void requireRequest(PlanExecutionRequest request) {
         if (request == null || request.getRunId() == null || request.getRunId().isBlank()
                 || request.getInitialDecision() == null || request.getConversationContext() == null
-                || request.getExecutionContext() == null || request.getPlanExecutor() == null) {
+                || request.getExecutionContext() == null || request.getSupervisor() == null) {
             throw invalid("计划执行请求不完整");
         }
     }

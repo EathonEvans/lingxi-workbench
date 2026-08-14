@@ -4,7 +4,7 @@ import com.lingxi.workbench.admin.agent.model.config.AgentDefinition;
 import com.lingxi.workbench.admin.agent.model.entity.AgentEntity;
 import com.lingxi.workbench.admin.agent.model.entity.AgentVersionEntity;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVO;
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import org.junit.jupiter.api.Test;
 
 import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
@@ -17,7 +17,7 @@ class AgentConverterTest {
     void shouldMarkOnlyCurrentSchemaVersionAsReady() {
         AgentEntity agent = new AgentEntity();
         agent.setId(1L);
-        agent.setAgentType(AgentType.REACT);
+        agent.setRole(AgentRole.SPECIALIST);
         agent.setPublishedVersionId(11L);
         AgentVersionEntity version = new AgentVersionEntity();
         version.setId(11L);
@@ -25,7 +25,7 @@ class AgentConverterTest {
         version.setSchemaVersion(AGENT_SCHEMA_VERSION - 1);
         version.setDefinitionSnapshot(AgentDefinition.builder()
                 .schemaVersion(AGENT_SCHEMA_VERSION - 1)
-                .agentType(AgentType.REACT)
+                .role(AgentRole.SPECIALIST)
                 .build());
         AgentConverter converter = new AgentConverter();
 

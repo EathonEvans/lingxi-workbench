@@ -12,6 +12,7 @@ import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
+import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
 import com.lingxi.workbench.observability.service.AiTraceRun;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
 import lombok.Builder;
@@ -152,6 +153,17 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
             return;
         }
         ChatGenerationEventBO generationEvent = ChatGenerationEventBO.tool(++sequence, event);
+        eventRepo.append(id(), generationEvent);
+        eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
+    }
+
+    /** 发布不包含模型思维链的 Agent 阶段进度；该事件不参与回答正文累计。 */
+    @Override
+    public synchronized void publishProgress(AgentProgressEvent event) {
+        if (terminal) {
+            return;
+        }
+        ChatGenerationEventBO generationEvent = ChatGenerationEventBO.progress(++sequence, event);
         eventRepo.append(id(), generationEvent);
         eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
     }

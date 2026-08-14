@@ -88,22 +88,15 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      */
     @Override
     public ChatStartVO start(ChatRequest request, LoginUser loginUser) {
-        String query = request.getQuery().trim();
+        String query = request.getQuery();
         Long userId = loginUser.id();
 
-        /*
-         * 配置解析必须发生在消息落库之前：
-         * 1. 配置无效时不创建 GENERATING 占位消息；
-         * 2. Assistant 消息先锁定 ApplicationVersion；实际模型要等意图命中叶子后才能确定。
-         */
+        // 读取当前锁定的应用运行时快照
         AppRuntimeSnapshot applicationSnapshot = applicationRuntimeService.loadRuntimeAppConfig(request.getApplicationCode().trim().toLowerCase());
+        // 校验输入token上限
         validateInputBudget(query, applicationSnapshot);
 
-        /*
-         * startTurn 在一个数据库事务中锁定会话并创建两条消息：
-         * 已完成的 User 消息，以及等待后台任务填充的 GENERATING Assistant 消息。
-         * 消息先落库、模型后启动，才能为启动失败、取消和服务重启保留统一的持久化任务标识。
-         */
+        // 观测执行，消息占位，一轮会话（用户 + 模型回复（占位））
         ChatTurnBO turn = aiStageObserver.observe(AiObservationStage.MESSAGE_PERSIST,
                 () -> conversationService.startTurn(userId, Long.valueOf(request.getConversationId()),
                         request.getClientMessageId(), query, null, applicationSnapshot.applicationId(), applicationSnapshot.versionId()));
@@ -119,10 +112,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 .traceRun(traceRun)
                 .build();
         try {
-            /*
-             * Application 是所有对话的运行入口，后台任务必须先按发布快照识别意图，
-             * 再执行叶子映射目标，不能绕过路由读取平台默认模型。
-             */
+            // 将当前任务加入运行中任务集合
             runningTasks.put(turn.assistantMessageId(), task);
 
             // 构建执行参数
@@ -136,26 +126,34 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                     .build();
             this.startGeneration(executionRequest);
         } catch (RuntimeException exception) {
-            /*
-             * 这里只处理任务注册或 Reactor 订阅创建阶段同步抛出的异常。
-             * 路由或目标执行进入后台线程后的异常由 failTask 统一推进 Assistant 失败终态。
-             */
-            runningTasks.remove(turn.assistantMessageId());
-            try {
-                // Assistant 占位消息已经落库，启动失败时必须将其从 GENERATING 推进到 FAILED，避免形成僵尸任务。
-                conversationService.failAssistant(turn.assistantMessageId(), "", TASK_START_ERROR_CODE, TASK_START_ERROR_MESSAGE, TokenUsage.empty());
-            } catch (RuntimeException persistenceException) {
-                exception.addSuppressed(persistenceException);
-                log.error("模型生成任务启动失败后更新消息状态失败，assistantMessageId={}", turn.assistantMessageId(), persistenceException);
-            }
-            throw exception;
+            // 发生异常，将任务从 runing 移除并将 assistant 占位消息状态变更为失败
+            this.taskRunFailState(exception, turn);
         }
-
         // Long 主键转为字符串返回前端，避免 JavaScript Number 对大整数产生精度损失。
         return toStartVO(turn);
     }
 
-    /** 消息落库前执行输入准入校验，避免为无法执行的请求创建失败占位消息。 */
+    /**
+     * 将任务置于失败状态
+     *
+     * @param exception 异常
+     * @param turn 单轮对话
+     */
+    private void taskRunFailState(RuntimeException exception, ChatTurnBO turn) {
+        runningTasks.remove(turn.assistantMessageId());
+        try {
+            // Assistant 占位消息已经落库，启动失败时必须将其从 GENERATING 推进到 FAILED，避免形成僵尸任务。
+            conversationService.failAssistant(turn.assistantMessageId(), "", TASK_START_ERROR_CODE, TASK_START_ERROR_MESSAGE, TokenUsage.empty());
+        } catch (RuntimeException persistenceException) {
+            exception.addSuppressed(persistenceException);
+            log.error("模型生成任务启动失败后更新消息状态失败，assistantMessageId={}", turn.assistantMessageId(), persistenceException);
+        }
+        throw exception;
+    }
+
+    /**
+     * 消息落库前执行输入准入校验，避免为无法执行的请求创建失败占位消息。
+     */
     private void validateInputBudget(String query, AppRuntimeSnapshot application) {
         int actualTokens = tokenCountEstimator.estimate(query);
         int maxTokens = application.definition().contextPolicy().budget().getMaxInputTokens();
@@ -307,7 +305,9 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         }
     }
 
-    /** Agent运行边界错误保留可操作提示，其他异常继续使用模型服务安全文案。 */
+    /**
+     * Agent运行边界错误保留可操作提示，其他异常继续使用模型服务安全文案。
+     */
     private ChatFailure resolveFailure(Throwable exception) {
         ExecutionFailure failure = failureClassifier.classify(exception);
         return new ChatFailure(failure.code(), failure.clientMessage(), failure.clientMessage());

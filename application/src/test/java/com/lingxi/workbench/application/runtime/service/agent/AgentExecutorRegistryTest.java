@@ -3,7 +3,7 @@ package com.lingxi.workbench.application.runtime.service.agent;
 import com.lingxi.workbench.application.runtime.model.AgentExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.CapabilityExecutionResult;
 import com.lingxi.workbench.application.runtime.service.agent.AgentExecutor;
-import com.lingxi.workbench.infra.ai.agent.common.enums.AgentType;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import org.junit.jupiter.api.Test;
 
 import java.util.EnumSet;
@@ -16,39 +16,39 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class AgentExecutorRegistryTest {
 
     @Test
-    void shouldRequireExactlyOneExecutorForEveryAgentType() {
-        AgentExecutor conversational = new StubExecutor(EnumSet.of(AgentType.REACT, AgentType.SUPERVISOR));
-        AgentExecutor planExecutor = new StubExecutor(EnumSet.of(AgentType.PLAN_EXECUTOR));
+    void shouldRequireExactlyOneExecutorForEveryAgentRole() {
+        AgentExecutor specialist = new StubExecutor(EnumSet.of(AgentRole.SPECIALIST));
+        AgentExecutor supervisor = new StubExecutor(EnumSet.of(AgentRole.SUPERVISOR));
 
-        AgentExecutorRegistry registry = new AgentExecutorRegistry(List.of(conversational, planExecutor));
+        AgentExecutorRegistry registry = new AgentExecutorRegistry(List.of(specialist, supervisor));
 
-        assertSame(conversational, registry.require(AgentType.REACT));
-        assertSame(conversational, registry.require(AgentType.SUPERVISOR));
-        assertSame(planExecutor, registry.require(AgentType.PLAN_EXECUTOR));
+        assertSame(specialist, registry.require(AgentRole.SPECIALIST));
+        assertSame(supervisor, registry.require(AgentRole.SUPERVISOR));
     }
 
     @Test
     void shouldFailFastWhenExecutorIsMissing() {
-        AgentExecutor conversational = new StubExecutor(EnumSet.of(AgentType.REACT, AgentType.SUPERVISOR));
+        AgentExecutor specialist = new StubExecutor(EnumSet.of(AgentRole.SPECIALIST));
 
         assertThrows(IllegalStateException.class,
-                () -> new AgentExecutorRegistry(List.of(conversational)));
+                () -> new AgentExecutorRegistry(List.of(specialist)));
     }
 
     @Test
     void shouldFailFastWhenExecutorRegistrationIsAmbiguous() {
-        AgentExecutor conversational = new StubExecutor(EnumSet.of(AgentType.REACT, AgentType.SUPERVISOR));
-        AgentExecutor duplicateReact = new StubExecutor(EnumSet.of(AgentType.REACT, AgentType.PLAN_EXECUTOR));
+        AgentExecutor specialist = new StubExecutor(EnumSet.of(AgentRole.SPECIALIST));
+        AgentExecutor duplicate = new StubExecutor(EnumSet.of(AgentRole.SPECIALIST));
+        AgentExecutor supervisor = new StubExecutor(EnumSet.of(AgentRole.SUPERVISOR));
 
         assertThrows(IllegalStateException.class,
-                () -> new AgentExecutorRegistry(List.of(conversational, duplicateReact)));
+                () -> new AgentExecutorRegistry(List.of(specialist, duplicate, supervisor)));
     }
 
-    private record StubExecutor(Set<AgentType> supportedTypes) implements AgentExecutor {
+    private record StubExecutor(Set<AgentRole> supportedTypes) implements AgentExecutor {
 
         @Override
-        public boolean supports(AgentType agentType) {
-            return supportedTypes.contains(agentType);
+        public boolean supports(AgentRole role) {
+            return supportedTypes.contains(role);
         }
 
         @Override

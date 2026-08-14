@@ -10,6 +10,9 @@ public interface ApplicationIntentTreeReferenceGateway {
     /** 按意图树主键读取启用状态和当前不可变发布定义。 */
     Optional<IntentTreeReference> findPublishedTree(Long intentTreeId);
 
+    /** 查询意图树所属领域，供Application配置期校验。 */
+    Optional<Long> findDomainId(Long intentTreeId);
+
     /**
      * @param intentTreeId 意图树稳定主键
      * @param active 意图树是否启用

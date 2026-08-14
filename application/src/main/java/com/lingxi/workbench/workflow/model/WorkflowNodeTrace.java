@@ -18,21 +18,37 @@ import java.util.Map;
 @Getter
 public class WorkflowNodeTrace implements Serializable {
 
-    /** 节点在 Workflow 定义中的唯一 ID。 */
+    /**
+     * 节点在 Workflow 定义中的唯一 ID。
+     */
     private final String nodeId;
-    /** 节点类型。 */
+    /**
+     * 节点类型。
+     */
     private final WorkflowNodeType nodeType;
-    /** 执行状态。 */
+    /**
+     * 执行状态。
+     */
     private final WorkflowNodeStatus status;
-    /** 节点开始执行的时间。 */
+    /**
+     * 节点开始执行的时间。
+     */
     private final Instant startedAt;
-    /** 节点完成执行的时间。 */
+    /**
+     * 节点完成执行的时间。
+     */
     private final Instant finishedAt;
-    /** 节点解析后的不可变输入变量。 */
+    /**
+     * 节点解析后的不可变输入变量。
+     */
     private final Map<String, Object> inputs;
-    /** 节点执行后的不可变输出变量。 */
+    /**
+     * 节点执行后的不可变输出变量。
+     */
     private final Map<String, Object> outputs;
-    /** 失败时的错误信息，成功时为空。 */
+    /**
+     * 失败时的错误信息，成功时为空。
+     */
     private final String errorMessage;
 
     @Builder
