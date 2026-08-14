@@ -21,6 +21,14 @@ export type ChatToolEvent = {
   toolCode: string;
 };
 
+export type ChatAgentProgressEvent = {
+  message: string;
+  phase: "ANALYZING" | "EVALUATING" | "FINALIZING" | "USING_TOOLS";
+  roundNo: number;
+  sequence: number;
+  toolCallCount: number;
+};
+
 export type ChatSubAgentEvent = {
   agentId: string;
   agentName: string;
@@ -137,6 +145,7 @@ export type StreamChatOptions = {
   onCancelled?: () => void;
   onChunk: (content: string, sequence: number) => void;
   onClarification?: (event: ChatClarificationEvent) => void;
+  onProgress?: (event: ChatAgentProgressEvent) => void;
   onTimeline?: (event: ChatExecutionTimelineEvent) => void;
   onSnapshot?: (content: string) => void;
   onStart?: (start: ChatStart) => void;
@@ -221,6 +230,11 @@ const EVENT_DISPATCH: Record<string, EventHandler> = {
   tool(data, options) {
     const tool = JSON.parse(data) as ChatToolEvent;
     options.onTool?.(tool);
+    return false;
+  },
+
+  agent_progress(data, options) {
+    options.onProgress?.(JSON.parse(data) as ChatAgentProgressEvent);
     return false;
   },
 
@@ -467,7 +481,7 @@ async function initiateChat(options: StreamChatOptions): Promise<ChatStart> {
 async function resumeStream(
   assistantMessageId: string,
   afterSequence: number,
-  options: Pick<StreamChatOptions, "session" | "signal" | "onChunk" | "onSnapshot" | "onTool" | "onSubAgent" | "onClarification" | "onTimeline" | "onStepOutput" | "onCancelled">,
+  options: Pick<StreamChatOptions, "session" | "signal" | "onChunk" | "onSnapshot" | "onTool" | "onSubAgent" | "onClarification" | "onProgress" | "onTimeline" | "onStepOutput" | "onCancelled">,
 ): Promise<void> {
   if (!isServerMessageId(assistantMessageId)) {
     throw new ChatStreamError("生成任务尚未创建完成，请重新发送", {

@@ -819,12 +819,14 @@ export default function WorkbenchShell() {
                       {message.role === "assistant" &&
                       (message.status === "streaming" ||
                         message.timeline?.length ||
+                        message.progress?.length ||
                         message.subAgents?.length ||
                         message.stepOutputs?.length ||
                         message.tools?.length) ? (
                         <ExecutionTrace
                           key={message.status === "streaming" ? "running" : "settled"}
                           streaming={message.status === "streaming"}
+                          progress={message.progress}
                           subAgents={message.subAgents}
                           stepOutputs={message.stepOutputs}
                           timeline={message.timeline}

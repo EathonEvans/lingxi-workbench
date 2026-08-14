@@ -129,12 +129,37 @@
 }
 
 .operations,
-.plan {
+.plan,
+.progressList {
   display: grid;
   padding: 0;
   margin: 0;
   gap: 2px;
   list-style: none;
+}
+
+.progressList li {
+  display: flex;
+  min-height: 25px;
+  align-items: center;
+  color: #7b8798;
+  gap: 7px;
+  font-size: 11px;
+}
+
+.progressList li[data-active="true"] {
+  color: #4d6488;
+}
+
+.progressIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: #7aa2e8;
+}
+
+.progressList li[data-active="true"] .progressIcon {
+  color: #3f70ce;
+  animation: trace-spin 1s linear infinite;
 }
 
 .operations li,
@@ -226,7 +251,8 @@
 }
 
 :global([data-theme="dark"]) .operations li,
-:global([data-theme="dark"]) .planRow {
+:global([data-theme="dark"]) .planRow,
+:global([data-theme="dark"]) .progressList li {
   color: #a9b5c8;
 }
 
@@ -269,6 +295,10 @@
 @media (prefers-reduced-motion: reduce) {
   .running > svg:first-child,
   .planIcon[data-status="RUNNING"] svg {
+    animation: none;
+  }
+
+  .progressList li[data-active="true"] .progressIcon {
     animation: none;
   }
 

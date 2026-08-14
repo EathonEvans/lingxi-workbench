@@ -11,6 +11,7 @@ import {
   Wrench,
 } from "lucide-react";
 import type {
+  ChatAgentProgressEvent,
   ChatExecutionTimelineEvent,
   ChatStepOutputEvent,
   ChatSubAgentEvent,
@@ -19,6 +20,7 @@ import type {
 import styles from "./execution-trace.module.css";
 
 type ExecutionTraceProps = {
+  progress?: ChatAgentProgressEvent[];
   streaming: boolean;
   subAgents?: ChatSubAgentEvent[];
   stepOutputs?: ChatStepOutputEvent[];
@@ -74,6 +76,7 @@ function traceSummary(
   toolGroups: ToolGroup[],
   subAgents: ChatSubAgentEvent[],
   timeline: ChatExecutionTimelineEvent[],
+  progress: ChatAgentProgressEvent[],
 ): { label: string; status: TraceStatus } {
   const latestTimeline = timeline.at(-1);
   const terminal = timeline.findLast((event) =>
@@ -122,6 +125,13 @@ function traceSummary(
   if (streaming && latestTimeline?.eventType === "STEP_COMPLETED") {
     return { label: "步骤完成，正在整理回答", status: "running" };
   }
+  const latestProgress = progress.at(-1);
+  if (streaming && latestProgress) {
+    return { label: latestProgress.message, status: "running" };
+  }
+  if (streaming && operationCount > 0) {
+    return { label: `已完成 ${operationCount} 次操作，正在评估结果`, status: "running" };
+  }
   if (streaming) return { label: "正在理解问题", status: "running" };
   return {
     label: operationCount > 0 ? `处理完成 · ${operationCount} 项操作` : "处理完成",
@@ -130,6 +140,7 @@ function traceSummary(
 }
 
 export default function ExecutionTrace({
+  progress = [],
   streaming,
   subAgents = [],
   stepOutputs = [],
@@ -137,7 +148,14 @@ export default function ExecutionTrace({
   tools = [],
 }: ExecutionTraceProps) {
   const toolGroups = groupTools(tools);
-  const summary = traceSummary(streaming, toolGroups, subAgents, timeline);
+  const summary = traceSummary(streaming, toolGroups, subAgents, timeline, progress);
+  const visibleProgress = progress.reduce<ChatAgentProgressEvent[]>((events, event) => {
+    const previous = events.at(-1);
+    if (previous?.phase === event.phase && previous.message === event.message) {
+      return [...events.slice(0, -1), event];
+    }
+    return [...events, event];
+  }, []).slice(-4);
   const plan = timeline.findLast((event) => event.steps.length > 0);
   const statusByStep = new Map(
     timeline
@@ -158,6 +176,7 @@ export default function ExecutionTrace({
     )
     .slice(-3);
   const hasDetails = toolGroups.length > 0
+    || visibleProgress.length > 0
     || subAgents.length > 0
     || notices.length > 0
     || Boolean(plan?.steps.length);
@@ -183,6 +202,25 @@ export default function ExecutionTrace({
         <ChevronDown className={styles.chevron} size={14} />
       </summary>
       <div className={styles.details}>
+        {visibleProgress.length ? (
+          <section className={styles.section} aria-label="执行进度">
+            <span className={styles.sectionLabel}>执行进度</span>
+            <ol className={styles.progressList}>
+              {visibleProgress.map((event, index) => {
+                const active = streaming && index === visibleProgress.length - 1;
+                return (
+                  <li key={event.sequence} data-active={active || undefined}>
+                    <span className={styles.progressIcon}>
+                      {active ? <LoaderCircle size={12} /> : <CircleCheck size={12} />}
+                    </span>
+                    <span>{event.message}</span>
+                  </li>
+                );
+              })}
+            </ol>
+          </section>
+        ) : null}
+
         {notices.length ? (
           <section className={styles.notices} aria-label="执行提示">
             {notices.map((notice) => (

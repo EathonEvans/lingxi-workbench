@@ -12,4 +12,5 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Keep model-provider secrets and Sa-Token authentication decisions on the backend. Browser code must only call the Lingxi backend.
 - Add feature-oriented layers only when real business logic needs them. Avoid speculative abstractions.
 - Non-code work artifacts (QA screenshots, acceptance records, temporary evidence, design reviews) go into `attachments/`, which is gitignored and never committed. Keep `src/` and the repo root clean of such files.
-- Before committing, run `pnpm lint` and `pnpm build`.
+- Use Vitest for focused unit tests under `src/**/*.test.ts`; run `pnpm test` when tested logic changes.
+- Before committing, run `pnpm test`, `pnpm lint`, and `pnpm build`.

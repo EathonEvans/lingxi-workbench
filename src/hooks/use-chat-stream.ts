@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AuthSession } from "@/lib/auth";
 import type {
+  ChatAgentProgressEvent,
   ChatClarificationEvent,
   ChatExecutionTimelineEvent,
   ChatStart,
@@ -28,6 +29,7 @@ export type ChatMessage = {
   id: string;
   role: "assistant" | "user";
   status?: "done" | "error" | "stopped" | "streaming";
+  progress?: ChatAgentProgressEvent[];
   subAgents?: ChatSubAgentEvent[];
   stepOutputs?: ChatStepOutputEvent[];
   timeline?: ChatExecutionTimelineEvent[];
@@ -40,6 +42,7 @@ type PendingGeneration = {
   conversationId: string;
   lastSequence: number;
   prompt: string;
+  progress: ChatAgentProgressEvent[];
   clarification?: ChatClarificationEvent;
   cancelled?: boolean;
   subAgents: ChatSubAgentEvent[];
@@ -53,6 +56,7 @@ type GenerationHandlers = {
   onCancelled: () => void;
   onChunk: (content: string, sequence: number) => void;
   onClarification: (event: ChatClarificationEvent) => void;
+  onProgress: (event: ChatAgentProgressEvent) => void;
   onSnapshot: (content: string) => void;
   onStart: (start: ChatStart) => void;
   onStepOutput: (event: ChatStepOutputEvent) => void;
@@ -110,6 +114,7 @@ function readPendingGeneration(): PendingGeneration | undefined {
     }
     return {
       ...pending,
+      progress: pending.progress ?? [],
       subAgents: pending.subAgents ?? [],
       stepOutputs: pending.stepOutputs ?? [],
       timeline: pending.timeline ?? [],
@@ -246,6 +251,13 @@ export function useChatStream({
         savePendingGeneration(pending);
         setPendingClarification(event);
       },
+      onProgress: (event) => {
+        if (!isActive()) return;
+        pending.progress = mergeByKey(pending.progress, event, (item) => item.sequence);
+        pending.lastSequence = Math.max(pending.lastSequence, event.sequence);
+        savePendingGeneration(pending);
+        updateAssistant(pending, (message) => ({ ...message, progress: pending.progress }));
+      },
       onSnapshot: (content) => {
         if (!isActive()) return;
         pending.answer = content;
@@ -380,6 +392,7 @@ export function useChatStream({
             id: pending.assistantMessageId,
             role: "assistant",
             status: "streaming",
+            progress: pending.progress,
             subAgents: pending.subAgents,
             stepOutputs: pending.stepOutputs,
             timeline: pending.timeline,
@@ -453,6 +466,7 @@ export function useChatStream({
           conversationId,
           lastSequence: 0,
           prompt,
+          progress: [],
           subAgents: [],
           stepOutputs: [],
           timeline: [],
@@ -544,6 +558,7 @@ export function useChatStream({
         conversationId: previous.conversationId,
         lastSequence: 0,
         prompt: option.label,
+        progress: [],
         subAgents: [],
         stepOutputs: [],
         timeline: [],

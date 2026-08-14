@@ -68,6 +68,24 @@ describe("consumeEventStream", () => {
     expect(opts.onChunk).toHaveBeenCalledWith("你", 1);
   });
 
+  it("分派 Agent 安全阶段进度", async () => {
+    const opts = { ...options(), onProgress: vi.fn() };
+    await consumeEventStream(
+      sseResponse([
+        "event: agent_progress\ndata: {\"sequence\":2,\"phase\":\"EVALUATING\",\"message\":\"正在评估已获得的信息\",\"roundNo\":2,\"toolCallCount\":2}\n\n",
+      ]),
+      opts,
+    );
+
+    expect(opts.onProgress).toHaveBeenCalledWith({
+      message: "正在评估已获得的信息",
+      phase: "EVALUATING",
+      roundNo: 2,
+      sequence: 2,
+      toolCallCount: 2,
+    });
+  });
+
   it("跨 chunk 边界正确拼接被拆分的行", async () => {
     const opts = options();
     // 第一个块只包含半个事件，第二个块补充剩余部分
