@@ -68,11 +68,34 @@ export type ChatStepOutputEvent = {
 export type ChatClarificationEvent = {
   clarificationId: string;
   expiresAt: string;
-  interactionType?: "PLANNER_CLARIFICATION" | "RISK_CONFIRMATION";
+  interactionType?: "CLARIFICATION";
   options: Array<{ code: string; label: string }>;
   question: string;
   round: number;
   sequence: number;
+};
+
+export type ChatInteractionEvent = {
+  expiresAt: string;
+  fingerprint: string;
+  interactionId: string;
+  interactionType: "ACTION_APPROVAL" | "PLAN_REVIEW";
+  resourceScope?: string;
+  revision: number;
+  riskLevel: "CRITICAL" | "HIGH" | "LOW" | "MEDIUM";
+  sequence: number;
+  summary: string;
+  title: string;
+};
+
+export type PendingInteraction = Omit<ChatInteractionEvent, "sequence"> & {
+  assistantMessageId: string;
+};
+
+export type InteractionDecisionResult = {
+  interactionId: string;
+  revision: number;
+  status: "CANCELLED" | "REJECTED" | "RESOLVED";
 };
 
 export type ClarificationResponse = {
@@ -114,7 +137,7 @@ export type ConversationMessage = {
   id: string;
   role: "ASSISTANT" | "SYSTEM" | "USER";
   sequenceNo: number;
-  status: "CANCELLED" | "COMPLETED" | "FAILED" | "GENERATING" | "INTERRUPTED";
+  status: "CANCELLED" | "COMPLETED" | "FAILED" | "GENERATING" | "INTERRUPTED" | "WAITING_HUMAN";
 };
 
 export type PageResult<T> = {
@@ -131,7 +154,7 @@ type ConversationQuery = {
   status?: Conversation["status"];
 };
 
-type ChatErrorPayload = {
+export type ChatErrorPayload = {
   code?: string;
   message?: string;
   msg?: string;
@@ -139,13 +162,17 @@ type ChatErrorPayload = {
 
 export type StreamChatOptions = {
   applicationCode: string;
+  clientConversationId?: string;
   clientMessageId: string;
   clarificationResponse?: ClarificationResponse;
-  conversationId: string;
+  conversationId?: string;
   onCancelled?: () => void;
   onChunk: (content: string, sequence: number) => void;
   onClarification?: (event: ChatClarificationEvent) => void;
+  onInteractionRequired?: (event: ChatInteractionEvent) => void;
+  onInteractionResolved?: (event: ChatInteractionEvent) => void;
   onProgress?: (event: ChatAgentProgressEvent) => void;
+  onPartial?: (event: ChatErrorPayload) => void;
   onTimeline?: (event: ChatExecutionTimelineEvent) => void;
   onSnapshot?: (content: string) => void;
   onStart?: (start: ChatStart) => void;
@@ -161,6 +188,7 @@ type ResumeChatOptions = Omit<
   StreamChatOptions,
   | "applicationCode"
   | "clarificationResponse"
+  | "clientConversationId"
   | "clientMessageId"
   | "conversationId"
   | "onStart"
@@ -250,6 +278,16 @@ const EVENT_DISPATCH: Record<string, EventHandler> = {
     return false;
   },
 
+  interaction_required(data, options) {
+    options.onInteractionRequired?.(JSON.parse(data) as ChatInteractionEvent);
+    return true;
+  },
+
+  interaction_resolved(data, options) {
+    options.onInteractionResolved?.(JSON.parse(data) as ChatInteractionEvent);
+    return false;
+  },
+
   planning(data, options) {
     options.onTimeline?.(JSON.parse(data) as ChatExecutionTimelineEvent);
     return false;
@@ -279,6 +317,10 @@ const EVENT_DISPATCH: Record<string, EventHandler> = {
     return true;
   },
 
+  heartbeat() {
+    return false;
+  },
+
   error(data) {
     const payload = JSON.parse(data) as ChatErrorPayload;
     throw new ChatStreamError(payload.message || "生成失败，请稍后重试", {
@@ -288,6 +330,11 @@ const EVENT_DISPATCH: Record<string, EventHandler> = {
 
   cancelled(_data, options) {
     options.onCancelled?.();
+    return true;
+  },
+
+  partial(data, options) {
+    options.onPartial?.(JSON.parse(data) as ChatErrorPayload);
     return true;
   },
 };
@@ -320,6 +367,7 @@ export async function consumeEventStream(
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let terminalReceived = false;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -334,14 +382,22 @@ export async function consumeEventStream(
       if (options.signal?.aborted) return;
       const { event, data } = parseEventBlock(block);
       const terminated = dispatchEvent(event, data, options);
-      if (terminated) return;
+      if (terminated) {
+        terminalReceived = true;
+        return;
+      }
     }
   }
 
   // 处理流末尾可能残留的不完整块
   if (buffer.trim() && !options.signal?.aborted) {
     const { event, data } = parseEventBlock(buffer);
-    dispatchEvent(event, data, options);
+    terminalReceived = dispatchEvent(event, data, options);
+  }
+  if (!terminalReceived && !options.signal?.aborted) {
+    throw new ChatStreamError("连接已中断，任务仍在后台运行，可继续接收", {
+      code: "STREAM_DISCONNECTED",
+    });
   }
 }
 
@@ -461,6 +517,7 @@ async function initiateChat(options: StreamChatOptions): Promise<ChatStart> {
   const response = await fetch(`${API_BASE_URL}/v1/ai/chat/start`, {
     body: JSON.stringify({
       applicationCode: options.applicationCode,
+      clientConversationId: options.clientConversationId,
       clientMessageId: options.clientMessageId,
       clarificationResponse: options.clarificationResponse,
       conversationId: options.conversationId,
@@ -481,7 +538,7 @@ async function initiateChat(options: StreamChatOptions): Promise<ChatStart> {
 async function resumeStream(
   assistantMessageId: string,
   afterSequence: number,
-  options: Pick<StreamChatOptions, "session" | "signal" | "onChunk" | "onSnapshot" | "onTool" | "onSubAgent" | "onClarification" | "onProgress" | "onTimeline" | "onStepOutput" | "onCancelled">,
+  options: Pick<StreamChatOptions, "session" | "signal" | "onChunk" | "onSnapshot" | "onTool" | "onSubAgent" | "onClarification" | "onInteractionRequired" | "onInteractionResolved" | "onProgress" | "onTimeline" | "onStepOutput" | "onCancelled" | "onPartial">,
 ): Promise<void> {
   if (!isServerMessageId(assistantMessageId)) {
     throw new ChatStreamError("生成任务尚未创建完成，请重新发送", {
@@ -561,6 +618,44 @@ export async function cancelChat(
   await readApiVoid(response, "停止生成失败，请稍后重试");
 }
 
+/** 提交 HITL 决策；审批通过后服务端通过 RocketMQ 恢复原执行任务。 */
+export async function decideInteraction(
+  interaction: Pick<ChatInteractionEvent, "fingerprint" | "interactionId" | "revision">,
+  decision: "APPROVE" | "REJECT",
+  idempotencyKey: string,
+  session: AuthSession,
+): Promise<InteractionDecisionResult> {
+  const response = await fetch(
+    `${API_BASE_URL}/v1/interactions/${encodeURIComponent(interaction.interactionId)}/decision`,
+    {
+      body: JSON.stringify({
+        decision,
+        expectedRevision: interaction.revision,
+        fingerprint: interaction.fingerprint,
+      }),
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
+        ...authHeaders(session),
+      },
+      method: "POST",
+    },
+  );
+  return readApiData(response, "提交操作确认失败，请稍后重试");
+}
+
+/** 查询指定会话仍在等待用户处理的交互。 */
+export async function listPendingInteractions(
+  conversationId: string,
+  session: AuthSession,
+): Promise<PendingInteraction[]> {
+  const response = await fetch(
+    `${API_BASE_URL}/v1/interactions/pending?conversationId=${encodeURIComponent(conversationId)}`,
+    { headers: authHeaders(session) },
+  );
+  return readApiData(response, "查询待确认操作失败，请稍后重试");
+}
+
 // ─── 可用应用 ────────────────────────────────────────────────
 
 export async function listAvailableApplications(
@@ -577,23 +672,6 @@ export async function listAvailableApplications(
 }
 
 // ─── 会话管理 ────────────────────────────────────────────────
-
-/** 创建新会话。 */
-export async function createConversation(
-  session: AuthSession,
-): Promise<Conversation> {
-  const response = await fetch(
-    `${API_BASE_URL}/v1/conversations/create`,
-    {
-      headers: {
-        "Content-Type": "application/json",
-        ...authHeaders(session),
-      },
-      method: "POST",
-    },
-  );
-  return readApiData(response, "创建会话失败，请稍后重试");
-}
 
 /** 分页查询当前账号的会话记录。 */
 export async function listConversations(

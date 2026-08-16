@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   consumeEventStream,
   parseEventBlock,
+  streamChat,
   type StreamChatOptions,
 } from "../chat";
 
@@ -61,7 +62,7 @@ describe("consumeEventStream", () => {
   it("消费完整事件块并分派", async () => {
     const opts = options();
     await consumeEventStream(
-      sseResponse(["event: message\ndata: {\"content\":\"你\",\"sequence\":1}\n\n"]),
+      sseResponse(["event: message\ndata: {\"content\":\"你\",\"sequence\":1}\n\nevent: done\ndata: {}\n\n"]),
       opts,
     );
 
@@ -72,7 +73,7 @@ describe("consumeEventStream", () => {
     const opts = { ...options(), onProgress: vi.fn() };
     await consumeEventStream(
       sseResponse([
-        "event: agent_progress\ndata: {\"sequence\":2,\"phase\":\"EVALUATING\",\"message\":\"正在评估已获得的信息\",\"roundNo\":2,\"toolCallCount\":2}\n\n",
+        "event: agent_progress\ndata: {\"sequence\":2,\"phase\":\"EVALUATING\",\"message\":\"正在评估已获得的信息\",\"roundNo\":2,\"toolCallCount\":2}\n\nevent: done\ndata: {}\n\n",
       ]),
       opts,
     );
@@ -92,7 +93,7 @@ describe("consumeEventStream", () => {
     await consumeEventStream(
       sseResponse([
         "event: message\nda",
-        "ta: {\"content\":\"好\",\"sequence\":2}\n\n",
+        "ta: {\"content\":\"好\",\"sequence\":2}\n\nevent: done\ndata: {}\n\n",
       ]),
       opts,
     );
@@ -104,7 +105,7 @@ describe("consumeEventStream", () => {
     const opts = options();
     await consumeEventStream(
       sseResponse([
-        "event: message\ndata: {\"content\":\"你\",\"sequence\":1}\n\nevent: message\ndata: {\"content\":\"好\",\"sequence\":2}\n\n",
+        "event: message\ndata: {\"content\":\"你\",\"sequence\":1}\n\nevent: message\ndata: {\"content\":\"好\",\"sequence\":2}\n\nevent: done\ndata: {}\n\n",
       ]),
       opts,
     );
@@ -117,7 +118,7 @@ describe("consumeEventStream", () => {
     const opts = options();
     // 末尾没有空行分隔，属于流结束时残留的完整事件
     await consumeEventStream(
-      sseResponse(["event: message\ndata: {\"content\":\"尾\",\"sequence\":3}"]),
+      sseResponse(["event: message\ndata: {\"content\":\"尾\",\"sequence\":3}\n\nevent: done\ndata: {}"]),
       opts,
     );
 
@@ -146,16 +147,135 @@ describe("consumeEventStream", () => {
     ).rejects.toThrow(/模型超时/);
   });
 
+  it("partial 事件以可继续的部分完成状态终止流", async () => {
+    const onPartial = vi.fn();
+    const opts = { ...options(), onPartial };
+    await consumeEventStream(
+      sseResponse([
+        'event: partial\ndata: {"code":"TIME_LIMIT_PARTIAL","message":"已返回部分结果"}\n\nevent: message\ndata: {"content":"不应到达","sequence":9}\n\n',
+      ]),
+      opts,
+    );
+
+    expect(onPartial).toHaveBeenCalledWith({
+      code: "TIME_LIMIT_PARTIAL",
+      message: "已返回部分结果",
+    });
+    expect(opts.onChunk).not.toHaveBeenCalled();
+  });
+
+  it("工具审批事件暂停当前流且不误报连接中断", async () => {
+    const onInteractionRequired = vi.fn();
+    const opts = { ...options(), onInteractionRequired };
+    await consumeEventStream(
+      sseResponse([
+        'event: interaction_required\ndata: {"interactionId":"91","interactionType":"ACTION_APPROVAL","title":"确认发送邮件","summary":"将向外部邮箱发送内容","riskLevel":"HIGH","resourceScope":"mail:send","fingerprint":"abc","revision":0,"expiresAt":"2026-08-16T01:00:00+08:00","sequence":7}\n\n',
+      ]),
+      opts,
+    );
+
+    expect(onInteractionRequired).toHaveBeenCalledWith({
+      expiresAt: "2026-08-16T01:00:00+08:00",
+      fingerprint: "abc",
+      interactionId: "91",
+      interactionType: "ACTION_APPROVAL",
+      resourceScope: "mail:send",
+      revision: 0,
+      riskLevel: "HIGH",
+      sequence: 7,
+      summary: "将向外部邮箱发送内容",
+      title: "确认发送邮件",
+    });
+  });
+
+  it("审批恢复事件后继续接收模型输出", async () => {
+    const onInteractionResolved = vi.fn();
+    const opts = { ...options(), onInteractionResolved };
+    await consumeEventStream(
+      sseResponse([
+        'event: interaction_resolved\ndata: {"interactionId":"91","interactionType":"ACTION_APPROVAL","title":"确认发送邮件","summary":"已批准","riskLevel":"HIGH","fingerprint":"abc","revision":1,"expiresAt":"2026-08-16T01:00:00+08:00","sequence":8}\n\nevent: message\ndata: {"content":"已发送","sequence":9}\n\nevent: done\ndata: {}\n\n',
+      ]),
+      opts,
+    );
+
+    expect(onInteractionResolved).toHaveBeenCalledOnce();
+    expect(opts.onChunk).toHaveBeenCalledWith("已发送", 9);
+  });
+
+  it("流在没有终态事件时断开应保留后台任务用于续接", async () => {
+    const response = sseResponse(['event: message\ndata: {"content":"部分","sequence":1}\n\n']);
+    const onChunk = vi.fn();
+    const opts = options();
+    opts.onChunk = onChunk;
+
+    await expect(consumeEventStream(response, opts)).rejects.toMatchObject({
+      code: "STREAM_DISCONNECTED",
+      message: "连接已中断，任务仍在后台运行，可继续接收",
+    });
+    expect(onChunk).toHaveBeenCalledWith("部分", 1);
+  });
+
   it("单个事件 JSON 解析失败不中断整个流", async () => {
     const opts = options();
     await consumeEventStream(
       sseResponse([
-        "event: message\ndata: 不是合法JSON\n\nevent: message\ndata: {\"content\":\"好\",\"sequence\":2}\n\n",
+        "event: message\ndata: 不是合法JSON\n\nevent: message\ndata: {\"content\":\"好\",\"sequence\":2}\n\nevent: done\ndata: {}\n\n",
       ]),
       opts,
     );
 
     // 损坏事件被跳过，后续事件正常分派
     expect(opts.onChunk).toHaveBeenCalledWith("好", 2);
+  });
+});
+
+describe("streamChat", () => {
+  it("首次发送使用客户端会话标识，服务端创建会话后再订阅流", async () => {
+    const onStart = vi.fn();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 200,
+            data: {
+              assistantMessageId: "12",
+              conversationId: "10",
+              userMessageId: "11",
+            },
+            msg: "",
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(sseResponse(["event: done\ndata: {}\n\n"]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      await streamChat({
+        ...options(),
+        clientConversationId: "conversation-local-001",
+        conversationId: undefined,
+        onStart,
+      });
+
+      const startRequest = fetchMock.mock.calls[0]?.[1];
+      const requestBody = JSON.parse(String(startRequest?.body)) as Record<string, unknown>;
+      expect(requestBody).toMatchObject({
+        applicationCode: "support",
+        clientConversationId: "conversation-local-001",
+        clientMessageId: "msg-1",
+        query: "你好",
+      });
+      expect(requestBody.conversationId).toBeUndefined();
+      expect(onStart).toHaveBeenCalledWith({
+        assistantMessageId: "12",
+        conversationId: "10",
+        userMessageId: "11",
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

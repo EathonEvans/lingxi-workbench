@@ -25,6 +25,7 @@ import {
   RotateCcw,
   Search,
   Settings2,
+  ShieldAlert,
   Sparkles,
   Square,
   Sun,
@@ -38,7 +39,6 @@ import {
   type Conversation,
   ChatStreamError,
   listAvailableApplications,
-  listConversationMessages,
 } from "@/lib/chat";
 import { useAuth } from "./auth-provider";
 import { useThemeMode } from "./app-provider";
@@ -79,16 +79,27 @@ function toChatMessage(msg: {
   id: string;
   role: string;
   status: string;
+  errorCode?: string;
   errorMessage?: string;
 }): ChatMessage | undefined {
   const role = msg.role === "USER" ? "user" : "assistant";
   if (msg.role === "SYSTEM") return undefined;
   let status: ChatMessage["status"] = "done";
   if (msg.status === "GENERATING") status = "streaming";
+  else if (msg.status === "WAITING_HUMAN") status = "waiting";
+  else if (msg.status === "COMPLETED" && msg.errorCode === "TIME_LIMIT_PARTIAL")
+    status = "partial";
   else if (msg.status === "FAILED" || msg.status === "INTERRUPTED")
     status = "error";
   else if (msg.status === "CANCELLED") status = "stopped";
-  return { content: msg.content, errorMessage: msg.errorMessage, id: msg.id, role, status };
+  return {
+    content: msg.content,
+    errorCode: msg.errorCode,
+    errorMessage: msg.errorMessage,
+    id: msg.id,
+    role,
+    status,
+  };
 }
 
 export default function WorkbenchShell() {
@@ -131,7 +142,6 @@ export default function WorkbenchShell() {
     historyTotal,
     historyKeyword,
     messageLoading,
-    messageCurrent,
     messageTotal,
     renamingId,
     renamingTitle,
@@ -141,6 +151,7 @@ export default function WorkbenchShell() {
     setHistoryKeyword,
     refreshRecentConversations,
     loadHistoryConversations,
+    selectConversation: loadConversation,
     loadOlderMessages,
     beginRename,
     cancelRename,
@@ -201,13 +212,17 @@ export default function WorkbenchShell() {
     streaming,
     streamError,
     pendingClarification,
+    pendingInteraction,
+    interactionSubmitting,
     resumeAvailable,
     sendPrompt,
     stopStreaming,
     retryLastPrompt,
     answerClarification,
+    answerInteraction,
     clearError,
     discardPendingGeneration,
+    restorePendingInteraction,
   } = useChatStream({
     session,
     selectedApplicationCode,
@@ -253,37 +268,25 @@ export default function WorkbenchShell() {
 
   // ─── 会话选择（加载历史消息） ──────────────────────────────
 
-  const selectConversation = async (conversation: Conversation) => {
-    if ((streaming || pendingClarification) && conversation.id !== currentConversationId) {
+  const handleSelectConversation = async (conversation: Conversation) => {
+    if ((streaming || pendingClarification || pendingInteraction) && conversation.id !== currentConversationId) {
       clearError();
       return;
     }
     if (conversation.id !== currentConversationId) {
       discardPendingGeneration();
     }
-    setConversationId(conversation.id);
-    setConversationStatus(conversation.status);
-    setHistoryOpen(false);
     clearError();
-
-    const s = session;
-    if (!s) return;
-
-    setConversationId(conversation.id);
-    setConversationStatus(conversation.status);
-
+    const records = await loadConversation(conversation);
+    const historyMessages = records
+      .toReversed()
+      .map(toChatMessage)
+      .filter((message): message is ChatMessage => message !== undefined);
+    setMessages(historyMessages);
     try {
-      const result = await listConversationMessages(conversation.id, s, {
-        current: 1,
-        size: 50,
-      });
-      const historyMessages = result.records
-        .toReversed()
-        .map(toChatMessage)
-        .filter((m): m is ChatMessage => m !== undefined);
-      setMessages(historyMessages);
+      await restorePendingInteraction(conversation.id, historyMessages);
     } catch (error) {
-      handleRequestError(error, "加载历史消息失败");
+      handleRequestError(error, "恢复待确认操作失败");
     }
   };
 
@@ -291,23 +294,13 @@ export default function WorkbenchShell() {
 
   const handleLoadOlder = async () => {
     if (!currentConversationId || !session) return;
-    await loadOlderMessages();
-    // Reload after older message pagination advances
-    if (currentConversationId && session) {
-      try {
-        const result = await listConversationMessages(
-          currentConversationId,
-          session,
-          { current: messageCurrent + 1, size: 50 },
-        );
-        const olderMessages = result.records
-          .toReversed()
-          .map(toChatMessage)
-          .filter((m): m is ChatMessage => m !== undefined);
-        setMessages((current) => [...olderMessages, ...current]);
-      } catch {
-        // silently fail
-      }
+    const records = await loadOlderMessages();
+    const olderMessages = records
+      .toReversed()
+      .map(toChatMessage)
+      .filter((message): message is ChatMessage => message !== undefined);
+    if (olderMessages.length > 0) {
+      setMessages((current) => [...olderMessages, ...current]);
     }
   };
 
@@ -320,7 +313,7 @@ export default function WorkbenchShell() {
   };
 
   const startNewChat = () => {
-    if (streaming) return;
+    if (streaming || pendingInteraction) return;
     discardPendingGeneration();
     setConversationId(null);
     setConversationStatus(undefined);
@@ -466,7 +459,7 @@ export default function WorkbenchShell() {
           ) : (
             <button
               className={styles.conversationSelect}
-              onClick={() => void selectConversation(conversation)}
+              onClick={() => void handleSelectConversation(conversation)}
               type="button"
             >
               {pinned ? <Pin size={15} /> : <MessageSquareText size={16} />}
@@ -857,7 +850,7 @@ export default function WorkbenchShell() {
                           ) : (
                             message.content
                           )
-                        ) : message.status === "streaming" ? (
+                        ) : message.status === "streaming" || message.status === "waiting" ? (
                           null
                         ) : (
                           "暂未生成内容"
@@ -872,7 +865,7 @@ export default function WorkbenchShell() {
                       </div>
                       {message.status === "stopped" && (
                         <span className={styles.messageStatus}>
-                          已停止生成
+                          {message.errorMessage || "已停止生成"}
                         </span>
                       )}
                       {message.status === "error" && (
@@ -885,6 +878,25 @@ export default function WorkbenchShell() {
                           <button onClick={retryLastPrompt} type="button">
                             <RotateCcw size={14} />
                             {resumeAvailable ? "继续接收" : "重新生成"}
+                          </button>
+                        </div>
+                      )}
+                      {message.status === "partial" && (
+                        <div className={styles.messagePartial} role="status">
+                          <span>
+                            {message.errorMessage ||
+                              "本轮已达到执行边界，以上是基于现有信息整理的部分结果。"}
+                          </span>
+                          <button
+                            disabled={streaming || conversationStatus === "ARCHIVED"}
+                            onClick={() =>
+                              void sendPrompt(
+                                "请继续完成上一轮未完成的回答，直接衔接已有内容，避免重复已经给出的部分。",
+                              )
+                            }
+                            type="button"
+                          >
+                            继续完成
                           </button>
                         </div>
                       )}
@@ -907,10 +919,10 @@ export default function WorkbenchShell() {
                 className={styles.clarificationCard}
                 data-testid="intent-clarification"
                 role="group"
-                aria-label={pendingClarification.interactionType === "RISK_CONFIRMATION" ? "操作确认" : "补充信息"}
+                aria-label="补充信息"
               >
                 <div>
-                  <strong>{pendingClarification.interactionType === "RISK_CONFIRMATION" ? "确认操作" : "需要你确认一下"}</strong>
+                  <strong>需要你确认一下</strong>
                   {pendingClarification.round > 0 && <span>第 {pendingClarification.round} 轮</span>}
                 </div>
                 <p>{pendingClarification.question}</p>
@@ -931,6 +943,46 @@ export default function WorkbenchShell() {
                   </div>
                 )}
               </div>
+            )}
+            {pendingInteraction && (
+              <section
+                aria-label="操作审批"
+                className={styles.approvalCard}
+                data-risk={pendingInteraction.riskLevel.toLowerCase()}
+                data-testid="tool-approval"
+              >
+                <div className={styles.approvalHeader}>
+                  <span className={styles.approvalIcon} aria-hidden="true">
+                    <ShieldAlert size={17} />
+                  </span>
+                  <div>
+                    <strong>{pendingInteraction.title}</strong>
+                    <span>{pendingInteraction.riskLevel === "CRITICAL" ? "严重风险" : pendingInteraction.riskLevel === "HIGH" ? "高风险" : pendingInteraction.riskLevel === "MEDIUM" ? "中风险" : "低风险"}</span>
+                  </div>
+                </div>
+                <p>{pendingInteraction.summary}</p>
+                <div className={styles.approvalMeta}>
+                  {pendingInteraction.resourceScope && <span>作用范围：{pendingInteraction.resourceScope}</span>}
+                  <span>有效期至 {new Date(pendingInteraction.expiresAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</span>
+                </div>
+                <div className={styles.approvalActions}>
+                  <button
+                    disabled={interactionSubmitting}
+                    onClick={() => void answerInteraction(pendingInteraction, "REJECT")}
+                    type="button"
+                  >
+                    拒绝
+                  </button>
+                  <button
+                    className={styles.approveButton}
+                    disabled={interactionSubmitting}
+                    onClick={() => void answerInteraction(pendingInteraction, "APPROVE")}
+                    type="button"
+                  >
+                    {interactionSubmitting ? "正在提交…" : "允许本次操作"}
+                  </button>
+                </div>
+              </section>
             )}
             {conversationStatus === "ARCHIVED" && (
               <div className={styles.archivedNotice}>
@@ -957,6 +1009,7 @@ export default function WorkbenchShell() {
                   conversationStatus === "ARCHIVED" ||
                   messageLoading ||
                   applicationLoading ||
+                  Boolean(pendingInteraction) ||
                   !selectedApplicationCode
                 }
                 loading={streaming}
@@ -1004,6 +1057,7 @@ export default function WorkbenchShell() {
                         conversationStatus === "ARCHIVED" ||
                         messageLoading ||
                         applicationLoading ||
+                        Boolean(pendingInteraction) ||
                         !selectedApplicationCode
                       }
                       onClick={() => void handleSend()}

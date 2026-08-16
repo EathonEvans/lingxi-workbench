@@ -6,6 +6,8 @@ import type {
   ChatAgentProgressEvent,
   ChatClarificationEvent,
   ChatExecutionTimelineEvent,
+  ChatErrorPayload,
+  ChatInteractionEvent,
   ChatStart,
   ChatStepOutputEvent,
   ChatSubAgentEvent,
@@ -15,8 +17,9 @@ import type {
 import {
   cancelChat,
   ChatStreamError,
-  createConversation,
+  decideInteraction,
   isServerMessageId,
+  listPendingInteractions,
   resumeChat,
   streamChat,
 } from "@/lib/chat";
@@ -26,9 +29,10 @@ export type ChatMessage = {
   animateOnMount?: boolean;
   content: string;
   errorMessage?: string;
+  errorCode?: string;
   id: string;
   role: "assistant" | "user";
-  status?: "done" | "error" | "stopped" | "streaming";
+  status?: "done" | "error" | "partial" | "stopped" | "streaming" | "waiting";
   progress?: ChatAgentProgressEvent[];
   subAgents?: ChatSubAgentEvent[];
   stepOutputs?: ChatStepOutputEvent[];
@@ -39,12 +43,15 @@ export type ChatMessage = {
 type PendingGeneration = {
   answer: string;
   assistantMessageId: string;
-  conversationId: string;
+  clientConversationId?: string;
+  conversationId?: string;
   lastSequence: number;
   prompt: string;
   progress: ChatAgentProgressEvent[];
   clarification?: ChatClarificationEvent;
+  interaction?: ChatInteractionEvent;
   cancelled?: boolean;
+  partial?: ChatErrorPayload;
   subAgents: ChatSubAgentEvent[];
   stepOutputs: ChatStepOutputEvent[];
   timeline: ChatExecutionTimelineEvent[];
@@ -56,7 +63,10 @@ type GenerationHandlers = {
   onCancelled: () => void;
   onChunk: (content: string, sequence: number) => void;
   onClarification: (event: ChatClarificationEvent) => void;
+  onInteractionRequired: (event: ChatInteractionEvent) => void;
+  onInteractionResolved: (event: ChatInteractionEvent) => void;
   onProgress: (event: ChatAgentProgressEvent) => void;
+  onPartial: (event: ChatErrorPayload) => void;
   onSnapshot: (content: string) => void;
   onStart: (start: ChatStart) => void;
   onStepOutput: (event: ChatStepOutputEvent) => void;
@@ -80,8 +90,12 @@ type UseChatStreamReturn = {
   ) => void;
   clearError: () => void;
   discardPendingGeneration: () => void;
+  interactionSubmitting: boolean;
   messages: ChatMessage[];
   pendingClarification: ChatClarificationEvent | undefined;
+  pendingInteraction: ChatInteractionEvent | undefined;
+  answerInteraction: (interaction: ChatInteractionEvent, decision: "APPROVE" | "REJECT") => Promise<void>;
+  restorePendingInteraction: (conversationId: string, restoredMessages: ChatMessage[]) => Promise<void>;
   resumeAvailable: boolean;
   retryLastPrompt: () => void;
   sendPrompt: (text: string) => Promise<boolean>;
@@ -108,7 +122,7 @@ function readPendingGeneration(): PendingGeneration | undefined {
     const value = sessionStorage.getItem(PENDING_GENERATION_KEY);
     if (!value) return undefined;
     const pending = JSON.parse(value) as PendingGeneration;
-    if (!isServerMessageId(pending.assistantMessageId)) {
+    if (!isServerMessageId(pending.assistantMessageId) || !pending.conversationId) {
       clearPendingGeneration();
       return undefined;
     }
@@ -183,6 +197,8 @@ export function useChatStream({
   const [streaming, setStreaming] = useState(false);
   const [streamError, setStreamError] = useState<string>();
   const [pendingClarification, setPendingClarification] = useState<ChatClarificationEvent>();
+  const [pendingInteraction, setPendingInteraction] = useState<ChatInteractionEvent>();
+  const [interactionSubmitting, setInteractionSubmitting] = useState(false);
   const [resumeAvailable, setResumeAvailable] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -206,14 +222,16 @@ export function useChatStream({
   );
 
   const finishGeneration = useCallback((pending: PendingGeneration) => {
-    if (pending.cancelled) return;
+    if (pending.cancelled || pending.partial) return;
     setMessages((current) =>
       current.map((message) =>
-        message.id === pending.assistantMessageId ? { ...message, status: "done" } : message,
+        message.id === pending.assistantMessageId
+          ? { ...message, status: pending.interaction ? "waiting" : "done" }
+          : message,
       ),
     );
     setResumeAvailable(false);
-    if (pending.clarification) {
+    if (pending.clarification || pending.interaction) {
       savePendingGeneration(pending);
       pendingGenerationRef.current = pending;
       return;
@@ -231,6 +249,7 @@ export function useChatStream({
         clearPendingGeneration();
         pendingGenerationRef.current = undefined;
         setPendingClarification(undefined);
+        setPendingInteraction(undefined);
         setResumeAvailable(false);
       },
       onChunk: (content, sequence) => {
@@ -251,12 +270,43 @@ export function useChatStream({
         savePendingGeneration(pending);
         setPendingClarification(event);
       },
+      onInteractionRequired: (event) => {
+        if (!isActive()) return;
+        pending.interaction = event;
+        pending.lastSequence = Math.max(pending.lastSequence, event.sequence);
+        savePendingGeneration(pending);
+        setPendingInteraction(event);
+        updateAssistant(pending, (message) => ({ ...message, status: "waiting" }));
+      },
+      onInteractionResolved: (event) => {
+        if (!isActive()) return;
+        pending.lastSequence = Math.max(pending.lastSequence, event.sequence);
+        pending.interaction = undefined;
+        savePendingGeneration(pending);
+        setPendingInteraction(undefined);
+        updateAssistant(pending, (message) => ({ ...message, status: "streaming" }));
+      },
       onProgress: (event) => {
         if (!isActive()) return;
         pending.progress = mergeByKey(pending.progress, event, (item) => item.sequence);
         pending.lastSequence = Math.max(pending.lastSequence, event.sequence);
         savePendingGeneration(pending);
         updateAssistant(pending, (message) => ({ ...message, progress: pending.progress }));
+      },
+      onPartial: (event) => {
+        if (!isActive()) return;
+        pending.partial = event;
+        updateAssistant(pending, (message) => ({
+          ...message,
+          errorCode: event.code,
+          errorMessage: event.message || "已基于当前信息返回部分结果",
+          status: "partial",
+        }));
+        clearPendingGeneration();
+        pendingGenerationRef.current = undefined;
+        setPendingClarification(undefined);
+        setPendingInteraction(undefined);
+        setResumeAvailable(false);
       },
       onSnapshot: (content) => {
         if (!isActive()) return;
@@ -274,6 +324,7 @@ export function useChatStream({
         const temporaryUserId = pending.userMessageId;
         pending.assistantMessageId = start.assistantMessageId;
         pending.conversationId = start.conversationId;
+        pending.clientConversationId = undefined;
         pending.userMessageId = start.userMessageId;
         conversationIdRef.current = start.conversationId;
         savePendingGeneration(pending);
@@ -334,7 +385,8 @@ export function useChatStream({
         return;
       }
       if (!isServerMessageId(pending.assistantMessageId)) {
-        clearPendingGeneration();
+        // 首次发送尚未取得服务端消息主键时保留本地轮次，显式重试复用原幂等标识，避免重复建会话或重复执行。
+        pendingGenerationRef.current = pending;
         setResumeAvailable(false);
         return;
       }
@@ -382,6 +434,7 @@ export function useChatStream({
     let active = true;
     queueMicrotask(() => {
       if (!active) return;
+      setPendingInteraction(pending.interaction);
       setMessages((current) => {
         if (current.some((message) => message.id === pending.assistantMessageId)) return current;
         return [
@@ -391,7 +444,7 @@ export function useChatStream({
             content: normalizeMarkdownTables(pending.answer),
             id: pending.assistantMessageId,
             role: "assistant",
-            status: "streaming",
+            status: pending.interaction ? "waiting" : "streaming",
             progress: pending.progress,
             subAgents: pending.subAgents,
             stepOutputs: pending.stepOutputs,
@@ -400,8 +453,8 @@ export function useChatStream({
           },
         ];
       });
-      onConversationCreated?.(pending.conversationId);
-      resumeGeneration(pending, () => active);
+      if (pending.conversationId) onConversationCreated?.(pending.conversationId);
+      if (!pending.interaction) resumeGeneration(pending, () => active);
     });
     return () => {
       active = false;
@@ -423,6 +476,7 @@ export function useChatStream({
         await streamChat({
           applicationCode: selectedApplicationCode,
           clarificationResponse,
+          clientConversationId: pending.clientConversationId,
           clientMessageId: pending.userMessageId,
           conversationId: pending.conversationId,
           ...handlers,
@@ -445,24 +499,19 @@ export function useChatStream({
     async (text: string) => {
       if (!session || !selectedApplicationCode || streaming || submittingRef.current || !text.trim()) return false;
       if (pendingGenerationRef.current) {
-        setStreamError(pendingGenerationRef.current.clarification
+        setStreamError(pendingGenerationRef.current.clarification || pendingGenerationRef.current.interaction
           ? "请先完成当前确认，再提交新问题"
           : "上一次生成尚未恢复，请重试或新建对话");
         return false;
       }
       submittingRef.current = true;
       try {
-        let conversationId = conversationIdRef.current;
-        if (!conversationId) {
-          const conversation = await createConversation(session);
-          conversationId = conversation.id;
-          conversationIdRef.current = conversation.id;
-          onConversationCreated?.(conversation.id);
-        }
+        const conversationId = conversationIdRef.current ?? undefined;
         const prompt = text.trim();
         const pending: PendingGeneration = {
           answer: "",
           assistantMessageId: generateMessageId(),
+          clientConversationId: conversationId ? undefined : generateMessageId(),
           conversationId,
           lastSequence: 0,
           prompt,
@@ -474,6 +523,7 @@ export function useChatStream({
           userMessageId: generateMessageId(),
         };
         setPendingClarification(undefined);
+        setPendingInteraction(undefined);
         setMessages((current) => [
           ...current,
           {
@@ -488,13 +538,13 @@ export function useChatStream({
         void startGeneration(pending);
         return true;
       } catch (error) {
-        setStreamError(error instanceof ChatStreamError ? error.message : "创建会话失败");
+        setStreamError(error instanceof ChatStreamError ? error.message : "发起对话失败");
         return false;
       } finally {
         submittingRef.current = false;
       }
     },
-    [onConversationCreated, selectedApplicationCode, session, startGeneration, streaming],
+    [selectedApplicationCode, session, startGeneration, streaming],
   );
 
   /** 用户显式切换对话上下文时，丢弃仅用于当前页面续传的本地状态。 */
@@ -502,6 +552,7 @@ export function useChatStream({
     clearPendingGeneration();
     pendingGenerationRef.current = undefined;
     setPendingClarification(undefined);
+    setPendingInteraction(undefined);
     setResumeAvailable(false);
   }, []);
 
@@ -515,6 +566,7 @@ export function useChatStream({
       clearPendingGeneration();
       pendingGenerationRef.current = undefined;
       setPendingClarification(undefined);
+      setPendingInteraction(undefined);
       setResumeAvailable(false);
       setStreaming(false);
       return;
@@ -525,6 +577,7 @@ export function useChatStream({
       clearPendingGeneration();
       pendingGenerationRef.current = undefined;
       setPendingClarification(undefined);
+      setPendingInteraction(undefined);
       setResumeAvailable(false);
     } catch (error) {
       setStreamError(error instanceof ChatStreamError ? error.message : "停止生成失败，请稍后重试");
@@ -541,17 +594,29 @@ export function useChatStream({
       resumeGeneration(pending);
       return;
     }
+    if (!isServerMessageId(pending.assistantMessageId)) {
+      updateAssistant(pending, (message) => ({
+        ...message,
+        content: "",
+        errorMessage: undefined,
+        status: "streaming",
+      }));
+      void startGeneration(pending);
+      return;
+    }
     const prompt = pending.prompt;
     clearPendingGeneration();
     pendingGenerationRef.current = undefined;
-    setMessages((current) => current.filter((message) => message.id !== pending.assistantMessageId));
+    setMessages((current) => current.filter(
+      (message) => message.id !== pending.assistantMessageId && message.id !== pending.userMessageId,
+    ));
     void sendPrompt(prompt);
-  }, [resumeAvailable, resumeGeneration, sendPrompt, streaming]);
+  }, [resumeAvailable, resumeGeneration, sendPrompt, startGeneration, streaming, updateAssistant]);
 
   const answerClarification = useCallback(
     (clarification: ChatClarificationEvent, option: { code: string; label: string }) => {
       const previous = pendingGenerationRef.current;
-      if (!previous || !session || !selectedApplicationCode || streaming) return;
+      if (!previous?.conversationId || !session || !selectedApplicationCode || streaming) return;
       const pending: PendingGeneration = {
         answer: "",
         assistantMessageId: generateMessageId(),
@@ -580,16 +645,97 @@ export function useChatStream({
     [selectedApplicationCode, session, startGeneration, streaming],
   );
 
+  const answerInteraction = useCallback(
+    async (interaction: ChatInteractionEvent, decision: "APPROVE" | "REJECT") => {
+      const pending = pendingGenerationRef.current;
+      if (!pending || !session || interactionSubmitting) return;
+      setInteractionSubmitting(true);
+      setStreamError(undefined);
+      try {
+        const idempotencyKey = `hitl-${interaction.interactionId}-${interaction.revision}-${decision}`;
+        await decideInteraction(interaction, decision, idempotencyKey, session);
+        pending.interaction = undefined;
+        setPendingInteraction(undefined);
+        if (decision === "REJECT") {
+          updateAssistant(pending, (message) => ({
+            ...message,
+            errorMessage: "已拒绝该操作，本轮任务已结束",
+            status: "stopped",
+          }));
+          clearPendingGeneration();
+          pendingGenerationRef.current = undefined;
+          setResumeAvailable(false);
+          return;
+        }
+        savePendingGeneration(pending);
+        updateAssistant(pending, (message) => ({ ...message, status: "streaming" }));
+        resumeGeneration(pending);
+      } catch (error) {
+        setStreamError(error instanceof ChatStreamError ? error.message : "提交操作确认失败，请稍后重试");
+      } finally {
+        setInteractionSubmitting(false);
+      }
+    },
+    [interactionSubmitting, resumeGeneration, session, updateAssistant],
+  );
+
+  const restorePendingInteraction = useCallback(
+    async (conversationId: string, restoredMessages: ChatMessage[]) => {
+      if (!session) return;
+      const interactions = await listPendingInteractions(conversationId, session);
+      const interaction = interactions[0];
+      if (!interaction) {
+        setPendingInteraction(undefined);
+        return;
+      }
+      const assistantIndex = restoredMessages.findIndex(
+        (message) => message.id === interaction.assistantMessageId,
+      );
+      const assistant = assistantIndex >= 0 ? restoredMessages[assistantIndex] : undefined;
+      const user = restoredMessages
+        .slice(0, assistantIndex)
+        .toReversed()
+        .find((message) => message.role === "user");
+      if (!assistant || !user) return;
+      const event: ChatInteractionEvent = { ...interaction, sequence: 0 };
+      const pending: PendingGeneration = {
+        answer: assistant.content,
+        assistantMessageId: assistant.id,
+        conversationId,
+        interaction: event,
+        lastSequence: 0,
+        prompt: user.content,
+        progress: assistant.progress ?? [],
+        subAgents: assistant.subAgents ?? [],
+        stepOutputs: assistant.stepOutputs ?? [],
+        timeline: assistant.timeline ?? [],
+        tools: assistant.tools ?? [],
+        userMessageId: user.id,
+      };
+      pendingGenerationRef.current = pending;
+      savePendingGeneration(pending);
+      setPendingInteraction(event);
+      setMessages((current) => current.map((message) =>
+        message.id === assistant.id ? { ...message, status: "waiting" } : message,
+      ));
+    },
+    [session],
+  );
+
   const clearError = useCallback(() => setStreamError(undefined), []);
 
   return {
     answerClarification,
+    answerInteraction,
     clearError,
     discardPendingGeneration,
+    interactionSubmitting,
     messages,
     pendingClarification,
+    pendingInteraction,
     resumeAvailable,
     retryLastPrompt,
+    restorePendingInteraction,
     sendPrompt,
     setMessages,
     stopStreaming,

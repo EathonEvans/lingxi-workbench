@@ -11,14 +11,6 @@ import {
   renameConversation,
 } from "@/lib/chat";
 
-type ChatMessage = {
-  content: string;
-  errorMessage?: string;
-  id: string;
-  role: "assistant" | "user";
-  status?: "done" | "error" | "stopped" | "streaming";
-};
-
 type UseConversationOptions = {
   session: AuthSession | null;
   onRequestError: (error: unknown, fallback: string) => void;
@@ -51,33 +43,14 @@ type UseConversationReturn = {
     keyword: string,
     append?: boolean,
   ) => Promise<void>;
-  selectConversation: (conv: Conversation) => Promise<void>;
-  loadOlderMessages: () => Promise<void>;
+  selectConversation: (conv: Conversation) => Promise<ConversationMessage[]>;
+  loadOlderMessages: () => Promise<ConversationMessage[]>;
   beginRename: (conv: Conversation) => void;
   cancelRename: () => void;
   submitRename: (conv: Conversation) => Promise<string | undefined>;
   archiveSelectedConversation: (conv: Conversation) => Promise<boolean>;
   deleteSelectedConversation: (conv: Conversation) => Promise<boolean>;
 };
-
-function toChatMessage(msg: ConversationMessage): ChatMessage | undefined {
-  const role = msg.role === "USER" ? "user" : "assistant";
-  if (msg.role === ("SYSTEM" as const)) return undefined;
-
-  let status: ChatMessage["status"] = "done";
-  if (msg.status === "GENERATING") status = "streaming";
-  else if (msg.status === "FAILED" || msg.status === "INTERRUPTED")
-    status = "error";
-  else if (msg.status === "CANCELLED") status = "stopped";
-
-  return {
-    content: msg.content,
-    errorMessage: msg.errorMessage,
-    id: msg.id,
-    role,
-    status,
-  };
-}
 
 export function useConversation({
   session,
@@ -161,11 +134,12 @@ export function useConversation({
           current: 1,
           size: 50,
         });
-        // message loading now handled by caller via setMessages
         setMessageCurrent(result.current);
         setMessageTotal(result.total);
+        return result.records;
       } catch (error) {
         onRequestError(error, "加载历史消息失败");
+        return [];
       } finally {
         setMessageLoading(false);
       }
@@ -174,7 +148,7 @@ export function useConversation({
   );
 
   const loadOlderMessages = useCallback(async () => {
-    if (!conversationId || messageLoading) return;
+    if (!conversationId || messageLoading) return [];
     const s = requireSession();
     setMessageLoading(true);
     try {
@@ -185,8 +159,10 @@ export function useConversation({
       // caller appends older messages
       setMessageCurrent(result.current);
       setMessageTotal(result.total);
+      return result.records;
     } catch (error) {
       onRequestError(error, "加载更早消息失败");
+      return [];
     } finally {
       setMessageLoading(false);
     }
@@ -310,8 +286,5 @@ export function useConversation({
     submitRename,
     archiveSelectedConversation,
     deleteSelectedConversation,
-    toChatMessage: (msg: ConversationMessage) => toChatMessage(msg),
-  } as UseConversationReturn & {
-    toChatMessage: (msg: ConversationMessage) => ChatMessage | undefined;
   };
 }

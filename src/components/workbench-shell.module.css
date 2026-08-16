@@ -757,6 +757,37 @@
   background: #f5f8ff;
 }
 
+.messagePartial {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 8px 10px;
+  margin-top: 10px;
+  gap: 10px;
+  border: 1px solid #ead7aa;
+  border-radius: 9px;
+  color: #886424;
+  background: #fffaf0;
+  font-size: 11px;
+}
+
+.messagePartial button {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border: 1px solid #dbc285;
+  border-radius: 7px;
+  color: #745318;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+}
+
+.messagePartial button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .composerWrap {
   width: min(820px, calc(100% - 48px));
   flex: 0 0 auto;
@@ -819,6 +850,119 @@
 
 .clarificationOptions button:disabled {
   cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.approvalCard {
+  padding: 13px 14px;
+  margin-bottom: 10px;
+  border: 1px solid #ead7aa;
+  border-radius: 12px;
+  color: #4b3b1f;
+  background: #fffaf0;
+  box-shadow: 0 8px 24px rgba(116, 83, 26, 0.08);
+}
+
+.approvalCard[data-risk="high"],
+.approvalCard[data-risk="critical"] {
+  border-color: #efc2bd;
+  color: #65332e;
+  background: #fff6f5;
+  box-shadow: 0 8px 24px rgba(142, 60, 49, 0.08);
+}
+
+.approvalHeader {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.approvalHeader > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.approvalHeader strong {
+  color: inherit;
+  font-size: 13px;
+}
+
+.approvalHeader span,
+.approvalMeta span {
+  color: #8c7448;
+  font-size: 11px;
+}
+
+.approvalCard[data-risk="high"] .approvalHeader span,
+.approvalCard[data-risk="critical"] .approvalHeader span,
+.approvalCard[data-risk="high"] .approvalMeta span,
+.approvalCard[data-risk="critical"] .approvalMeta span {
+  color: #a2665e;
+}
+
+.approvalIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  color: #ad771b;
+  background: rgba(221, 162, 50, 0.13);
+}
+
+.approvalCard[data-risk="high"] .approvalIcon,
+.approvalCard[data-risk="critical"] .approvalIcon {
+  color: #c75748;
+  background: rgba(208, 83, 67, 0.12);
+}
+
+.approvalCard p {
+  margin: 9px 0 0;
+  color: #675536;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.approvalCard[data-risk="high"] p,
+.approvalCard[data-risk="critical"] p {
+  color: #76504b;
+}
+
+.approvalMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 7px;
+}
+
+.approvalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.approvalActions button {
+  padding: 7px 12px;
+  border: 1px solid #ddc791;
+  border-radius: 8px;
+  color: #73571f;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.approvalActions .approveButton {
+  border-color: #4677dc;
+  color: #fff;
+  background: #4677dc;
+}
+
+.approvalActions button:disabled {
+  cursor: wait;
   opacity: 0.55;
 }
 
@@ -1080,6 +1224,18 @@
   background: rgba(62, 104, 198, 0.14);
 }
 
+.shell[data-theme="dark"] .messagePartial {
+  border-color: rgba(225, 178, 79, 0.3);
+  color: #dfc27e;
+  background: rgba(112, 81, 26, 0.16);
+}
+
+.shell[data-theme="dark"] .messagePartial button {
+  border-color: rgba(225, 178, 79, 0.32);
+  color: #e8ca83;
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .shell[data-theme="dark"] .sendButton:disabled {
   color: #616977;
   background: #292e38;
@@ -1134,6 +1290,37 @@
   color: #bdd2fa;
   background: #202f49;
   border-color: #47648f;
+}
+
+.shell[data-theme="dark"] .approvalCard {
+  border-color: #5b4b2c;
+  color: #ead8b4;
+  background: #2a2419;
+}
+
+.shell[data-theme="dark"] .approvalCard[data-risk="high"],
+.shell[data-theme="dark"] .approvalCard[data-risk="critical"] {
+  border-color: #6b3d39;
+  color: #f1c7c2;
+  background: #2c1d1c;
+}
+
+.shell[data-theme="dark"] .approvalCard p,
+.shell[data-theme="dark"] .approvalMeta span,
+.shell[data-theme="dark"] .approvalHeader span {
+  color: #c2ad86;
+}
+
+.shell[data-theme="dark"] .approvalActions button {
+  border-color: #665637;
+  color: #ddc79d;
+  background: #332b1e;
+}
+
+.shell[data-theme="dark"] .approvalActions .approveButton {
+  border-color: #6089df;
+  color: #fff;
+  background: #406ec9;
 }
 
 :global(html[data-theme="dark"]) .historyDrawer :global(.ant-drawer-content),
