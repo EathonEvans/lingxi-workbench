@@ -5,7 +5,6 @@ import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
 import com.lingxi.workbench.application.runtime.model.ExecutionDecision;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
-import com.lingxi.workbench.application.runtime.model.ExecutionRunStartCommand;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.model.PlanExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.PlanExecutionResult;
@@ -56,14 +55,7 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
      */
     @Override
     public PlanExecutionResult execute(PlannerRuntimeRequest request) {
-        // 先持久化运行开始记录，作为整轮执行的锚点，后续事件与决策都挂在该运行下。
-        persistenceService.startRun(ExecutionRunStartCommand.builder()
-                .application(request.getConversationContext().getApplicationSnapshot())
-                .turn(request.getExecutionContext().getTurn())
-                .userId(request.getConversationContext().getLoginUser().id())
-                .runId(request.getRunId())
-                .orchestratorAgent(request.getSupervisor().getAgent())
-                .build());
+        // 顶级运行已在 Application 调度入口统一创建，Planner 只追加计划与步骤事实。
         publishPlanning(request.getRunId(), request.getExecutionContext());
         // 上下文工作预算已耗尽：跳过 Planner 决策，直接以澄清会话结束本轮，避免预算不足时继续消耗模型调用。
         if (request.getExecutionContext().shouldFinalize()) {
@@ -120,7 +112,7 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
                 .clarification(PlannerClarification.builder()
                         .question("本轮上下文处理已达到预算边界，请缩小问题范围或开启新对话后继续。")
                         .options(List.of())
-                        .interactionType(InteractionSessionType.PLANNER_CLARIFICATION)
+                        .interactionType(InteractionSessionType.CLARIFICATION)
                         .capabilityCodes(List.of())
                         .build())
                 .build();

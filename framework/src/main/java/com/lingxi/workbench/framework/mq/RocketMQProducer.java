@@ -60,9 +60,14 @@ public class RocketMQProducer<T> implements MqProducer<T> {
 
     @Override
     public TransactionSendResult sendTransaction(String topic, T message, Object arg) {
-        Message<T> msg = buildMessage(null, message);
+        return sendTransaction(topic, null, message, arg);
+    }
+
+    @Override
+    public TransactionSendResult sendTransaction(String topic, String key, T message, Object arg) {
+        Message<T> msg = buildMessage(key, message);
         TransactionSendResult result = rocketMQTemplate.sendMessageInTransaction(topic, msg, arg);
-        log.debug("事务消息发送成功: topic={}, transactionId={}", topic, result.getTransactionId());
+        log.debug("事务消息发送成功: topic={}, key={}, transactionId={}", topic, key, result.getTransactionId());
         return result;
     }
 

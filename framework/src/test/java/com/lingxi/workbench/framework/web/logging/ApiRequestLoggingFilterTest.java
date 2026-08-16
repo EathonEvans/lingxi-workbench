@@ -91,6 +91,29 @@ class ApiRequestLoggingFilterTest {
     }
 
     @Test
+    void shouldMaskChatRequestAndResponseContent() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/ai/chat/start");
+        request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        request.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        request.setContent("{\"applicationCode\":\"support\",\"query\":\"私人问题\"}"
+                .getBytes(StandardCharsets.UTF_8));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, (wrappedRequest, wrappedResponse) -> {
+            wrappedRequest.getInputStream().readAllBytes();
+            wrappedResponse.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            wrappedResponse.getWriter().write("{\"code\":200,\"data\":{\"answer\":\"私人回答\"}}");
+        });
+
+        String message = singleLogMessage();
+        assertTrue(message.contains("\"applicationCode\":\"support\""));
+        assertTrue(message.contains("\"query\":\"******\""));
+        assertTrue(message.contains("\"answer\":\"******\""));
+        assertFalse(message.contains("私人问题"));
+        assertFalse(message.contains("私人回答"));
+    }
+
+    @Test
     void shouldRemoveSignedUrlParametersAndTruncateLargeResponse() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/auth/session");
         MockHttpServletResponse response = new MockHttpServletResponse();
@@ -98,7 +121,7 @@ class ApiRequestLoggingFilterTest {
         String largeValue = "x".repeat(5 * 1024);
         LinkedHashMap<String, String> responseData = new LinkedHashMap<>();
         responseData.put("avatarUrl", signedUrl);
-        responseData.put("content", largeValue);
+        responseData.put("description", largeValue);
 
         filter.doFilter(request, response, (wrappedRequest, wrappedResponse) -> {
             wrappedResponse.setContentType(MediaType.APPLICATION_JSON_VALUE);

@@ -13,6 +13,7 @@ import com.lingxi.workbench.application.runtime.service.agent.AgentRuntimeServic
 import com.lingxi.workbench.application.runtime.service.capability.CapabilityExecutionService;
 import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionContextRegistry;
 import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionEventPublisher;
+import com.lingxi.workbench.application.runtime.service.execution.ExecutionPersistenceService;
 import com.lingxi.workbench.application.runtime.service.routing.IntentRoutingService;
 import com.lingxi.workbench.application.runtime.service.interaction.InteractionSessionService;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
@@ -292,7 +293,7 @@ class ApplicationChatExecutionServiceImplTest {
         return new ApplicationChatExecutionServiceImpl(
                 capabilityService, registry, contextService, routingService,
                 interactionSessionService, agentRuntimeService,
-                new AiStageObserver(ObservationRegistry.NOOP));
+                new AiStageObserver(ObservationRegistry.NOOP), mock(ExecutionPersistenceService.class));
     }
 
     private static CapabilityExecutionService unexpectedCapabilityService() {

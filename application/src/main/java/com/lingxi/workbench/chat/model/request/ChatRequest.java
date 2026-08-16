@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -19,11 +20,16 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class ChatRequest {
     /**
-     * 会话id
+     * 已落库会话主键；新会话首次发送时为空。
      */
-    @NotBlank(message = "会话ID不能为空")
     @Pattern(regexp = "^[1-9]\\d*$", message = "会话ID格式不正确")
     String conversationId;
+    /**
+     * 前端本地会话标识，仅在首次发送创建会话时使用。
+     */
+    @Size(max = 64, message = "客户端会话ID不能超过64个字符")
+    @Pattern(regexp = "^[A-Za-z0-9_-]{8,64}$", message = "客户端会话ID格式不正确")
+    String clientConversationId;
     /**
      * 客户端消息id
      */
@@ -57,8 +63,15 @@ public class ChatRequest {
      */
     String agentCode;
 
-
     public String getQuery() {
         return query.trim();
+    }
+
+    /** 新会话和已有会话入口必须且只能选择一个。 */
+    @AssertTrue(message = "会话ID与客户端会话ID必须且只能提供一个")
+    public boolean isConversationTargetValid() {
+        boolean hasConversationId = conversationId != null && !conversationId.isBlank();
+        boolean hasClientConversationId = clientConversationId != null && !clientConversationId.isBlank();
+        return hasConversationId != hasClientConversationId;
     }
 }

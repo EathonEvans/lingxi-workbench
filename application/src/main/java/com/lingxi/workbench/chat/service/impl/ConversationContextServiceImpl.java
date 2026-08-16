@@ -1,6 +1,5 @@
 package com.lingxi.workbench.chat.service.impl;
 
-import com.alibaba.fastjson2.JSON;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.service.app.RuntimeVariablesInitializer;
 import com.lingxi.workbench.chat.model.bo.ChatMemoryMessageBO;
@@ -17,6 +16,7 @@ import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
@@ -93,7 +93,10 @@ public class ConversationContextServiceImpl implements ConversationContextServic
         // ⑥ 问题重写：存在历史时消解指代；没有历史时保持原问题，避免无意义模型调用
         ContextualizationPolicy contextualizationPolicy = withinDeadline(contextPolicy.contextualization(), deadline);
         QueryRewriter.RewriteResult rewrite = queryRewriter.rewrite(contextualizationPolicy, query, runtimeVariables, memory.recentMessages());
-        log.info("问题重写完成,源问题：{} -> 重写后:{}", query, JSON.toJSONString(rewrite));
+        TokenUsage rewriteUsage = rewrite.usage();
+        log.info("问题重写完成，conversationId={}，rewritten={}，modelCalls={}，inputTokens={}，outputTokens={}",
+                turn.conversationId(), !Objects.equals(query, rewrite.query()), rewrite.modelCalls(),
+                rewriteUsage.inputTokens(), rewriteUsage.outputTokens());
         ensureWithinDeadline(deadline);
 
         // ⑦ 组装不可变 ConversationContext，共享给后续路由和执行

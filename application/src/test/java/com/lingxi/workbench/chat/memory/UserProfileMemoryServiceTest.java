@@ -16,13 +16,14 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class UserProfileMemoryServiceTest {
 
     @Test
-    void shouldMergeExtractedTopLevelFieldsWithExistingProfile() {
+    void shouldDelegateAtomicMergeWithExtractedFields() {
         UserProfileRepo profileRepo = mock(UserProfileRepo.class);
         MemoryCompletionService completionService = mock(MemoryCompletionService.class);
         UserProfileEntity existing = new UserProfileEntity();
@@ -37,8 +38,8 @@ class UserProfileMemoryServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> profileCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(profileRepo).upsert(eq(7L), eq(12L), profileCaptor.capture());
-        assertThat(profileCaptor.getValue()).containsEntry("language", "zh-CN").containsEntry("city", "杭州");
+        verify(profileRepo).merge(eq(7L), eq(12L), profileCaptor.capture());
+        assertThat(profileCaptor.getValue()).containsExactlyEntriesOf(Map.of("city", "杭州"));
     }
 
     @Test
@@ -57,8 +58,23 @@ class UserProfileMemoryServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> profileCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(profileRepo).upsert(eq(7L), eq(12L), profileCaptor.capture());
+        verify(profileRepo).replace(eq(7L), eq(12L), profileCaptor.capture());
         assertThat(profileCaptor.getValue()).isEqualTo(Map.of("city", "杭州"));
+    }
+
+    @Test
+    void shouldSkipDuplicateEventBeforeCallingModel() {
+        UserProfileRepo profileRepo = mock(UserProfileRepo.class);
+        MemoryCompletionService completionService = mock(MemoryCompletionService.class);
+        UserProfileEntity existing = new UserProfileEntity();
+        existing.setProfile(Map.of("city", "杭州"));
+        existing.setSourceMessageId(12L);
+        when(profileRepo.findByUserId(7L)).thenReturn(Optional.of(existing));
+        UserProfileMemoryService service = new UserProfileMemoryService(completionService, profileRepo);
+
+        service.extract(event(), "USER: 重复事件", config(UserProfileUpdateStrategy.MERGE));
+
+        verifyNoInteractions(completionService);
     }
 
     private static AssistantCompletedEvent event() {

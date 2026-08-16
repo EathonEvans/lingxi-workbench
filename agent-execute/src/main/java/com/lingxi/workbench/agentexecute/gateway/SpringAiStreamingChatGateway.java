@@ -333,7 +333,8 @@ public class SpringAiStreamingChatGateway implements StreamingChatGateway {
      */
     private static BoundedToolCallback boundedCallback(AgentTool tool, AgentToolRuntimeConfig runtimeConfig, int maxResultCharacters,
                                                        AgentLoopState loopState) {
-        return new BoundedToolCallback(tool, runtimeConfig.getExecutionContext(), maxResultCharacters, runtimeConfig.resolveEventPublisher(), loopState);
+        return new BoundedToolCallback(tool, runtimeConfig.getExecutionContext(), maxResultCharacters,
+                runtimeConfig.resolveEventPublisher(), loopState, runtimeConfig.getApprovalGate());
     }
 
 }

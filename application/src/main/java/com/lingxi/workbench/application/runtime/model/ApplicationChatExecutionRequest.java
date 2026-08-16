@@ -44,4 +44,6 @@ public class ApplicationChatExecutionRequest {
      * SSE 事件发布器，执行过程中实时推送 chunk / tool / planning / clarification 事件。
      */
     private final ChatExecutionEventPublisher eventPublisher;
+    /** HITL 消费者恢复同一 Run 时提供的可信上下文。 */
+    private final ExecutionResumeContext resumeContext;
 }

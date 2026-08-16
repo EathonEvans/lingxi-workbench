@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 public enum InteractionSessionStatus {
     PENDING("PENDING", "待处理"),
     RESOLVED("RESOLVED", "已解决"),
+    REJECTED("REJECTED", "已拒绝"),
     CANCELLED("CANCELLED", "已取消"),
     EXPIRED("EXPIRED", "已过期"),
     COMPLETED("COMPLETED", "已完成"),

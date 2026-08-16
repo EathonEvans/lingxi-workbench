@@ -64,5 +64,10 @@ class ApplicationRuntimeControllerTest {
         public AppRuntimeSnapshot loadRuntimeAppConfig(String applicationCode) {
             throw new UnsupportedOperationException("当前测试不覆盖应用版本解析");
         }
+
+        @Override
+        public AppRuntimeSnapshot loadRuntimeAppVersion(Long applicationId, Long applicationVersionId) {
+            throw new UnsupportedOperationException("当前测试不覆盖冻结应用版本解析");
+        }
     }
 }

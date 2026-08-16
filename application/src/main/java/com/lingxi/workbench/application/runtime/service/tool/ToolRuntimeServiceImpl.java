@@ -14,6 +14,9 @@ import com.lingxi.workbench.infra.ai.tool.AgentToolException;
 import com.lingxi.workbench.infra.ai.tool.AgentToolRegistry;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionMode;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
+import com.lingxi.workbench.infra.ai.tool.model.ToolSecurityPolicy;
+import cn.hutool.crypto.digest.DigestUtil;
+import com.alibaba.fastjson2.JSON;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
@@ -137,7 +140,22 @@ public class ToolRuntimeServiceImpl implements ToolRuntimeService {
                 .displayName(definition.getName())
                 .description(definition.getDescription())
                 .executionMode(executionMode)
+                .securityPolicy(ToolSecurityPolicy.builder()
+                        .riskLevel(definition.getRiskLevel())
+                        .approvalRequired(Boolean.TRUE.equals(definition.getApprovalRequired()))
+                        .approvalTtlSeconds(Objects.requireNonNullElse(definition.getApprovalTtlSeconds(), 1800))
+                        .resourceScope(definition.getResourceScope())
+                        .build())
+                .configurationHash(configurationHash(definition))
                 .build();
+    }
+
+    private static String configurationHash(RuntimeToolEntity definition) {
+        String contract = definition.getCode() + "|" + definition.getDescription() + "|"
+                + JSON.toJSONString(definition.getParameterSchema()) + "|" + definition.getRiskLevel() + "|"
+                + definition.getApprovalRequired() + "|" + definition.getApprovalTtlSeconds() + "|"
+                + definition.getResourceScope();
+        return DigestUtil.sha256Hex(contract);
     }
 
     /**

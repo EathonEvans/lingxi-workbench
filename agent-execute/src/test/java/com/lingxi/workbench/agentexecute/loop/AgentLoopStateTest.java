@@ -56,6 +56,27 @@ class AgentLoopStateTest {
     }
 
     @Test
+    void shouldFinalizeWhenSharedExecutionBudgetReachesSoftDeadline() {
+        AgentExecutionBudget budget = new AgentExecutionBudget() {
+            @Override
+            public void reserveModelCall() {
+            }
+
+            @Override
+            public void reserveToolCalls(int calls) {
+            }
+
+            @Override
+            public boolean shouldFinalize() {
+                return true;
+            }
+        };
+        AgentLoopState state = new AgentLoopState(runtimeConfig(10, 5, 100, 100, budget));
+
+        assertTrue(state.shouldFinalize());
+    }
+
+    @Test
     void shouldRejectModelCallAfterInputTokenLimit() {
         AgentLoopState state = new AgentLoopState(runtimeConfig(10, 5, 100, 100));
         state.recordUsage(TokenUsage.of(100, 5, 105));

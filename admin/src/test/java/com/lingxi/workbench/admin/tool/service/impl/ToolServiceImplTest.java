@@ -6,10 +6,12 @@ import com.lingxi.workbench.admin.tool.common.enums.ToolSourceType;
 import com.lingxi.workbench.admin.tool.model.bo.McpToolImport;
 import com.lingxi.workbench.admin.tool.model.converter.ToolConverter;
 import com.lingxi.workbench.admin.tool.model.entity.ToolEntity;
+import com.lingxi.workbench.admin.tool.model.request.CreateToolRequest;
 import com.lingxi.workbench.admin.tool.model.vo.ToolVO;
 import com.lingxi.workbench.admin.tool.repo.ToolRepo;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.infra.ai.tool.common.enums.ToolRiskLevel;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -58,6 +60,25 @@ class ToolServiceImplTest {
         BusinessException exception = assertThrows(BusinessException.class, () -> service.importMcpTool(duplicated, 7L));
 
         assertEquals("该 MCP 工具已经导入", exception.getMessage());
+    }
+
+    @Test
+    void shouldRequireApprovalForHighRiskTool() {
+        CreateToolRequest request = new CreateToolRequest();
+        request.setName("发送邮件");
+        request.setCode("send_mail");
+        request.setDescription("向外部邮箱发送内容");
+        request.setSourceType(ToolSourceType.LOCAL_FUNCTION);
+        request.setParameters(List.of());
+        request.setRiskLevel(ToolRiskLevel.HIGH);
+        request.setApprovalRequired(false);
+        request.setApprovalTtlSeconds(1800);
+        request.setResourceScope("外部邮箱");
+        request.setStatus(EnableStatus.DISABLED);
+
+        BusinessException exception = assertThrows(BusinessException.class, () -> service.create(request, 7L));
+
+        assertEquals("高风险和关键操作必须启用人工批准", exception.getMessage());
     }
 
     private static McpToolImport importSource() {

@@ -26,7 +26,7 @@ public class ConversationMessageEntity extends TimeEntity {
     private MessageRole role;
     /** 消息正文内容。 */
     private String content;
-    /** 消息状态：GENERATING / COMPLETED / FAILED / CANCELLED / INTERRUPTED。 */
+    /** 消息状态：GENERATING / WAITING_HUMAN / COMPLETED / FAILED / CANCELLED / INTERRUPTED。 */
     private MessageStatus status;
     /** 使用的模型实例主键。 */
     private Long modelInstanceId;
@@ -46,4 +46,6 @@ public class ConversationMessageEntity extends TimeEntity {
     private Integer totalTokens;
     /** 消息完成时间。 */
     private OffsetDateTime completedAt;
+    /** 记忆事件完成一次兜底重发的时间。 */
+    private OffsetDateTime memoryReconciledAt;
 }

@@ -67,6 +67,14 @@ public class ChatGenerationEventRepo {
         }
     }
 
+    /** 返回当前缓存的最大事件序号，恢复任务据此继续保持 SSE 序号单调递增。 */
+    public long lastSequence(Long assistantMessageId) {
+        return findAfter(assistantMessageId, 0).stream()
+                .mapToLong(ChatGenerationEventBO::sequence)
+                .max()
+                .orElse(0L);
+    }
+
     private static String eventKey(Long assistantMessageId) {
         return RedisKeyBuilder.build(GENERATION_EVENT_KEY, String.valueOf(assistantMessageId));
     }

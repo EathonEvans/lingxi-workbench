@@ -50,7 +50,8 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
     private static final String MASKED_VALUE = "******";
     private static final Set<String> SENSITIVE_KEY_PARTS = Set.of(
             "password", "passwd", "pwd", "secret", "token", "authorization", "cookie",
-            "apikey", "accesskey", "privatekey", "prompt", "toolargument", "toolparameter"
+            "apikey", "accesskey", "privatekey", "prompt", "query", "content", "answer",
+            "history", "summary", "reasoning", "toolargument", "toolparameter"
     );
 
     /**

@@ -11,6 +11,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 
 /** 从完整会话中提取并更新用户画像。 */
 @Service
@@ -26,7 +28,13 @@ public class UserProfileMemoryService {
      */
     public void extract(AssistantCompletedEvent event, String history, MemoryConfig memoryConfig) {
         UserProfileMemoryConfig config = memoryConfig.profile();
-        MemoryData existing = profileRepo.findByUserId(event.userId())
+        Optional<UserProfileEntity> optionalProfile = profileRepo.findByUserId(event.userId());
+        Long sourceMessageId = optionalProfile.map(UserProfileEntity::getSourceMessageId).orElse(null);
+        // 在调用模型前检查水位，避免 RocketMQ 重投或乱序事件产生重复费用。
+        if (Objects.nonNull(sourceMessageId) && sourceMessageId >= event.turn().assistantMessageId()) {
+            return;
+        }
+        MemoryData existing = optionalProfile
                 .map(UserProfileEntity::getProfile)
                 .map(MemoryData::from)
                 .orElse(MemoryData.empty());
@@ -37,11 +45,14 @@ public class UserProfileMemoryService {
                         "existing_profile", existing.toPromptJson(),
                         "conversation_history", history));
         MemoryData extracted = MemoryData.fromJson(result);
-        if (!extracted.isEmpty()) {
-            MemoryData profile = config.effectiveUpdateStrategy() == UserProfileUpdateStrategy.REPLACE
-                    ? extracted
-                    : existing.merge(extracted);
-            profileRepo.upsert(event.userId(), event.turn().assistantMessageId(), profile.asObjectMap());
+        if (extracted.isEmpty()) {
+            return;
         }
+        if (config.effectiveUpdateStrategy() == UserProfileUpdateStrategy.REPLACE) {
+            profileRepo.replace(event.userId(), event.turn().assistantMessageId(), extracted.asObjectMap());
+            return;
+        }
+        // MERGE 必须由数据库原子完成，避免不同会话的异步画像任务互相覆盖。
+        profileRepo.merge(event.userId(), event.turn().assistantMessageId(), extracted.asObjectMap());
     }
 }

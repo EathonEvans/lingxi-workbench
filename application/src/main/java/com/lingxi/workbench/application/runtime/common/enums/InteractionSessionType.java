@@ -8,8 +8,9 @@ import lombok.RequiredArgsConstructor;
 @Getter
 @RequiredArgsConstructor
 public enum InteractionSessionType {
-    PLANNER_CLARIFICATION("PLANNER_CLARIFICATION", "Planner信息澄清"),
-    RISK_CONFIRMATION("RISK_CONFIRMATION", "高风险操作确认");
+    CLARIFICATION("CLARIFICATION", "信息澄清"),
+    ACTION_APPROVAL("ACTION_APPROVAL", "动作审批"),
+    PLAN_REVIEW("PLAN_REVIEW", "计划审阅");
 
     @EnumValue
     private final String code;

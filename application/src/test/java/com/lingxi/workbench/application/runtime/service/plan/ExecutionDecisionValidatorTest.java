@@ -38,14 +38,15 @@ class ExecutionDecisionValidatorTest {
     }
 
     @Test
-    void shouldRejectForwardDependencyAndUnconfirmedWrite() {
+    void shouldRejectForwardDependencyWithoutBlockingToolLevelApproval() {
         PlanStep forward = step("first", "support_agent", List.of("later"));
         PlanStep later = step("later", "support_agent", List.of());
         ExecutionDecision invalidDependency = plan(forward, later);
         ExecutionDecision unconfirmedWrite = plan(step("submit", "submit_agent", List.of()));
 
         assertThrows(BusinessException.class, () -> validator.validate(invalidDependency, context(Set.of())));
-        assertThrows(BusinessException.class, () -> validator.validate(unconfirmedWrite, context(Set.of())));
+        // Agent 能力风险不再由 Planner 预确认，真实写操作在 Tool 调用前按精确入参审批。
+        assertDoesNotThrow(() -> validator.validate(unconfirmedWrite, context(Set.of())));
     }
 
     @Test
@@ -72,7 +73,7 @@ class ExecutionDecisionValidatorTest {
                 .clarification(PlannerClarification.builder()
                         .question("请补充目标岗位")
                         .options(List.of("Java后端"))
-                        .interactionType(InteractionSessionType.PLANNER_CLARIFICATION)
+                        .interactionType(InteractionSessionType.CLARIFICATION)
                         .capabilityCodes(List.of("support_agent"))
                         .build())
                 .build();

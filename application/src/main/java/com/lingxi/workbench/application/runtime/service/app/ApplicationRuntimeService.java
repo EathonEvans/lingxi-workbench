@@ -16,4 +16,7 @@ public interface ApplicationRuntimeService {
      * 按稳定编码解析当前已启用且已发布的 ApplicationVersion。
      */
     AppRuntimeSnapshot loadRuntimeAppConfig(String applicationCode);
+
+    /** 按稳定主键加载历史冻结版本，供异步消费者避免跟随当前发布版本漂移。 */
+    AppRuntimeSnapshot loadRuntimeAppVersion(Long applicationId, Long applicationVersionId);
 }

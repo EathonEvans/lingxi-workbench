@@ -43,16 +43,23 @@ public final class AgentToolDefinition {
      * 单次 Agent 执行允许调用该工具的最大次数；小于等于零时使用平台上限。
      */
     private final int maxCallsPerExecution;
+    /** 独立于执行语义的安全与审批策略。 */
+    private final ToolSecurityPolicy securityPolicy;
+    /** 控制面 Tool 契约摘要，参数 Schema 或安全策略变化后必须变化。 */
+    private final String configurationHash;
 
     @Builder
     private AgentToolDefinition(String code, String displayName, String description, AgentToolExecutionMode executionMode,
-                                int maxCallsPerRound, int maxCallsPerExecution) {
+                                int maxCallsPerRound, int maxCallsPerExecution, ToolSecurityPolicy securityPolicy,
+                                String configurationHash) {
         this.code = requireText(code, "工具编码");
         this.displayName = requireText(displayName, "工具展示名称");
         this.description = requireText(description, "工具描述");
         this.executionMode = Objects.requireNonNullElse(executionMode, AgentToolExecutionMode.SIDE_EFFECT);
         this.maxCallsPerRound = maxCallsPerRound;
         this.maxCallsPerExecution = maxCallsPerExecution;
+        this.securityPolicy = Objects.requireNonNullElseGet(securityPolicy, ToolSecurityPolicy::defaults);
+        this.configurationHash = Objects.requireNonNullElse(configurationHash, "");
     }
 
     /** 返回单轮生效上限。 */

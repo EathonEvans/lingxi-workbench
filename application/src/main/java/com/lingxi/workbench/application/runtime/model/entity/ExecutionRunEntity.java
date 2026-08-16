@@ -4,10 +4,11 @@ import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
+import com.lingxi.workbench.application.runtime.common.enums.ExecutionRunStatus;
 
 import java.time.OffsetDateTime;
 
-/** 一次Plan-and-Execute运行的不可变版本与归属元数据。 */
+/** 一次 Application 顶级执行的版本、归属与可恢复状态。 */
 @Data
 @TableName("lingxi_core.ai_execution_run")
 public class ExecutionRunEntity {
@@ -23,6 +24,13 @@ public class ExecutionRunEntity {
     private Long orchestratorAgentVersionId;
     private Long plannerModelInstanceId;
     private Long plannerPromptVersionId;
+    private String capabilityCode;
+    private String executionMode;
+    private ExecutionRunStatus status;
+    private String currentStage;
+    private Integer revision;
+    private OffsetDateTime updatedAt;
+    private OffsetDateTime completedAt;
     @TableField(fill = FieldFill.INSERT)
     private OffsetDateTime createdAt;
 }

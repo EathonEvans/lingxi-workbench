@@ -8,6 +8,7 @@ import com.lingxi.workbench.admin.appmonitor.model.request.AppMonitorQuery;
 import com.lingxi.workbench.admin.appmonitor.model.vo.AppMonitorOverviewVO;
 import com.lingxi.workbench.admin.appmonitor.repo.AppMonitorRepo;
 import com.lingxi.workbench.admin.appmonitor.gateway.LangfuseTraceGateway;
+import com.lingxi.workbench.admin.appmonitor.gateway.ConversationOpsGateway;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.junit.jupiter.api.Test;
@@ -36,7 +37,8 @@ class AppMonitorServiceImplTest {
         when(monitorRepo.trend(isNull(), any(OffsetDateTime.class))).thenReturn(List.of());
         when(monitorRepo.issues(isNull(), any(OffsetDateTime.class))).thenReturn(List.of());
         AppMonitorServiceImpl service = new AppMonitorServiceImpl(
-                monitorRepo, applicationRepo, mock(LangfuseTraceGateway.class));
+                monitorRepo, applicationRepo, mock(LangfuseTraceGateway.class),
+                mock(ConversationOpsGateway.class));
 
         AppMonitorOverviewVO result = service.overview(new AppMonitorQuery());
 
@@ -61,7 +63,8 @@ class AppMonitorServiceImplTest {
         when(monitorRepo.trend(isNull(), any(OffsetDateTime.class))).thenReturn(List.of());
         when(monitorRepo.issues(isNull(), any(OffsetDateTime.class))).thenReturn(List.of());
         AppMonitorServiceImpl service = new AppMonitorServiceImpl(
-                monitorRepo, applicationRepo, mock(LangfuseTraceGateway.class));
+                monitorRepo, applicationRepo, mock(LangfuseTraceGateway.class),
+                mock(ConversationOpsGateway.class));
 
         AppMonitorOverviewVO result = service.overview(new AppMonitorQuery());
 
@@ -78,7 +81,8 @@ class AppMonitorServiceImplTest {
         AiApplicationRepo applicationRepo = mock(AiApplicationRepo.class);
         when(applicationRepo.findById(99L)).thenReturn(Optional.empty());
         AppMonitorServiceImpl service = new AppMonitorServiceImpl(
-                monitorRepo, applicationRepo, mock(LangfuseTraceGateway.class));
+                monitorRepo, applicationRepo, mock(LangfuseTraceGateway.class),
+                mock(ConversationOpsGateway.class));
         AppMonitorQuery query = new AppMonitorQuery();
         query.setApplicationId(99L);
 

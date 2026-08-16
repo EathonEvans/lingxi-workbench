@@ -289,7 +289,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
 
     /**
      * 没有任何完整步骤结果时不伪造答案，改为建立可恢复的用户澄清会话。
-     * <p>构造固定文案的 CLARIFY 决策（PLANNER_CLARIFICATION 类型），
+     * <p>构造固定文案的 CLARIFY 决策（CLARIFICATION 类型），
      * 先发布 FINALIZING 事件说明边界原因，再走统一澄清流程等待用户补充信息。</p>
      *
      * @param request    计划执行请求
@@ -304,7 +304,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
                 .clarification(PlannerClarification.builder()
                         .question(question)
                         .options(List.of())
-                        .interactionType(InteractionSessionType.PLANNER_CLARIFICATION)
+                        .interactionType(InteractionSessionType.CLARIFICATION)
                         .capabilityCodes(List.of())
                         .build())
                 .build();
@@ -334,7 +334,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
 
     /**
      * 将澄清决策落地为可恢复的用户交互会话并发布事件。
-     * <p>风险确认类澄清的选项固定为“确认执行/取消”，其余类型沿用 Planner 给出的选项；
+     * <p>沿用 Planner 给出的选项，通过统一交互会话等待用户补充信息；
      * 通过 {@link InteractionSessionService#open} 建立可恢复会话（记录应用快照、用户、运行、
      * 恢复能力与编排 Agent 信息），再发布 CLARIFICATION_REQUIRED 事件。</p>
      *
@@ -344,12 +344,9 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
      * @return 计划执行结果（内容为澄清问题，无模型实例与轨迹）
      */
     private PlanExecutionResult clarify(PlanExecutionRequest request, ExecutionDecision decision, int planNo) {
-        // 风险确认会话的选项固定为“确认执行/取消”，防止用户绕过确认直接执行写操作
-        boolean riskConfirmation = decision.getClarification().getInteractionType()
-                == InteractionSessionType.RISK_CONFIRMATION;
         PlannerClarification interactionClarification = PlannerClarification.builder()
                 .question(decision.getClarification().getQuestion())
-                .options(riskConfirmation ? List.of("确认执行", "取消") : decision.getClarification().options())
+                .options(decision.getClarification().options())
                 .interactionType(decision.getClarification().getInteractionType())
                 .capabilityCodes(decision.getClarification().capabilityCodes())
                 .build();

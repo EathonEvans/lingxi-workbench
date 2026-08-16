@@ -31,7 +31,9 @@ public enum HttpStatusEnum {
     /** 请求过于频繁，已被限流或锁定 */
     TOO_MANY_REQUESTS(429, "请求过于频繁"),
     /** 服务器内部错误 */
-    INTERNAL_SERVER_ERROR(500, "服务器内部错误");
+    INTERNAL_SERVER_ERROR(500, "服务器内部错误"),
+    /** 外部依赖或可选服务暂不可用 */
+    SERVICE_UNAVAILABLE(503, "服务暂不可用");
 
     /** 标准 HTTP 状态码。 */
     private final int code;

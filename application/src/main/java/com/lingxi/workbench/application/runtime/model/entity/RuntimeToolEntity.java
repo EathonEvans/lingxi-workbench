@@ -7,6 +7,7 @@ import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHand
 import com.lingxi.workbench.application.runtime.common.enums.RuntimeToolSourceType;
 import lombok.Data;
 import org.apache.ibatis.type.JdbcType;
+import com.lingxi.workbench.infra.ai.tool.common.enums.ToolRiskLevel;
 
 /**
  * Tool 运行端只读定义。
@@ -34,6 +35,14 @@ public class RuntimeToolEntity {
 
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private JSONObject parameterSchema;
+
+    private ToolRiskLevel riskLevel;
+
+    private Boolean approvalRequired;
+
+    private Integer approvalTtlSeconds;
+
+    private String resourceScope;
 
     private String status;
 }

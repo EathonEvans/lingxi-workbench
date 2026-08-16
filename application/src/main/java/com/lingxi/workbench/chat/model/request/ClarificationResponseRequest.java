@@ -29,7 +29,7 @@ public class ClarificationResponseRequest {
     /**
      * 可选的澄清来源；缺省时保持旧意图澄清兼容行为。
      */
-    @Pattern(regexp = "^(PLANNER_CLARIFICATION|RISK_CONFIRMATION)$",
+    @Pattern(regexp = "^CLARIFICATION$",
             message = "澄清来源格式不正确")
     private String interactionType;
 

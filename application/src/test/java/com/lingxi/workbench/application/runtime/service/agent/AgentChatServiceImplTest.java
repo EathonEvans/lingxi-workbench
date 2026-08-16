@@ -242,7 +242,7 @@ class AgentChatServiceImplTest {
     }
 
     @Test
-    void shouldClampModelTimeoutToApplicationRemainingDeadline() {
+    void shouldClampModelTimeoutToApplicationDeadlineIncludingActiveOutputGrace() {
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
         AgentChatServiceImpl service = service(
                 definition(),
@@ -267,7 +267,7 @@ class AgentChatServiceImplTest {
 
         service.chat(10L, 20L, "如何退款", execution);
 
-        assertEquals(30, captured.get().modelConfig().getTimeoutSeconds());
+        assertEquals(33, captured.get().modelConfig().getTimeoutSeconds());
     }
 
     @Test
@@ -287,7 +287,8 @@ class AgentChatServiceImplTest {
                     return Flux.just(new ChatStreamChunk("知识回答"));
                 },
                 toolCodes -> List.of(),
-                toolFactory);
+                toolFactory,
+                mock(com.lingxi.workbench.application.runtime.service.interaction.ToolApprovalGateFactory.class));
         RuntimeVariables variables = runtimeVariables("退款条件");
         ChatExecutionContext execution = ChatExecutionContext.builder()
                 .executionId("run-react-knowledge")
@@ -311,7 +312,8 @@ class AgentChatServiceImplTest {
                 modelRuntimeConfigService,
                 streamingChatGateway,
                 toolRuntimeService,
-                mock(KnowledgeSearchAgentToolFactory.class));
+                mock(KnowledgeSearchAgentToolFactory.class),
+                mock(com.lingxi.workbench.application.runtime.service.interaction.ToolApprovalGateFactory.class));
     }
 
     private static ModelRuntimeConfigService modelService() {

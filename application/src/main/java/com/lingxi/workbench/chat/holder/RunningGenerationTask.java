@@ -5,6 +5,7 @@ import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionE
 import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
+import com.lingxi.workbench.chat.model.bo.ChatInteractionEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.bo.ChatStepOutputEventBO;
@@ -12,6 +13,7 @@ import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
+import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
 import com.lingxi.workbench.observability.service.AiTraceRun;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
@@ -78,16 +80,25 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
      * 最近一个携带真实 Usage 的模型分片返回的 Token 用量。
      */
     private TokenUsage tokenUsage = TokenUsage.empty();
+    /** 是否已经产生可向用户保留的文本、步骤结果或成功工具证据。 */
+    private boolean usefulProgress;
 
     @Builder
     private RunningGenerationTask(ChatTurnBO turn, Long userId, Long applicationVersionId, MemoryConfig memoryConfig,
-                                  ChatGenerationEventRepo eventRepo, AiTraceRun traceRun) {
+                                  ChatGenerationEventRepo eventRepo, AiTraceRun traceRun, String initialAnswer,
+                                  TokenUsage initialUsage, Long initialSequence) {
         this.turn = Objects.requireNonNull(turn, "对话轮次不能为空");
         this.userId = userId;
         this.applicationVersionId = Objects.requireNonNull(applicationVersionId, "ApplicationVersion不能为空");
         this.memoryConfig = Objects.requireNonNullElseGet(memoryConfig, MemoryConfig::disabled);
         this.eventRepo = eventRepo;
         this.traceRun = Objects.requireNonNull(traceRun, "Agent根Trace不能为空");
+        if (CharSequenceUtil.isNotEmpty(initialAnswer)) {
+            answer.append(initialAnswer);
+            usefulProgress = true;
+        }
+        tokenUsage = Objects.requireNonNullElseGet(initialUsage, TokenUsage::empty);
+        sequence = Objects.requireNonNullElse(initialSequence, 0L);
     }
 
     public Long id() {
@@ -131,6 +142,7 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
             return;
         }
         answer.append(chunk.content());
+        usefulProgress = true;
         ChatGenerationEventBO event = ChatGenerationEventBO.chunk(++sequence, chunk.content());
         eventRepo.append(id(), event);
         eventSink.emitNext(event, Sinks.EmitFailureHandler.FAIL_FAST);
@@ -153,6 +165,9 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
             return;
         }
         ChatGenerationEventBO generationEvent = ChatGenerationEventBO.tool(++sequence, event);
+        if (event.getStatus() == AgentToolExecutionStatus.SUCCEEDED) {
+            usefulProgress = true;
+        }
         eventRepo.append(id(), generationEvent);
         eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
     }
@@ -179,6 +194,39 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
         eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
     }
 
+    /** 发布持久化 HITL 等待事件；事件不包含原始 Tool 参数。 */
+    @Override
+    public synchronized void publishInteractionRequired(ChatInteractionEventBO event) {
+        if (terminal) {
+            return;
+        }
+        ChatGenerationEventBO generationEvent = ChatGenerationEventBO.interaction(
+                ++sequence, ChatGenerationEventType.INTERACTION_REQUIRED, event);
+        eventRepo.append(id(), generationEvent);
+        eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
+    }
+
+    /** 发布人工决策已完成事件，随后同一运行继续输出进度。 */
+    public synchronized void publishInteractionResolved(ChatInteractionEventBO event) {
+        if (terminal) {
+            return;
+        }
+        ChatGenerationEventBO generationEvent = ChatGenerationEventBO.interaction(
+                ++sequence, ChatGenerationEventType.INTERACTION_RESOLVED, event);
+        eventRepo.append(id(), generationEvent);
+        eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
+    }
+
+    /** 结束当前观察流但不把 Assistant 推进为业务终态，恢复任务将继续使用同一消息。 */
+    public synchronized boolean pauseForHuman() {
+        if (terminal) {
+            return false;
+        }
+        terminal = true;
+        eventSink.emitComplete(Sinks.EmitFailureHandler.FAIL_FAST);
+        return true;
+    }
+
     @Override
     public synchronized void publishExecution(ChatExecutionTimelineEventBO event) {
         if (terminal) {
@@ -202,6 +250,7 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
             return;
         }
         ChatGenerationEventBO generationEvent = ChatGenerationEventBO.stepOutput(++sequence, event);
+        usefulProgress = true;
         eventRepo.append(id(), generationEvent);
         eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
     }
@@ -263,6 +312,11 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
      */
     public synchronized TokenUsage tokenUsage() {
         return tokenUsage;
+    }
+
+    /** 硬截止后只有存在真实文本或可信执行结果时才允许降级完成。 */
+    public synchronized boolean hasUsefulProgress() {
+        return usefulProgress;
     }
 
     /**

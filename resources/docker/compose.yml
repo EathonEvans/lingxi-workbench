@@ -95,6 +95,21 @@ services:
       - lingxi-rmq-broker-data:/home/rocketmq/store
       - lingxi-rmq-broker-logs:/home/rocketmq/logs
 
+  rocketmq-topic-init:
+    image: apache/rocketmq:5.3.1
+    entrypoint: sh
+    command:
+      - -c
+      - >-
+        sh mqadmin updateTopic
+        -n rocketmq-namesrv:9876
+        -c DefaultCluster
+        -t lingxi-conversation-event-tx
+        -a +message.type=TRANSACTION
+    depends_on:
+      rocketmq-broker:
+        condition: service_healthy
+
 volumes:
   lingxi-postgres:
   lingxi-minio:

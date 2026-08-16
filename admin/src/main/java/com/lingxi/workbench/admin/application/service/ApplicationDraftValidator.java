@@ -302,7 +302,13 @@ public class ApplicationDraftValidator {
         validateRange(policy.getMaxDelegations(), 0, 10, "RUNTIME_DELEGATIONS_INVALID", "definition.runtimePolicy.maxDelegations", "委派次数", issues);
         validateRange(policy.getTotalTokenBudget(), 1024, 1000000, "RUNTIME_TOKEN_BUDGET_INVALID", "definition.runtimePolicy.totalTokenBudget", "总Token预算", issues);
         validateRange(policy.effectiveTokenGracePercent(), 0, 30, "RUNTIME_TOKEN_GRACE_INVALID", "definition.runtimePolicy.tokenGracePercent", "Token收口缓冲比例", issues);
-        validateRange(policy.getTimeoutSeconds(), 1, 3600, "RUNTIME_TIMEOUT_INVALID", "definition.runtimePolicy.timeoutSeconds", "总超时时间", issues);
+        validateRange(policy.getTimeoutSeconds(), 30, 3600, "RUNTIME_TIMEOUT_INVALID", "definition.runtimePolicy.timeoutSeconds", "总超时时间", issues);
+        validateRange(policy.effectiveFinalizationReserveSeconds(), 5, 300, "RUNTIME_FINALIZATION_RESERVE_INVALID", "definition.runtimePolicy.finalizationReserveSeconds", "收口预留时间", issues);
+        validateRange(policy.effectiveTimeoutGracePercent(), 0, 30, "RUNTIME_TIMEOUT_GRACE_INVALID", "definition.runtimePolicy.timeoutGracePercent", "流式超时宽限比例", issues);
+        if (policy.effectiveFinalizationReserveSeconds() >= policy.getTimeoutSeconds()) {
+            issues.add(issue("RUNTIME_FINALIZATION_RESERVE_EXCEEDS_TIMEOUT", "definition.runtimePolicy.finalizationReserveSeconds",
+                    "收口预留时间必须小于Application总超时"));
+        }
         return ApplicationRuntimePolicy.builder()
                 .maxModelCalls(policy.getMaxModelCalls())
                 .maxToolCalls(policy.getMaxToolCalls())
@@ -310,6 +316,8 @@ public class ApplicationDraftValidator {
                 .totalTokenBudget(policy.getTotalTokenBudget())
                 .tokenGracePercent(policy.effectiveTokenGracePercent())
                 .timeoutSeconds(policy.getTimeoutSeconds())
+                .finalizationReserveSeconds(policy.effectiveFinalizationReserveSeconds())
+                .timeoutGracePercent(policy.effectiveTimeoutGracePercent())
                 .build();
     }
 

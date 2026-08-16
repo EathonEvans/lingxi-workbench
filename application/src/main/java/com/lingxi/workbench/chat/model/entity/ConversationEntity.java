@@ -17,6 +17,8 @@ public class ConversationEntity extends TimeEntity {
     private Long id;
     /** 所属用户主键。 */
     private Long userId;
+    /** 前端首次发送生成的会话幂等标识。 */
+    private String clientConversationId;
     /** 会话标题。 */
     private String title;
     /** 会话状态：ACTIVE / ARCHIVED。 */

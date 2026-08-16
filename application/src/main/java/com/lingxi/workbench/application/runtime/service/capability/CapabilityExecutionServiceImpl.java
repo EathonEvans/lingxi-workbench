@@ -73,6 +73,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
      * 执行一个能力请求，能力目录的统一入口。
      * <p>先校验请求完整性，再以 Micrometer Observation 观测包裹执行过程，
      * 观测维度包含能力类型与能力编码，便于链路追踪与指标聚合。
+     *
      * @param request 能力执行请求（能力定义、执行上下文与输入）
      * @return 能力执行结果（回答内容、模型实例ID与追踪信息）
      */
@@ -91,6 +92,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
      * 按能力类型分发执行，并统一做超时与结果 Token 预算控制。
      * <p>AGENT/WORKFLOW 由 executeWithinTimeout 包裹超时执行，TOOL 在 executeTool
      * 内部自行控制超时并发布生命周期事件；执行结果须满足发布快照的 Token 预算。
+     *
      * @param request 能力执行请求
      * @return 能力执行结果
      */
@@ -100,7 +102,8 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
 
         // 按能力类型分发：AGENT/WORKFLOW 包一层超时控制，TOOL 自带超时与事件发布
         CapabilityExecutionResult result = switch (request.getCapability().getType()) {
-            case AGENT -> executeWithinTimeout(request, timeout, () -> executeAgent(request));
+            // Agent内部按Application动态硬截止处理活跃流式宽限，外层固定timeout会提前取消仍在输出的回答。
+            case AGENT -> executeAgent(request);
             case WORKFLOW -> executeWithinTimeout(request, timeout, () -> executeWorkflow(request));
             case TOOL -> executeTool(request, timeout);
         };
@@ -115,6 +118,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
      * 在独立线程上执行能力并施加超时限制。
      * <p>切换到 boundedElastic 调度器执行以避免阻塞调用线程，超时异常统一映射为
      * “能力执行超时”业务异常；执行时透传当前观测，保持链路追踪上下文。
+     *
      * @param request   能力执行请求（超时信息取自能力定义）
      * @param timeout   允许的最大执行时长
      * @param execution 实际执行逻辑
@@ -134,6 +138,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
      * 在父观测作用域内执行能力调用，保持观测链路的父子关系。
      * <p>父观测为空时直接执行；否则打开父观测作用域再执行，
      * 使线程切换后的观测依然挂载在正确的链路上。
+     *
      * @param execution 实际执行逻辑
      * @param parent    父观测，可能为空
      * @return 能力执行结果
@@ -153,6 +158,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
      * <p>前置校验锁定版本存在、预解析 Agent 与能力锁定目标一致、checksum 与发布快照一致；
      * 主Agent仅允许作为 Application fallback 入口执行，领域专家可由快速路由或计划步骤调用；
      * 最终按 Agent 角色从执行器注册表取对应执行器执行。
+     *
      * @param request 能力执行请求
      * @return 能力执行结果
      */
@@ -197,6 +203,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
      * <p>按锁定目标加载 Workflow 版本快照并校验 checksum；将能力 query 输入包装为
      * 工作流请求执行；结果必须输出非空 response；并从首个 Agent 节点解析模型实例ID
      * 用于结果归因。
+     *
      * @param request 能力执行请求
      * @return 能力执行结果
      */
@@ -230,6 +237,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
      * <p>加载启用中的 Tool 定义并校验 checksum；预留一次工具调用配额后生成调用标识，
      * 通过事件发布器对外发布 RUNNING/SUCCEEDED/FAILED 生命周期事件；调用本身在独立
      * 线程上执行并受超时限制，结果必须非空。
+     *
      * @param request 能力执行请求
      * @param timeout 允许的最大执行时长
      * @return 能力执行结果
@@ -276,6 +284,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
      * 在父观测作用域内执行工具回调。
      * <p>父观测为空时直接调用；否则打开父观测作用域，保证工具调用产生的
      * 观测事件挂载在正确的链路上。输入参数序列化为 JSON 字符串传入回调。
+     *
      * @param tool   工具定义与回调
      * @param inputs 工具入参
      * @param parent 父观测，可能为空
@@ -294,6 +303,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
      * 组装 Tool 的配置快照，用于与 Application 发布快照做 checksum 比对。
      * <p>仅取影响行为的配置字段（编码、来源类型、MCP 服务、远端工具名与参数Schema），
      * 任一字段变化都会导致 checksum 不一致。
+     *
      * @param tool 工具实体
      * @return 配置快照 JSON
      */
@@ -311,6 +321,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
      * 向执行上下文的事件发布器发布工具执行状态事件。
      * <p>只透出安全的元信息（调用标识、工具编码、显示名、状态、耗时与错误码），
      * 不包含调用参数与原始结果。
+     *
      * @param context 执行上下文
      * @param tool    工具定义
      * @param event   待发布的工具事件状态
@@ -329,6 +340,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
     /**
      * 从能力输入中提取必填的 query 字段。
      * <p>Agent/Workflow 能力依赖文本 query 输入，缺失或空白直接拒绝，返回去除首尾空白后的值。
+     *
      * @param inputs 能力输入
      * @return 非空的 query 文本
      */
@@ -343,6 +355,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
     /**
      * 从工作流输出中解析 response 字段作为能力回答。
      * <p>仅接受非空的 String 类型 response，否则返回空 Optional 由调用方拒绝。
+     *
      * @param result 工作流执行结果
      * @return 非空回答，缺失时为空
      */
@@ -355,6 +368,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
      * 校验能力执行请求的完整性与运行预算。
      * <p>请求、能力定义、类型、锁定目标、输入与上下文缺一不可；
      * 超时秒数与结果 Token 预算必须为正数，防止无预算执行。
+     *
      * @param request 能力执行请求
      */
     private static void requireRequest(CapabilityExecutionRequest request) {
@@ -372,6 +386,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
     /**
      * 校验能力已锁定目标版本。
      * <p>未锁定版本的能力无法解析运行时快照，直接拒绝执行。
+     *
      * @param capability 应用能力定义
      */
     private static void requireLockedVersion(ApplicationCapabilityDefinition capability) {
@@ -383,6 +398,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
     /**
      * 校验能力当前配置与 Application 发布快照的 checksum 一致。
      * <p>运行期配置一旦与发布时不一致（被修改或漂移），视为快照失效并拒绝执行。
+     *
      * @param capability     应用能力定义
      * @param actualChecksum 运行时计算出的实际 checksum
      */
@@ -394,6 +410,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
 
     /**
      * 将纳秒起始时刻换算为经过的毫秒数。
+     *
      * @param startedAt 起始时刻（纳秒）
      * @return 经过的毫秒数
      */
@@ -404,6 +421,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
     /**
      * 构造能力执行失败的统一业务异常（409 冲突语义）。
      * <p>能力校验类失败统一使用该异常，便于上层统一捕获与错误归类。
+     *
      * @param message 失败原因描述
      * @return 业务异常
      */

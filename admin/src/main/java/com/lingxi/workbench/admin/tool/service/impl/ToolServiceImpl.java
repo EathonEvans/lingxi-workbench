@@ -18,6 +18,7 @@ import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageResult;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.infra.ai.tool.common.enums.ToolRiskLevel;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -87,6 +88,10 @@ public class ToolServiceImpl implements ToolService {
                 .mcpServerId(entity.getMcpServerId())
                 .remoteToolName(entity.getRemoteToolName())
                 .parameterSchema(entity.getParameterSchema())
+                .riskLevel(entity.getRiskLevel())
+                .approvalRequired(entity.getApprovalRequired())
+                .approvalTtlSeconds(entity.getApprovalTtlSeconds())
+                .resourceScope(entity.getResourceScope())
                 .status(entity.getStatus())
                 .build());
     }
@@ -110,6 +115,8 @@ public class ToolServiceImpl implements ToolService {
         entity.setDescription(request.getDescription().trim());
         entity.setSourceType(request.getSourceType());
         entity.setParameterSchema(parameterSchemaFactory.build(request.getParameters()));
+        applySecurityPolicy(entity, request.getRiskLevel(), request.getApprovalRequired(),
+                request.getApprovalTtlSeconds(), request.getResourceScope());
         entity.setStatus(request.getStatus());
         entity.setCreatedBy(operatorId);
         entity.setUpdatedBy(operatorId);
@@ -140,6 +147,7 @@ public class ToolServiceImpl implements ToolService {
         entity.setMcpServerId(source.getMcpServerId());
         entity.setRemoteToolName(source.getRemoteToolName());
         entity.setParameterSchema(source.getParameterSchema());
+        applySecurityPolicy(entity, ToolRiskLevel.LOW, false, 1800, "当前会话授权范围");
         entity.setStatus(EnableStatus.DISABLED);
         entity.setCreatedBy(operatorId);
         entity.setUpdatedBy(operatorId);
@@ -163,6 +171,8 @@ public class ToolServiceImpl implements ToolService {
         if (entity.getSourceType() == ToolSourceType.LOCAL_FUNCTION) {
             entity.setParameterSchema(parameterSchemaFactory.build(request.getParameters()));
         }
+        applySecurityPolicy(entity, request.getRiskLevel(), request.getApprovalRequired(),
+                request.getApprovalTtlSeconds(), request.getResourceScope());
         entity.setUpdatedBy(operatorId);
         toolRepo.save(entity);
         auditService.record("TOOL", "DEFINITION", id, operatorId, "TOOL_UPDATE", "Tool=" + entity.getCode());
@@ -187,5 +197,17 @@ public class ToolServiceImpl implements ToolService {
 
     private ToolEntity requireTool(Long id) {
         return toolRepo.findById(id).orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "Tool 不存在"));
+    }
+
+    private static void applySecurityPolicy(ToolEntity entity, ToolRiskLevel riskLevel, Boolean approvalRequired,
+                                            Integer approvalTtlSeconds, String resourceScope) {
+        if ((riskLevel == ToolRiskLevel.HIGH || riskLevel == ToolRiskLevel.CRITICAL)
+                && !Boolean.TRUE.equals(approvalRequired)) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "高风险和关键操作必须启用人工批准");
+        }
+        entity.setRiskLevel(riskLevel);
+        entity.setApprovalRequired(approvalRequired);
+        entity.setApprovalTtlSeconds(approvalTtlSeconds);
+        entity.setResourceScope(resourceScope.trim());
     }
 }

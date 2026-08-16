@@ -150,13 +150,15 @@ public final class AgentLoopState {
 
     /** 判断下一轮是否必须禁用工具并收敛为最终回答。 */
     public boolean shouldFinalize() {
-        return finalResponseRequested || completedModelCalls >= runtimeConfig.getMaxModelCalls() - 1
+        return finalResponseRequested || runtimeConfig.getExecutionBudget().shouldFinalize()
+                || completedModelCalls >= runtimeConfig.getMaxModelCalls() - 1
                 || hasReached(tokenUsage.snapshot().totalTokens(), runtimeConfig.getMaxTotalTokens());
     }
 
     /** Token软上限命中后不再执行模型刚请求的新工具，避免继续扩大上下文。 */
     public boolean shouldFinalizeBeforeToolExecution() {
-        return hasReached(tokenUsage.snapshot().totalTokens(), runtimeConfig.getMaxTotalTokens());
+        return runtimeConfig.getExecutionBudget().shouldFinalize()
+                || hasReached(tokenUsage.snapshot().totalTokens(), runtimeConfig.getMaxTotalTokens());
     }
 
     /** 返回本次 Agent 已完成的模型调用次数。 */

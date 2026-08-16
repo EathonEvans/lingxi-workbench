@@ -11,6 +11,9 @@ import com.lingxi.workbench.application.runtime.model.CapabilityExecutionRequest
 import com.lingxi.workbench.application.runtime.model.CapabilityExecutionResult;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.model.FallbackTarget;
+import com.lingxi.workbench.application.runtime.model.ExecutionResumeContext;
+import com.lingxi.workbench.application.runtime.model.ExecutionRunStartCommand;
+import com.lingxi.workbench.application.runtime.model.HitlApprovalRef;
 import com.lingxi.workbench.application.runtime.model.InteractionResolution;
 import com.lingxi.workbench.application.runtime.model.InteractionResumeTarget;
 import com.lingxi.workbench.application.runtime.model.IntentRoutingEvidence;
@@ -18,6 +21,7 @@ import com.lingxi.workbench.application.runtime.model.IntentRoutingResult;
 import com.lingxi.workbench.application.runtime.service.agent.AgentRuntimeService;
 import com.lingxi.workbench.application.runtime.service.capability.CapabilityExecutionService;
 import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionContextRegistry;
+import com.lingxi.workbench.application.runtime.service.execution.ExecutionPersistenceService;
 import com.lingxi.workbench.application.runtime.service.routing.IntentRoutingService;
 import com.lingxi.workbench.application.runtime.service.interaction.InteractionSessionService;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
@@ -30,6 +34,8 @@ import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
+import com.lingxi.workbench.infra.ai.tool.HumanInteractionRequiredException;
+import com.lingxi.workbench.application.runtime.common.enums.ExecutionRunStatus;
 import com.lingxi.workbench.observability.common.enums.AiObservationStage;
 import com.lingxi.workbench.observability.service.AiStageObserver;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
@@ -108,6 +114,8 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
      * 将主流程稳定阶段写入 OpenTelemetry，内部模型 span 自动继承当前阶段。
      */
     private final AiStageObserver aiStageObserver;
+    /** 所有执行模式共用的顶级运行状态。 */
+    private final ExecutionPersistenceService executionPersistenceService;
 
     /**
      * 先准备共享上下文，再尝试可选快速路由，其他请求统一交给 fallback Agent。
@@ -133,9 +141,10 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                         .build()));
 
         // ③ 平台恢复上一轮澄清或确认，锁定回到原 capability 与 AgentVersion。
-        Optional<InteractionResolution> interaction = interactionSessionService.resolve(
-                snapshot, request.getTurn(), request.getLoginUser().id(),
-                preparedContext.getOriginalQuery(), request.getClarificationResponse());
+        Optional<InteractionResolution> interaction = request.getResumeContext() == null
+                ? interactionSessionService.resolve(snapshot, request.getTurn(), request.getLoginUser().id(),
+                        preparedContext.getOriginalQuery(), request.getClarificationResponse())
+                : Optional.empty();
 
         // 澄清会话内容补充，无需澄清则无需对原始问题进行补充
         ConversationContext context = interaction
@@ -144,17 +153,32 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
 
         // ④ 恢复请求跳过 fresh route；其他请求按 Application 配置执行可选快速路由。
         IntentRoutingResult routing = aiStageObserver.observe(AiObservationStage.INTENT_ROUTE,  ApplicationChatExecutionServiceImpl::recordRoutingEvidence,
-                () -> fastRoute(request, context, interaction.isPresent()));
+                () -> fastRoute(request, context,
+                        interaction.isPresent() || request.getResumeContext() != null));
 
         // ⑤ 调度合并和目标执行统一归入EXECUTION阶段，固定回复与澄清也保留完整链路。
         return aiStageObserver.observe(AiObservationStage.EXECUTION, () -> {
-            ChatDispatch dispatch = this.dispatch(snapshot, context, interaction, routing);
+            ChatDispatch dispatch = request.getResumeContext() == null
+                    ? this.dispatch(snapshot, context, interaction, routing)
+                    : resolveHitlDispatch(snapshot, context.routingQuery(), request.getResumeContext());
             return switch (dispatch) {
                 case ChatDispatch.Fixed fixed -> directResult(fixed.response(), context);
                 case ChatDispatch.Clarify clarify -> clarificationResult(request, clarify, context);
                 case ChatDispatch.Executable executable -> executeExecutable(request, context, executable, startedAt);
             };
         });
+    }
+
+    /** HITL 恢复必须回到检查点锁定的 AgentVersion，不重新经过快速路由。 */
+    private ChatDispatch.Executable resolveHitlDispatch(AppRuntimeSnapshot snapshot, String query,
+                                                        ExecutionResumeContext resume) {
+        ApplicationCapabilityDefinition capability = resolveCapability(
+                snapshot, resume.getCapabilityCode(), ApplicationCapabilityType.AGENT);
+        if (!Objects.equals(capability.getTargetId(), resume.getAgentId())
+                || !Objects.equals(capability.getTargetVersionId(), resume.getAgentVersionId())) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "HITL恢复目标与ApplicationVersion不一致");
+        }
+        return capabilityDispatch(query, capability, null, Set.of());
     }
 
     /**
@@ -254,8 +278,24 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
     private ApplicationChatResult executeExecutable(ApplicationChatExecutionRequest request, ConversationContext conversationContext, ChatDispatch.Executable dispatch, Instant startedAt) {
         AppRuntimeSnapshot snapshot = request.getApplication();
 
-        // ① 所有能力路径统一创建 executionId；主Agent规划链直接将它作为 runId。
-        String executionId = IdUtil.getSnowflakeNextIdStr();
+        // ① 正常执行创建新 runId；HITL 恢复继续使用检查点锁定的原 runId。
+        ExecutionResumeContext resume = request.getResumeContext();
+        String executionId = resume == null ? IdUtil.getSnowflakeNextIdStr() : resume.getRunId();
+        ChatDispatch.Capability capabilityDispatch = (ChatDispatch.Capability) dispatch;
+        if (resume == null) {
+            executionPersistenceService.startRun(ExecutionRunStartCommand.builder()
+                    .application(snapshot)
+                    .turn(request.getTurn())
+                    .userId(request.getLoginUser().id())
+                    .runId(executionId)
+                    .orchestratorAgent(capabilityDispatch.hints().agent())
+                    .capabilityCode(capabilityDispatch.capability().getCode())
+                    .executionMode(executionMode(dispatch))
+                    .build());
+        } else {
+            executionPersistenceService.changeRunStatus(
+                    executionId, ExecutionRunStatus.RESUMING, ExecutionRunStatus.RUNNING, "EXECUTION");
+        }
 
         // ② 基于最终执行问题派生运行时变量，并构建本轮唯一的可写执行上下文
         ChatExecutionContext executionContext = createExecutionContext(
@@ -274,8 +314,14 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
             log.info("Application目标执行完成，applicationCode={}，versionId={}，executionId={}，targetType={}，traceCount={}，durationMs={}",
                     snapshot.applicationCode(), snapshot.versionId(), executionId, targetType(dispatch),
                     result.traces().size(), Duration.between(startedAt, Instant.now()).toMillis());
+            executionPersistenceService.changeRunStatus(
+                    executionId, ExecutionRunStatus.RUNNING, ExecutionRunStatus.SUCCEEDED, "TERMINAL");
             return result;
         } catch (RuntimeException exception) {
+            if (!hasCause(exception, HumanInteractionRequiredException.class)) {
+                executionPersistenceService.changeRunStatus(
+                        executionId, ExecutionRunStatus.RUNNING, ExecutionRunStatus.FAILED, "TERMINAL");
+            }
             if (!hasInterruptedCause(exception)) {
                 log.warn("Application目标执行失败，applicationCode={}，versionId={}，executionId={}，durationMs={}",
                         snapshot.applicationCode(), snapshot.versionId(), executionId,
@@ -317,6 +363,8 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                 .tokenUsageAccumulator(initialUsage(conversationContext.getPreparationTokenUsage()))
                 .modelCallCounter(new AtomicInteger(conversationContext.getPreparationModelCalls()))
                 .delegationCounter(new AtomicInteger())
+                .approvalRef(request.getResumeContext() == null ? null : new HitlApprovalRef(
+                        request.getResumeContext().getInteractionId(), request.getResumeContext().getFingerprint()))
                 .build();
     }
 
@@ -536,6 +584,17 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                 request.getTurn(), request.getEventPublisher()
         };
         Assert.noNullElements(requiredFields, invalidRequest);
+    }
+
+    private static boolean hasCause(Throwable exception, Class<? extends Throwable> type) {
+        Throwable current = exception;
+        while (current != null) {
+            if (type.isInstance(current)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
 }

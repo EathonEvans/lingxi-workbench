@@ -29,14 +29,6 @@ public class ConversationController {
     private final ConversationService service;
 
     /**
-     * 创建新会话。
-     */
-    @PostMapping("/create")
-    public ApiResponse<ConversationVO> create() {
-        return ApiResponse.success(service.create(UserContext.userId()));
-    }
-
-    /**
      * 分页查询当前用户的会话。
      */
     @GetMapping("/list")

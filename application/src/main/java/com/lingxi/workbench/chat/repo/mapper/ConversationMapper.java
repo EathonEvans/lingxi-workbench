@@ -3,6 +3,8 @@ package com.lingxi.workbench.chat.repo.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.lingxi.workbench.chat.model.entity.ConversationEntity;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
@@ -21,4 +23,29 @@ public interface ConversationMapper extends BaseMapper<ConversationEntity> {
             """)
     ConversationEntity selectOwnedForUpdate(
             @Param("id") Long id, @Param("userId") Long userId);
+
+    /** 按客户端会话标识锁定用户所属会话。 */
+    @Select("""
+            SELECT *
+            FROM lingxi_core.ai_conversation
+            WHERE user_id = #{userId}
+              AND client_conversation_id = #{clientConversationId}
+              AND deleted_at IS NULL
+            FOR UPDATE
+            """)
+    ConversationEntity selectOwnedByClientIdForUpdate(@Param("userId") Long userId,
+                                                       @Param("clientConversationId") String clientConversationId);
+
+    /** 幂等创建首次发送对应的会话；并发冲突时由调用方重新锁定既有记录。 */
+    @Insert("""
+            INSERT INTO lingxi_core.ai_conversation
+                (user_id, client_conversation_id, title, status, message_count)
+            VALUES
+                (#{userId}, #{clientConversationId}, #{title}, #{status}, #{messageCount})
+            ON CONFLICT (user_id, client_conversation_id)
+                WHERE client_conversation_id IS NOT NULL
+            DO NOTHING
+            """)
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertIfAbsent(ConversationEntity entity);
 }

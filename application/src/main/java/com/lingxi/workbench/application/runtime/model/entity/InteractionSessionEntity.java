@@ -13,7 +13,7 @@ import org.apache.ibatis.type.JdbcType;
 
 import java.time.OffsetDateTime;
 
-/** Planner澄清和风险确认使用的通用跨消息会话。 */
+/** Planner 澄清与 HITL 决策使用的通用跨消息会话。 */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "lingxi_core.ai_interaction_session", autoResultMap = true)
@@ -23,13 +23,21 @@ public class InteractionSessionEntity extends TimeEntity {
     private Long conversationId;
     private Long userId;
     private Long applicationVersionId;
+    private Long assistantMessageId;
     private String runId;
+    private Long checkpointId;
     private String resumeCapabilityCode;
     private Long orchestratorAgentId;
     private Long orchestratorAgentVersionId;
     private InteractionSessionType interactionType;
     private InteractionSessionStatus status;
     private Integer roundNo;
+    private Integer revision;
+    private String approvalFingerprint;
+    private String decision;
+    private Long decidedBy;
+    private OffsetDateTime decidedAt;
+    private String idempotencyKey;
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private InteractionSessionContext context;
     private OffsetDateTime expiresAt;

@@ -2,6 +2,7 @@ package com.lingxi.workbench.infra.ai.tool.model;
 
 import com.lingxi.workbench.infra.ai.agent.AgentProgressPublisher;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
+import com.lingxi.workbench.infra.ai.tool.AgentToolApprovalGate;
 import com.lingxi.workbench.infra.ai.tool.AgentToolEventPublisher;
 import lombok.Builder;
 import lombok.Getter;
@@ -61,9 +62,11 @@ public class AgentToolRuntimeConfig {
     private final AgentProgressPublisher progressPublisher;
     /** 跨Planner、Workflow和成员Agent共享的Application调用预算。 */
     private final AgentExecutionBudget executionBudget;
+    /** 工具执行前的 HITL 审批门禁。 */
+    private final AgentToolApprovalGate approvalGate;
 
     @Builder
-    private AgentToolRuntimeConfig(List<AgentTool> tools, AgentToolExecutionContext executionContext, int maxToolCalls, int maxModelCalls, int maxInputTokens, int maxOutputTokens, int maxTotalTokens, int maxFinalizationTokens, int maxResultCharacters, AgentToolEventPublisher eventPublisher, AgentProgressPublisher progressPublisher, AgentExecutionBudget executionBudget) {
+    private AgentToolRuntimeConfig(List<AgentTool> tools, AgentToolExecutionContext executionContext, int maxToolCalls, int maxModelCalls, int maxInputTokens, int maxOutputTokens, int maxTotalTokens, int maxFinalizationTokens, int maxResultCharacters, AgentToolEventPublisher eventPublisher, AgentProgressPublisher progressPublisher, AgentExecutionBudget executionBudget, AgentToolApprovalGate approvalGate) {
         this.tools = List.copyOf(Objects.requireNonNull(tools, "运行时工具列表不能为空"));
         this.executionContext = Objects.requireNonNull(executionContext, "工具执行上下文不能为空");
         this.maxToolCalls = maxToolCalls;
@@ -76,6 +79,7 @@ public class AgentToolRuntimeConfig {
         this.eventPublisher = eventPublisher;
         this.progressPublisher = progressPublisher;
         this.executionBudget = Objects.requireNonNullElseGet(executionBudget, AgentExecutionBudget::noop);
+        this.approvalGate = Objects.requireNonNullElseGet(approvalGate, AgentToolApprovalGate::noop);
     }
 
     /**

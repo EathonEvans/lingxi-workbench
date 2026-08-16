@@ -68,8 +68,8 @@ public class PlannerServiceImpl implements PlannerService {
             EXECUTE_PLAN必须返回plan：{title,steps}，每个step必须包含id、name、capabilityCode、dependsOn。
             计划步骤只能选择能力目录中的领域专家，禁止返回inputs，平台会自动注入当前问题和已声明依赖的步骤结果。
             计划默认串行，禁止构造并行分支。
-            信息不足时返回CLARIFY及clarification：{question,options,interactionType:"PLANNER_CLARIFICATION",capabilityCodes:[]}。
-            写入或高风险能力尚未确认时，interactionType必须是RISK_CONFIRMATION，capabilityCodes列出待确认能力编码。
+            信息不足时返回CLARIFY及clarification：{question,options,interactionType:"CLARIFICATION",capabilityCodes:[]}。
+            工具级风险确认由平台在实际调用前完成，Planner不得请求风险确认。
             """;
     private static final String REPAIR_INSTRUCTION = """
 
@@ -212,7 +212,7 @@ public class PlannerServiceImpl implements PlannerService {
                 .clarification(PlannerClarification.builder()
                         .question("我暂时无法可靠判断下一步，请补充希望完成的具体目标。")
                         .options(List.of())
-                        .interactionType(InteractionSessionType.PLANNER_CLARIFICATION)
+                        .interactionType(InteractionSessionType.CLARIFICATION)
                         .capabilityCodes(List.of())
                         .build())
                 .build();

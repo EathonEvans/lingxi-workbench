@@ -24,7 +24,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /** 通用运行时交互会话实现。 */
 @Service
@@ -73,12 +72,6 @@ public class InteractionSessionServiceImpl implements InteractionSessionService 
             throw new BusinessException(HttpStatusEnum.CONFLICT, "交互会话已过期，请重新发起任务");
         }
         String suppliedValue = resolveValue(session, query, response);
-        if (session.getInteractionType() == InteractionSessionType.RISK_CONFIRMATION
-                && !"确认执行".equals(suppliedValue)) {
-            session.setStatus(InteractionSessionStatus.CANCELLED);
-            repo.update(session);
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "高风险操作已取消");
-        }
         session.getContext().setResponse(suppliedValue);
         session.setStatus(InteractionSessionStatus.RESOLVED);
         repo.update(session);
@@ -86,9 +79,7 @@ public class InteractionSessionServiceImpl implements InteractionSessionService 
                 .originalQuery(session.getContext().getOriginalQuery())
                 .response(suppliedValue)
                 .type(session.getInteractionType())
-                .confirmCapCodes(session.getInteractionType() == InteractionSessionType.RISK_CONFIRMATION
-                        ? Set.copyOf(session.getContext().capabilityCodes())
-                        : Set.of())
+                .confirmCapCodes(java.util.Set.of())
                 .resumeTarget(new InteractionResumeTarget(
                         session.getResumeCapabilityCode(),
                         session.getOrchestratorAgentId(),
@@ -97,9 +88,12 @@ public class InteractionSessionServiceImpl implements InteractionSessionService 
     }
 
     private void cancelPending(InteractionSessionOpenCommand command) {
-        repo.findPending(command.getTurn().conversationId(), command.getUserId(),
+        repo.findAnyPending(command.getTurn().conversationId(), command.getUserId(),
                         command.getApplication().versionId())
                 .ifPresent(session -> {
+                    if (session.getInteractionType() != InteractionSessionType.CLARIFICATION) {
+                        throw new BusinessException(HttpStatusEnum.CONFLICT, "当前运行正在等待操作审批");
+                    }
                     session.setStatus(InteractionSessionStatus.CANCELLED);
                     repo.update(session);
                 });
@@ -118,7 +112,8 @@ public class InteractionSessionServiceImpl implements InteractionSessionService 
             session = repo.findOwned(sessionId, turn.conversationId(), userId)
                     .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "交互会话不存在"));
         } else {
-            session = repo.findPending(turn.conversationId(), userId, application.versionId())
+            session = repo.findPending(turn.conversationId(), userId, application.versionId(),
+                            InteractionSessionType.CLARIFICATION)
                     .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "待处理交互会话不存在"));
         }
         if (!Objects.equals(session.getApplicationVersionId(), application.versionId())
@@ -172,8 +167,7 @@ public class InteractionSessionServiceImpl implements InteractionSessionService 
         if (response == null || response.getInteractionType() == null) {
             return false;
         }
-        return InteractionSessionType.PLANNER_CLARIFICATION.getCode().equals(response.getInteractionType())
-                || InteractionSessionType.RISK_CONFIRMATION.getCode().equals(response.getInteractionType());
+        return InteractionSessionType.CLARIFICATION.getCode().equals(response.getInteractionType());
     }
 
     private static void requireOpenCommand(InteractionSessionOpenCommand command) {

@@ -59,6 +59,7 @@ sa-token:
     login-type: user
     exclude-uri:
       - /api/v1/auth/login
+      - /internal/v1/conversation-ops/**
       - /error
 
 lingxi:
@@ -83,6 +84,13 @@ lingxi:
     generation-event:
       max-events: 2000
       ttl-hours: 24
+    ops:
+      enabled: ${LINGXI_CHAT_OPS_ENABLED:true}
+      token: ${LINGXI_INTERNAL_OPS_TOKEN:}
+      stale-after: ${LINGXI_CHAT_STALE_AFTER:10m}
+      memory-delay: ${LINGXI_CHAT_MEMORY_RECONCILE_DELAY:2m}
+      reconcile-delay: ${LINGXI_CHAT_RECONCILE_DELAY:1m}
+      batch-size: ${LINGXI_CHAT_RECONCILE_BATCH_SIZE:100}
   security:
     # 敏感配置（MCP Token、模型 API Key）加密主密钥，必须由部署环境提供，
     # 缺失时服务启动失败；生成方式：openssl rand -base64 32
@@ -104,4 +112,4 @@ lingxi:
 rocketmq:
   name-server: ${LINGXI_ROCKETMQ_NAMESRV:192.168.86.2:9876}
   producer:
-    group: lingxi-admin-producer
+    group: lingxi-application-conversation-tx-producer

@@ -469,6 +469,25 @@ class ApplicationDraftValidatorTest {
     }
 
     @Test
+    void shouldRejectInvalidTimeoutFinalizationPolicy() {
+        gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
+        gateway.addVersion(40L, 401L);
+        ApplicationRuntimePolicy runtimePolicy = ApplicationRuntimePolicy.defaults();
+        runtimePolicy.setTimeoutSeconds(60);
+        runtimePolicy.setFinalizationReserveSeconds(60);
+        runtimePolicy.setTimeoutGracePercent(31);
+        ApplicationDefinition draft = fallbackDefinitionBuilder()
+                .runtimePolicy(runtimePolicy)
+                .build();
+
+        ApplicationDefinitionResolution result = resolve(validator, draft);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .contains("RUNTIME_FINALIZATION_RESERVE_EXCEEDS_TIMEOUT", "RUNTIME_TIMEOUT_GRACE_INVALID");
+    }
+
+    @Test
     void shouldInheritIntentTreeEmbeddingModelForMemory() {
         ApplicationDefinitionResolution result = resolveMemoryWithIntentTree(null);
 

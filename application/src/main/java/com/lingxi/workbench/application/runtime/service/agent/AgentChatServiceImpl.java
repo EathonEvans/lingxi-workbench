@@ -6,6 +6,7 @@ import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.service.prompt.PromptRuntimeService;
 import com.lingxi.workbench.application.runtime.service.tool.ToolRuntimeService;
+import com.lingxi.workbench.application.runtime.service.interaction.ToolApprovalGateFactory;
 import com.lingxi.workbench.application.runtime.tool.KnowledgeSearchAgentToolFactory;
 import com.lingxi.workbench.chat.model.bo.PromptPair;
 import com.lingxi.workbench.chat.model.ccontext.ModelChatContext;
@@ -32,6 +33,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.DEFAULT_DELEGATION_RESULT_CHARACTERS;
 import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.TOOL_AUGMENTED_SYSTEM_PROMPT;
@@ -64,6 +66,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final StreamingChatGateway streamingChatGateway;
     private final ToolRuntimeService toolRuntimeService;
     private final KnowledgeSearchAgentToolFactory knowledgeSearchToolFactory;
+    private final ToolApprovalGateFactory toolApprovalGateFactory;
 
     /**
      * Agent 对话主流程。
@@ -107,7 +110,8 @@ public class AgentChatServiceImpl implements AgentChatService {
         List<AgentTool> runtimeTools = this.loadRuntimeTools(snapshot);
 
         PromptPair prompt = chatContext.getPromptPair();
-        Optional<AgentToolRuntimeConfig> toolRuntimeConfig = resolveToolRuntimeConfig(execution, definition, runtimeTools);
+        Optional<AgentToolRuntimeConfig> toolRuntimeConfig = resolveToolRuntimeConfig(
+                execution, snapshot, runtimeTools);
         // 预算边界判定：工具已装配但工具配置为空 ⇒ 进入收尾模式，本次只做最终回答、不再开放工具
         boolean finalizationOnly = !runtimeTools.isEmpty() && toolRuntimeConfig.isEmpty();
         // 收尾阶段改用收尾专用 Token 预算，其余情况使用常规剩余预算
@@ -117,9 +121,10 @@ public class AgentChatServiceImpl implements AgentChatService {
         // 从模型实例配置出发，叠加 Agent 生成策略与剩余预算，得到本次请求的最终模型配置
         ChatModelRuntimeConfig sourceConfig = modelRuntimeConfigService.getChatModelConfig(
                 definition.getChatModelInstanceId());
-        Duration requestTimeout = execution.remainingTimeout(Duration.ofSeconds(
+        Duration requestTimeout = execution.remainingStreamingTimeout(Duration.ofSeconds(
                 Optional.ofNullable(sourceConfig.getTimeoutSeconds())
-                        .orElse(execution.getRuntimePolicy().getTimeoutSeconds())));
+                        .orElse(execution.getRuntimePolicy().getTimeoutSeconds()
+                                + execution.getRuntimePolicy().effectiveTimeoutGraceSeconds())));
         ChatModelRuntimeConfig modelConfig = applyGenerationPolicy(
                 sourceConfig, definition.getGenerationPolicy(), execution.getContextBudget(), remainingTokenBudget,
                 requestTimeout);
@@ -182,6 +187,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .build();
 
         StringBuilder answer = new StringBuilder();
+        AtomicBoolean deadlineReached = new AtomicBoolean();
 
         // 无工具配置的调用计入最终模型调用预算（收尾额度），防止超预算继续生成
         if (toolRuntimeConfig.isEmpty()) {
@@ -196,11 +202,18 @@ public class AgentChatServiceImpl implements AgentChatService {
         streamingChatGateway.stream(command)
                 .doOnNext(chunk -> {
                     answer.append(chunk.content());
+                    if (!chunk.content().isEmpty()) {
+                        execution.markOutputActivity();
+                    }
                     execution.recordUsage(chunk);
                     execution.getEventPublisher().publishText(chunk);
                 })
+                .takeUntilOther(execution.timeoutSignal().doOnNext(ignored -> deadlineReached.set(true)))
                 .then()
                 .block(requestTimeout);
+        if (deadlineReached.get()) {
+            throw new com.lingxi.workbench.application.runtime.model.ExecutionDeadlineExceededException();
+        }
         return answer.toString();
     }
 
@@ -237,8 +250,9 @@ public class AgentChatServiceImpl implements AgentChatService {
 
     /** 将本次已解析的全部工具装配为 Spring AI 工具运行配置。 */
     private Optional<AgentToolRuntimeConfig> resolveToolRuntimeConfig(ChatExecutionContext execution,
-                                                                      AgentRuntimeDefinition definition,
+                                                                      AgentRuntimeSnapshot snapshot,
                                                                       List<AgentTool> runtimeTools) {
+        AgentRuntimeDefinition definition = snapshot.definition();
         if (runtimeTools.isEmpty()) {
             return Optional.empty();
         }
@@ -269,6 +283,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .eventPublisher(execution.getEventPublisher()::publishTool)
                 .progressPublisher(execution.getEventPublisher()::publishProgress)
                 .executionBudget(execution)
+                .approvalGate(toolApprovalGateFactory.create(execution, snapshot))
                 .build();
         return Optional.of(runtimeConfig);
     }

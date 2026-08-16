@@ -61,4 +61,15 @@ public interface MqProducer<T> {
      * @return 事务发送结果
      */
     TransactionSendResult sendTransaction(String topic, T message, Object arg);
+
+    /**
+     * 发送带业务标识的事务消息，便于按事件标识查询和排障。
+     *
+     * @param topic   消息主题
+     * @param key     业务标识
+     * @param message 消息体
+     * @param arg     仅在生产者进程内传递给本地事务监听器的业务参数
+     * @return 事务发送结果
+     */
+    TransactionSendResult sendTransaction(String topic, String key, T message, Object arg);
 }

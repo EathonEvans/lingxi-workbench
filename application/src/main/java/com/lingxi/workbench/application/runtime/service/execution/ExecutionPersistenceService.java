@@ -9,6 +9,7 @@ import com.lingxi.workbench.application.runtime.model.entity.ExecutionPlanSnapsh
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionStepAttemptEntity;
 
 import java.util.List;
+import com.lingxi.workbench.application.runtime.common.enums.ExecutionRunStatus;
 
 /**
  * Plan-and-Execute运行数据的事务写入与恢复边界。
@@ -16,6 +17,8 @@ import java.util.List;
 public interface ExecutionPersistenceService {
 
     void startRun(ExecutionRunStartCommand command);
+
+    void changeRunStatus(String runId, ExecutionRunStatus expected, ExecutionRunStatus target, String currentStage);
 
     void appendPlan(ExecutionPlanSnapshotCommand command);
 

@@ -7,6 +7,7 @@ import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.tool.common.enums.ToolSourceType;
 import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
 import com.lingxi.workbench.framework.persistence.model.TimeEntity;
+import com.lingxi.workbench.infra.ai.tool.common.enums.ToolRiskLevel;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.apache.ibatis.type.JdbcType;
@@ -46,6 +47,18 @@ public class ToolEntity extends TimeEntity {
     /** 符合 OpenAI Function Calling 规范的参数 JSON Schema。 */
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private JSONObject parameterSchema;
+
+    /** 工具风险等级，与是否需要人工批准分别配置。 */
+    private ToolRiskLevel riskLevel;
+
+    /** true 时实际调用参数必须经过用户批准。 */
+    private Boolean approvalRequired;
+
+    /** 审批有效期，单位秒。 */
+    private Integer approvalTtlSeconds;
+
+    /** 审批卡片展示的资源作用域。 */
+    private String resourceScope;
 
     /** ACTIVE 时允许 Agent 新增绑定，DISABLED 时禁止发布。 */
     private EnableStatus status;

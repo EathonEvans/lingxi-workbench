@@ -68,16 +68,17 @@ public class ApplicationRuntimeServiceImpl implements ApplicationRuntimeService 
         RuntimeApplicationVersionEntity version = repo.findVersion(application.getId(), application.getPublishedVersionId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "AI应用生效版本不存在"));
 
-        if (Objects.isNull(version.getDefinitionSnapshot())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "AI应用生效版本缺少定义快照");
-        }
-        try {
-            return new AppRuntimeSnapshot(application.getId(), application.getCode(), version.getId(), version.getDefinitionSnapshot());
-        } catch (IllegalArgumentException exception) {
-            log.warn("Application生效版本不可执行，applicationId={}，versionId={}，reason={}",
-                    application.getId(), version.getId(), exception.getMessage());
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "AI应用生效版本不可执行：" + exception.getMessage());
-        }
+        return toSnapshot(application, version, "AI应用生效版本");
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AppRuntimeSnapshot loadRuntimeAppVersion(Long applicationId, Long applicationVersionId) {
+        RuntimeApplicationEntity application = repo.findById(applicationId)
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "AI应用不存在"));
+        RuntimeApplicationVersionEntity version = repo.findVersion(applicationId, applicationVersionId)
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "AI应用冻结版本不存在"));
+        return toSnapshot(application, version, "AI应用冻结版本");
     }
 
     /** 应用选择器只暴露当前运行时能够构造完整快照的正式版本。 */
@@ -96,6 +97,21 @@ public class ApplicationRuntimeServiceImpl implements ApplicationRuntimeService 
             log.warn("Application候选版本不可执行，applicationId={}，versionId={}，reason={}",
                     application.getId(), version.getId(), exception.getMessage());
             return false;
+        }
+    }
+
+    /** 统一校验 ApplicationVersion 定义快照并转换为不可变运行对象。 */
+    private AppRuntimeSnapshot toSnapshot(RuntimeApplicationEntity application, RuntimeApplicationVersionEntity version,
+                                          String versionLabel) {
+        if (Objects.isNull(version.getDefinitionSnapshot())) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, versionLabel + "缺少定义快照");
+        }
+        try {
+            return new AppRuntimeSnapshot(application.getId(), application.getCode(), version.getId(), version.getDefinitionSnapshot());
+        } catch (IllegalArgumentException exception) {
+            log.warn("{}不可执行，applicationId={}，versionId={}，reason={}",
+                    versionLabel, application.getId(), version.getId(), exception.getMessage());
+            throw new BusinessException(HttpStatusEnum.CONFLICT, versionLabel + "不可执行：" + exception.getMessage());
         }
     }
 }

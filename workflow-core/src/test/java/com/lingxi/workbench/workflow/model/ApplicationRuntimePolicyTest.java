@@ -26,4 +26,17 @@ class ApplicationRuntimePolicyTest {
         assertEquals(10, policy.effectiveTokenGracePercent());
         assertEquals(70_400, policy.effectiveTokenHardBudget());
     }
+
+    @Test
+    void shouldCalculateFinalizationReserveAndStreamingGrace() {
+        ApplicationRuntimePolicy policy = ApplicationRuntimePolicy.builder()
+                .timeoutSeconds(301)
+                .finalizationReserveSeconds(45)
+                .timeoutGracePercent(10)
+                .build();
+
+        assertEquals(45, policy.effectiveFinalizationReserveSeconds());
+        assertEquals(10, policy.effectiveTimeoutGracePercent());
+        assertEquals(31, policy.effectiveTimeoutGraceSeconds());
+    }
 }

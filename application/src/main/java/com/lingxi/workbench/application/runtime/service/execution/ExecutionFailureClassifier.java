@@ -1,6 +1,7 @@
 package com.lingxi.workbench.application.runtime.service.execution;
 
 import com.lingxi.workbench.application.runtime.model.ExecutionFailure;
+import com.lingxi.workbench.application.runtime.model.ExecutionDeadlineExceededException;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.agentexecute.loop.AgentLoopLimitException;
 import org.springframework.stereotype.Component;
@@ -15,6 +16,9 @@ public class ExecutionFailureClassifier {
     public ExecutionFailure classify(Throwable exception) {
         Throwable current = exception;
         while (Objects.nonNull(current)) {
+            if (current instanceof ExecutionDeadlineExceededException) {
+                return new ExecutionFailure("EXECUTION_TIME_LIMIT", "本次处理已达到时间上限", true);
+            }
             if (current instanceof AgentLoopLimitException limit) {
                 return new ExecutionFailure(limit.getErrorCode(), limit.getClientMessage(), true);
             }

@@ -8,6 +8,7 @@ import lombok.Data;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import com.lingxi.workbench.infra.ai.tool.common.enums.ToolRiskLevel;
 
 /**
  * Tool 管理详情；Long 主键转换为字符串，避免前端数值精度丢失。
@@ -31,6 +32,14 @@ public class ToolVO {
     private String remoteToolName;
 
     private List<ToolParameterDefinition> parameters;
+
+    private ToolRiskLevel riskLevel;
+
+    private Boolean approvalRequired;
+
+    private Integer approvalTtlSeconds;
+
+    private String resourceScope;
 
     private EnableStatus status;
 

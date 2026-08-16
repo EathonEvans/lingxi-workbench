@@ -22,6 +22,11 @@ public interface AgentExecutionBudget {
     /** 在执行模型请求的一批工具前占用对应额度。 */
     void reserveToolCalls(int calls);
 
+    /** 是否应停止继续探索并进入禁用工具的最终回答。 */
+    default boolean shouldFinalize() {
+        return false;
+    }
+
     static AgentExecutionBudget noop() {
         return NoopAgentExecutionBudget.INSTANCE;
     }

@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
+
 /**
  * AI 流式对话接口。
  */
@@ -25,6 +27,8 @@ import reactor.core.publisher.Flux;
 @RequestMapping("/api/v1/ai/chat")
 @RequiredArgsConstructor
 public class ChatStreamController {
+
+    private static final Duration HEARTBEAT_INTERVAL = Duration.ofSeconds(15);
 
     private final ChatStreamService chatStreamService;
 
@@ -45,8 +49,17 @@ public class ChatStreamController {
             produces = {MediaType.TEXT_EVENT_STREAM_VALUE, MediaType.APPLICATION_JSON_VALUE}
     )
     public Flux<ServerSentEvent<?>> resume(@Valid @RequestBody ResumeChatRequest request) {
-        return chatStreamService.resume(Long.valueOf(request.assistantMessageId()), request.afterSequence(), UserContext.userId())
+        Flux<ServerSentEvent<?>> events = chatStreamService
+                .resume(Long.valueOf(request.assistantMessageId()), request.afterSequence(), UserContext.userId())
                 .map(ChatGenerationSseEventRouter::rout);
+        return events.publish(shared -> {
+            Flux<ServerSentEvent<?>> heartbeat = Flux.interval(HEARTBEAT_INTERVAL)
+                    .<ServerSentEvent<?>>map(ignored -> ServerSentEvent.<Void>builder()
+                            .event("heartbeat")
+                            .build())
+                    .takeUntilOther(shared.ignoreElements());
+            return Flux.merge(shared, heartbeat);
+        });
     }
 
     /**

@@ -34,6 +34,10 @@ sa-token:
       - /error
 
 lingxi:
+  conversation-ops:
+    base-url: ${LINGXI_APPLICATION_BASE_URL:http://127.0.0.1:8080}
+    token: ${LINGXI_INTERNAL_OPS_TOKEN:}
+    timeout: ${LINGXI_CONVERSATION_OPS_TIMEOUT:5s}
   langfuse:
     api-enabled: ${LINGXI_LANGFUSE_API_ENABLED:false}
     base-url: ${LINGXI_LANGFUSE_BASE_URL:}

@@ -20,6 +20,7 @@ public final class ChatGenerationEventBO {
     private final AgentToolExecutionEvent tool;
     private final AgentProgressEvent progress;
     private final ChatClarificationEventBO clarification;
+    private final ChatInteractionEventBO interaction;
     private final ChatExecutionTimelineEventBO execution;
     private final ChatStepOutputEventBO stepOutput;
     private final ChatErrorBO error;
@@ -56,6 +57,20 @@ public final class ChatGenerationEventBO {
                 .build();
     }
 
+    public static ChatGenerationEventBO interaction(long sequence, ChatGenerationEventType type,
+                                                     ChatInteractionEventBO interaction) {
+        if (type != ChatGenerationEventType.INTERACTION_REQUIRED
+                && type != ChatGenerationEventType.INTERACTION_RESOLVED) {
+            throw new IllegalArgumentException("HITL事件类型不正确");
+        }
+        interaction.setSequence(sequence);
+        return ChatGenerationEventBO.builder()
+                .type(type)
+                .sequence(sequence)
+                .interaction(interaction)
+                .build();
+    }
+
     public static ChatGenerationEventBO execution(long sequence, ChatGenerationEventType type,
                                                   ChatExecutionTimelineEventBO execution) {
         if (type != ChatGenerationEventType.PLANNING && type != ChatGenerationEventType.PLAN
@@ -86,6 +101,13 @@ public final class ChatGenerationEventBO {
 
     public static ChatGenerationEventBO completed() {
         return ChatGenerationEventBO.builder().type(ChatGenerationEventType.COMPLETED).build();
+    }
+
+    public static ChatGenerationEventBO partial(String code, String message) {
+        return ChatGenerationEventBO.builder()
+                .type(ChatGenerationEventType.PARTIAL)
+                .error(new ChatErrorBO(code, message))
+                .build();
     }
 
     public static ChatGenerationEventBO failed() {
@@ -125,6 +147,10 @@ public final class ChatGenerationEventBO {
 
     public ChatClarificationEventBO clarification() {
         return clarification;
+    }
+
+    public ChatInteractionEventBO interaction() {
+        return interaction;
     }
 
     public ChatExecutionTimelineEventBO execution() {

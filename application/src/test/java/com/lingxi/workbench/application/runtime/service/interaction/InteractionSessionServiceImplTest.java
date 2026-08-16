@@ -34,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class InteractionSessionServiceImplTest {
 
     @Test
-    void shouldResolveOwnedRiskConfirmationWithPublishedVersion() {
+    void shouldResolveOwnedClarificationWithPublishedVersion() {
         InMemoryInteractionSessionRepo repo = new InMemoryInteractionSessionRepo();
         InteractionSessionServiceImpl service = new InteractionSessionServiceImpl(repo);
         ChatTurnBO turn = new ChatTurnBO(10L, 11L, 12L, 1);
@@ -45,8 +45,8 @@ class InteractionSessionServiceImplTest {
 
         assertEquals("执行退款", resolution.getOriginalQuery());
         assertEquals("确认执行", resolution.getResponse());
-        assertEquals(InteractionSessionType.RISK_CONFIRMATION, resolution.getType());
-        assertEquals(java.util.Set.of("refund_write"), resolution.confirmedCapabilityCodes());
+        assertEquals(InteractionSessionType.CLARIFICATION, resolution.getType());
+        assertEquals(java.util.Set.of(), resolution.confirmedCapabilityCodes());
         assertEquals("default_agent", resolution.getResumeTarget().capabilityCode());
         assertEquals(InteractionSessionStatus.RESOLVED, repo.session().getStatus());
     }
@@ -77,24 +77,25 @@ class InteractionSessionServiceImplTest {
     }
 
     @Test
-    void shouldCancelRiskOperationWhenPlatformOwnedCancelOptionIsSelected() {
+    void shouldResolveSecondClarificationOption() {
         InMemoryInteractionSessionRepo repo = new InMemoryInteractionSessionRepo();
         InteractionSessionServiceImpl service = new InteractionSessionServiceImpl(repo);
         ChatTurnBO turn = new ChatTurnBO(10L, 11L, 12L, 1);
         ChatClarificationEventBO event = service.open(openCommand(application(20L), turn, 7L));
 
-        assertThrows(BusinessException.class, () -> service.resolve(
-                application(20L), turn, 7L, "取消", response(event, "2")));
+        InteractionResolution resolution = service.resolve(
+                application(20L), turn, 7L, "取消", response(event, "2")).orElseThrow();
 
-        assertEquals(InteractionSessionStatus.CANCELLED, repo.session().getStatus());
+        assertEquals("取消", resolution.getResponse());
+        assertEquals(InteractionSessionStatus.RESOLVED, repo.session().getStatus());
     }
 
     private static InteractionSessionOpenCommand openCommand(AppRuntimeSnapshot application, ChatTurnBO turn, Long userId) {
         PlannerClarification clarification = PlannerClarification.builder()
                 .question("确认执行退款操作吗？")
                 .options(List.of("确认执行", "取消"))
-                .interactionType(InteractionSessionType.RISK_CONFIRMATION)
-                .capabilityCodes(List.of("refund_write"))
+                .interactionType(InteractionSessionType.CLARIFICATION)
+                .capabilityCodes(List.of())
                 .build();
         return InteractionSessionOpenCommand.builder()
                 .application(application)
@@ -104,9 +105,9 @@ class InteractionSessionServiceImplTest {
                 .resumeCapabilityCode("default_agent")
                 .orchestratorAgentId(1L)
                 .orchestratorAgentVersionId(2L)
-                .interactionType(InteractionSessionType.RISK_CONFIRMATION)
+                .interactionType(InteractionSessionType.CLARIFICATION)
                 .context(InteractionSessionContext.builder().clarification(clarification)
-                        .capabilityCodes(List.of("refund_write")).originalQuery("执行退款").build())
+                        .capabilityCodes(List.of()).originalQuery("执行退款").build())
                 .build();
     }
 
@@ -165,11 +166,20 @@ class InteractionSessionServiceImplTest {
         }
 
         @Override
-        public Optional<InteractionSessionEntity> findPending(Long conversationId, Long userId, Long applicationVersionId) {
+        public Optional<InteractionSessionEntity> findAnyPending(Long conversationId, Long userId,
+                                                                 Long applicationVersionId) {
             return sessions.stream().filter(session -> session.getConversationId().equals(conversationId)
                     && session.getUserId().equals(userId)
                     && session.getApplicationVersionId().equals(applicationVersionId)
                     && session.getStatus() == InteractionSessionStatus.PENDING).findFirst();
+        }
+
+        @Override
+        public Optional<InteractionSessionEntity> findPending(Long conversationId, Long userId,
+                                                              Long applicationVersionId,
+                                                              InteractionSessionType type) {
+            return findAnyPending(conversationId, userId, applicationVersionId)
+                    .filter(session -> session.getInteractionType() == type);
         }
 
         private InteractionSessionEntity session() {

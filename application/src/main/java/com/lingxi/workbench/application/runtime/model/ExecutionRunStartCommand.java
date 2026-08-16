@@ -4,7 +4,7 @@ import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import lombok.Builder;
 import lombok.Getter;
 
-/** 创建一次Plan-and-Execute运行所需的可信元数据。 */
+/** 创建一次 Application 顶级运行所需的可信元数据。 */
 @Getter
 @Builder
 public class ExecutionRunStartCommand {
@@ -14,4 +14,6 @@ public class ExecutionRunStartCommand {
     private Long userId;
     private String runId;
     private AgentRuntimeSnapshot orchestratorAgent;
+    private String capabilityCode;
+    private String executionMode;
 }

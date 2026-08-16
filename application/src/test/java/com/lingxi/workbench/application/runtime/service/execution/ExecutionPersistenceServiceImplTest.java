@@ -52,6 +52,8 @@ class ExecutionPersistenceServiceImplTest {
                 .userId(23L)
                 .runId(runId)
                 .orchestratorAgent(supervisor())
+                .capabilityCode("default_agent")
+                .executionMode("PLAN_EXECUTE")
                 .build());
 
         ArgumentCaptor<ExecutionRunEntity> runCaptor = ArgumentCaptor.forClass(ExecutionRunEntity.class);

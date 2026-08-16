@@ -3,25 +3,38 @@ package com.lingxi.workbench.chat.service.impl;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.ExecutionDeadlineExceededException;
+import com.lingxi.workbench.application.runtime.model.InteractionSessionContext;
+import com.lingxi.workbench.application.runtime.model.entity.InteractionSessionEntity;
+import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionStatus;
+import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
 import com.lingxi.workbench.application.runtime.service.app.ApplicationRuntimeService;
 import com.lingxi.workbench.application.runtime.service.app.ApplicationChatExecutionService;
 import com.lingxi.workbench.application.runtime.service.execution.ExecutionFailureClassifier;
 import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionEventPublisher;
+import com.lingxi.workbench.application.runtime.service.interaction.HitlDecisionTxService;
+import com.lingxi.workbench.application.runtime.repo.ExecutionCheckpointRepo;
+import com.lingxi.workbench.application.runtime.repo.InteractionSessionRepo;
 import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
+import com.lingxi.workbench.chat.event.ConversationEventPublisher;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
+import com.lingxi.workbench.chat.model.bo.ConversationTurnStartBO;
+import com.lingxi.workbench.chat.model.bo.StartConversationTurnBO;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
 import com.lingxi.workbench.chat.model.request.ChatRequest;
 import com.lingxi.workbench.chat.repo.ConversationMessageRepo;
 import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.chat.service.ConversationService;
+import com.lingxi.workbench.auth.repo.UserRepo;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
+import com.lingxi.workbench.infra.ai.tool.HumanInteractionRequiredException;
 import com.lingxi.workbench.agentexecute.loop.AgentLoopLimitException;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
@@ -37,9 +50,12 @@ import com.lingxi.workbench.workflow.model.FallbackAgent;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 
 import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -55,8 +71,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
@@ -76,10 +94,15 @@ class ChatStreamServiceImplTest {
             mock(ApplicationRuntimeService.class);
     private final ApplicationChatExecutionService applicationChatExecutionService =
             mock(ApplicationChatExecutionService.class);
+    private final ConversationEventPublisher conversationEventPublisher = mock(ConversationEventPublisher.class);
     private final TokenCountEstimator tokenCountEstimator = mock(TokenCountEstimator.class);
     private final AiTracingService aiTracingService = mock(AiTracingService.class);
     private final AiTraceRun traceRun = mock(AiTraceRun.class);
     private final AiStageObserver aiStageObserver = new AiStageObserver(ObservationRegistry.NOOP);
+    private final InteractionSessionRepo interactionRepo = mock(InteractionSessionRepo.class);
+    private final ExecutionCheckpointRepo checkpointRepo = mock(ExecutionCheckpointRepo.class);
+    private final UserRepo userRepo = mock(UserRepo.class);
+    private final HitlDecisionTxService hitlDecisionTxService = mock(HitlDecisionTxService.class);
 
     private ChatStreamServiceImpl service;
 
@@ -101,9 +124,8 @@ class ChatStreamServiceImplTest {
     void setUp() {
         when(applicationRuntimeService.loadRuntimeAppConfig("support"))
                 .thenReturn(APPLICATION_SNAPSHOT);
-        when(conversationService.startTurn(
-                        7L, 10L, "client-001", "你好", null, 20L, 30L))
-                .thenReturn(new ChatTurnBO(10L, 11L, 12L, 3));
+        when(conversationService.startTurn(any(StartConversationTurnBO.class)))
+                .thenReturn(new ConversationTurnStartBO(new ChatTurnBO(10L, 11L, 12L, 3), true));
         when(messageRepo.findOwnedAssistantMessage(12L, 7L))
                 .thenReturn(Optional.of(assistant(MessageStatus.GENERATING, "")));
         when(generationEventRepo.findAfter(any(), anyLong())).thenReturn(List.of());
@@ -116,8 +138,9 @@ class ChatStreamServiceImplTest {
         }).when(traceRun).scoped(org.mockito.ArgumentMatchers.<Runnable>any());
 
         service = new ChatStreamServiceImpl(conversationService, messageRepo, generationEventRepo,
-                applicationRuntimeService, applicationChatExecutionService, event -> { }, tokenCountEstimator,
-                aiTracingService, aiStageObserver, new ExecutionFailureClassifier());
+                applicationRuntimeService, applicationChatExecutionService, conversationEventPublisher, tokenCountEstimator,
+                aiTracingService, aiStageObserver, new ExecutionFailureClassifier(), interactionRepo, checkpointRepo,
+                userRepo, hitlDecisionTxService);
     }
 
     @Test
@@ -128,8 +151,14 @@ class ChatStreamServiceImplTest {
         gate.awaitStarted();
 
         verify(applicationRuntimeService).loadRuntimeAppConfig("support");
-        verify(conversationService).startTurn(
-                7L, 10L, "client-001", "你好", null, 20L, 30L);
+        ArgumentCaptor<StartConversationTurnBO> inputCaptor = ArgumentCaptor.forClass(StartConversationTurnBO.class);
+        verify(conversationService).startTurn(inputCaptor.capture());
+        StartConversationTurnBO input = inputCaptor.getValue();
+        assertEquals(7L, input.getUserId());
+        assertEquals(10L, input.getConversationId());
+        assertEquals("client-001", input.getClientMessageId());
+        assertEquals(20L, input.getApplicationId());
+        assertEquals(30L, input.getApplicationVersionId());
 
         gate.release();
     }
@@ -145,8 +174,7 @@ class ChatStreamServiceImplTest {
                 BusinessException.class,
                 () -> service.start(createChatRequest(), LOGIN_USER));
 
-        verify(conversationService, never()).startTurn(
-                any(), any(), any(), any(), any(), any(), any());
+        verify(conversationService, never()).startTurn(any(StartConversationTurnBO.class));
     }
 
     @Test
@@ -157,7 +185,38 @@ class ChatStreamServiceImplTest {
 
         assertEquals(HttpStatusEnum.BAD_REQUEST, exception.getHttpStatus());
         assertEquals("当前输入约4001 Token，超过应用上限4000 Token，请缩短后重试", exception.getMessage());
-        verify(conversationService, never()).startTurn(any(), any(), any(), any(), any(), any(), any());
+        verify(conversationService, never()).startTurn(any(StartConversationTurnBO.class));
+        verify(applicationChatExecutionService, never()).execute(any());
+    }
+
+    @Test
+    void shouldUseClientConversationIdForFirstMessage() {
+        ChatRequest request = ChatRequest.builder()
+                .clientConversationId("conversation-local-001")
+                .clientMessageId("client-001")
+                .query("你好")
+                .applicationCode("support")
+                .build();
+        ApplicationExecutionGate gate = prepareApplicationExecution("应用回答");
+
+        service.start(request, LOGIN_USER);
+        gate.awaitStarted();
+
+        ArgumentCaptor<StartConversationTurnBO> inputCaptor = ArgumentCaptor.forClass(StartConversationTurnBO.class);
+        verify(conversationService).startTurn(inputCaptor.capture());
+        assertEquals(null, inputCaptor.getValue().getConversationId());
+        assertEquals("conversation-local-001", inputCaptor.getValue().getClientConversationId());
+        gate.release();
+    }
+
+    @Test
+    void shouldNotStartModelAgainWhenClientMessageAlreadyExists() {
+        when(conversationService.startTurn(any(StartConversationTurnBO.class)))
+                .thenReturn(new ConversationTurnStartBO(new ChatTurnBO(10L, 11L, 12L, 3), false));
+
+        service.start(createChatRequest(), LOGIN_USER);
+
+        verify(aiTracingService, never()).start(any(), any(), any());
         verify(applicationChatExecutionService, never()).execute(any());
     }
 
@@ -180,11 +239,33 @@ class ChatStreamServiceImplTest {
         assertEquals(List.of(
                 ChatGenerationEventBO.chunk(1, "完整回答"),
                 ChatGenerationEventBO.completed()), events);
-        verify(conversationService).completeAssistant(
-                12L,
-                "完整回答",
-                TokenUsage.of(12, 4, 16),
-                99L);
+        verify(conversationEventPublisher).completeAssistant(
+                new ChatTurnBO(10L, 11L, 12L, 3), 30L, "完整回答", TokenUsage.of(12, 4, 16), 99L);
+    }
+
+    @Test
+    void shouldKeepCompletedResultWhenTransactionAckFailsAfterDatabaseCommit() {
+        ApplicationExecutionGate gate = prepareApplicationExecution("完整回答");
+        doThrow(new IllegalStateException("事务回执异常"))
+                .when(conversationEventPublisher)
+                .completeAssistant(any(), any(), any(), any(), any());
+        when(conversationService.findAssistantCompletionStatus(10L, 12L, 30L))
+                .thenReturn(Optional.of(MessageStatus.COMPLETED));
+
+        service.start(createChatRequest(), LOGIN_USER);
+        gate.awaitStarted();
+        CompletableFuture<List<ChatGenerationEventBO>> eventsFuture =
+                service.resume(12L, 0, 7L).collectList().toFuture();
+        gate.release();
+
+        List<ChatGenerationEventBO> events = eventsFuture
+                .orTimeout(Duration.ofSeconds(2).toMillis(), TimeUnit.MILLISECONDS)
+                .join();
+
+        assertEquals(List.of(
+                ChatGenerationEventBO.chunk(1, "完整回答"),
+                ChatGenerationEventBO.completed()), events);
+        verify(conversationService, never()).failAssistant(anyLong(), any(), any(), any(), any());
     }
 
     @Test
@@ -236,6 +317,97 @@ class ChatStreamServiceImplTest {
     }
 
     @Test
+    void shouldPersistWaitingStateBeforePublishingApprovalEvent() {
+        ApplicationExecutionGate gate = new ApplicationExecutionGate();
+        InteractionSessionEntity interaction = pendingApproval();
+        when(interactionRepo.findById(91L)).thenReturn(Optional.of(interaction));
+        doAnswer(invocation -> {
+            gate.markStarted();
+            gate.awaitRelease();
+            throw new RuntimeException(new HumanInteractionRequiredException(91L));
+        }).when(applicationChatExecutionService).execute(any(ApplicationChatExecutionRequest.class));
+
+        service.start(createChatRequest(), LOGIN_USER);
+        gate.awaitStarted();
+        CompletableFuture<List<ChatGenerationEventBO>> eventsFuture =
+                service.resume(12L, 0, 7L).collectList().toFuture();
+        gate.release();
+
+        List<ChatGenerationEventBO> events = eventsFuture
+                .orTimeout(Duration.ofSeconds(2).toMillis(), TimeUnit.MILLISECONDS)
+                .join();
+
+        assertEquals(1, events.size());
+        assertEquals(ChatGenerationEventType.INTERACTION_REQUIRED, events.getFirst().type());
+        assertEquals("确认执行“发送邮件”", events.getFirst().interaction().getTitle());
+        InOrder order = inOrder(conversationService, generationEventRepo);
+        order.verify(conversationService).waitForHuman(12L, "", TokenUsage.empty());
+        order.verify(generationEventRepo).append(eq(12L), any(ChatGenerationEventBO.class));
+    }
+
+    @Test
+    void shouldKeepUsefulOutputAsPartialCompletionAtExecutionDeadline() {
+        ApplicationExecutionGate gate = new ApplicationExecutionGate();
+        doAnswer(invocation -> {
+            ApplicationChatExecutionRequest request = invocation.getArgument(0);
+            gate.markStarted();
+            gate.awaitRelease();
+            request.getEventPublisher().publishText(new ChatStreamChunk("已经整理出的可用内容"));
+            throw new ExecutionDeadlineExceededException();
+        }).when(applicationChatExecutionService).execute(any(ApplicationChatExecutionRequest.class));
+
+        service.start(createChatRequest(), LOGIN_USER);
+        gate.awaitStarted();
+        CompletableFuture<List<ChatGenerationEventBO>> eventsFuture = service.resume(12L, 0, 7L).collectList().toFuture();
+        gate.release();
+
+        List<ChatGenerationEventBO> events = eventsFuture
+                .orTimeout(Duration.ofSeconds(2).toMillis(), TimeUnit.MILLISECONDS)
+                .join();
+
+        assertEquals(List.of(
+                ChatGenerationEventBO.chunk(1, "已经整理出的可用内容"),
+                ChatGenerationEventBO.partial("TIME_LIMIT_PARTIAL", "本次处理已达到时间上限，已保留当前可用结果")), events);
+        verify(conversationEventPublisher).completePartial(
+                new ChatTurnBO(10L, 11L, 12L, 3), 30L, "已经整理出的可用内容", TokenUsage.empty(),
+                "TIME_LIMIT_PARTIAL", "本次处理已达到时间上限，已保留当前可用结果");
+        verify(conversationService, never()).failAssistant(anyLong(), any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldKeepPartialResultWhenTransactionAckFailsAfterDatabaseCommit() {
+        ApplicationExecutionGate gate = new ApplicationExecutionGate();
+        doAnswer(invocation -> {
+            ApplicationChatExecutionRequest request = invocation.getArgument(0);
+            gate.markStarted();
+            gate.awaitRelease();
+            request.getEventPublisher().publishText(new ChatStreamChunk("已生成的部分结果"));
+            throw new ExecutionDeadlineExceededException();
+        }).when(applicationChatExecutionService).execute(any(ApplicationChatExecutionRequest.class));
+        doThrow(new IllegalStateException("事务回执异常"))
+                .when(conversationEventPublisher)
+                .completePartial(any(), any(), any(), any(), any(), any());
+        when(conversationService.findAssistantCompletionStatus(10L, 12L, 30L))
+                .thenReturn(Optional.of(MessageStatus.COMPLETED));
+
+        service.start(createChatRequest(), LOGIN_USER);
+        gate.awaitStarted();
+        CompletableFuture<List<ChatGenerationEventBO>> eventsFuture =
+                service.resume(12L, 0, 7L).collectList().toFuture();
+        gate.release();
+
+        List<ChatGenerationEventBO> events = eventsFuture
+                .orTimeout(Duration.ofSeconds(2).toMillis(), TimeUnit.MILLISECONDS)
+                .join();
+
+        assertEquals(List.of(
+                ChatGenerationEventBO.chunk(1, "已生成的部分结果"),
+                ChatGenerationEventBO.partial(
+                        "TIME_LIMIT_PARTIAL", "本次处理已达到时间上限，已保留当前可用结果")), events);
+        verify(conversationService, never()).failAssistant(anyLong(), any(), any(), any(), any());
+    }
+
+    @Test
     void shouldRestorePersistedAgentLoopLimit() {
         ConversationMessageEntity failed = assistant(MessageStatus.FAILED, "");
         failed.setErrorCode("AGENT_TOOL_CALL_LIMIT");
@@ -260,6 +432,17 @@ class ChatStreamServiceImplTest {
                 12L,
                 "",
                 TokenUsage.empty());
+    }
+
+    @Test
+    void shouldCancelHitlStateTogetherWhenAssistantIsWaitingForHuman() {
+        when(messageRepo.findOwnedAssistantMessage(12L, 7L))
+                .thenReturn(Optional.of(assistant(MessageStatus.WAITING_HUMAN, "等待确认")));
+
+        service.cancel(12L, 7L);
+
+        verify(hitlDecisionTxService).cancel(12L, 7L);
+        verify(conversationService, never()).cancelWaiting(anyLong(), any(), any());
     }
 
     @Test
@@ -291,6 +474,20 @@ class ChatStreamServiceImplTest {
                 ChatGenerationEventBO.snapshot("数据库中的完整回答"),
                 ChatGenerationEventBO.completed()), events);
         assertEquals(ChatGenerationEventType.COMPLETED, events.get(1).type());
+    }
+
+    @Test
+    void shouldRestorePersistedPartialCompletion() {
+        ConversationMessageEntity completed = assistant(MessageStatus.COMPLETED, "数据库中的部分回答");
+        completed.setErrorCode("TIME_LIMIT_PARTIAL");
+        completed.setErrorMessage("本次处理已达到时间上限，已保留当前可用结果");
+        when(messageRepo.findOwnedAssistantMessage(12L, 7L)).thenReturn(Optional.of(completed));
+
+        List<ChatGenerationEventBO> events = service.resume(12L, 0, 7L).collectList().block();
+
+        assertEquals(List.of(
+                ChatGenerationEventBO.snapshot("数据库中的部分回答"),
+                ChatGenerationEventBO.partial("TIME_LIMIT_PARTIAL", "本次处理已达到时间上限，已保留当前可用结果")), events);
     }
 
     @Test
@@ -341,6 +538,26 @@ class ChatStreamServiceImplTest {
         entity.setStatus(status);
         entity.setContent(content);
         return entity;
+    }
+
+    private static InteractionSessionEntity pendingApproval() {
+        InteractionSessionContext context = InteractionSessionContext.builder()
+                .title("确认执行“发送邮件”")
+                .summary("该操作需要你的明确批准，批准前不会调用外部工具。")
+                .riskLevel("HIGH")
+                .resourceScope("外部邮箱")
+                .toolCode("send_mail")
+                .build();
+        InteractionSessionEntity interaction = new InteractionSessionEntity();
+        interaction.setId(91L);
+        interaction.setAssistantMessageId(12L);
+        interaction.setInteractionType(InteractionSessionType.ACTION_APPROVAL);
+        interaction.setStatus(InteractionSessionStatus.PENDING);
+        interaction.setRevision(0);
+        interaction.setApprovalFingerprint("fingerprint");
+        interaction.setContext(context);
+        interaction.setExpiresAt(OffsetDateTime.now().plusMinutes(10));
+        return interaction;
     }
 
     private static ChatRequest createChatRequest() {

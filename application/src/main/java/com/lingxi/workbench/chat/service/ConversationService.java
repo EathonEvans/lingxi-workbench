@@ -1,6 +1,9 @@
 package com.lingxi.workbench.chat.service;
 
-import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
+import com.lingxi.workbench.chat.model.bo.ConversationTurnStartBO;
+import com.lingxi.workbench.chat.model.bo.AssistantCompletionMetaBO;
+import com.lingxi.workbench.chat.model.bo.StartConversationTurnBO;
+import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.chat.model.request.ConversationPageQuery;
 import com.lingxi.workbench.chat.model.request.RenameConversationRequest;
@@ -9,15 +12,12 @@ import com.lingxi.workbench.chat.model.vo.ConversationVO;
 import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
 
+import java.util.Optional;
+
 /**
  * 用户会话及消息业务。
  */
 public interface ConversationService {
-
-    /**
-     * 创建空会话。
-     */
-    ConversationVO create(Long userId);
 
     /**
      * 分页查询当前用户会话。
@@ -47,26 +47,22 @@ public interface ConversationService {
     /**
      * 在同一事务中创建本轮用户消息和 Assistant 占位消息。
      *
-     * <p>该方法会锁定用户所属会话，校验会话可写、没有其他生成中回答，
-     * 并使用客户端消息标识防止重复提交。返回后两条消息均已落库。</p>
+     * <p>首次发送会幂等创建会话，已有会话则锁定用户所属记录；随后校验会话可写、
+     * 没有其他生成中回答，并使用客户端消息标识防止重复提交。</p>
      *
-     * @param userId          当前登录用户主键
-     * @param conversationId  会话主键
-     * @param clientMessageId 客户端生成的幂等消息标识
-     * @param prompt          已规范化的用户输入
-     * @param modelInstanceId 本轮使用的模型实例主键；意图路由前创建占位消息时为空
-     * @return 会话、用户消息、Assistant 消息主键以及当前用户消息序号
+     * @param input 首次创建或继续已有会话的一轮消息输入
+     * @return 消息标识以及本次是否真正创建，用于阻止幂等重试重复启动模型
      */
-    default ChatTurnBO startTurn(Long userId, Long conversationId, String clientMessageId, String prompt, Long modelInstanceId) {
-        return startTurn(userId, conversationId, clientMessageId, prompt, modelInstanceId, null, null);
-    }
-
-    ChatTurnBO startTurn(Long userId, Long conversationId, String clientMessageId, String prompt, Long modelInstanceId, Long applicationId, Long applicationVersionId);
+    ConversationTurnStartBO startTurn(StartConversationTurnBO input);
 
     /**
      * 将 Assistant 消息更新为完整回答。
      */
-    void completeAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage, Long modelInstanceId);
+    void completeAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage,
+                           AssistantCompletionMetaBO metadata);
+
+    /** 查询事务消息回查所需的 Assistant 终态。 */
+    Optional<MessageStatus> findAssistantCompletionStatus(Long conversationId, Long assistantMessageId, Long applicationVersionId);
 
     /**
      * 记录模型调用失败及已经生成的部分回答。
@@ -82,4 +78,13 @@ public interface ConversationService {
      * 记录服务进程中断造成的未完成回答。
      */
     void interruptAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage);
+
+    /** 将当前生成任务挂起为等待人工决策。 */
+    void waitForHuman(Long assistantMessageId, String content, TokenUsage tokenUsage);
+
+    /** 人工批准后原子恢复同一 Assistant 消息。 */
+    void resumeFromHuman(Long assistantMessageId);
+
+    /** 拒绝或过期时取消等待中的 Assistant 消息。 */
+    void cancelWaiting(Long assistantMessageId, String code, String message);
 }

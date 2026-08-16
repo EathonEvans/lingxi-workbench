@@ -14,6 +14,7 @@ import com.lingxi.workbench.chat.model.vo.ChatStepOutputVO;
 import com.lingxi.workbench.chat.model.vo.ChatSubAgentEventVO;
 import com.lingxi.workbench.chat.model.vo.ChatToolEventVO;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
+import com.lingxi.workbench.chat.model.bo.ChatInteractionEventBO;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
 import org.springframework.http.codec.ServerSentEvent;
@@ -45,10 +46,12 @@ public final class ChatGenerationSseEventRouter {
             case TOOL -> executionEvent(event);
             case PROGRESS -> progressEvent(event);
             case CLARIFICATION -> clarificationEvent(event);
+            case INTERACTION_REQUIRED, INTERACTION_RESOLVED -> interactionEvent(event);
             case PLANNING, PLAN, STEP, REPLANNING -> timelineEvent(event);
             case STEP_OUTPUT -> stepOutputEvent(event);
             case SNAPSHOT -> snapshotEvent(event.content());
             case COMPLETED -> doneEvent();
+            case PARTIAL -> partialEvent(event);
             case FAILED -> errorEvent(event);
             case CANCELLED -> cancelledEvent();
         };
@@ -125,6 +128,17 @@ public final class ChatGenerationSseEventRouter {
                 .id(String.valueOf(event.sequence()))
                 .event("clarification")
                 .data(Objects.requireNonNull(event.clarification(), "澄清事件内容不能为空"))
+                .build();
+    }
+
+    private static ServerSentEvent<ChatInteractionEventBO> interactionEvent(ChatGenerationEventBO event) {
+        String eventName = event.type() == ChatGenerationEventType.INTERACTION_REQUIRED
+                ? "interaction_required"
+                : "interaction_resolved";
+        return ServerSentEvent.<ChatInteractionEventBO>builder()
+                .id(String.valueOf(event.sequence()))
+                .event(eventName)
+                .data(Objects.requireNonNull(event.interaction(), "HITL事件内容不能为空"))
                 .build();
     }
 
@@ -213,6 +227,15 @@ public final class ChatGenerationSseEventRouter {
      */
     private static ServerSentEvent<Void> doneEvent() {
         return ServerSentEvent.<Void>builder().event("done").build();
+    }
+
+    /** 构建保留部分结果的降级完成事件。 */
+    private static ServerSentEvent<ChatErrorVO> partialEvent(ChatGenerationEventBO event) {
+        ChatErrorBO error = Objects.requireNonNull(event.error(), "部分完成说明不能为空");
+        return ServerSentEvent.<ChatErrorVO>builder()
+                .event("partial")
+                .data(new ChatErrorVO(error.code(), error.message()))
+                .build();
     }
 
     /**

@@ -2,28 +2,22 @@ package com.lingxi.workbench.chat.memory;
 
 import com.lingxi.workbench.chat.memory.event.AssistantCompletedEvent;
 import com.lingxi.workbench.chat.model.bo.ChatMemoryMessageBO;
+import com.lingxi.workbench.chat.model.message.ConversationCompletedMessage;
 import com.lingxi.workbench.chat.service.ConversationMemoryService;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
 import com.lingxi.workbench.observability.common.enums.AiObservationStage;
 import com.lingxi.workbench.observability.service.AiStageObserver;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-import static org.springframework.boot.autoconfigure.task.TaskExecutionAutoConfiguration.APPLICATION_TASK_EXECUTOR_BEAN_NAME;
-
 /**
- * Assistant 完成后的异步记忆编排，只负责调度三个相互独立的记忆用例。
+ * RocketMQ 会话完成事件的记忆处理入口。
  * <p>
- * 监听 {@link AssistantCompletedEvent}，在应用线程池中异步执行三条记忆管线：
- * 会话摘要、用户画像、交互记录。各管线按配置开关独立启停，
- * 单条管线失败仅记录告警日志，不阻塞对话主流程，也不影响其余管线。
+ * 三条管线由不同 Consumer Group 调用，独立重试和进入死信队列；
+ * 本组件不再吞掉异常，也不依赖进程内 Spring 事件保证可靠性。
  */
-@Slf4j
 @Component
 @RequiredArgsConstructor
 public class MemoryPostProcessor {
@@ -31,6 +25,7 @@ public class MemoryPostProcessor {
     private static final int EXTRACTION_MAX_ROUNDS = 50;
     private static final int EXTRACTION_MAX_TOKENS = 16_000;
 
+    private final MemoryEventResolver eventResolver;
     private final ConversationMemoryService conversationMemoryService;
     private final ConversationSummaryMemoryService summaryService;
     private final UserProfileMemoryService profileService;
@@ -38,77 +33,62 @@ public class MemoryPostProcessor {
     private final AiStageObserver aiStageObserver;
 
     /**
-     * Assistant 回复完成事件入口，异步触发记忆后处理。
-     * <p>
-     * 通过 {@code @Async} 将任务提交到应用线程池，避免记忆写入阻塞对话主流程；
-     * 实际执行被包装在 {@code MEMORY_POST} 观测阶段内，便于链路追踪与耗时统计。
-     *
-     * @param event Assistant 完成事件，携带记忆配置与会话上下文
+     * 消费会话摘要任务；重复事件由摘要覆盖水位和唯一约束共同幂等。
      */
-    @Async(APPLICATION_TASK_EXECUTOR_BEAN_NAME)
-    @EventListener
-    public void onAssistantCompleted(AssistantCompletedEvent event) {
-        aiStageObserver.observe(AiObservationStage.MEMORY_POST, () -> process(event));
+    public void processSummary(ConversationCompletedMessage message) {
+        aiStageObserver.observe(AiObservationStage.MEMORY_POST, () -> {
+            AssistantCompletedEvent event = eventResolver.resolve(message);
+            MemoryConfig config = event.memoryConfig();
+            if (config.summary().isEnabled()) {
+                summaryService.generate(event, config);
+            }
+        });
     }
 
     /**
-     * 三条记忆管线共享同一个MEMORY_POST父span，单条失败仍按既有隔离策略处理。
+     * 消费用户画像任务；画像来源消息水位阻止重复或旧事件覆盖新画像。
      */
-    private void process(AssistantCompletedEvent event) {
-        MemoryConfig config = event.memoryConfig();
-        // 会话摘要：按开关独立执行，不依赖后续的消息窗口加载
-        if (config.summary().isEnabled()) {
-            run("会话摘要", event, () -> summaryService.generate(event, config));
-        }
-        boolean profileEnabled = config.profile().isEnabled();
-        boolean interactionEnabled = config.interactionRecord().isEnabled();
-        // 画像与交互记录均未开启时，无需加载会话消息，提前结束
-        if (!profileEnabled && !interactionEnabled) {
-            return;
-        }
-        List<ChatMemoryMessageBO> messages;
-        // 加载会话窗口消息（按最大轮次与 token 上限截断）；失败仅告警，不让记忆后处理拖垮主流程
-        try {
-            messages = conversationMemoryService.getWindowMemory(
-                    event.userId(),
-                    event.turn().conversationId(),
-                    Integer.MAX_VALUE,
-                    EXTRACTION_MAX_ROUNDS,
-                    EXTRACTION_MAX_TOKENS);
-        } catch (RuntimeException exception) {
-            log.warn("记忆后处理加载会话失败，conversationId={}", event.turn().conversationId(), exception);
-            return;
-        }
-        // 无历史消息可提取时直接返回，避免以空输入调用 LLM 提取
-        if (messages.isEmpty()) {
-            return;
-        }
-        // 画像与交互记录共享同一份历史文本，按开关分别触发提取
-        String history = buildHistory(messages);
-        if (profileEnabled) {
-            run("用户画像", event, () -> profileService.extract(event, history, config));
-        }
-        if (interactionEnabled) {
-            run("交互记录", event, () -> interactionService.extract(event, history, config));
-        }
+    public void processProfile(ConversationCompletedMessage message) {
+        aiStageObserver.observe(AiObservationStage.MEMORY_POST, () -> {
+            AssistantCompletedEvent event = eventResolver.resolve(message);
+            MemoryConfig config = event.memoryConfig();
+            if (!config.profile().isEnabled()) {
+                return;
+            }
+            List<ChatMemoryMessageBO> messages = loadHistory(event);
+            if (!messages.isEmpty()) {
+                profileService.extract(event, buildHistory(messages), config);
+            }
+        });
     }
 
     /**
-     * 执行单条记忆管线并隔离异常。
-     * <p>
-     * 统一捕获 {@link RuntimeException} 并输出告警日志，
-     * 保证某条管线失败不会中断其余管线，也不会向上抛出到异步线程池。
-     *
-     * @param operation 管线名称（如"会话摘要"），用于日志定位
-     * @param event     当前完成事件，提供 assistantMessageId 等上下文
-     * @param action    具体的记忆提取动作
+     * 消费交互记录任务；Assistant 消息唯一键保证记录和向量只落库一次。
      */
-    private void run(String operation, AssistantCompletedEvent event, Runnable action) {
-        try {
-            action.run();
-        } catch (RuntimeException exception) {
-            log.warn("记忆后处理失败，operation={}，assistantMessageId={}", operation, event.turn().assistantMessageId(), exception);
-        }
+    public void processInteraction(ConversationCompletedMessage message) {
+        aiStageObserver.observe(AiObservationStage.MEMORY_POST, () -> {
+            AssistantCompletedEvent event = eventResolver.resolve(message);
+            MemoryConfig config = event.memoryConfig();
+            if (!config.interactionRecord().isEnabled()) {
+                return;
+            }
+            List<ChatMemoryMessageBO> messages = loadHistory(event);
+            if (!messages.isEmpty()) {
+                interactionService.extract(event, buildHistory(messages), config);
+            }
+        });
+    }
+
+    /**
+     * 按固定提取上限加载已经完成的会话窗口，失败交给 RocketMQ 有界重试。
+     */
+    private List<ChatMemoryMessageBO> loadHistory(AssistantCompletedEvent event) {
+        return conversationMemoryService.getWindowMemory(
+                event.userId(),
+                event.turn().conversationId(),
+                Integer.MAX_VALUE,
+                EXTRACTION_MAX_ROUNDS,
+                EXTRACTION_MAX_TOKENS);
     }
 
     /**

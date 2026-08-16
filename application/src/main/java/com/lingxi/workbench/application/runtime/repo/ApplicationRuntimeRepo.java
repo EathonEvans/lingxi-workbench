@@ -31,6 +31,11 @@ public class ApplicationRuntimeRepo {
                         .eq(RuntimeApplicationEntity::getStatus, "ACTIVE")));
     }
 
+    /** 按主键查询 Application，不限制当前启停状态。 */
+    public Optional<RuntimeApplicationEntity> findById(Long id) {
+        return Optional.ofNullable(applicationMapper.selectById(id));
+    }
+
     /**
      * 查询应用端允许选择的 Application。
      *

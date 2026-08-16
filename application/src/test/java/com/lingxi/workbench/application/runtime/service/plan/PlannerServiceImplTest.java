@@ -135,7 +135,7 @@ class PlannerServiceImplTest {
         PlannerResult result = service.decide(request(2000));
 
         assertEquals(ExecutionDecisionAction.CLARIFY, result.decision().getAction());
-        assertEquals(InteractionSessionType.PLANNER_CLARIFICATION,
+        assertEquals(InteractionSessionType.CLARIFICATION,
                 result.decision().getClarification().getInteractionType());
         assertTrue(result.decision().getClarification().capabilityCodes().isEmpty());
         assertEquals(2, result.modelCalls());
@@ -233,7 +233,7 @@ class PlannerServiceImplTest {
     private static String invalidClarification() {
         return """
                 {"action":"CLARIFY","clarification":{"question":"请选择任务","options":[],
-                "interactionType":"PLANNER_CLARIFICATION","capabilityCodes":["support"]}}
+                "interactionType":"CLARIFICATION","capabilityCodes":["support"]}}
                 """;
     }
 

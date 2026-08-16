@@ -92,27 +92,22 @@ class CapabilityExecutionServiceImplTest {
     }
 
     @Test
-    void shouldEnforceAgentCapabilityTimeout() {
+    void shouldLeaveAgentTimeoutToApplicationDeadline() {
         ApplicationCapabilityChecksum checksum = new ApplicationCapabilityChecksum();
         AgentRuntimeService agentRuntimeService = mock(AgentRuntimeService.class);
         when(agentRuntimeService.resolveVersion(60L, 70L)).thenReturn(agentSnapshot());
-        AgentChatService slowAgent = mock(AgentChatService.class);
-        when(slowAgent.chat(any(AgentRuntimeSnapshot.class), eq("问题"), any(ChatExecutionContext.class)))
-                .thenAnswer(invocation -> {
-            try {
-                Thread.sleep(5000);
-            } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
-            }
-            return "迟到回答";
-        });
+        AgentChatService agentChatService = mock(AgentChatService.class);
+        when(agentChatService.chat(any(AgentRuntimeSnapshot.class), eq("问题"), any(ChatExecutionContext.class)))
+                .thenReturn("正常回答");
+        TokenCountEstimator estimator = mock(TokenCountEstimator.class);
+        when(estimator.estimate("正常回答")).thenReturn(10);
         CapabilityExecutionServiceImpl service = service(
-                slowAgent, agentRuntimeService, checksum, mock(TokenCountEstimator.class));
+                agentChatService, agentRuntimeService, checksum, estimator);
 
-        BusinessException exception = assertThrows(BusinessException.class, () -> service.execute(
-                request(agentCapability(checksum.calculate(70L), 1), context())));
+        CapabilityExecutionResult result = service.execute(
+                request(agentCapability(checksum.calculate(70L), 1), context()));
 
-        assertEquals("能力执行超时：consult_agent", exception.getMessage());
+        assertEquals("正常回答", result.content());
     }
 
     @Test

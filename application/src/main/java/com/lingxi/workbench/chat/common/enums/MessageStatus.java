@@ -10,6 +10,8 @@ import lombok.RequiredArgsConstructor;
 public enum MessageStatus {
     /** 模型正在生成回答。 */
     GENERATING("GENERATING", "生成中"),
+    /** 已保存运行检查点，等待用户决定。 */
+    WAITING_HUMAN("WAITING_HUMAN", "等待确认"),
     /** 消息已经完整生成。 */
     COMPLETED("COMPLETED", "已完成"),
     /** 模型调用失败。 */

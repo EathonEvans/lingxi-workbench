@@ -7,6 +7,7 @@ import com.lingxi.workbench.admin.appmonitor.common.enums.AppHealthStatus;
 import com.lingxi.workbench.admin.appmonitor.common.enums.AppRunStatus;
 import com.lingxi.workbench.admin.appmonitor.common.enums.TraceSourceStatus;
 import com.lingxi.workbench.admin.appmonitor.gateway.LangfuseTraceGateway;
+import com.lingxi.workbench.admin.appmonitor.gateway.ConversationOpsGateway;
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppIssueBO;
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppHealthBO;
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppMonitorSummaryBO;
@@ -17,6 +18,10 @@ import com.lingxi.workbench.admin.appmonitor.model.bo.AppTrendPointBO;
 import com.lingxi.workbench.admin.appmonitor.model.bo.LangfuseObservationBO;
 import com.lingxi.workbench.admin.appmonitor.model.bo.LangfuseTraceResult;
 import com.lingxi.workbench.admin.appmonitor.model.request.AppMonitorQuery;
+import com.lingxi.workbench.admin.appmonitor.model.request.ReplayConversationDlqRequest;
+import com.lingxi.workbench.admin.appmonitor.model.vo.ConversationDlqResultVO;
+import com.lingxi.workbench.admin.appmonitor.model.vo.ConversationOpsOverviewVO;
+import com.lingxi.workbench.admin.appmonitor.model.vo.ConversationReconcileVO;
 import com.lingxi.workbench.admin.appmonitor.model.vo.AppIssueVO;
 import com.lingxi.workbench.admin.appmonitor.model.vo.AppHealthVO;
 import com.lingxi.workbench.admin.appmonitor.model.vo.AppMonitorOverviewVO;
@@ -54,6 +59,7 @@ public class AppMonitorServiceImpl implements AppMonitorService {
     private final AppMonitorRepo monitorRepo;
     private final AiApplicationRepo applicationRepo;
     private final LangfuseTraceGateway langfuseTraceGateway;
+    private final ConversationOpsGateway conversationOpsGateway;
 
     @Override
     public List<AppOptionVO> options() {
@@ -140,6 +146,26 @@ public class AppMonitorServiceImpl implements AppMonitorService {
                 .summary(trace)
                 .events(events)
                 .build();
+    }
+
+    @Override
+    public ConversationOpsOverviewVO conversationOpsOverview() {
+        return conversationOpsGateway.overview();
+    }
+
+    @Override
+    public ConversationDlqResultVO conversationDlq(int limit) {
+        return conversationOpsGateway.dlq(limit);
+    }
+
+    @Override
+    public ConversationReconcileVO reconcileConversations() {
+        return conversationOpsGateway.reconcile();
+    }
+
+    @Override
+    public void replayConversationDlq(ReplayConversationDlqRequest request) {
+        conversationOpsGateway.replay(request);
     }
 
     private void validateApplication(Long applicationId) {

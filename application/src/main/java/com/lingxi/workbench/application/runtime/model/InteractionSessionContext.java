@@ -19,6 +19,11 @@ public class InteractionSessionContext {
     private List<String> capabilityCodes;
     private String originalQuery;
     private String response;
+    private String title;
+    private String summary;
+    private String riskLevel;
+    private String resourceScope;
+    private String toolCode;
 
     public List<String> capabilityCodes() {
         return capabilityCodes == null ? List.of() : List.copyOf(capabilityCodes);

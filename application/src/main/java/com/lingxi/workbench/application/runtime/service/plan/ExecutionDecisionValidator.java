@@ -10,7 +10,6 @@ import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
-import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
@@ -54,7 +53,6 @@ public class ExecutionDecisionValidator {
         if (capability.getType() != ApplicationCapabilityType.AGENT) {
             throw invalid("主Agent只能直接执行领域专家：" + capability.getCode());
         }
-        requireConfirmedRisk(capability, context.confirmedCapabilityCodes());
     }
 
     private static void validatePlanDecision(ExecutionDecision decision,
@@ -73,7 +71,7 @@ public class ExecutionDecisionValidator {
         }
         Set<String> completedStepIds = new HashSet<>();
         for (PlanStep step : steps) {
-            validateStep(step, completedStepIds, capabilities, context.confirmedCapabilityCodes());
+            validateStep(step, completedStepIds, capabilities);
             if (!completedStepIds.add(step.getId())) {
                 throw invalid("计划步骤ID重复：" + step.getId());
             }
@@ -81,8 +79,7 @@ public class ExecutionDecisionValidator {
     }
 
     private static void validateStep(PlanStep step, Set<String> completedStepIds,
-                                     Map<String, ApplicationCapabilityDefinition> capabilities,
-                                     Set<String> confirmedCapabilityCodes) {
+                                     Map<String, ApplicationCapabilityDefinition> capabilities) {
         if (step == null || step.getId() == null || !STEP_ID.matcher(step.getId()).matches()) {
             throw invalid("计划步骤ID格式无效");
         }
@@ -91,7 +88,6 @@ public class ExecutionDecisionValidator {
         if (capability.getType() != ApplicationCapabilityType.AGENT) {
             throw invalid("计划步骤只能引用领域专家：" + capability.getCode());
         }
-        requireConfirmedRisk(capability, confirmedCapabilityCodes);
         Set<String> dependencies = new HashSet<>();
         for (String dependency : step.dependsOn()) {
             if (!dependencies.add(dependency)) {
@@ -124,22 +120,11 @@ public class ExecutionDecisionValidator {
                 throw invalid("澄清选项不能重复");
             }
         }
-        if (clarification.getInteractionType() == InteractionSessionType.PLANNER_CLARIFICATION
-                && !clarification.capabilityCodes().isEmpty()) {
-            throw invalid("普通Planner澄清不能携带待确认能力");
+        if (clarification.getInteractionType() != InteractionSessionType.CLARIFICATION) {
+            throw invalid("Planner只能发起信息澄清");
         }
-        if (clarification.getInteractionType() == InteractionSessionType.RISK_CONFIRMATION) {
-            if (clarification.capabilityCodes().isEmpty()) {
-                throw invalid("风险确认必须指定待确认能力");
-            }
-            for (String code : clarification.capabilityCodes()) {
-                ApplicationCapabilityDefinition capability = requireCapability(code, capabilities);
-                CapabilityRiskLevel risk = Objects.requireNonNullElse(
-                        capability.getRiskLevel(), CapabilityRiskLevel.READ_ONLY);
-                if (risk == CapabilityRiskLevel.READ_ONLY) {
-                    throw invalid("只读能力不应请求风险确认：" + code);
-                }
-            }
+        if (!clarification.capabilityCodes().isEmpty()) {
+            throw invalid("Planner澄清不能携带能力确认范围");
         }
     }
 
@@ -173,12 +158,6 @@ public class ExecutionDecisionValidator {
         return capability;
     }
 
-    private static void requireConfirmedRisk(ApplicationCapabilityDefinition capability, Set<String> confirmedCodes) {
-        CapabilityRiskLevel riskLevel = Objects.requireNonNullElse(capability.getRiskLevel(), CapabilityRiskLevel.READ_ONLY);
-        if (riskLevel != CapabilityRiskLevel.READ_ONLY && !confirmedCodes.contains(capability.getCode())) {
-            throw invalid("能力需要用户确认后才能执行：" + capability.getCode());
-        }
-    }
 
     private static void requireText(String value, int maxLength, String field) {
         if (value == null || value.isBlank() || value.length() > maxLength) {

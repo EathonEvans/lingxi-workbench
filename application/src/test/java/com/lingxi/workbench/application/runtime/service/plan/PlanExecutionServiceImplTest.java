@@ -446,6 +446,13 @@ class PlanExecutionServiceImplTest {
         }
 
         @Override
+        public void changeRunStatus(String runId,
+                                    com.lingxi.workbench.application.runtime.common.enums.ExecutionRunStatus expected,
+                                    com.lingxi.workbench.application.runtime.common.enums.ExecutionRunStatus target,
+                                    String currentStage) {
+        }
+
+        @Override
         public void appendPlan(ExecutionPlanSnapshotCommand command) {
             plans.add(command);
         }

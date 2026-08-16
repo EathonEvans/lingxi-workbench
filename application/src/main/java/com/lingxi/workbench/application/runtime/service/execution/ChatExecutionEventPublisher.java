@@ -2,6 +2,7 @@ package com.lingxi.workbench.application.runtime.service.execution;
 
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
+import com.lingxi.workbench.chat.model.bo.ChatInteractionEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatStepOutputEventBO;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
@@ -33,6 +34,10 @@ public interface ChatExecutionEventPublisher {
      * 发布需要用户后续响应的结构化澄清事件。
      */
     default void publishClarification(ChatClarificationEventBO event) {
+    }
+
+    /** 发布不含敏感 Tool 参数的 HITL 等待事件。 */
+    default void publishInteractionRequired(ChatInteractionEventBO event) {
     }
 
     /** 发布可向用户展示并持久化恢复的执行时间线。 */
@@ -87,6 +92,11 @@ public interface ChatExecutionEventPublisher {
             }
 
             @Override
+            public void publishInteractionRequired(ChatInteractionEventBO event) {
+                target.publishInteractionRequired(event);
+            }
+
+            @Override
             public void publishExecution(ChatExecutionTimelineEventBO event) {
                 target.publishExecution(event);
             }
@@ -132,6 +142,11 @@ public interface ChatExecutionEventPublisher {
             @Override
             public void publishClarification(ChatClarificationEventBO event) {
                 target.publishClarification(event);
+            }
+
+            @Override
+            public void publishInteractionRequired(ChatInteractionEventBO event) {
+                target.publishInteractionRequired(event);
             }
 
             @Override

@@ -1,7 +1,10 @@
 package com.lingxi.workbench.admin.tool.model.request;
 
 import com.lingxi.workbench.admin.tool.model.config.ToolParameterDefinition;
+import com.lingxi.workbench.infra.ai.tool.common.enums.ToolRiskLevel;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -31,4 +34,19 @@ public class UpdateToolRequest {
     @NotNull(message = "参数列表不能为空")
     @Size(max = MAX_PARAMETER_COUNT, message = "一个 Tool 最多配置 5 个参数")
     private List<ToolParameterDefinition> parameters;
+
+    @NotNull(message = "请选择风险等级")
+    private ToolRiskLevel riskLevel;
+
+    @NotNull(message = "请选择是否需要人工批准")
+    private Boolean approvalRequired;
+
+    @NotNull(message = "请输入审批有效期")
+    @Min(value = 60, message = "审批有效期不能少于60秒")
+    @Max(value = 86400, message = "审批有效期不能超过86400秒")
+    private Integer approvalTtlSeconds;
+
+    @NotBlank(message = "请输入资源作用域")
+    @Size(max = 255, message = "资源作用域不能超过255个字符")
+    private String resourceScope;
 }

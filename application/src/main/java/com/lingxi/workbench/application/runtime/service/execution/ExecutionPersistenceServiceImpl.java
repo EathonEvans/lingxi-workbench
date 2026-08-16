@@ -3,6 +3,7 @@ package com.lingxi.workbench.application.runtime.service.execution;
 import com.lingxi.workbench.application.runtime.service.plan.ExecutionDecisionChecksum;
 
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
+import com.lingxi.workbench.application.runtime.common.enums.ExecutionRunStatus;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
@@ -28,7 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.OffsetDateTime;
 import java.util.List;
 
-/** Plan-and-Execute运行数据的事务实现。 */
+/** Application 顶级运行与 Plan 明细的事务实现。 */
 @Service
 @RequiredArgsConstructor
 public class ExecutionPersistenceServiceImpl implements ExecutionPersistenceService {
@@ -53,11 +54,31 @@ public class ExecutionPersistenceServiceImpl implements ExecutionPersistenceServ
         run.setUserId(command.getUserId());
         run.setApplicationId(application.applicationId());
         run.setApplicationVersionId(application.versionId());
-        run.setOrchestratorAgentId(orchestrator.agentId());
-        run.setOrchestratorAgentVersionId(orchestrator.agentVersionId());
-        run.setPlannerModelInstanceId(orchestrator.definition().getChatModelInstanceId());
-        run.setPlannerPromptVersionId(orchestrator.definition().getSystemPromptVersionId());
+        if (orchestrator != null) {
+            run.setOrchestratorAgentId(orchestrator.agentId());
+            run.setOrchestratorAgentVersionId(orchestrator.agentVersionId());
+            run.setPlannerModelInstanceId(orchestrator.definition().getChatModelInstanceId());
+            run.setPlannerPromptVersionId(orchestrator.definition().getSystemPromptVersionId());
+        }
+        run.setCapabilityCode(command.getCapabilityCode());
+        run.setExecutionMode(command.getExecutionMode());
+        run.setStatus(ExecutionRunStatus.RUNNING);
+        run.setCurrentStage("EXECUTION");
+        run.setRevision(0);
         runRepo.insert(run);
+    }
+
+    @Override
+    @Transactional
+    public void changeRunStatus(String runId, ExecutionRunStatus expected, ExecutionRunStatus target,
+                                String currentStage) {
+        OffsetDateTime completedAt = switch (target) {
+            case SUCCEEDED, FAILED, CANCELLED, EXPIRED, INTERRUPTED -> OffsetDateTime.now();
+            default -> null;
+        };
+        if (!runRepo.changeStatus(runId, expected, target, currentStage, completedAt)) {
+            throw invalid("Application运行状态已变化，无法从" + expected + "推进到" + target);
+        }
     }
 
     @Override
@@ -145,10 +166,9 @@ public class ExecutionPersistenceServiceImpl implements ExecutionPersistenceServ
     private static void requireStartCommand(ExecutionRunStartCommand command) {
         if (command == null || command.getApplication() == null || command.getTurn() == null
                 || command.getUserId() == null || command.getRunId() == null || command.getRunId().isBlank()
-                || command.getOrchestratorAgent() == null
-                || command.getOrchestratorAgent().definition().getChatModelInstanceId() == null
-                || command.getOrchestratorAgent().definition().getSystemPromptVersionId() == null) {
-            throw invalid("Plan-and-Execute运行元数据不完整");
+                || command.getCapabilityCode() == null || command.getCapabilityCode().isBlank()
+                || command.getExecutionMode() == null || command.getExecutionMode().isBlank()) {
+            throw invalid("Application运行元数据不完整");
         }
     }
 
@@ -167,12 +187,12 @@ public class ExecutionPersistenceServiceImpl implements ExecutionPersistenceServ
         if (runId == null || runId.isBlank()) {
             throw invalid("runId不能为空");
         }
-        runRepo.lockByRunId(runId).orElseThrow(() -> invalid("Plan-and-Execute运行不存在"));
+        runRepo.lockByRunId(runId).orElseThrow(() -> invalid("Application运行不存在"));
     }
 
     private void requireRun(String runId) {
         if (runId == null || runId.isBlank() || runRepo.findByRunId(runId).isEmpty()) {
-            throw invalid("Plan-and-Execute运行不存在");
+            throw invalid("Application运行不存在");
         }
     }
 

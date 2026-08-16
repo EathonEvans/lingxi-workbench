@@ -4,7 +4,9 @@ import cn.hutool.core.text.CharSequenceUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.lingxi.workbench.chat.model.entity.ConversationEntity;
+import com.lingxi.workbench.chat.common.enums.ConversationStatus;
 import com.lingxi.workbench.chat.model.request.ConversationPageQuery;
+import com.lingxi.workbench.chat.model.bo.ConversationCreateResult;
 import com.lingxi.workbench.chat.repo.mapper.ConversationMapper;
 import com.lingxi.workbench.framework.convention.PageResult;
 import lombok.RequiredArgsConstructor;
@@ -45,12 +47,35 @@ public class ConversationRepo {
                         .isNull(ConversationEntity::getDeletedAt)));
     }
 
+    /** 按主键查询未删除会话，供可信异步事件恢复用户归属。 */
+    public Optional<ConversationEntity> findById(Long id) {
+        return Optional.ofNullable(mapper.selectOne(
+                Wrappers.<ConversationEntity>lambdaQuery()
+                        .eq(ConversationEntity::getId, id)
+                        .isNull(ConversationEntity::getDeletedAt)));
+    }
+
     /**
      * 使用数据库行锁查询用户所属且未删除的会话。
      * 锁持续到调用方事务结束，用于串行化同一会话的消息序号分配和生成状态校验。
      */
     public Optional<ConversationEntity> lockOwnedById(Long id, Long userId) {
         return Optional.ofNullable(mapper.selectOwnedForUpdate(id, userId));
+    }
+
+    /** 幂等创建并锁定首次发送对应的会话。 */
+    public ConversationCreateResult createAndLock(Long userId, String clientConversationId, String title) {
+        ConversationEntity entity = new ConversationEntity();
+        entity.setUserId(userId);
+        entity.setClientConversationId(clientConversationId);
+        entity.setTitle(title);
+        entity.setStatus(ConversationStatus.ACTIVE);
+        entity.setMessageCount(0);
+        boolean created = mapper.insertIfAbsent(entity) == 1;
+        ConversationEntity conversation = Optional.ofNullable(
+                        mapper.selectOwnedByClientIdForUpdate(userId, clientConversationId))
+                .orElseThrow(() -> new IllegalStateException("首次发送对应的会话创建失败"));
+        return new ConversationCreateResult(conversation, created);
     }
 
     /** 新增或更新会话。 */
