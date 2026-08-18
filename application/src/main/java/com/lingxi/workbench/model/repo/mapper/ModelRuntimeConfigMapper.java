@@ -30,7 +30,8 @@ public interface ModelRuntimeConfigMapper extends BaseMapper<ModelRuntimeConfigE
                    instance.stop_sequences       AS stop_sequences,
                    instance.extension_parameters AS extension_parameters,
                    instance.timeout_seconds   AS timeout_seconds,
-                   instance.max_retries       AS max_retries
+                   instance.max_retries       AS max_retries,
+                   instance.capabilities @> '["STRUCTURED_OUTPUT"]'::JSONB AS structured_output_supported
             FROM lingxi_core.ai_model_instance instance
             JOIN lingxi_core.ai_model_provider provider
               ON provider.id = instance.provider_id
@@ -63,7 +64,8 @@ public interface ModelRuntimeConfigMapper extends BaseMapper<ModelRuntimeConfigE
                    instance.stop_sequences       AS stop_sequences,
                    instance.extension_parameters AS extension_parameters,
                    instance.timeout_seconds      AS timeout_seconds,
-                   instance.max_retries          AS max_retries
+                   instance.max_retries          AS max_retries,
+                   instance.capabilities @> '["STRUCTURED_OUTPUT"]'::JSONB AS structured_output_supported
             FROM lingxi_core.ai_model_instance instance
             JOIN lingxi_core.ai_model_provider provider
               ON provider.id = instance.provider_id
@@ -97,7 +99,8 @@ public interface ModelRuntimeConfigMapper extends BaseMapper<ModelRuntimeConfigE
                    instance.stop_sequences     AS stop_sequences,
                    instance.extension_parameters AS extension_parameters,
                    instance.timeout_seconds    AS timeout_seconds,
-                   instance.max_retries        AS max_retries
+                   instance.max_retries        AS max_retries,
+                   instance.capabilities @> '["STRUCTURED_OUTPUT"]'::JSONB AS structured_output_supported
             FROM lingxi_core.ai_model_instance instance
             JOIN lingxi_core.ai_model_provider provider
               ON provider.id = instance.provider_id

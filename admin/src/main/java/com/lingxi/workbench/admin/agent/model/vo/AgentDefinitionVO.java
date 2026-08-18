@@ -5,6 +5,7 @@ import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
 import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
 import com.lingxi.workbench.admin.agent.model.config.KnowledgeSearchCapabilitySnapshot;
 import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
+import com.lingxi.workbench.infra.ai.skill.model.AgentSkillBindingSnapshot;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -26,6 +27,7 @@ public class AgentDefinitionVO {
     private String userPromptVersionId;
     private List<String> toolCodes;
     private AgentToolPolicy toolPolicy;
+    private List<AgentSkillBindingSnapshot> skills;
     private KnowledgeSearchCapabilitySnapshot knowledgeSearch;
     private GenerationPolicy generationPolicy;
     private PlanPolicy planPolicy;

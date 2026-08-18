@@ -3,8 +3,8 @@ package com.lingxi.workbench.application.runtime.model.entity;
 import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.lingxi.workbench.agentruntime.planner.PlannerStep;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
-import com.lingxi.workbench.application.runtime.model.PlanStep;
 import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
 import lombok.Data;
 import org.apache.ibatis.type.JdbcType;
@@ -24,7 +24,7 @@ public class ExecutionStepAttemptEntity {
     private String capabilityCode;
     private ExecutionStepStatus status;
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
-    private PlanStep stepSnapshot;
+    private PlannerStep stepSnapshot;
     private String resultContent;
     private String errorCode;
     private OffsetDateTime startedAt;

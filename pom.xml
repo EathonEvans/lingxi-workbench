@@ -43,7 +43,7 @@
         <module>framework</module>
         <module>infra-ai</module>
         <module>workflow-core</module>
-        <module>agent-execute</module>
+        <module>agent-runtime</module>
         <module>admin</module>
         <module>application</module>
         <module>mcp-server</module>
@@ -72,7 +72,7 @@
             </dependency>
             <dependency>
                 <groupId>com.lingxi.ai</groupId>
-                <artifactId>agent-execute</artifactId>
+                <artifactId>agent-runtime</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

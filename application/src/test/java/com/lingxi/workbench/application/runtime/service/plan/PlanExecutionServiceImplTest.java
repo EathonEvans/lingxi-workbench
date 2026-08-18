@@ -3,16 +3,19 @@ package com.lingxi.workbench.application.runtime.service.plan;
 import com.lingxi.workbench.application.runtime.service.app.RuntimeVariablesInitializer;
 
 import com.alibaba.fastjson2.JSONObject;
-import com.lingxi.workbench.application.runtime.common.enums.ExecutionDecisionAction;
+import com.lingxi.workbench.agentruntime.planner.PlannerDecision;
+import com.lingxi.workbench.agentruntime.planner.PlannerDecisionAction;
+import com.lingxi.workbench.agentruntime.planner.PlannerPlan;
+import com.lingxi.workbench.agentruntime.planner.PlannerRunResult;
+import com.lingxi.workbench.agentruntime.planner.PlannerStep;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
+import com.lingxi.workbench.agentruntime.model.SkillActivation;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.CapabilityExecutionResult;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
-import com.lingxi.workbench.application.runtime.model.ExecutionDecision;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
-import com.lingxi.workbench.application.runtime.model.ExecutionPlan;
 import com.lingxi.workbench.application.runtime.model.ExecutionPlanSnapshotCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionRunStartCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionStepAttemptCommand;
@@ -22,9 +25,7 @@ import com.lingxi.workbench.application.runtime.model.InteractionResolution;
 import com.lingxi.workbench.application.runtime.model.PlanExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.PlanExecutionResult;
 import com.lingxi.workbench.application.runtime.model.SupervisorRuntimeContext;
-import com.lingxi.workbench.application.runtime.model.PlanStep;
 import com.lingxi.workbench.application.runtime.model.PlanStepResult;
-import com.lingxi.workbench.application.runtime.model.PlannerResult;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionEventEntity;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionPlanSnapshotEntity;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionStepAttemptEntity;
@@ -64,6 +65,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -126,8 +128,8 @@ class PlanExecutionServiceImplTest {
             throw new AssertionError("直接能力不应进入最终综合");
         }, new RecordingPersistence(), interactionService(), new PlanInputCompiler(),
                 new ExecutionFailureClassifier(), ObservationRegistry.NOOP);
-        ExecutionDecision decision = ExecutionDecision.builder()
-                .action(ExecutionDecisionAction.EXECUTE_AGENT)
+        PlannerDecision decision = PlannerDecision.builder()
+                .action(PlannerDecisionAction.EXECUTE_AGENT)
                 .capabilityCode("collect")
                 .build();
 
@@ -154,8 +156,8 @@ class PlanExecutionServiceImplTest {
             throw new IllegalStateException("下游暂不可用");
         }, request -> {
             replans.incrementAndGet();
-            return new PlannerResult(
-                    plan(step("unstable-again", "unstable", List.of())), TokenUsage.of(2, 1, 3), 1);
+            return new PlannerRunResult(
+                    plan(step("unstable-again", "unstable", List.of())), TokenUsage.of(2, 1, 3), 1, 1L);
         }, request -> {
             assertEquals(List.of("write"), request.stepResults().stream()
                     .map(PlanStepResult::getCapabilityCode).toList());
@@ -250,7 +252,8 @@ class PlanExecutionServiceImplTest {
 
         assertTrue(result.content().contains("请补充"));
         assertEquals("run-1", openedSession.get().getRunId());
-        assertTrue(persistence.events.stream().anyMatch(event -> event.getEventType() == ExecutionEventType.PLAN_CREATED));
+        assertFalse(persistence.events.stream().anyMatch(
+                event -> event.getEventType() == ExecutionEventType.PLAN_CREATED));
         assertTrue(persistence.events.stream().anyMatch(event -> event.getEventType() == ExecutionEventType.FINALIZING));
         assertEquals(ExecutionEventType.CLARIFICATION_REQUIRED, persistence.events.getLast().getEventType());
     }
@@ -290,7 +293,10 @@ class PlanExecutionServiceImplTest {
         assertEquals(ExecutionEventType.RUN_CANCELLED, persistence.events.getLast().getEventType());
     }
 
-    private static PlanExecutionRequest request(ExecutionDecision decision, List<ApplicationCapabilityDefinition> capabilities, Set<String> confirmed, ChatExecutionEventPublisher publisher) {
+    private static PlanExecutionRequest request(PlannerDecision decision,
+                                                List<ApplicationCapabilityDefinition> capabilities,
+                                                Set<String> confirmed,
+                                                ChatExecutionEventPublisher publisher) {
         ConversationContext conversation = conversationContext(capabilities);
         ChatExecutionContext execution = ChatExecutionContext.builder()
                 .executionId("execution-1")
@@ -386,15 +392,15 @@ class PlanExecutionServiceImplTest {
                 .build();
     }
 
-    private static ExecutionDecision plan(PlanStep... steps) {
-        return ExecutionDecision.builder()
-                .action(ExecutionDecisionAction.EXECUTE_PLAN)
-                .plan(ExecutionPlan.builder().title("测试计划").steps(List.of(steps)).build())
+    private static PlannerDecision plan(PlannerStep... steps) {
+        return PlannerDecision.builder()
+                .action(PlannerDecisionAction.EXECUTE_PLAN)
+                .plan(PlannerPlan.builder().title("测试计划").steps(List.of(steps)).build())
                 .build();
     }
 
-    private static PlanStep step(String id, String capabilityCode, List<String> dependencies) {
-        return PlanStep.builder().id(id).name(id).capabilityCode(capabilityCode)
+    private static PlannerStep step(String id, String capabilityCode, List<String> dependencies) {
+        return PlannerStep.builder().id(id).name(id).capabilityCode(capabilityCode)
                 .dependsOn(dependencies).build();
     }
 
@@ -463,11 +469,20 @@ class PlanExecutionServiceImplTest {
         }
 
         @Override
+        public void recordActivatedSkills(String runId, Long agentVersionId, List<SkillActivation> skills) {
+        }
+
+        @Override
         public ExecutionEventEntity appendEvent(ExecutionEventCommand command) {
             events.add(command);
             ExecutionEventEntity entity = new ExecutionEventEntity();
             entity.setEventType(command.getEventType());
             return entity;
+        }
+
+        @Override
+        public long lastEventSequence(String runId) {
+            return events.size();
         }
 
         @Override

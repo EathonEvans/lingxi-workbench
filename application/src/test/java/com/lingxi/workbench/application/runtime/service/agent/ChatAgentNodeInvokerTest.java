@@ -47,7 +47,8 @@ class ChatAgentNodeInvokerTest {
         when(agentChatService.chat(eq(10L), eq(20L), eq("问题"), any(ChatExecutionContext.class)))
                 .thenAnswer(invocation -> {
                     capturedContext.set(invocation.getArgument(3));
-                    return "Agent回答";
+                    return new com.lingxi.workbench.agentruntime.model.AgentRunResult.Completed(
+                            "Agent回答", com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage.empty(), 0L);
                 });
         ChatAgentNodeInvoker invoker = new ChatAgentNodeInvoker(agentChatService, registry);
 

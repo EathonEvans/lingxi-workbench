@@ -1,5 +1,6 @@
 package com.lingxi.workbench.application.runtime.model;
 
+import com.lingxi.workbench.agentruntime.planner.PlannerDecision;
 import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import lombok.Builder;
 import lombok.Getter;
@@ -12,7 +13,7 @@ import java.util.Set;
 public class PlanExecutionRequest {
 
     private String runId;
-    private ExecutionDecision initialDecision;
+    private PlannerDecision initialDecision;
     private ConversationContext conversationContext;
     private ChatExecutionContext executionContext;
     private Set<String> confirmedCapabilityCodes;

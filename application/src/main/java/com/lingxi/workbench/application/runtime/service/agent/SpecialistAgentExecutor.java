@@ -1,5 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.agent;
 
+import com.lingxi.workbench.agentruntime.model.AgentRunResult;
 import com.lingxi.workbench.application.runtime.model.AgentExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.CapabilityExecutionResult;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
@@ -26,7 +27,15 @@ public class SpecialistAgentExecutor implements AgentExecutor {
 
     @Override
     public CapabilityExecutionResult execute(AgentExecutionRequest request) {
-        String answer = agentChatService.chat(request.getAgent(), request.getQuery(), request.getExecutionContext());
+        AgentRunResult result = agentChatService.chat(
+                request.getAgent(), request.getQuery(), request.getExecutionContext());
+        if (result == null) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "Agent Runtime必须返回明确结果");
+        }
+        if (result instanceof AgentRunResult.Interrupted interrupted) {
+            return new CapabilityExecutionResult("", null, List.of(), interrupted.interruption());
+        }
+        String answer = result.content();
         if (answer == null || answer.isBlank()) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "Agent能力必须返回非空结果");
         }

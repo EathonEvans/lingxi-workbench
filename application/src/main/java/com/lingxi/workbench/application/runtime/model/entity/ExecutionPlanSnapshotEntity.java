@@ -3,8 +3,7 @@ package com.lingxi.workbench.application.runtime.model.entity;
 import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.lingxi.workbench.application.runtime.common.enums.ExecutionDecisionAction;
-import com.lingxi.workbench.application.runtime.model.ExecutionDecision;
+import com.lingxi.workbench.agentruntime.planner.PlannerDecision;
 import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
 import lombok.Data;
 import org.apache.ibatis.type.JdbcType;
@@ -19,10 +18,10 @@ public class ExecutionPlanSnapshotEntity {
     private Long id;
     private String runId;
     private Integer planNo;
-    private ExecutionDecisionAction decisionAction;
+    private String decisionAction;
     private String capabilityCode;
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
-    private ExecutionDecision decisionSnapshot;
+    private PlannerDecision decisionSnapshot;
     private String snapshotChecksum;
     @TableField(fill = FieldFill.INSERT)
     private OffsetDateTime createdAt;

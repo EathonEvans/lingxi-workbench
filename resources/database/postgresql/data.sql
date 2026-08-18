@@ -362,6 +362,42 @@ SET parent_id = EXCLUDED.parent_id,
     visible = FALSE,
     status = 'ACTIVE';
 
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, route_path, component, icon, permission_code,
+     sort_order, visible, status)
+SELECT parent.id, 'Skill管理', 'SKILL_LIST', 'MENU', '/agent/skill',
+       'skill/index', 'ri:book-marked-line', 'skill:list', 20, TRUE, 'ACTIVE'
+FROM lingxi_core.sys_menu parent
+WHERE parent.code = 'AGENT'
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    route_path = EXCLUDED.route_path,
+    component = EXCLUDED.component,
+    icon = EXCLUDED.icon,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = TRUE,
+    status = 'ACTIVE';
+
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, permission_code, sort_order, visible, status)
+SELECT parent.id, action.name, action.code, 'BUTTON', action.permission_code,
+       action.sort_order, FALSE, 'ACTIVE'
+FROM (VALUES
+    ('Skill维护', 'SKILL_MANAGE', 'skill:manage', 10),
+    ('Skill发布', 'SKILL_PUBLISH', 'skill:publish', 20),
+    ('Skill撤销', 'SKILL_REVOKE', 'skill:revoke', 30)
+) AS action(name, code, permission_code, sort_order)
+JOIN lingxi_core.sys_menu parent ON parent.code = 'SKILL_LIST'
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = FALSE,
+    status = 'ACTIVE';
+
 -- 内置 Tool 只初始化控制面定义；执行器仍由运行端按 code 注册。
 INSERT INTO lingxi_core.ai_tool
     (name, code, description, source_type, parameter_schema, status, created_by, updated_by)

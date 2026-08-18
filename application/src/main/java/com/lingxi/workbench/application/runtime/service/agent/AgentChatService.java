@@ -1,5 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.agent;
 
+import com.lingxi.workbench.agentruntime.model.AgentRunResult;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 
@@ -20,10 +21,10 @@ public interface AgentChatService {
      * @param context        本次对话共享的服务端执行上下文
      * @return Agent 最终生成的完整回答
      */
-    String chat(Long agentId, Long agentVersionId, String query, ChatExecutionContext context);
+    AgentRunResult chat(Long agentId, Long agentVersionId, String query, ChatExecutionContext context);
 
     /**
      * 使用调用方已经解析并校验的锁定快照执行，避免重复读取 AgentVersion。
      */
-    String chat(AgentRuntimeSnapshot agent, String query, ChatExecutionContext context);
+    AgentRunResult chat(AgentRuntimeSnapshot agent, String query, ChatExecutionContext context);
 }

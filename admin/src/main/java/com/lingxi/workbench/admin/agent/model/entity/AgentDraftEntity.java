@@ -31,6 +31,9 @@ public class AgentDraftEntity extends TimeEntity {
     /** 当前草稿允许暴露给模型的本地工具编码。 */
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private List<String> toolCodes;
+    /** 当前草稿选中的平台预设 Skill 主键。 */
+    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    private List<Long> skillIds;
     /** 工具调用次数和结果大小边界。 */
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private AgentToolPolicy toolPolicy;

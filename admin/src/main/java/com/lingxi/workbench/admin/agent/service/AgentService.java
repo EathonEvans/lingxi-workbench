@@ -8,6 +8,7 @@ import com.lingxi.workbench.admin.agent.model.request.UpdateAgentRequest;
 import com.lingxi.workbench.admin.agent.model.vo.AgentDetailVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentValidationResultVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentToolOptionVO;
+import com.lingxi.workbench.admin.agent.model.vo.AgentSkillOptionVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVersionDetailVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVersionVO;
@@ -29,6 +30,9 @@ public interface AgentService {
 
     /** 查询 Tool 管理中可绑定的启用工具目录。 */
     List<AgentToolOptionVO> toolOptions();
+
+    /** 查询允许领域专家绑定的平台预设 Skill。 */
+    List<AgentSkillOptionVO> skillOptions();
 
     /** 查看指定发布版本的完整定义快照。 */
     AgentVersionDetailVO versionDetail(Long id, Long versionId);

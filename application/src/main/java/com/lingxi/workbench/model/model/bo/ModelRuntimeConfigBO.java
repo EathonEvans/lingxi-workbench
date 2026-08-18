@@ -44,6 +44,8 @@ public class ModelRuntimeConfigBO {
     private Integer timeoutSeconds;
     /** 最大重试次数。 */
     private Integer maxRetries;
+    /** 模型实例是否声明 STRUCTURED_OUTPUT 能力。 */
+    private boolean structuredOutputSupported;
 
     /**
      * 覆盖默认 toString，将密钥密文和 IV 替换为 ****** 掩码，

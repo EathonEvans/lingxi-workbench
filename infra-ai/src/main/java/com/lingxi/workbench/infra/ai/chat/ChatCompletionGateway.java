@@ -1,6 +1,5 @@
 package com.lingxi.workbench.infra.ai.chat;
 
-import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatCompletionResult;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatCompletionCommand;
 import reactor.core.publisher.Mono;
@@ -20,12 +19,4 @@ public interface ChatCompletionGateway {
      * @return 完整文本与 Token 用量
      */
     Mono<ChatCompletionResult<String>> complete(ChatCompletionCommand command);
-
-    /**
-     * 以供应商通用 JSON Object 模式完成一次非流式模型调用。
-     *
-     * @param command 系统指令、历史消息、当前输入和模型运行配置
-     * @return 已解析的 JSON Object 与 Token 用量
-     */
-    Mono<ChatCompletionResult<JSONObject>> completeJson(ChatCompletionCommand command);
 }

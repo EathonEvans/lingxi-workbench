@@ -15,12 +15,13 @@ class AgentRuntimeDefinitionJsonTest {
         AgentRuntimeDefinition definition = JSON.parseObject(
                 """
                         {
-                          "schemaVersion": 7,
+                          "schemaVersion": 8,
                           "role": "SPECIALIST",
                           "chatModelInstanceId": 10,
                           "systemPromptVersionId": 20,
                           "userPromptVersionId": 21,
                           "toolCodes": ["system_current_time"],
+                          "skills": [],
                           "toolPolicy": {
                             "maxResultCharacters": 8000
                           },
@@ -43,6 +44,7 @@ class AgentRuntimeDefinitionJsonTest {
         assertEquals(20L, definition.getSystemPromptVersionId());
         assertEquals(21L, definition.getUserPromptVersionId());
         assertEquals("system_current_time", definition.resolveToolCodes().getFirst());
+        assertEquals(0, definition.resolveSkills().size());
         assertEquals(8000, definition.getToolPolicy().maxResultCharacters());
         assertEquals(30L, capability.getKnowledgeBaseId());
         assertEquals(31L, capability.getKnowledgeIndexVersionId());

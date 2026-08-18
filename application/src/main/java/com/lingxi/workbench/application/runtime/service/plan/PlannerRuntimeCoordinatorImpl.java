@@ -1,16 +1,15 @@
 package com.lingxi.workbench.application.runtime.service.plan;
 
-import com.lingxi.workbench.application.runtime.common.enums.ExecutionDecisionAction;
+import com.lingxi.workbench.agentruntime.planner.PlannerClarification;
+import com.lingxi.workbench.agentruntime.planner.PlannerDecision;
+import com.lingxi.workbench.agentruntime.planner.PlannerDecisionAction;
+import com.lingxi.workbench.agentruntime.planner.PlannerInteractionType;
+import com.lingxi.workbench.agentruntime.planner.PlannerRunResult;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
-import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
-import com.lingxi.workbench.application.runtime.model.ExecutionDecision;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
-import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.model.PlanExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.PlanExecutionResult;
-import com.lingxi.workbench.application.runtime.model.PlannerClarification;
 import com.lingxi.workbench.application.runtime.model.PlannerRequest;
-import com.lingxi.workbench.application.runtime.model.PlannerResult;
 import com.lingxi.workbench.application.runtime.model.PlannerRuntimeRequest;
 import com.lingxi.workbench.application.runtime.service.execution.ExecutionFailureClassifier;
 import com.lingxi.workbench.application.runtime.service.execution.ExecutionPersistenceService;
@@ -56,12 +55,11 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
     @Override
     public PlanExecutionResult execute(PlannerRuntimeRequest request) {
         // 顶级运行已在 Application 调度入口统一创建，Planner 只追加计划与步骤事实。
-        publishPlanning(request.getRunId(), request.getExecutionContext());
         // 上下文工作预算已耗尽：跳过 Planner 决策，直接以澄清会话结束本轮，避免预算不足时继续消耗模型调用。
         if (request.getExecutionContext().shouldFinalize()) {
             return planExecutionService.execute(planRequest(request, budgetBoundaryClarification()));
         }
-        PlannerResult plannerResult;
+        PlannerRunResult plannerResult;
         // 调用 Planner 生成初始决策；取消与运行时异常分开处理，保证用户取消语义不被吞掉。
         try {
             plannerResult = plannerService.decide(PlannerRequest.builder()
@@ -94,7 +92,7 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
      * @param decision 初始执行决策（Planner 决策或预算边界澄清）
      * @return 计划执行请求
      */
-    private static PlanExecutionRequest planRequest(PlannerRuntimeRequest request, ExecutionDecision decision) {
+    private static PlanExecutionRequest planRequest(PlannerRuntimeRequest request, PlannerDecision decision) {
         return PlanExecutionRequest.builder()
                 .runId(request.getRunId())
                 .initialDecision(decision)
@@ -106,13 +104,13 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
     }
 
     /** 上下文准备已耗尽工作预算时不再调用Planner，直接建立可恢复的澄清会话。 */
-    private static ExecutionDecision budgetBoundaryClarification() {
-        return ExecutionDecision.builder()
-                .action(ExecutionDecisionAction.CLARIFY)
+    private static PlannerDecision budgetBoundaryClarification() {
+        return PlannerDecision.builder()
+                .action(PlannerDecisionAction.CLARIFY)
                 .clarification(PlannerClarification.builder()
                         .question("本轮上下文处理已达到预算边界，请缩小问题范围或开启新对话后继续。")
                         .options(List.of())
-                        .interactionType(InteractionSessionType.CLARIFICATION)
+                        .interactionType(PlannerInteractionType.CLARIFICATION)
                         .capabilityCodes(List.of())
                         .build())
                 .build();
@@ -148,23 +146,4 @@ public class PlannerRuntimeCoordinatorImpl implements PlannerRuntimeCoordinator 
         }
     }
 
-    /**
-     * 发布“规划中”事件：同时写入持久化事件与实时推送事件。
-     *
-     * @param runId            运行标识
-     * @param executionContext 执行上下文，提供事件发布器
-     */
-    private void publishPlanning(String runId, ChatExecutionContext executionContext) {
-        // 规划事件双写：先持久化落库，再实时推送给前端时间线。
-        persistenceService.appendEvent(ExecutionEventCommand.builder()
-                .runId(runId)
-                .eventType(ExecutionEventType.PLANNING)
-                .message("正在规划任务")
-                .build());
-        executionContext.getEventPublisher().publishExecution(ChatExecutionTimelineEventBO.builder()
-                .runId(runId)
-                .eventType(ExecutionEventType.PLANNING)
-                .message("正在规划任务")
-                .build());
-    }
 }

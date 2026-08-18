@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.plan;
 
-import com.lingxi.workbench.application.runtime.common.enums.ExecutionDecisionAction;
+import com.lingxi.workbench.agentruntime.planner.PlannerDecisionAction;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
@@ -65,10 +65,10 @@ class PlannerRuntimeCoordinatorImplTest {
         assertThrows(BusinessException.class, () -> coordinator.execute(request));
 
         ArgumentCaptor<ExecutionEventCommand> eventCaptor = ArgumentCaptor.forClass(ExecutionEventCommand.class);
-        verify(persistenceService, org.mockito.Mockito.times(2)).appendEvent(eventCaptor.capture());
-        assertEquals(List.of(ExecutionEventType.PLANNING, ExecutionEventType.RUN_FAILED),
+        verify(persistenceService).appendEvent(eventCaptor.capture());
+        assertEquals(List.of(ExecutionEventType.RUN_FAILED),
                 eventCaptor.getAllValues().stream().map(ExecutionEventCommand::getEventType).toList());
-        assertEquals(List.of(ExecutionEventType.PLANNING, ExecutionEventType.RUN_FAILED),
+        assertEquals(List.of(ExecutionEventType.RUN_FAILED),
                 publisher.events.stream().map(ChatExecutionTimelineEventBO::getEventType).toList());
         assertEquals("Planner输出无效", publisher.events.getLast().getMessage());
         verify(planExecutionService, never()).execute(any());
@@ -101,7 +101,7 @@ class PlannerRuntimeCoordinatorImplTest {
         assertEquals("请缩小问题范围", result.content());
         ArgumentCaptor<PlanExecutionRequest> requestCaptor = ArgumentCaptor.forClass(PlanExecutionRequest.class);
         verify(planExecutionService).execute(requestCaptor.capture());
-        assertEquals(ExecutionDecisionAction.CLARIFY, requestCaptor.getValue().getInitialDecision().getAction());
+        assertEquals(PlannerDecisionAction.CLARIFY, requestCaptor.getValue().getInitialDecision().getAction());
         verify(plannerService, never()).decide(any());
     }
 

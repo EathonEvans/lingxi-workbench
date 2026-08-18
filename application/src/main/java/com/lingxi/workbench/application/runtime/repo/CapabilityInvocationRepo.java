@@ -49,6 +49,7 @@ public class CapabilityInvocationRepo {
             update.setStartedAt(OffsetDateTime.now());
         }
         if (target == CapabilityInvocationStatus.SUCCEEDED || target == CapabilityInvocationStatus.FAILED
+                || target == CapabilityInvocationStatus.RECONCILIATION_PENDING
                 || target == CapabilityInvocationStatus.REJECTED || target == CapabilityInvocationStatus.CANCELLED
                 || target == CapabilityInvocationStatus.EXPIRED) {
             update.setFinishedAt(OffsetDateTime.now());

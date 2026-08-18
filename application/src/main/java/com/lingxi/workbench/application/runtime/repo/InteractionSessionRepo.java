@@ -87,9 +87,10 @@ public class InteractionSessionRepo {
                 .last("LIMIT 1")));
     }
 
-    /** 查询已过期但尚未决策的交互，供运维收敛任务处理。 */
-    public List<InteractionSessionEntity> findExpiredPending(OffsetDateTime now, int limit) {
+    /** 按交互类型查询已过期但尚未决策的会话，避免不同生命周期互相越界处理。 */
+    public List<InteractionSessionEntity> findExpiredPending(InteractionSessionType type, OffsetDateTime now, int limit) {
         return mapper.selectList(Wrappers.<InteractionSessionEntity>lambdaQuery()
+                .eq(InteractionSessionEntity::getInteractionType, type)
                 .eq(InteractionSessionEntity::getStatus, InteractionSessionStatus.PENDING)
                 .le(InteractionSessionEntity::getExpiresAt, now)
                 .orderByAsc(InteractionSessionEntity::getExpiresAt)

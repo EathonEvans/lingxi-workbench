@@ -2,6 +2,7 @@ package com.lingxi.workbench.admin.agent.model.config;
 
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
+import com.lingxi.workbench.infra.ai.skill.model.AgentSkillBindingSnapshot;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -27,6 +28,8 @@ public class AgentDefinition {
     private List<String> toolCodes;
     /** 工具调用运行边界。 */
     private AgentToolPolicy toolPolicy;
+    /** 发布时锁定的 SkillVersion 及其有效 Tool 权限交集。 */
+    private List<AgentSkillBindingSnapshot> skills;
     /** Schema V4 ReAct知识搜索能力；资源与索引版本均在发布时冻结。 */
     private KnowledgeSearchCapabilitySnapshot knowledgeSearch;
     private GenerationPolicy generationPolicy;

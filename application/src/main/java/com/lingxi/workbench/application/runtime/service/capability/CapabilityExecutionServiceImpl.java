@@ -108,7 +108,8 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
             case TOOL -> executeTool(request, timeout);
         };
         // 结果 Token 预算校验：超出 Application 发布快照预算即拒绝该结果
-        if (tokenCountEstimator.estimate(result.content()) > request.getCapability().getResultTokenBudget()) {
+        if (!result.isInterrupted()
+                && tokenCountEstimator.estimate(result.content()) > request.getCapability().getResultTokenBudget()) {
             throw invalid("能力结果超过Application发布快照Token预算");
         }
         return result;

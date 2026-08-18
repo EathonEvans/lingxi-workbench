@@ -34,8 +34,8 @@ import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
-import com.lingxi.workbench.infra.ai.tool.HumanInteractionRequiredException;
-import com.lingxi.workbench.agentexecute.loop.AgentLoopLimitException;
+import com.lingxi.workbench.agentruntime.checkpoint.RuntimeInterruption;
+import com.lingxi.workbench.agentruntime.model.AgentRuntimeLimitException;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 import com.lingxi.workbench.observability.service.AiStageObserver;
@@ -274,8 +274,8 @@ class ChatStreamServiceImplTest {
         doAnswer(invocation -> {
             gate.markStarted();
             gate.awaitRelease();
-            throw new RuntimeException(new AgentLoopLimitException(
-                    "AGENT_TOOL_CALL_LIMIT", "工具调用次数已达到上限，现有信息不足以继续处理", "测试运行边界"));
+            throw new RuntimeException(new AgentRuntimeLimitException(
+                    "AGENT_TOOL_CALL_LIMIT", "工具调用次数已达到上限，现有信息不足以继续处理"));
         }).when(applicationChatExecutionService).execute(any(ApplicationChatExecutionRequest.class));
 
         service.start(createChatRequest(), LOGIN_USER);
@@ -324,7 +324,15 @@ class ChatStreamServiceImplTest {
         doAnswer(invocation -> {
             gate.markStarted();
             gate.awaitRelease();
-            throw new RuntimeException(new HumanInteractionRequiredException(91L));
+            return ApplicationChatResult.interrupted(TokenUsage.empty(), RuntimeInterruption.builder()
+                    .interactionId(91L)
+                    .title("确认执行“发送邮件”")
+                    .summary("需要确认")
+                    .riskLevel("HIGH")
+                    .resourceScope("邮箱")
+                    .fingerprint("fingerprint")
+                    .revision(0)
+                    .build());
         }).when(applicationChatExecutionService).execute(any(ApplicationChatExecutionRequest.class));
 
         service.start(createChatRequest(), LOGIN_USER);
@@ -526,7 +534,8 @@ class ChatStreamServiceImplTest {
             gate.awaitRelease();
             ChatExecutionEventPublisher eventPublisher = request.getEventPublisher();
             eventPublisher.publishText(new ChatStreamChunk(answer, TokenUsage.of(12, 4, 16)));
-            return new ApplicationChatResult(answer, TokenUsage.of(12, 4, 16), List.of(), 99L);
+            return ApplicationChatResult.completed(
+                    answer, TokenUsage.of(12, 4, 16), List.of(), 99L);
         }).when(applicationChatExecutionService).execute(any(ApplicationChatExecutionRequest.class));
         return gate;
     }

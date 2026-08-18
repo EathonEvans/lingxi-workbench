@@ -1,5 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.interaction;
 
+import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
 import com.lingxi.workbench.application.runtime.model.entity.InteractionSessionEntity;
 import com.lingxi.workbench.application.runtime.repo.InteractionSessionRepo;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +23,8 @@ public class HitlExpiryReconciler {
 
     @Scheduled(fixedDelayString = "${lingxi.hitl.expiry-scan-delay-ms:60000}")
     public void reconcile() {
-        for (InteractionSessionEntity interaction : interactionRepo.findExpiredPending(OffsetDateTime.now(), BATCH_SIZE)) {
+        for (InteractionSessionEntity interaction : interactionRepo.findExpiredPending(
+                InteractionSessionType.ACTION_APPROVAL, OffsetDateTime.now(), BATCH_SIZE)) {
             try {
                 decisionTxService.expire(interaction);
             } catch (RuntimeException exception) {

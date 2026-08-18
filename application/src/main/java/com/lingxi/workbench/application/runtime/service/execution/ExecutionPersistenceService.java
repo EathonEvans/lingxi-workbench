@@ -4,6 +4,7 @@ import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionPlanSnapshotCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionRunStartCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionStepAttemptCommand;
+import com.lingxi.workbench.agentruntime.model.SkillActivation;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionEventEntity;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionPlanSnapshotEntity;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionStepAttemptEntity;
@@ -24,7 +25,13 @@ public interface ExecutionPersistenceService {
 
     void appendStepAttempt(ExecutionStepAttemptCommand command);
 
+    /** 记录一次 Agent 调用实际激活的 SkillVersion。 */
+    void recordActivatedSkills(String runId, Long agentVersionId, List<SkillActivation> skills);
+
     ExecutionEventEntity appendEvent(ExecutionEventCommand command);
+
+    /** 返回当前 Run 已持久化的最后事件序号；尚无事件时返回0。 */
+    long lastEventSequence(String runId);
 
     List<ExecutionPlanSnapshotEntity> findPlans(String runId);
 

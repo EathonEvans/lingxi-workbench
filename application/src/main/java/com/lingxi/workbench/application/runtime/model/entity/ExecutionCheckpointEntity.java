@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionCheckpointStatus;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionCheckpointType;
-import com.lingxi.workbench.application.runtime.model.ExecutionCheckpointPayload;
+import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpoint;
 import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
 import lombok.Data;
 import org.apache.ibatis.type.JdbcType;
@@ -23,7 +23,7 @@ public class ExecutionCheckpointEntity {
     private ExecutionCheckpointStatus status;
     private Integer checkpointVersion;
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
-    private ExecutionCheckpointPayload payload;
+    private RuntimeCheckpoint payload;
     private String checksum;
     private OffsetDateTime expiresAt;
     private OffsetDateTime consumedAt;

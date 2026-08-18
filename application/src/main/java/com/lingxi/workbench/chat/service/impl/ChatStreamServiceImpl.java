@@ -36,7 +36,8 @@ import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.auth.model.bo.UserBO;
 import com.lingxi.workbench.auth.repo.UserRepo;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
-import com.lingxi.workbench.infra.ai.tool.HumanInteractionRequiredException;
+import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpoint;
+import com.lingxi.workbench.agentruntime.checkpoint.RuntimeInterruption;
 import com.lingxi.workbench.observability.common.enums.AiObservationStage;
 import com.lingxi.workbench.observability.service.AiStageObserver;
 import com.lingxi.workbench.observability.service.AiTraceRun;
@@ -247,6 +248,14 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         }
         ExecutionCheckpointEntity checkpoint = checkpointRepo.findById(interaction.getCheckpointId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "HITL检查点不存在"));
+        if (checkpoint.getStatus() != com.lingxi.workbench.application.runtime.common.enums.ExecutionCheckpointStatus.ACTIVE
+                || checkpoint.getCheckpointVersion() == null
+                || checkpoint.getCheckpointVersion() != RuntimeCheckpoint.CURRENT_VERSION
+                || checkpoint.getPayload() == null
+                || !Objects.equals(checkpoint.getChecksum(), interaction.getApprovalFingerprint())
+                || !Objects.equals(checkpoint.getPayload().getFingerprint(), interaction.getApprovalFingerprint())) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "HITL检查点版本、状态或指纹不合法");
+        }
         ConversationMessageEntity assistant = messageRepo.findById(interaction.getAssistantMessageId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "Assistant消息不存在"));
         if (assistant.getStatus() == MessageStatus.COMPLETED || assistant.getStatus() == MessageStatus.CANCELLED
@@ -279,18 +288,15 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 .initialSequence(generationEventRepo.lastSequence(assistant.getId()))
                 .build();
         runningTasks.put(assistant.getId(), task);
-        task.publishInteractionResolved(toInteractionEvent(interaction));
+        RuntimeCheckpoint runtimeCheckpoint = checkpoint.getPayload();
         ApplicationChatExecutionRequest request = ApplicationChatExecutionRequest.builder()
                 .application(application)
-                .query(checkpoint.getPayload().getQuery())
+                .query(runtimeCheckpoint.getContext().getQuery())
                 .loginUser(loginUser)
                 .turn(turn)
                 .eventPublisher(task)
                 .resumeContext(ExecutionResumeContext.builder()
-                        .runId(interaction.getRunId())
-                        .capabilityCode(checkpoint.getPayload().getCapabilityCode())
-                        .agentId(checkpoint.getPayload().getAgentId())
-                        .agentVersionId(checkpoint.getPayload().getAgentVersionId())
+                        .checkpoint(runtimeCheckpoint)
                         .interactionId(interaction.getId())
                         .fingerprint(interaction.getApprovalFingerprint())
                         .build())
@@ -300,34 +306,6 @@ public class ChatStreamServiceImpl implements ChatStreamService {
 
     private static LoginUser toLoginUser(UserBO user) {
         return new LoginUser(user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl());
-    }
-
-    private static ChatInteractionEventBO toInteractionEvent(InteractionSessionEntity interaction) {
-        return ChatInteractionEventBO.builder()
-                .interactionId(String.valueOf(interaction.getId()))
-                .interactionType(interaction.getInteractionType().getCode())
-                .title(interaction.getContext().getTitle())
-                .summary("审批已通过，正在继续执行")
-                .riskLevel(interaction.getContext().getRiskLevel())
-                .resourceScope(interaction.getContext().getResourceScope())
-                .fingerprint(interaction.getApprovalFingerprint())
-                .revision(interaction.getRevision())
-                .expiresAt(interaction.getExpiresAt())
-                .build();
-    }
-
-    private static ChatInteractionEventBO toRequiredInteractionEvent(InteractionSessionEntity interaction) {
-        return ChatInteractionEventBO.builder()
-                .interactionId(String.valueOf(interaction.getId()))
-                .interactionType(interaction.getInteractionType().getCode())
-                .title(interaction.getContext().getTitle())
-                .summary(interaction.getContext().getSummary())
-                .riskLevel(interaction.getContext().getRiskLevel())
-                .resourceScope(interaction.getContext().getResourceScope())
-                .fingerprint(interaction.getApprovalFingerprint())
-                .revision(interaction.getRevision())
-                .expiresAt(interaction.getExpiresAt())
-                .build();
     }
 
     @Override
@@ -398,6 +376,10 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      * @param result 目标执行结果（最终回答、Token 用量和模型实例）
      */
     private void completeApplicationTask(RunningGenerationTask task, ApplicationChatResult result) {
+        if (result.isInterrupted()) {
+            pauseTaskForHuman(task, result.getInterruption());
+            return;
+        }
         task.reconcileFinalResult(result.answer(), result.tokenUsage());
         completeTask(task, result.modelInstanceId());
     }
@@ -445,12 +427,6 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      * 模型流异常结束：保留已生成的部分回答，记录统一错误信息并发布失败事件。
      */
     private void failTask(RunningGenerationTask task, Throwable exception) {
-        Optional<HumanInteractionRequiredException> interactionRequired = findCause(
-                exception, HumanInteractionRequiredException.class);
-        if (interactionRequired.isPresent()) {
-            pauseTaskForHuman(task, interactionRequired.get().interactionId());
-            return;
-        }
         if (!task.beginTerminal()) {
             return;
         }
@@ -472,22 +448,33 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     }
 
     /** HITL 门禁已持久化检查点后释放模型线程，保留同一 Assistant 消息等待异步恢复。 */
-    private void pauseTaskForHuman(RunningGenerationTask task, Long interactionId) {
+    private void pauseTaskForHuman(RunningGenerationTask task, RuntimeInterruption interruption) {
         try {
             conversationService.waitForHuman(task.id(), task.answer(), task.tokenUsage());
-            InteractionSessionEntity interaction = interactionRepo.findById(interactionId)
-                    .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "HITL交互不存在"));
-            if (interaction.getStatus() != InteractionSessionStatus.PENDING
-                    || !Objects.equals(interaction.getAssistantMessageId(), task.id())) {
-                throw new BusinessException(HttpStatusEnum.CONFLICT, "HITL交互与当前消息不匹配");
+            if (interruption == null || interruption.getInteractionId() == null) {
+                throw new BusinessException(HttpStatusEnum.CONFLICT, "Runtime人工中断事实不完整");
             }
-            task.publishInteractionRequired(toRequiredInteractionEvent(interaction));
+            task.publishInteractionRequired(toInteractionEvent(interruption));
             task.pauseForHuman();
             task.traceRun().cancel("WAITING_HUMAN");
             log.info("模型任务等待人工决策，assistantMessageId={}", task.id());
         } finally {
             runningTasks.remove(task.id(), task);
         }
+    }
+
+    private static ChatInteractionEventBO toInteractionEvent(RuntimeInterruption interruption) {
+        return ChatInteractionEventBO.builder()
+                .interactionId(String.valueOf(interruption.getInteractionId()))
+                .interactionType("ACTION_APPROVAL")
+                .title(interruption.getTitle())
+                .summary(interruption.getSummary())
+                .riskLevel(interruption.getRiskLevel())
+                .resourceScope(interruption.getResourceScope())
+                .fingerprint(interruption.getFingerprint())
+                .revision(interruption.getRevision())
+                .expiresAt(interruption.getExpiresAt())
+                .build();
     }
 
     /**

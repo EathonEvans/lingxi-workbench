@@ -9,6 +9,7 @@ import com.lingxi.workbench.admin.agent.model.request.UpdateAgentRequest;
 import com.lingxi.workbench.admin.agent.model.vo.AgentDetailVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentValidationResultVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentToolOptionVO;
+import com.lingxi.workbench.admin.agent.model.vo.AgentSkillOptionVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVersionDetailVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVersionVO;
@@ -70,6 +71,13 @@ public class AgentController {
     @SaCheckPermission("agent:list")
     public ApiResponse<List<AgentToolOptionVO>> toolOptions() {
         return ApiResponse.success(agentService.toolOptions());
+    }
+
+    /** 查询允许领域专家绑定且可立即执行的平台预设 Skill。 */
+    @GetMapping("/skill-options")
+    @SaCheckPermission("agent:list")
+    public ApiResponse<List<AgentSkillOptionVO>> skillOptions() {
+        return ApiResponse.success(agentService.skillOptions());
     }
 
     /**

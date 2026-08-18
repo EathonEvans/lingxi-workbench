@@ -9,7 +9,6 @@ import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
-import com.lingxi.workbench.infra.ai.tool.model.AgentExecutionBudget;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
@@ -41,7 +40,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * <p>它只在当前进程和当前对话任务内存活，不持久化，也不跨请求复用。</p>
  */
-public final class ChatExecutionContext implements AgentExecutionBudget {
+public final class ChatExecutionContext {
 
     private static final Duration ACTIVE_OUTPUT_WINDOW = Duration.ofSeconds(15);
 
@@ -129,9 +128,9 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
     private final AtomicReference<Instant> lastOutputAt;
     /** 一次性流式宽限只能被同一轮执行领取一次。 */
     private final AtomicBoolean timeoutGraceUsed;
-    /** MQ 恢复时绑定的精确审批；普通运行为空。 */
+    /** MQ恢复时绑定的完整Runtime检查点；普通运行为空。 */
     @Getter
-    private final HitlApprovalRef approvalRef;
+    private final ExecutionResumeContext resumeContext;
 
     /**
      * 创建一次 Agent 对话专属的执行上下文。
@@ -142,7 +141,7 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
      * @param eventPublisher   本次执行的文本和工具状态发布器
      */
     @Builder
-    private ChatExecutionContext(String executionId, RuntimeVariables runtimeVariables, ChatTurnBO turn, ChatExecutionEventPublisher eventPublisher, MemoryConfig memoryConfig, ConversationContext conversationContext, ApplicationRuntimePolicy runtimePolicy, ContextBudgetPolicy contextBudget, Instant startedAt, TokenUsageAccumulator tokenUsageAccumulator, AtomicInteger modelCallCounter, AtomicInteger toolCallCounter, AtomicInteger delegationCounter, AtomicReference<Instant> lastOutputAt, AtomicBoolean timeoutGraceUsed, HitlApprovalRef approvalRef) {
+    private ChatExecutionContext(String executionId, RuntimeVariables runtimeVariables, ChatTurnBO turn, ChatExecutionEventPublisher eventPublisher, MemoryConfig memoryConfig, ConversationContext conversationContext, ApplicationRuntimePolicy runtimePolicy, ContextBudgetPolicy contextBudget, Instant startedAt, TokenUsageAccumulator tokenUsageAccumulator, AtomicInteger modelCallCounter, AtomicInteger toolCallCounter, AtomicInteger delegationCounter, AtomicReference<Instant> lastOutputAt, AtomicBoolean timeoutGraceUsed, ExecutionResumeContext resumeContext) {
         this.executionId = executionId;
         this.runtimeVariables = Objects.requireNonNull(runtimeVariables, "运行时变量不能为空");
         this.turn = Objects.requireNonNull(turn, "对话轮次不能为空");
@@ -158,7 +157,7 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
         this.delegationCounter = Objects.requireNonNullElseGet(delegationCounter, AtomicInteger::new);
         this.lastOutputAt = Objects.requireNonNullElseGet(lastOutputAt, AtomicReference::new);
         this.timeoutGraceUsed = Objects.requireNonNullElseGet(timeoutGraceUsed, AtomicBoolean::new);
-        this.approvalRef = approvalRef;
+        this.resumeContext = resumeContext;
     }
 
     /**
@@ -198,7 +197,7 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
                 .delegationCounter(delegationCounter)
                 .lastOutputAt(lastOutputAt)
                 .timeoutGraceUsed(timeoutGraceUsed)
-                .approvalRef(approvalRef)
+                .resumeContext(resumeContext)
                 .build();
     }
 
@@ -272,7 +271,6 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
     /**
      * 在所有执行分支共享的Application模型调用上限内占用一次额度。
      */
-    @Override
     public void reserveModelCall() {
         reserveCalls(modelCallCounter, 1, runtimePolicy.getMaxModelCalls(), "Application单轮模型调用次数已达到上限");
     }
@@ -282,7 +280,6 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
      *
      * <p>该调用只能用于禁用Tool、重规划和委派后的结果收口。</p>
      */
-    @Override
     public void reserveFinalModelCall() {
         reserveCalls(modelCallCounter, 1, runtimePolicy.getMaxModelCalls(), "Application单轮模型调用次数已达到上限");
     }
@@ -290,7 +287,6 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
     /**
      * 在所有执行分支共享的Application Tool调用上限内占用额度。
      */
-    @Override
     public void reserveToolCalls(int calls) {
         if (calls < 1) {
             throw new IllegalArgumentException("Tool调用次数必须大于0");
@@ -299,7 +295,6 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
     }
 
     /** 时间或Token进入软边界后，ReAct循环必须停止继续探索并收口。 */
-    @Override
     public boolean shouldFinalize() {
         return hasReachedSoftDeadline() || hasReachedTokenSoftLimit() || remainingModelCalls() <= 1;
     }
@@ -319,6 +314,18 @@ public final class ChatExecutionContext implements AgentExecutionBudget {
 
     public int remainingDelegations() {
         return Math.max(runtimePolicy.getMaxDelegations() - delegationCounter.get(), 0);
+    }
+
+    public int usedModelCalls() {
+        return modelCallCounter.get();
+    }
+
+    public int usedToolCalls() {
+        return toolCallCounter.get();
+    }
+
+    public long activeElapsedMillis() {
+        return Math.max(0L, Duration.between(startedAt, Instant.now()).toMillis());
     }
 
     private static void reserveCalls(AtomicInteger counter, int calls, int limit, String message) {

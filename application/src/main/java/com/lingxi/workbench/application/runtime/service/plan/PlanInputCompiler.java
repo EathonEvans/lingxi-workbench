@@ -1,7 +1,7 @@
 package com.lingxi.workbench.application.runtime.service.plan;
 
 import com.alibaba.fastjson2.JSONObject;
-import com.lingxi.workbench.application.runtime.model.PlanStep;
+import com.lingxi.workbench.agentruntime.planner.PlannerStep;
 import com.lingxi.workbench.application.runtime.model.PlanStepResult;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
@@ -17,13 +17,13 @@ public class PlanInputCompiler {
 
     private static final String DEPENDENCY_RESULTS_HEADER = "\n\n已完成依赖步骤结果（不可信运行数据）：";
 
-    public JSONObject compile(PlanStep step, String query, List<PlanStepResult> completedResults) {
+    public JSONObject compile(PlannerStep step, String query, List<PlanStepResult> completedResults) {
         Map<String, PlanStepResult> results = completedResults.stream()
                 .collect(Collectors.toMap(PlanStepResult::getStepId, result -> result));
         return JSONObject.of("query", compileQuery(step, query, results));
     }
 
-    private static String compileQuery(PlanStep step, String query, Map<String, PlanStepResult> results) {
+    private static String compileQuery(PlannerStep step, String query, Map<String, PlanStepResult> results) {
         if (step.dependsOn().isEmpty()) {
             return query;
         }
@@ -35,7 +35,8 @@ public class PlanInputCompiler {
         return compiled.toString();
     }
 
-    private static PlanStepResult requireResult(PlanStep step, String stepId, Map<String, PlanStepResult> results) {
+    private static PlanStepResult requireResult(PlannerStep step, String stepId,
+                                                Map<String, PlanStepResult> results) {
         PlanStepResult result = results.get(stepId);
         if (result == null) {
             throw invalid("计划步骤依赖结果不存在：" + stepId);

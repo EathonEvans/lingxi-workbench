@@ -52,6 +52,7 @@ public class AgentDraftValidator {
     private final ToolService toolService;
     private final KnowledgeIndexVersionService knowledgeIndexVersionService;
     private final DomainRepo domainRepo;
+    private final AgentSkillBindingResolver skillBindingResolver;
 
     /** 对 Agent 及其草稿执行发布前完整校验：状态、模型、Prompt、知识库、策略跨字段限制。 */
     public AgentValidationResultVO validate(AgentEntity agent, AgentDraftEntity draft, AgentDraftKnowledgeEntity knowledgeBinding) {
@@ -72,6 +73,7 @@ public class AgentDraftValidator {
             add(issues, "CHAT_MODEL_STREAMING_REQUIRED", "回答模型必须支持流式输出");
         }
         validateTools(role, draft, knowledgeBinding, chatModel, issues);
+        validateSkills(role, draft, issues);
         validatePrompt(draft.getSystemPromptVersionId(), PromptRole.SYSTEM, RuntimeVariableChannel.SYSTEM_PROMPT, "SYSTEM_PROMPT", role, issues);
         if (role == AgentRole.SUPERVISOR) {
             if (Objects.nonNull(draft.getUserPromptVersionId())) {
@@ -83,6 +85,22 @@ public class AgentDraftValidator {
 
         validateKnowledge(role, knowledgeBinding, issues);
         return new AgentValidationResultVO(issues.isEmpty(), issues);
+    }
+
+    /** 主Agent不执行领域 Skill；领域专家绑定项必须能在发布时锁定为可执行版本。 */
+    private void validateSkills(AgentRole role, AgentDraftEntity draft, List<AgentValidationIssueVO> issues) {
+        List<Long> skillIds = Objects.requireNonNullElse(draft.getSkillIds(), List.of());
+        if (role == AgentRole.SUPERVISOR) {
+            if (!skillIds.isEmpty()) {
+                add(issues, "SKILL_UNSUPPORTED", "主Agent只负责规划和委派，不能绑定业务Skill");
+            }
+            return;
+        }
+        try {
+            skillBindingResolver.resolve(skillIds, draft.getToolCodes());
+        } catch (BusinessException exception) {
+            add(issues, "SKILL_UNAVAILABLE", exception.getMessage());
+        }
     }
 
     private void validatePolicies(AgentRole role, AgentDraftEntity draft, AgentDraftKnowledgeEntity knowledgeBinding, List<AgentValidationIssueVO> issues) {

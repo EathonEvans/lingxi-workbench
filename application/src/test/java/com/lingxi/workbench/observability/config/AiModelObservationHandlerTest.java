@@ -10,11 +10,20 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AiModelObservationHandlerTest {
+
+    @Test
+    void shouldOnlyPersistModelCallObservation() {
+        AiModelObservationHandler handler = new AiModelObservationHandler(mock(AiObservationEventWriter.class));
+
+        assertFalse(handler.supportsContext(context("spring.ai.chat.client")));
+        assertFalse(handler.supportsContext(context("spring.ai.advisor")));
+    }
 
     @Test
     void shouldPersistSafeModelMetadataAndTraceIds() {
@@ -48,5 +57,11 @@ class AiModelObservationHandlerTest {
         assertEquals("deepseek-chat", event.getModelCode());
         assertEquals(10, event.getPromptTokens());
         assertEquals(4, event.getCompletionTokens());
+    }
+
+    private static Observation.Context context(String name) {
+        Observation.Context context = new Observation.Context();
+        context.setName(name);
+        return context;
     }
 }

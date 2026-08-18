@@ -3,10 +3,11 @@ package com.lingxi.workbench.application.runtime.service.interaction;
 import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionStatus;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
+import com.lingxi.workbench.agentruntime.planner.PlannerInteractionType;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.InteractionSessionContext;
 import com.lingxi.workbench.application.runtime.model.InteractionSessionOpenCommand;
-import com.lingxi.workbench.application.runtime.model.PlannerClarification;
+import com.lingxi.workbench.agentruntime.planner.PlannerClarification;
 import com.lingxi.workbench.application.runtime.model.InteractionResolution;
 import com.lingxi.workbench.application.runtime.model.entity.InteractionSessionEntity;
 import com.lingxi.workbench.application.runtime.repo.InteractionSessionRepo;
@@ -94,7 +95,7 @@ class InteractionSessionServiceImplTest {
         PlannerClarification clarification = PlannerClarification.builder()
                 .question("确认执行退款操作吗？")
                 .options(List.of("确认执行", "取消"))
-                .interactionType(InteractionSessionType.CLARIFICATION)
+                .interactionType(PlannerInteractionType.CLARIFICATION)
                 .capabilityCodes(List.of())
                 .build();
         return InteractionSessionOpenCommand.builder()

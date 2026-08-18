@@ -207,6 +207,7 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
     }
 
     /** 发布人工决策已完成事件，随后同一运行继续输出进度。 */
+    @Override
     public synchronized void publishInteractionResolved(ChatInteractionEventBO event) {
         if (terminal) {
             return;

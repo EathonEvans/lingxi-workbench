@@ -67,6 +67,8 @@ public class ChatModelRuntimeConfig {
      * 模型请求最大重试次数。
      */
     private Integer maxRetries;
+    /** 模型实例已声明支持供应商原生 JSON Schema 结构化输出。 */
+    private boolean structuredOutputSupported;
 
     /**
      * 日志输出时强制隐藏 API Key，防止调用参数被整体打印后泄漏密钥。

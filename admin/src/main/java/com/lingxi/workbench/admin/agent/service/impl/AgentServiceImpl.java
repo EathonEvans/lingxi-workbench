@@ -15,6 +15,7 @@ import com.lingxi.workbench.admin.agent.model.entity.AgentDraftKnowledgeEntity;
 import com.lingxi.workbench.admin.agent.model.entity.AgentEntity;
 import com.lingxi.workbench.admin.agent.model.entity.AgentVersionEntity;
 import com.lingxi.workbench.admin.agent.model.entity.AgentVersionKnowledgeEntity;
+import com.lingxi.workbench.admin.agent.model.entity.AgentVersionSkillEntity;
 import com.lingxi.workbench.admin.agent.model.request.AgentPageQuery;
 import com.lingxi.workbench.admin.agent.model.request.CreateAgentRequest;
 import com.lingxi.workbench.admin.agent.model.request.PublishAgentRequest;
@@ -24,6 +25,7 @@ import com.lingxi.workbench.admin.agent.model.vo.AgentDetailVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentValidationIssueVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentValidationResultVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentToolOptionVO;
+import com.lingxi.workbench.admin.agent.model.vo.AgentSkillOptionVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVersionDetailVO;
 import com.lingxi.workbench.admin.agent.model.vo.AgentVersionVO;
@@ -32,7 +34,9 @@ import com.lingxi.workbench.admin.agent.repo.AgentDraftRepo;
 import com.lingxi.workbench.admin.agent.repo.AgentRepo;
 import com.lingxi.workbench.admin.agent.repo.AgentVersionKnowledgeRepo;
 import com.lingxi.workbench.admin.agent.repo.AgentVersionRepo;
+import com.lingxi.workbench.admin.agent.repo.AgentVersionSkillRepo;
 import com.lingxi.workbench.admin.agent.service.AgentDraftValidator;
+import com.lingxi.workbench.admin.agent.service.AgentSkillBindingResolver;
 import com.lingxi.workbench.admin.agent.service.AgentService;
 import com.lingxi.workbench.admin.agent.service.AgentSnapshotChecksum;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
@@ -47,6 +51,7 @@ import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageResult;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.infra.ai.skill.model.AgentSkillBindingSnapshot;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -72,9 +77,11 @@ public class AgentServiceImpl implements AgentService {
     private final AgentDraftKnowledgeRepo draftKnowledgeRepo;
     private final AgentVersionRepo versionRepo;
     private final AgentVersionKnowledgeRepo versionKnowledgeRepo;
+    private final AgentVersionSkillRepo versionSkillRepo;
     private final KnowledgeBaseRepo knowledgeBaseRepo;
     private final KnowledgeIndexVersionService knowledgeIndexVersionService;
     private final AgentDraftValidator draftValidator;
+    private final AgentSkillBindingResolver skillBindingResolver;
     private final AgentSnapshotChecksum snapshotChecksum;
     private final AgentConverter converter;
     private final AuditService auditService;
@@ -133,6 +140,13 @@ public class AgentServiceImpl implements AgentService {
 
     @Override
     @Transactional(readOnly = true)
+    /** 返回允许领域专家绑定的平台预设 Skill。 */
+    public List<AgentSkillOptionVO> skillOptions() {
+        return skillBindingResolver.options();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     /** 查看指定发布版本详情，含完整定义快照。 */
     public AgentVersionDetailVO versionDetail(Long id, Long versionId) {
         requireAgent(id);
@@ -164,6 +178,7 @@ public class AgentServiceImpl implements AgentService {
         draft.setRetrievalPolicy(RetrievalPolicy.defaults());
         draft.setGenerationPolicy(GenerationPolicy.defaults());
         draft.setToolCodes(List.of());
+        draft.setSkillIds(List.of());
         draft.setToolPolicy(AgentToolPolicy.defaults());
         draft.setPlanPolicy(request.getRole() == AgentRole.SUPERVISOR
                 ? PlanPolicy.defaults()
@@ -213,6 +228,9 @@ public class AgentServiceImpl implements AgentService {
         draft.setSystemPromptVersionId(request.getSystemPromptVersionId());
         draft.setUserPromptVersionId(request.getUserPromptVersionId());
         draft.setToolCodes(request.getToolCodes().stream().distinct().toList());
+        draft.setSkillIds(agent.getRole() == AgentRole.SPECIALIST
+                ? request.getSkillIds().stream().distinct().toList()
+                : List.of());
         draft.setToolPolicy(request.getToolPolicy());
         applyTypeSpecificDraft(agent.getRole(), draft, request);
         draft.setGenerationPolicy(request.getGenerationPolicy());
@@ -266,8 +284,9 @@ public class AgentServiceImpl implements AgentService {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "Agent发布校验失败：" + message);
         }
 
+        List<AgentSkillBindingSnapshot> skillBindings = skillBindingResolver.resolve(draft.getSkillIds(), draft.getToolCodes());
         KnowledgeIndexVersionEntity knowledgeIndex = publishKnowledgeIndex(agent, knowledge, operatorId);
-        AgentDefinition definition = buildDefinition(agent, draft, knowledge, knowledgeIndex);
+        AgentDefinition definition = buildDefinition(agent, draft, knowledge, knowledgeIndex, skillBindings);
         String checksum = snapshotChecksum.calculate(definition);
         if (versionRepo.existsByChecksum(id, checksum)) {
             throw new BusinessException(
@@ -287,6 +306,7 @@ public class AgentServiceImpl implements AgentService {
         version.setPublishedAt(now);
         versionRepo.insert(version);
         insertVersionKnowledge(version.getId(), knowledge, knowledgeIndex);
+        insertVersionSkills(version.getId(), skillBindings);
 
         agent.setPublishedVersionId(version.getId());
         agent.setUpdatedBy(operatorId);
@@ -319,6 +339,8 @@ public class AgentServiceImpl implements AgentService {
                     HttpStatusEnum.CONFLICT,
                     "只能激活与当前Agent角色一致的正式版本");
         }
+        skillBindingResolver.validateFrozen(
+                version.getDefinitionSnapshot().getSkills(), version.getDefinitionSnapshot().getToolCodes());
         agent.setPublishedVersionId(versionId);
         agent.setUpdatedBy(operatorId);
         agentRepo.save(agent);
@@ -383,7 +405,7 @@ public class AgentServiceImpl implements AgentService {
                 knowledge.getKnowledgeBaseId(), knowledge.getEmbeddingModelInstanceId(), operatorId);
     }
 
-    private static AgentDefinition buildDefinition(AgentEntity agent, AgentDraftEntity draft, AgentDraftKnowledgeEntity knowledge, KnowledgeIndexVersionEntity knowledgeIndex) {
+    private static AgentDefinition buildDefinition(AgentEntity agent, AgentDraftEntity draft, AgentDraftKnowledgeEntity knowledge, KnowledgeIndexVersionEntity knowledgeIndex, List<AgentSkillBindingSnapshot> skills) {
         AgentDefinition.AgentDefinitionBuilder builder = AgentDefinition.builder()
                 .schemaVersion(draft.getSchemaVersion())
                 .role(agent.getRole())
@@ -392,6 +414,7 @@ public class AgentServiceImpl implements AgentService {
                 .userPromptVersionId(draft.getUserPromptVersionId())
                 .toolCodes(List.copyOf(draft.getToolCodes()))
                 .toolPolicy(draft.getToolPolicy())
+                .skills(List.copyOf(skills))
                 .generationPolicy(draft.getGenerationPolicy())
                 .planPolicy(draft.getPlanPolicy());
         if (agent.getRole() != AgentRole.SPECIALIST) {
@@ -400,6 +423,21 @@ public class AgentServiceImpl implements AgentService {
         return builder
                 .knowledgeSearch(toKnowledgeSearch(knowledge, knowledgeIndex, draft.getRetrievalPolicy()))
                 .build();
+    }
+
+    private void insertVersionSkills(Long versionId, List<AgentSkillBindingSnapshot> bindings) {
+        List<AgentVersionSkillEntity> relations = bindings.stream().map(binding -> {
+            AgentVersionSkillEntity relation = new AgentVersionSkillEntity();
+            relation.setAgentVersionId(versionId);
+            relation.setSkillId(binding.getSkillId());
+            relation.setSkillVersionId(binding.getSkillVersionId());
+            relation.setSkillCode(binding.getSkill().getCode());
+            relation.setSkillChecksum(binding.getChecksum());
+            relation.setEffectiveToolCodes(binding.getEffectiveToolCodes());
+            relation.setDeniedToolCodes(binding.getDeniedToolCodes());
+            return relation;
+        }).toList();
+        versionSkillRepo.insertAll(relations);
     }
 
     private static KnowledgeSearchCapabilitySnapshot toKnowledgeSearch(AgentDraftKnowledgeEntity knowledge, KnowledgeIndexVersionEntity index, RetrievalPolicy retrieval) {

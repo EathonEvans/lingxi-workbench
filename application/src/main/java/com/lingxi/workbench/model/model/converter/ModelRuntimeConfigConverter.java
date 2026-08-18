@@ -49,6 +49,7 @@ public interface ModelRuntimeConfigConverter {
             qualifiedByName = "emptyJsonIfNull")
     @Mapping(target = "timeoutSeconds", source = "config.timeoutSeconds")
     @Mapping(target = "maxRetries", source = "config.maxRetries")
+    @Mapping(target = "structuredOutputSupported", source = "config.structuredOutputSupported")
     ChatModelRuntimeConfig toRuntimeConfig(ModelRuntimeConfigBO config, String apiKey);
 
     /**

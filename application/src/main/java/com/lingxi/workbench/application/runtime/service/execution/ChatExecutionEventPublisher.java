@@ -40,6 +40,10 @@ public interface ChatExecutionEventPublisher {
     default void publishInteractionRequired(ChatInteractionEventBO event) {
     }
 
+    /** 发布人工决定已生效并开始恢复的安全事件。 */
+    default void publishInteractionResolved(ChatInteractionEventBO event) {
+    }
+
     /** 发布可向用户展示并持久化恢复的执行时间线。 */
     default void publishExecution(ChatExecutionTimelineEventBO event) {
     }
@@ -97,6 +101,11 @@ public interface ChatExecutionEventPublisher {
             }
 
             @Override
+            public void publishInteractionResolved(ChatInteractionEventBO event) {
+                target.publishInteractionResolved(event);
+            }
+
+            @Override
             public void publishExecution(ChatExecutionTimelineEventBO event) {
                 target.publishExecution(event);
             }
@@ -147,6 +156,11 @@ public interface ChatExecutionEventPublisher {
             @Override
             public void publishInteractionRequired(ChatInteractionEventBO event) {
                 target.publishInteractionRequired(event);
+            }
+
+            @Override
+            public void publishInteractionResolved(ChatInteractionEventBO event) {
+                target.publishInteractionResolved(event);
             }
 
             @Override

@@ -1,14 +1,18 @@
 package com.lingxi.workbench.application.runtime.service.plan;
 
 import com.alibaba.fastjson2.JSONObject;
-import com.lingxi.workbench.application.runtime.common.enums.ExecutionDecisionAction;
+import com.lingxi.workbench.agentruntime.planner.PlannerClarification;
+import com.lingxi.workbench.agentruntime.planner.PlannerDecision;
+import com.lingxi.workbench.agentruntime.planner.PlannerDecisionAction;
+import com.lingxi.workbench.agentruntime.planner.PlannerInteractionType;
+import com.lingxi.workbench.agentruntime.planner.PlannerRunResult;
+import com.lingxi.workbench.agentruntime.planner.PlannerStep;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
 import com.lingxi.workbench.application.runtime.model.CapabilityExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.CapabilityExecutionResult;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
-import com.lingxi.workbench.application.runtime.model.ExecutionDecision;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionFailure;
 import com.lingxi.workbench.application.runtime.model.ExecutionPlanSnapshotCommand;
@@ -19,11 +23,8 @@ import com.lingxi.workbench.application.runtime.model.InteractionSessionContext;
 import com.lingxi.workbench.application.runtime.model.InteractionSessionOpenCommand;
 import com.lingxi.workbench.application.runtime.model.PlanExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.PlanExecutionResult;
-import com.lingxi.workbench.application.runtime.model.PlanStep;
 import com.lingxi.workbench.application.runtime.model.PlanStepResult;
 import com.lingxi.workbench.application.runtime.model.PlannerRequest;
-import com.lingxi.workbench.application.runtime.model.PlannerResult;
-import com.lingxi.workbench.application.runtime.model.PlannerClarification;
 import com.lingxi.workbench.application.runtime.service.capability.CapabilityExecutionService;
 import com.lingxi.workbench.application.runtime.service.execution.ExecutionPersistenceService;
 import com.lingxi.workbench.application.runtime.service.execution.ExecutionFailureClassifier;
@@ -131,7 +132,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
     private PlanExecutionResult executePlan(PlanExecutionRequest request) {
         PlanPolicy policy = request.getSupervisor().getAgent().definition().getPlanPolicy();
         Map<String, ApplicationCapabilityDefinition> capabilities = capabilityIndex(request);
-        ExecutionDecision decision = request.getInitialDecision();
+        PlannerDecision decision = request.getInitialDecision();
         int planNo = 1;
         int replans = 0;
         Map<String, Integer> capabilityCalls = new HashMap<>();
@@ -145,7 +146,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
             ensureActive(request);
             persistenceService.appendPlan(new ExecutionPlanSnapshotCommand(request.getRunId(), planNo, decision));
             // 决策要求澄清：不执行任何能力，直接返回澄清问题等待用户补充信息
-            if (decision.getAction() == ExecutionDecisionAction.CLARIFY) {
+            if (decision.getAction() == PlannerDecisionAction.CLARIFY) {
                 return clarify(request, decision, planNo);
             }
             // 硬边界门禁：预算已尽时不再发起任何新的能力调用，转澄清避免执行被中途掐断
@@ -154,16 +155,11 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
                         "Application运行预算已到硬边界，未继续发起新的能力调用");
             }
             // 非计划决策（单能力直执行）：跳过步骤循环，直接调用决策引用的能力
-            if (decision.getAction() != ExecutionDecisionAction.EXECUTE_PLAN) {
+            if (decision.getAction() != PlannerDecisionAction.EXECUTE_PLAN) {
                 CapabilityExecutionResult result = executeDirect(request, decision, planNo, capabilities);
                 publish(request, event(request, ExecutionEventType.RUN_COMPLETED).planNo(planNo).build(), List.of());
                 return new PlanExecutionResult(result.content(), result.modelInstanceId(), result.traces());
             }
-            // 计划已就绪：发布计划创建事件并附带步骤快照，前端据此渲染计划
-            publish(request, event(request, ExecutionEventType.PLAN_CREATED)
-                    .planNo(planNo)
-                    .displayName(decision.getPlan().getTitle())
-                    .build(), planSteps(decision));
             // Planner Token 软边界：宽限额度仅保留给最终回答，不再开启新一轮计划执行
             if (completedResults.isEmpty() && request.getExecutionContext().hasReachedTokenSoftLimit()) {
                 return clarifyAtBoundary(request, planNo,
@@ -171,7 +167,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
             }
             try {
                 // 串行执行计划内每个步骤：依赖前序已完成结果，逐步骤推进
-                for (PlanStep step : decision.getPlan().steps()) {
+                for (PlannerStep step : decision.getPlan().steps()) {
                     ensureActive(request);
                     // 软边界：已有部分结果且预算即将耗尽时，停止剩余步骤提前进入最终综合
                     if (!completedResults.isEmpty() && request.getExecutionContext().shouldFinalize()) {
@@ -227,10 +223,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
                 // 进入新一轮规划：递增重规划计数与计划编号，携带失败观察重新调用 Planner 决策
                 replans++;
                 planNo++;
-                publish(request, event(request, ExecutionEventType.REPLANNING)
-                        .planNo(planNo).stepId(failure.step.getId())
-                        .message(failure.failure.clientMessage() + "，正在重新规划").build(), List.of());
-                PlannerResult replanned = plannerService.decide(PlannerRequest.builder()
+                PlannerRunResult replanned = plannerService.decide(PlannerRequest.builder()
                         .conversationContext(request.getConversationContext())
                         .executionContext(request.getExecutionContext())
                         .planNo(planNo)
@@ -299,12 +292,12 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
      */
     private PlanExecutionResult clarifyAtBoundary(PlanExecutionRequest request, int planNo, String limitation) {
         String question = "本轮执行已达到处理边界，现有信息不足以形成可靠答案。请补充最关键的目标、材料或限制条件后继续。";
-        ExecutionDecision clarification = ExecutionDecision.builder()
-                .action(ExecutionDecisionAction.CLARIFY)
+        PlannerDecision clarification = PlannerDecision.builder()
+                .action(PlannerDecisionAction.CLARIFY)
                 .clarification(PlannerClarification.builder()
                         .question(question)
                         .options(List.of())
-                        .interactionType(InteractionSessionType.CLARIFICATION)
+                        .interactionType(PlannerInteractionType.CLARIFICATION)
                         .capabilityCodes(List.of())
                         .build())
                 .build();
@@ -343,7 +336,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
      * @param planNo   当前计划编号
      * @return 计划执行结果（内容为澄清问题，无模型实例与轨迹）
      */
-    private PlanExecutionResult clarify(PlanExecutionRequest request, ExecutionDecision decision, int planNo) {
+    private PlanExecutionResult clarify(PlanExecutionRequest request, PlannerDecision decision, int planNo) {
         PlannerClarification interactionClarification = PlannerClarification.builder()
                 .question(decision.getClarification().getQuestion())
                 .options(decision.getClarification().options())
@@ -364,7 +357,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
                         .resumeCapabilityCode(request.getSupervisor().getCapability().getCode())
                         .orchestratorAgentId(request.getSupervisor().getAgent().agentId())
                         .orchestratorAgentVersionId(request.getSupervisor().getAgent().agentVersionId())
-                        .interactionType(decision.getClarification().getInteractionType())
+                        .interactionType(InteractionSessionType.CLARIFICATION)
                         .context(sessionContext)
                         .build()));
         publish(request, event(request, ExecutionEventType.CLARIFICATION_REQUIRED)
@@ -383,10 +376,10 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
      * @param capabilities 应用能力索引（编码 → 定义）
      * @return 能力执行结果
      */
-    private CapabilityExecutionResult executeDirect(PlanExecutionRequest request, ExecutionDecision decision, int planNo,
+    private CapabilityExecutionResult executeDirect(PlanExecutionRequest request, PlannerDecision decision, int planNo,
                                                     Map<String, ApplicationCapabilityDefinition> capabilities) {
         ApplicationCapabilityDefinition capability = requireCapability(decision.getCapabilityCode(), capabilities);
-        PlanStep step = PlanStep.builder()
+        PlannerStep step = PlannerStep.builder()
                 .id("direct")
                 .name(capability.getName())
                 .capabilityCode(capability.getCode())
@@ -408,7 +401,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
      * @param publishStepOutput 是否发布步骤输出事件（计划内步骤为 true，直执行为 false）
      * @return 能力执行结果
      */
-    private CapabilityExecutionResult executeStep(PlanExecutionRequest request, int planNo, PlanStep step,
+    private CapabilityExecutionResult executeStep(PlanExecutionRequest request, int planNo, PlannerStep step,
                                                   ApplicationCapabilityDefinition capability,
                                                   List<PlanStepResult> completedResults, boolean publishStepOutput) {
         Observation observation = Observation.createNotStarted("lingxi.ai.plan.step", observationRegistry)
@@ -437,7 +430,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
      * @param publishStepOutput 是否发布步骤输出事件
      * @return 能力执行结果
      */
-    private CapabilityExecutionResult executeObservedStep(PlanExecutionRequest request, int planNo, PlanStep step,
+    private CapabilityExecutionResult executeObservedStep(PlanExecutionRequest request, int planNo, PlannerStep step,
                                                            ApplicationCapabilityDefinition capability,
                                                            List<PlanStepResult> completedResults,
                                                            boolean publishStepOutput) {
@@ -497,7 +490,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
      * @param publishStepOutput 是否发布步骤输出事件
      * @return 步骤执行上下文
      */
-    private static ChatExecutionContext resolveStepContext(PlanExecutionRequest request, int planNo, PlanStep step,
+    private static ChatExecutionContext resolveStepContext(PlanExecutionRequest request, int planNo, PlannerStep step,
                                                            JSONObject inputs, boolean publishStepOutput) {
         ChatExecutionContext context = request.getExecutionContext();
         String query = inputs.getString("query");
@@ -523,7 +516,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
      * @param startedAt 步骤开始时间
      * @return 步骤尝试落库命令
      */
-    private static ExecutionStepAttemptCommand attempt(PlanExecutionRequest request, int planNo, PlanStep step,
+    private static ExecutionStepAttemptCommand attempt(PlanExecutionRequest request, int planNo, PlannerStep step,
                                                        StepAttemptOutcome outcome, OffsetDateTime startedAt) {
         return ExecutionStepAttemptCommand.builder()
                 .runId(request.getRunId())
@@ -581,18 +574,6 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
     private static ChatExecutionTimelineEventBO.ChatExecutionTimelineEventBOBuilder event(
             PlanExecutionRequest request, ExecutionEventType type) {
         return ChatExecutionTimelineEventBO.builder().runId(request.getRunId()).eventType(type);
-    }
-
-    /**
-     * 将决策计划中的步骤映射为事件展示用的轻量步骤对象。
-     *
-     * @param decision 执行决策
-     * @return 步骤展示对象列表
-     */
-    private static List<ChatPlanStepBO> planSteps(ExecutionDecision decision) {
-        return decision.getPlan().steps().stream()
-                .map(step -> new ChatPlanStepBO(step.getId(), step.getName(), step.getCapabilityCode()))
-                .toList();
     }
 
     /**
@@ -681,7 +662,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
      * 用于区分“可重试失败（触发重规划）”与“不可重试失败（终止计划）”。</p>
      */
     private static final class StepFailure extends RuntimeException {
-        private final PlanStep step;
+        private final PlannerStep step;
         private final ExecutionFailure failure;
 
         /**
@@ -690,7 +671,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
          * @param step      失败步骤
          * @param errorCode 失败编码
          */
-        private StepFailure(PlanStep step, String errorCode) {
+        private StepFailure(PlannerStep step, String errorCode) {
             this(step, new ExecutionFailure(errorCode, "计划步骤执行失败", false), null);
         }
 
@@ -701,7 +682,7 @@ public class PlanExecutionServiceImpl implements PlanExecutionService {
          * @param failure 分类后的失败信息（含可重试性与客户端可读消息）
          * @param cause   底层异常
          */
-        private StepFailure(PlanStep step, ExecutionFailure failure, Throwable cause) {
+        private StepFailure(PlannerStep step, ExecutionFailure failure, Throwable cause) {
             super(failure.code(), cause);
             this.step = Objects.requireNonNull(step);
             this.failure = Objects.requireNonNull(failure);

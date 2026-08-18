@@ -51,7 +51,7 @@ class CapabilityExecutionServiceImplTest {
         when(agentRuntimeService.resolveVersion(60L, 70L)).thenReturn(snapshot);
         when(estimator.estimate("回答")).thenReturn(20);
         ChatExecutionContext context = context();
-        when(agentChatService.chat(snapshot, "问题", context)).thenReturn("回答");
+        when(agentChatService.chat(snapshot, "问题", context)).thenReturn(completed("回答"));
         CapabilityExecutionServiceImpl service = service(
                 agentChatService, agentRuntimeService, checksum, estimator);
 
@@ -81,8 +81,9 @@ class CapabilityExecutionServiceImplTest {
         AgentRuntimeService agentRuntimeService = mock(AgentRuntimeService.class);
         TokenCountEstimator estimator = mock(TokenCountEstimator.class);
         ChatExecutionContext context = context();
-        when(agentRuntimeService.resolveVersion(60L, 70L)).thenReturn(agentSnapshot());
-        when(agentChatService.chat(agentSnapshot(), "问题", context)).thenReturn("超长回答");
+        AgentRuntimeSnapshot snapshot = agentSnapshot();
+        when(agentRuntimeService.resolveVersion(60L, 70L)).thenReturn(snapshot);
+        when(agentChatService.chat(snapshot, "问题", context)).thenReturn(completed("超长回答"));
         when(estimator.estimate("超长回答")).thenReturn(101);
         CapabilityExecutionServiceImpl service = service(
                 agentChatService, agentRuntimeService, checksum, estimator);
@@ -98,7 +99,7 @@ class CapabilityExecutionServiceImplTest {
         when(agentRuntimeService.resolveVersion(60L, 70L)).thenReturn(agentSnapshot());
         AgentChatService agentChatService = mock(AgentChatService.class);
         when(agentChatService.chat(any(AgentRuntimeSnapshot.class), eq("问题"), any(ChatExecutionContext.class)))
-                .thenReturn("正常回答");
+                .thenReturn(completed("正常回答"));
         TokenCountEstimator estimator = mock(TokenCountEstimator.class);
         when(estimator.estimate("正常回答")).thenReturn(10);
         CapabilityExecutionServiceImpl service = service(
@@ -153,6 +154,11 @@ class CapabilityExecutionServiceImplTest {
                 checksum,
                 estimator,
                 ObservationRegistry.NOOP);
+    }
+
+    private static com.lingxi.workbench.agentruntime.model.AgentRunResult completed(String content) {
+        return new com.lingxi.workbench.agentruntime.model.AgentRunResult.Completed(
+                content, com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage.empty(), 0L);
     }
 
     private static ApplicationCapabilityDefinition agentCapability(String checksum, int timeoutSeconds) {

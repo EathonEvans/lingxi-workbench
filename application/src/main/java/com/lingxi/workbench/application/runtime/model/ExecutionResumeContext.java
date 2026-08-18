@@ -1,5 +1,6 @@
 package com.lingxi.workbench.application.runtime.model;
 
+import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpoint;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -11,10 +12,7 @@ import lombok.Getter;
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class ExecutionResumeContext {
 
-    private final String runId;
-    private final String capabilityCode;
-    private final Long agentId;
-    private final Long agentVersionId;
+    private final RuntimeCheckpoint checkpoint;
     private final Long interactionId;
     private final String fingerprint;
 }

@@ -2,6 +2,7 @@ package com.lingxi.workbench.application.runtime.model;
 
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
+import com.lingxi.workbench.infra.ai.skill.model.AgentSkillBindingSnapshot;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -18,7 +19,7 @@ import java.util.Objects;
  *
  * <p>管理端负责创建和校验快照，应用端通过 Fastjson2 将已发布快照反序列化为该对象。
  * 因此保留无参构造和 Setter 供 JSON 框架赋值；业务测试和手工构造统一使用 Builder，
-     * 避免长位置参数发生错位。</p>
+ * 避免长位置参数发生错位。</p>
  *
  * <p>该模型刻意不依赖 admin 模块，避免运行服务反向依赖控制面。</p>
  */
@@ -57,6 +58,8 @@ public class AgentRuntimeDefinition {
      * Schema V3 工具调用边界。
      */
     private ToolPolicy toolPolicy;
+    /** Schema V8 锁定的 SkillVersion 与 Tool 权限交集。 */
+    private List<AgentSkillBindingSnapshot> skills;
     /**
      * Schema V4 ReAct知识搜索Tool的冻结资源与预算。
      */
@@ -73,6 +76,11 @@ public class AgentRuntimeDefinition {
     /** 返回发布快照冻结的工具编码。 */
     public List<String> resolveToolCodes() {
         return List.copyOf(Objects.requireNonNull(toolCodes, "AgentVersion工具编码不能为空"));
+    }
+
+    /** 返回发布时锁定的 SkillVersion，不允许运行端查询所谓最新版本。 */
+    public List<AgentSkillBindingSnapshot> resolveSkills() {
+        return List.copyOf(Objects.requireNonNull(skills, "AgentVersion Skill绑定不能为空"));
     }
 
     /**

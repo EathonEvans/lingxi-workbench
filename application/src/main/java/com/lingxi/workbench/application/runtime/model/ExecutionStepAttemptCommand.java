@@ -1,5 +1,6 @@
 package com.lingxi.workbench.application.runtime.model;
 
+import com.lingxi.workbench.agentruntime.planner.PlannerStep;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
 import lombok.Builder;
 import lombok.Getter;
@@ -14,7 +15,7 @@ public class ExecutionStepAttemptCommand {
     private String runId;
     private Integer planNo;
     private Integer attemptNo;
-    private PlanStep step;
+    private PlannerStep step;
     private ExecutionStepStatus status;
     private String resultContent;
     private String errorCode;

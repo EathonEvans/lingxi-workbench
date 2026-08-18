@@ -182,6 +182,7 @@ public class FinalSynthesisServiceImpl implements FinalSynthesisService {
                 .extensionParameters(source.getExtensionParameters())
                 .timeoutSeconds(timeoutSeconds(requestTimeout))
                 .maxRetries(source.getMaxRetries())
+                .structuredOutputSupported(source.isStructuredOutputSupported())
                 .build();
     }
 

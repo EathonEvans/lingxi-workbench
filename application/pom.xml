@@ -22,7 +22,7 @@
         </dependency>
         <dependency>
             <groupId>com.lingxi.ai</groupId>
-            <artifactId>agent-execute</artifactId>
+            <artifactId>agent-runtime</artifactId>
         </dependency>
         <dependency>
             <groupId>com.lingxi.ai</groupId>

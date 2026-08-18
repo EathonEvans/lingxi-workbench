@@ -30,6 +30,10 @@ public class SaveAgentDraftRequest {
     @NotNull(message = "工具编码列表不能为空")
     @Size(max = 20, message = "单个Agent最多绑定20个工具")
     private List<String> toolCodes;
+    /** 领域专家绑定的平台预设 Skill；主Agent必须为空。 */
+    @NotNull(message = "Skill列表不能为空")
+    @Size(max = 3, message = "单个Agent最多绑定3个自动启用Skill")
+    private List<Long> skillIds;
     @NotNull(message = "请配置工具调用策略")
     @Valid
     private AgentToolPolicy toolPolicy;

@@ -1,5 +1,8 @@
 package com.lingxi.workbench.application.runtime.service.app;
 
+import com.lingxi.workbench.agentruntime.model.AgentExecutionDeadlineExceededException;
+import com.lingxi.workbench.agentruntime.model.AgentRunCancelledException;
+import com.lingxi.workbench.application.runtime.common.enums.ExecutionRunStatus;
 import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingAction;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
@@ -54,6 +57,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 
 class ApplicationChatExecutionServiceImplTest {
 
@@ -258,6 +263,42 @@ class ApplicationChatExecutionServiceImplTest {
     }
 
     @Test
+    void shouldPersistPartialRunStatusAtRuntimeDeadline() {
+        ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
+        ApplicationChatExecutionServiceImpl service = service(
+                request -> {
+                    throw new AgentExecutionDeadlineExceededException();
+                },
+                new ChatExecutionContextRegistry(), conversationContextService(),
+                (context, response) -> IntentRoutingResult.skipped(context.routingQuery()),
+                plannerDisabled(), persistenceService);
+
+        assertThrows(AgentExecutionDeadlineExceededException.class,
+                () -> service.execute(executionRequest(defaultSnapshot(), "超时问题")));
+
+        verify(persistenceService).changeRunStatus(anyString(), eq(ExecutionRunStatus.RUNNING),
+                eq(ExecutionRunStatus.PARTIAL), eq("TERMINAL"));
+    }
+
+    @Test
+    void shouldPersistCancelledRunStatusForExplicitRuntimeCancellation() {
+        ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
+        ApplicationChatExecutionServiceImpl service = service(
+                request -> {
+                    throw new AgentRunCancelledException();
+                },
+                new ChatExecutionContextRegistry(), conversationContextService(),
+                (context, response) -> IntentRoutingResult.skipped(context.routingQuery()),
+                plannerDisabled(), persistenceService);
+
+        assertThrows(AgentRunCancelledException.class,
+                () -> service.execute(executionRequest(defaultSnapshot(), "取消问题")));
+
+        verify(persistenceService).changeRunStatus(anyString(), eq(ExecutionRunStatus.RUNNING),
+                eq(ExecutionRunStatus.CANCELLED), eq("TERMINAL"));
+    }
+
+    @Test
     void shouldRejectIncompleteExecutionRequest() {
         ApplicationChatExecutionServiceImpl service = service(
                 unexpectedCapabilityService(), new ChatExecutionContextRegistry(), conversationContextService(),
@@ -276,6 +317,16 @@ class ApplicationChatExecutionServiceImplTest {
                                                                ConversationContextService contextService,
                                                                IntentRoutingService routingService,
                                                                Object ignoredPlannerRuntime) {
+        return service(capabilityService, registry, contextService, routingService,
+                ignoredPlannerRuntime, mock(ExecutionPersistenceService.class));
+    }
+
+    private static ApplicationChatExecutionServiceImpl service(CapabilityExecutionService capabilityService,
+                                                                ChatExecutionContextRegistry registry,
+                                                                ConversationContextService contextService,
+                                                                IntentRoutingService routingService,
+                                                                Object ignoredPlannerRuntime,
+                                                                ExecutionPersistenceService persistenceService) {
         InteractionSessionService interactionSessionService = mock(InteractionSessionService.class);
         when(interactionSessionService.resolve(
                 org.mockito.ArgumentMatchers.any(),
@@ -293,7 +344,8 @@ class ApplicationChatExecutionServiceImplTest {
         return new ApplicationChatExecutionServiceImpl(
                 capabilityService, registry, contextService, routingService,
                 interactionSessionService, agentRuntimeService,
-                new AiStageObserver(ObservationRegistry.NOOP), mock(ExecutionPersistenceService.class));
+                new AiStageObserver(ObservationRegistry.NOOP), persistenceService,
+                new RuntimeVariablesInitializer(java.time.Clock.systemUTC(), "Lingxi", java.util.Locale.CHINA));
     }
 
     private static CapabilityExecutionService unexpectedCapabilityService() {

@@ -51,4 +51,6 @@ public class ModelRuntimeConfigEntity {
     private Integer timeoutSeconds;
     /** 最大重试次数。 */
     private Integer maxRetries;
+    /** 模型实例是否声明 STRUCTURED_OUTPUT 能力。 */
+    private boolean structuredOutputSupported;
 }

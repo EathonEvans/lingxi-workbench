@@ -1,5 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.execution;
 
+import com.lingxi.workbench.agentruntime.planner.PlannerStep;
 import com.lingxi.workbench.application.runtime.service.plan.ExecutionDecisionChecksum;
 
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
@@ -10,12 +11,12 @@ import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionRunStartCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionStepAttemptCommand;
-import com.lingxi.workbench.application.runtime.model.PlanStep;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionEventEntity;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionRunEntity;
 import com.lingxi.workbench.application.runtime.repo.ExecutionEventRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionPlanSnapshotRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionRunRepo;
+import com.lingxi.workbench.application.runtime.repo.ExecutionRunSkillRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionStepAttemptRepo;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
@@ -89,7 +90,7 @@ class ExecutionPersistenceServiceImplTest {
                 .runId("run-1")
                 .planNo(1)
                 .attemptNo(1)
-                .step(PlanStep.builder().id("collect").name("收集资料").capabilityCode("agent").build())
+                .step(PlannerStep.builder().id("collect").name("收集资料").capabilityCode("agent").build())
                 .status(ExecutionStepStatus.RUNNING)
                 .startedAt(OffsetDateTime.now())
                 .build();
@@ -97,9 +98,58 @@ class ExecutionPersistenceServiceImplTest {
         assertThrows(BusinessException.class, () -> service.appendStepAttempt(command));
     }
 
+    @Test
+    void shouldPersistRuntimeOwnedSequenceAndOccurrenceTime() {
+        ExecutionRunRepo runRepo = mock(ExecutionRunRepo.class);
+        ExecutionEventRepo eventRepo = mock(ExecutionEventRepo.class);
+        when(runRepo.lockByRunId("run-runtime")).thenReturn(Optional.of(new ExecutionRunEntity()));
+        when(eventRepo.nextSequence("run-runtime")).thenReturn(9L);
+        ExecutionPersistenceServiceImpl service = service(runRepo, eventRepo);
+        java.time.Instant occurredAt = java.time.Instant.parse("2026-08-17T14:00:00Z");
+
+        service.appendEvent(ExecutionEventCommand.builder()
+                .runId("run-runtime")
+                .sequenceNo(9L)
+                .occurredAt(occurredAt)
+                .eventType(ExecutionEventType.MODEL_STARTED)
+                .message("模型调用已开始")
+                .build());
+
+        ArgumentCaptor<ExecutionEventEntity> captor = ArgumentCaptor.forClass(ExecutionEventEntity.class);
+        verify(eventRepo).insert(captor.capture());
+        assertEquals(9L, captor.getValue().getSequenceNo());
+        assertEquals(java.time.OffsetDateTime.ofInstant(occurredAt, java.time.ZoneOffset.UTC),
+                captor.getValue().getOccurredAt());
+    }
+
+    @Test
+    void shouldReturnExistingRuntimeEventIdempotently() {
+        ExecutionRunRepo runRepo = mock(ExecutionRunRepo.class);
+        ExecutionEventRepo eventRepo = mock(ExecutionEventRepo.class);
+        when(runRepo.lockByRunId("run-runtime")).thenReturn(Optional.of(new ExecutionRunEntity()));
+        ExecutionEventEntity existing = new ExecutionEventEntity();
+        existing.setRunId("run-runtime");
+        existing.setSequenceNo(3L);
+        existing.setEventType(ExecutionEventType.MODEL_COMPLETED);
+        when(eventRepo.findBySequence("run-runtime", 3L)).thenReturn(Optional.of(existing));
+        ExecutionPersistenceServiceImpl service = service(runRepo, eventRepo);
+
+        ExecutionEventEntity result = service.appendEvent(ExecutionEventCommand.builder()
+                .runId("run-runtime")
+                .sequenceNo(3L)
+                .eventType(ExecutionEventType.MODEL_COMPLETED)
+                .message("模型调用已完成")
+                .build());
+
+        assertEquals(existing, result);
+        org.mockito.Mockito.verify(eventRepo, org.mockito.Mockito.never())
+                .insert(org.mockito.ArgumentMatchers.any());
+    }
+
     private static ExecutionPersistenceServiceImpl service(ExecutionRunRepo runRepo, ExecutionEventRepo eventRepo) {
         return new ExecutionPersistenceServiceImpl(runRepo, mock(ExecutionPlanSnapshotRepo.class),
-                mock(ExecutionStepAttemptRepo.class), eventRepo, new ExecutionDecisionChecksum());
+                mock(ExecutionStepAttemptRepo.class), eventRepo, mock(ExecutionRunSkillRepo.class),
+                new ExecutionDecisionChecksum());
     }
 
     private static AgentRuntimeSnapshot supervisor() {
@@ -109,6 +159,7 @@ class ExecutionPersistenceServiceImplTest {
                 .chatModelInstanceId(31L)
                 .systemPromptVersionId(32L)
                 .toolCodes(java.util.List.of())
+                .skills(java.util.List.of())
                 .planPolicy(PlanPolicy.defaults())
                 .build());
     }

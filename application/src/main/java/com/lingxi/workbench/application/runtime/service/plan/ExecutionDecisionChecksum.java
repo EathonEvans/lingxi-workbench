@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.lingxi.workbench.application.runtime.model.ExecutionDecision;
+import com.lingxi.workbench.agentruntime.planner.PlannerDecision;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.springframework.stereotype.Component;
@@ -23,7 +23,7 @@ public class ExecutionDecisionChecksum {
             .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
             .build();
 
-    public String calculate(ExecutionDecision decision) {
+    public String calculate(PlannerDecision decision) {
         try {
             byte[] canonicalJson = canonicalObjectMapper.writeValueAsBytes(decision);
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(canonicalJson));

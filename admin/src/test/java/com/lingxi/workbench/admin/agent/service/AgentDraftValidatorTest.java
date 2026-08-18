@@ -51,6 +51,7 @@ import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaCo
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -78,12 +79,14 @@ class AgentDraftValidatorTest {
         ToolService toolService = new ToolServiceImpl(new InMemoryToolRepo(), new ToolConverter(parameterSchemaFactory), parameterSchemaFactory, null, null);
         knowledgeIndexVersionService = new StubKnowledgeIndexVersionService();
         DomainRepo domainRepo = mock(DomainRepo.class);
+        AgentSkillBindingResolver skillBindingResolver = mock(AgentSkillBindingResolver.class);
         DomainEntity domain = new DomainEntity();
         domain.setId(1L);
         domain.setRootId(1L);
         domain.setDepth(1);
         domain.setStatus(EnableStatus.ACTIVE);
         when(domainRepo.findById(anyLong())).thenReturn(Optional.of(domain));
+        when(skillBindingResolver.resolve(anyList(), anyList())).thenReturn(List.of());
         validator = new AgentDraftValidator(
                 modelRepo,
                 promptRepo,
@@ -92,7 +95,8 @@ class AgentDraftValidatorTest {
                 Validation.buildDefaultValidatorFactory().getValidator(),
                 toolService,
                 knowledgeIndexVersionService,
-                domainRepo);
+                domainRepo,
+                skillBindingResolver);
         prepareModelsAndKnowledge();
         preparePrompt(
                 SYSTEM_VERSION_ID,

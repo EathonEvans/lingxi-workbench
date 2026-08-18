@@ -1,5 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.agent;
 
+import com.lingxi.workbench.agentruntime.model.AgentRunResult;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.service.agent.AgentChatService;
 import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionContextRegistry;
@@ -34,7 +35,12 @@ public class ChatAgentNodeInvoker implements AgentNodeInvoker {
         }
 
         ChatExecutionContext executionCtx = executionContextRegistry.require(invocation.getExecutionId());
-        String answer = agentChatService.chat(invocation.getAgentId(), invocation.getAgentVersionId(), query, executionCtx);
-        return Map.of("answer", answer);
+        AgentRunResult result = agentChatService.chat(
+                invocation.getAgentId(), invocation.getAgentVersionId(), query, executionCtx);
+        if (result instanceof AgentRunResult.Interrupted) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT,
+                    "Workflow Agent节点不能使用Agent级HITL；请由Workflow交互节点管理暂停与恢复");
+        }
+        return Map.of("answer", result.content());
     }
 }

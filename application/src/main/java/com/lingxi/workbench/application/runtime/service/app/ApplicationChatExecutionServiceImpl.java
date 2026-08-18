@@ -1,5 +1,9 @@
 package com.lingxi.workbench.application.runtime.service.app;
 
+import com.lingxi.workbench.agentruntime.model.AgentExecutionDeadlineExceededException;
+import com.lingxi.workbench.agentruntime.model.AgentReconciliationPendingException;
+import com.lingxi.workbench.agentruntime.model.AgentRunCancelledException;
+import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpoint;
 import cn.hutool.core.lang.Assert;
 import cn.hutool.core.util.IdUtil;
 import com.alibaba.fastjson2.JSONObject;
@@ -13,7 +17,6 @@ import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.model.FallbackTarget;
 import com.lingxi.workbench.application.runtime.model.ExecutionResumeContext;
 import com.lingxi.workbench.application.runtime.model.ExecutionRunStartCommand;
-import com.lingxi.workbench.application.runtime.model.HitlApprovalRef;
 import com.lingxi.workbench.application.runtime.model.InteractionResolution;
 import com.lingxi.workbench.application.runtime.model.InteractionResumeTarget;
 import com.lingxi.workbench.application.runtime.model.IntentRoutingEvidence;
@@ -34,7 +37,6 @@ import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
-import com.lingxi.workbench.infra.ai.tool.HumanInteractionRequiredException;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionRunStatus;
 import com.lingxi.workbench.observability.common.enums.AiObservationStage;
 import com.lingxi.workbench.observability.service.AiStageObserver;
@@ -116,6 +118,8 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
     private final AiStageObserver aiStageObserver;
     /** 所有执行模式共用的顶级运行状态。 */
     private final ExecutionPersistenceService executionPersistenceService;
+    /** 恢复时只重建可信基础变量，不重新加载记忆、重写问题或路由。 */
+    private final RuntimeVariablesInitializer runtimeVariablesInitializer;
 
     /**
      * 先准备共享上下文，再尝试可选快速路由，其他请求统一交给 fallback Agent。
@@ -127,18 +131,20 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
     public ApplicationChatResult execute(ApplicationChatExecutionRequest request) {
         // ① 校验服务端组装的可信请求，避免不完整数据进入上下文准备和路由阶段
         requireRequest(request);
-        Instant startedAt = Instant.now();
+        Instant startedAt = resolveStartedAt(request.getResumeContext());
         AppRuntimeSnapshot snapshot = request.getApplication();
 
         // ② 一次性准备窗口记忆、摘要、长期记忆和运行时变量，后续路由与执行共享同一上下文
-        ConversationContext preparedContext = aiStageObserver.observe(AiObservationStage.CONTEXT_PREPARE,
-                () -> conversationContextService.prepare(ConversationContextPrepareBO.builder()
-                        .application(snapshot)
-                        .query(request.getQuery())
-                        .loginUser(request.getLoginUser())
-                        .turn(request.getTurn())
-                        .startedAt(startedAt)
-                        .build()));
+        ConversationContext preparedContext = request.getResumeContext() == null
+                ? aiStageObserver.observe(AiObservationStage.CONTEXT_PREPARE,
+                        () -> conversationContextService.prepare(ConversationContextPrepareBO.builder()
+                                .application(snapshot)
+                                .query(request.getQuery())
+                                .loginUser(request.getLoginUser())
+                                .turn(request.getTurn())
+                                .startedAt(startedAt)
+                                .build()))
+                : restoreConversationContext(request);
 
         // ③ 平台恢复上一轮澄清或确认，锁定回到原 capability 与 AgentVersion。
         Optional<InteractionResolution> interaction = request.getResumeContext() == null
@@ -169,13 +175,83 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         });
     }
 
+    /** Checkpoint已经保存模型消息历史，恢复时不得重复读取记忆、改写问题或重新路由。 */
+    private ConversationContext restoreConversationContext(ApplicationChatExecutionRequest request) {
+        RuntimeCheckpoint checkpoint = request.getResumeContext().getCheckpoint();
+        if (checkpoint == null || checkpoint.getVersion() == null
+                || checkpoint.getVersion() != RuntimeCheckpoint.CURRENT_VERSION
+                || checkpoint.getContext() == null || checkpoint.getState() == null
+                || !Objects.equals(checkpoint.getContext().getApplicationVersionId(),
+                        request.getApplication().versionId())
+                || !Objects.equals(checkpoint.getContext().getUserId(), request.getLoginUser().id())
+                || !Objects.equals(checkpoint.getContext().getConversationId(),
+                        request.getTurn().conversationId())
+                || !Objects.equals(checkpoint.getContext().getAssistantMessageId(),
+                        request.getTurn().assistantMessageId())) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "Runtime Checkpoint与当前恢复请求不一致");
+        }
+        String query = checkpoint.getContext().getQuery();
+        RuntimeVariables variables = runtimeVariablesInitializer.initialize(
+                request.getLoginUser(), query, request.getTurn().conversationId());
+        variables.put(com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors.SESSION_HISTORY,
+                List.of());
+        TokenUsage usageBeforeAgent = Objects.requireNonNullElseGet(
+                checkpoint.getContext().getApplicationUsageBeforeAgent(), TokenUsage::empty);
+        TokenUsage runtimeUsage = Objects.requireNonNullElseGet(
+                checkpoint.getState().getTokenUsage(), TokenUsage::empty);
+        int modelCalls = Objects.requireNonNullElse(
+                checkpoint.getContext().getApplicationModelCallsBeforeAgent(), 0)
+                + Objects.requireNonNullElse(checkpoint.getState().getModelCalls(), 0);
+        return ConversationContext.builder()
+                .applicationSnapshot(request.getApplication())
+                .loginUser(request.getLoginUser())
+                .turn(request.getTurn())
+                .originalQuery(query)
+                .rewrittenQuery(query)
+                .recentMessages(List.of())
+                .summary("")
+                .longTermMemory("")
+                .budget(request.getApplication().definition().contextPolicy().budget())
+                .runtimeVariables(variables)
+                .preparationTokenUsage(usageBeforeAgent.plus(runtimeUsage))
+                .preparationModelCalls(modelCalls)
+                .build();
+    }
+
+    private static Instant resolveStartedAt(ExecutionResumeContext resume) {
+        if (resume == null || resume.getCheckpoint() == null
+                || resume.getCheckpoint().getContext() == null
+                || resume.getCheckpoint().getState() == null) {
+            return Instant.now();
+        }
+        long beforeAgent = Objects.requireNonNullElse(
+                resume.getCheckpoint().getContext().getApplicationElapsedBeforeAgentMillis(), 0L);
+        long runtimeElapsed = Objects.requireNonNullElse(
+                resume.getCheckpoint().getState().getActiveElapsedMillis(), 0L);
+        return Instant.now().minusMillis(Math.max(0L, beforeAgent + runtimeElapsed));
+    }
+
+    private static int initialToolCalls(ApplicationChatExecutionRequest request) {
+        ExecutionResumeContext resume = request.getResumeContext();
+        if (resume == null) {
+            return 0;
+        }
+        RuntimeCheckpoint checkpoint = resume.getCheckpoint();
+        int beforeAgent = Objects.requireNonNullElse(
+                checkpoint.getContext().getApplicationToolCallsBeforeAgent(), 0);
+        int selectedCalls = Objects.requireNonNullElse(checkpoint.getState().getToolCalls(), 0);
+        // 待批准Tool已经占用Agent局部额度，但尚未发布TOOL_STARTED，Application不能提前重复占用。
+        return beforeAgent + Math.max(0, selectedCalls - 1);
+    }
+
     /** HITL 恢复必须回到检查点锁定的 AgentVersion，不重新经过快速路由。 */
     private ChatDispatch.Executable resolveHitlDispatch(AppRuntimeSnapshot snapshot, String query,
                                                         ExecutionResumeContext resume) {
+        RuntimeCheckpoint checkpoint = resume.getCheckpoint();
         ApplicationCapabilityDefinition capability = resolveCapability(
-                snapshot, resume.getCapabilityCode(), ApplicationCapabilityType.AGENT);
-        if (!Objects.equals(capability.getTargetId(), resume.getAgentId())
-                || !Objects.equals(capability.getTargetVersionId(), resume.getAgentVersionId())) {
+                snapshot, checkpoint.getContext().getCapabilityCode(), ApplicationCapabilityType.AGENT);
+        if (!Objects.equals(capability.getTargetId(), checkpoint.getState().getAgentId())
+                || !Objects.equals(capability.getTargetVersionId(), checkpoint.getState().getAgentVersionId())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "HITL恢复目标与ApplicationVersion不一致");
         }
         return capabilityDispatch(query, capability, null, Set.of());
@@ -264,7 +340,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
     }
 
     private static ApplicationChatResult directResult(String response, ConversationContext context) {
-        return new ApplicationChatResult(response, context.getPreparationTokenUsage(), List.of());
+        return ApplicationChatResult.completed(response, context.getPreparationTokenUsage(), List.of(), null);
     }
 
     private static ApplicationChatResult clarificationResult(ApplicationChatExecutionRequest request, ChatDispatch.Clarify clarify, ConversationContext context) {
@@ -280,7 +356,8 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
 
         // ① 正常执行创建新 runId；HITL 恢复继续使用检查点锁定的原 runId。
         ExecutionResumeContext resume = request.getResumeContext();
-        String executionId = resume == null ? IdUtil.getSnowflakeNextIdStr() : resume.getRunId();
+        String executionId = resume == null ? IdUtil.getSnowflakeNextIdStr()
+                : resume.getCheckpoint().getState().getRunId();
         ChatDispatch.Capability capabilityDispatch = (ChatDispatch.Capability) dispatch;
         if (resume == null) {
             executionPersistenceService.startRun(ExecutionRunStartCommand.builder()
@@ -310,6 +387,9 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                             ? executeCapability((ChatDispatch.Capability) dispatch, executionContext)
                             : budgetBoundaryResult(executionContext));
 
+            if (result.isInterrupted()) {
+                return result;
+            }
             // ⑤ 统一记录最终执行类型、轨迹数量和完整链路耗时
             log.info("Application目标执行完成，applicationCode={}，versionId={}，executionId={}，targetType={}，traceCount={}，durationMs={}",
                     snapshot.applicationCode(), snapshot.versionId(), executionId, targetType(dispatch),
@@ -318,11 +398,23 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                     executionId, ExecutionRunStatus.RUNNING, ExecutionRunStatus.SUCCEEDED, "TERMINAL");
             return result;
         } catch (RuntimeException exception) {
-            if (!hasCause(exception, HumanInteractionRequiredException.class)) {
+            if (hasCause(exception, AgentExecutionDeadlineExceededException.class)
+                    || hasCause(exception, com.lingxi.workbench.application.runtime.model.ExecutionDeadlineExceededException.class)) {
+                executionPersistenceService.changeRunStatus(
+                        executionId, ExecutionRunStatus.RUNNING, ExecutionRunStatus.PARTIAL, "TERMINAL");
+            } else if (hasCause(exception, AgentRunCancelledException.class)
+                    || (hasInterruptedCause(exception) && executionContext.isCancelled())) {
+                executionPersistenceService.changeRunStatus(
+                        executionId, ExecutionRunStatus.RUNNING, ExecutionRunStatus.CANCELLED, "TERMINAL");
+            } else if (!hasCause(exception, AgentReconciliationPendingException.class)) {
                 executionPersistenceService.changeRunStatus(
                         executionId, ExecutionRunStatus.RUNNING, ExecutionRunStatus.FAILED, "TERMINAL");
             }
-            if (!hasInterruptedCause(exception)) {
+            boolean expectedTerminal = hasInterruptedCause(exception)
+                    || hasCause(exception, AgentRunCancelledException.class)
+                    || hasCause(exception, AgentExecutionDeadlineExceededException.class)
+                    || hasCause(exception, com.lingxi.workbench.application.runtime.model.ExecutionDeadlineExceededException.class);
+            if (!expectedTerminal) {
                 log.warn("Application目标执行失败，applicationCode={}，versionId={}，executionId={}，durationMs={}",
                         snapshot.applicationCode(), snapshot.versionId(), executionId,
                         Duration.between(startedAt, Instant.now()).toMillis(), exception);
@@ -362,9 +454,9 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                 .startedAt(startedAt)
                 .tokenUsageAccumulator(initialUsage(conversationContext.getPreparationTokenUsage()))
                 .modelCallCounter(new AtomicInteger(conversationContext.getPreparationModelCalls()))
+                .toolCallCounter(new AtomicInteger(initialToolCalls(request)))
                 .delegationCounter(new AtomicInteger())
-                .approvalRef(request.getResumeContext() == null ? null : new HitlApprovalRef(
-                        request.getResumeContext().getInteractionId(), request.getResumeContext().getFingerprint()))
+                .resumeContext(request.getResumeContext())
                 .build();
     }
 
@@ -470,17 +562,21 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                         .routingEvidence(dispatch.hints().routingEvidence())
                         .confirmedCapabilityCodes(dispatch.hints().confirmedCapabilityCodes())
                         .build());
+        if (result != null && result.isInterrupted()) {
+            return ApplicationChatResult.interrupted(context.tokenUsage(), result.interruption());
+        }
         if (Objects.isNull(result) || Objects.isNull(result.content()) || result.content().isBlank()) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "能力必须返回非空结果");
         }
-        return new ApplicationChatResult(result.content(), context.tokenUsage(), result.traces(), result.modelInstanceId());
+        return ApplicationChatResult.completed(
+                result.content(), context.tokenUsage(), result.traces(), result.modelInstanceId());
     }
 
     /**
      * 上下文准备已经越过硬边界时保留真实用量，并停止继续产生模型或Tool成本。
      */
     private static ApplicationChatResult budgetBoundaryResult(ChatExecutionContext context) {
-        return new ApplicationChatResult(BUDGET_BOUNDARY_RESPONSE, context.tokenUsage(), List.of());
+        return ApplicationChatResult.completed(BUDGET_BOUNDARY_RESPONSE, context.tokenUsage(), List.of(), null);
     }
 
     /**

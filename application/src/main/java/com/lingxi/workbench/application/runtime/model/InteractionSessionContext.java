@@ -1,5 +1,6 @@
 package com.lingxi.workbench.application.runtime.model;
 
+import com.lingxi.workbench.agentruntime.planner.PlannerClarification;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;

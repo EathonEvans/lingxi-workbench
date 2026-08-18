@@ -25,6 +25,7 @@ public class AgentDraftVO {
     private String systemPromptVersionId;
     private String userPromptVersionId;
     private List<String> toolCodes;
+    private List<String> skillIds;
     private AgentToolPolicy toolPolicy;
     private AgentKnowledgeBindingVO knowledge;
     private RetrievalPolicy retrievalPolicy;
