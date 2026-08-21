@@ -166,6 +166,7 @@ export type StreamChatOptions = {
   clientMessageId: string;
   clarificationResponse?: ClarificationResponse;
   conversationId?: string;
+  skillCodes?: string[];
   onCancelled?: () => void;
   onChunk: (content: string, sequence: number) => void;
   onClarification?: (event: ChatClarificationEvent) => void;
@@ -522,6 +523,7 @@ async function initiateChat(options: StreamChatOptions): Promise<ChatStart> {
       clarificationResponse: options.clarificationResponse,
       conversationId: options.conversationId,
       query: options.query,
+      skillCodes: options.skillCodes,
     }),
     headers: {
       "Content-Type": "application/json",

@@ -257,6 +257,7 @@ describe("streamChat", () => {
         clientConversationId: "conversation-local-001",
         conversationId: undefined,
         onStart,
+        skillCodes: ["fact_check"],
       });
 
       const startRequest = fetchMock.mock.calls[0]?.[1];
@@ -266,6 +267,7 @@ describe("streamChat", () => {
         clientConversationId: "conversation-local-001",
         clientMessageId: "msg-1",
         query: "你好",
+        skillCodes: ["fact_check"],
       });
       expect(requestBody.conversationId).toBeUndefined();
       expect(onStart).toHaveBeenCalledWith({
