@@ -34,7 +34,7 @@ class PlannerDecisionValidatorTest {
     @Test
     void shouldRejectUnauthorizedCapabilityBeforeExecution() {
         PlannerDecision decision = PlannerDecision.builder()
-                .action(PlannerDecisionAction.EXECUTE_AGENT)
+                .action(PlannerDecisionAction.EXECUTE_CAPABILITY)
                 .capabilityCode("admin")
                 .build();
 

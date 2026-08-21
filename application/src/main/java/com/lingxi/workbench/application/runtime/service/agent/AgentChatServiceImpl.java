@@ -9,7 +9,7 @@ import com.lingxi.workbench.agentruntime.model.AgentResumeRequest;
 import com.lingxi.workbench.agentruntime.model.AgentRunRequest;
 import com.lingxi.workbench.agentruntime.model.AgentRunResult;
 import com.lingxi.workbench.agentruntime.model.ExecutionPolicy;
-import com.lingxi.workbench.agentruntime.model.SkillActivation;
+import com.lingxi.workbench.agentruntime.model.SkillRuntimeCatalog;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
@@ -118,11 +118,8 @@ public class AgentChatServiceImpl implements AgentChatService {
         // ③ 校验 query 与运行时变量中的 USER_QUERY 一致
         validateEntryQuery(query, execution);
         // ④ 只激活AgentVersion锁定且仍通过安全熔断的SkillVersion
-        List<SkillActivation> activeSkills = skillRuntimeService.resolveAlwaysOn(definition, execution.getContextBudget());
-        if (execution.getResumeContext() == null) {
-            executionPersistenceService.recordActivatedSkills(
-                    execution.getExecutionId(), snapshot.agentVersionId(), activeSkills);
-        }
+        SkillRuntimeCatalog skillCatalog = skillRuntimeService.load(
+                definition, execution.getContextBudget(), execution.getExplicitSkillCodes());
         // ⑤ 领域专家按发布快照渲染Prompt；主Agent必须走独立规划链，不能进入普通对话循环
         ModelChatContext chatContext = prepareSpecialist(definition, execution);
         // ⑥ 只装配领域专家自己的业务工具和知识搜索工具
@@ -149,7 +146,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         ChatModelRuntimeConfig modelConfig = applyGenerationPolicy(
                 sourceConfig, definition.getGenerationPolicy(), execution.getContextBudget(), remainingTokenBudget,
                 requestTimeout);
-        return this.generate(snapshot, execution, prompt, chatContext, modelConfig, activeSkills,
+        return this.generate(snapshot, execution, prompt, chatContext, modelConfig, skillCatalog,
                 definition.resolveToolCodes(), toolRuntimeConfig, finalizationOnly, remainingTokenBudget,
                 hardRequestTimeout, requestTimeout);
     }
@@ -168,7 +165,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
     }
 
-    /** 构建领域专家的直接模型上下文。 */
+    /**
+     * 构建领域专家的直接模型上下文。
+     */
     private ModelChatContext prepareSpecialist(AgentRuntimeDefinition definition, ChatExecutionContext execution) {
         if (definition.getRole() != AgentRole.SPECIALIST) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "只有领域专家可以进入ReAct执行链");
@@ -188,7 +187,7 @@ public class AgentChatServiceImpl implements AgentChatService {
      */
     private AgentRunResult generate(AgentRuntimeSnapshot snapshot, ChatExecutionContext execution,
                                     PromptPair prompt, ModelChatContext context, ChatModelRuntimeConfig modelConfig,
-                                    List<SkillActivation> skillActivations, List<String> authorizedToolCodes,
+                                    SkillRuntimeCatalog skillCatalog, List<String> authorizedToolCodes,
                                     Optional<AgentToolRuntimeConfig> toolRuntimeConfig, boolean finalizationOnly,
                                     int remainingTokenBudget, Duration hardRequestTimeout, Duration requestTimeout) {
         String systemPrompt = finalizationOnly
@@ -206,54 +205,60 @@ public class AgentChatServiceImpl implements AgentChatService {
                 ? requestTimeout.minus(hardRequestTimeout)
                 : Duration.ZERO;
         com.lingxi.workbench.application.runtime.model.ExecutionResumeContext resume = execution.getResumeContext();
+        boolean hasModelRoutedSkill = skillCatalog.bindings().stream()
+                .anyMatch(binding -> binding.getSkill().getActivationMode()
+                        == com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationMode.MODEL_ROUTED);
         int maxModelCalls = resume == null
-                ? toolRuntimeConfig.isPresent() ? execution.remainingModelCalls() : 1
+                ? toolRuntimeConfig.isPresent() ? execution.remainingModelCalls()
+                : hasModelRoutedSkill && !finalizationOnly ? Math.min(execution.remainingModelCalls(), 3) : 1
                 : resume.getCheckpoint().getState().getMaxModelCalls();
         int maxToolCalls = resume == null
                 ? toolRuntimeConfig.isPresent() ? execution.remainingToolCalls() : 0
                 : resume.getCheckpoint().getState().getMaxToolCalls();
         ExecutionPolicy policy = resume == null
                 ? ExecutionPolicy.builder()
-                        .maxModelCalls(maxModelCalls)
-                        .maxToolCalls(maxToolCalls)
-                        .maxTotalTokens(remainingTokenBudget)
-                        .maxFinalizationTokens(execution.remainingFinalizationTokenBudget())
-                        .timeout(hardRequestTimeout)
-                        .activeOutputGrace(activeOutputGrace)
-                        .build()
+                .maxModelCalls(maxModelCalls)
+                .maxToolCalls(maxToolCalls)
+                .maxTotalTokens(remainingTokenBudget)
+                .maxFinalizationTokens(execution.remainingFinalizationTokenBudget())
+                .timeout(hardRequestTimeout)
+                .activeOutputGrace(activeOutputGrace)
+                .build()
                 : ExecutionPolicy.builder()
-                        .maxModelCalls(maxModelCalls)
-                        .maxToolCalls(maxToolCalls)
-                        .maxTotalTokens(resume.getCheckpoint().getState().getMaxTotalTokens())
-                        .maxFinalizationTokens(resume.getCheckpoint().getState().getMaxFinalizationTokens())
-                        .timeout(Duration.ofMillis(resume.getCheckpoint().getState().getTimeoutMillis()))
-                        .activeOutputGrace(Duration.ofMillis(
-                                resume.getCheckpoint().getState().getActiveOutputGraceMillis()))
-                        .build();
+                .maxModelCalls(maxModelCalls)
+                .maxToolCalls(maxToolCalls)
+                .maxTotalTokens(resume.getCheckpoint().getState().getMaxTotalTokens())
+                .maxFinalizationTokens(resume.getCheckpoint().getState().getMaxFinalizationTokens())
+                .timeout(Duration.ofMillis(resume.getCheckpoint().getState().getTimeoutMillis()))
+                .activeOutputGrace(Duration.ofMillis(
+                        resume.getCheckpoint().getState().getActiveOutputGraceMillis()))
+                .build();
         boolean approvalPossible = toolRuntimeConfig.stream()
                 .flatMap(config -> config.getTools().stream())
                 .anyMatch(tool -> tool.definition().getSecurityPolicy().isApprovalRequired());
         RuntimeCheckpointContext checkpointContext = resume != null
                 ? resume.getCheckpoint().getContext()
                 : approvalPossible ? RuntimeCheckpointContext.builder()
-                        .query(execution.getRuntimeVariables().require(RuntimeVariableAccessors.USER_QUERY))
-                        .capabilityCode(resolveCapabilityCode(execution, snapshot))
-                        .applicationVersionId(execution.getConversationContext().getApplicationSnapshot().versionId())
-                        .userId(execution.getRuntimeVariables().require(RuntimeVariableAccessors.USER_ID))
-                        .conversationId(execution.getTurn().conversationId())
-                        .assistantMessageId(execution.getTurn().assistantMessageId())
-                        .applicationUsageBeforeAgent(execution.tokenUsage())
-                        .applicationModelCallsBeforeAgent(execution.usedModelCalls())
-                        .applicationToolCallsBeforeAgent(execution.usedToolCalls())
-                        .applicationElapsedBeforeAgentMillis(execution.activeElapsedMillis())
-                        .build()
+                .query(execution.getRuntimeVariables().require(RuntimeVariableAccessors.USER_QUERY))
+                .capabilityCode(resolveCapabilityCode(execution, snapshot))
+                .applicationVersionId(execution.getConversationContext().getApplicationSnapshot().versionId())
+                .userId(execution.getRuntimeVariables().require(RuntimeVariableAccessors.USER_ID))
+                .conversationId(execution.getTurn().conversationId())
+                .assistantMessageId(execution.getTurn().assistantMessageId())
+                .explicitSkillCodes(execution.getExplicitSkillCodes())
+                .applicationUsageBeforeAgent(execution.tokenUsage())
+                .applicationModelCallsBeforeAgent(execution.usedModelCalls())
+                .applicationToolCallsBeforeAgent(execution.usedToolCalls())
+                .applicationElapsedBeforeAgentMillis(execution.activeElapsedMillis())
+                .build()
                 : null;
         AgentRunRequest runRequest = AgentRunRequest.builder()
                 .runId(execution.getExecutionId())
                 .agentId(snapshot.agentId())
                 .agentVersionId(snapshot.agentVersionId())
+                .scope(execution.getExecutionScope())
                 .modelCommand(command)
-                .skillActivations(skillActivations)
+                .skillCatalog(skillCatalog)
                 .authorizedToolCodes(authorizedToolCodes)
                 .finalizationOnly(finalizationOnly)
                 .policy(policy)
@@ -267,7 +272,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         AgentRunResult result = resume == null
                 ? agentRuntime.run(runRequest)
                 : agentRuntime.resume(new AgentResumeRequest(runRequest, resume.getCheckpoint(),
-                        resume.getInteractionId(), resume.getFingerprint()));
+                resume.getInteractionId(), resume.getFingerprint()));
         if (result instanceof AgentRunResult.Partial) {
             throw new AgentExecutionDeadlineExceededException();
         }
@@ -288,7 +293,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         return List.copyOf(tools);
     }
 
-    /** 将本次已解析的全部工具装配为 Spring AI 工具运行配置。 */
+    /**
+     * 将本次已解析的全部工具装配为 Spring AI 工具运行配置。
+     */
     private Optional<AgentToolRuntimeConfig> resolveToolRuntimeConfig(ChatExecutionContext execution,
                                                                       AgentRuntimeSnapshot snapshot,
                                                                       List<AgentTool> runtimeTools) {
@@ -348,10 +355,10 @@ public class AgentChatServiceImpl implements AgentChatService {
      * @return 叠加策略与预算后的最终模型配置
      */
     private static ChatModelRuntimeConfig applyGenerationPolicy(ChatModelRuntimeConfig source,
-                                                                 AgentRuntimeDefinition.GenerationPolicy policy,
-                                                                 ContextBudgetPolicy contextBudget,
-                                                                 int remainingTokenBudget,
-                                                                 Duration requestTimeout) {
+                                                                AgentRuntimeDefinition.GenerationPolicy policy,
+                                                                ContextBudgetPolicy contextBudget,
+                                                                int remainingTokenBudget,
+                                                                Duration requestTimeout) {
         // 采样参数：发布版本显式配置的值优先于模型实例默认值
         Double temperature = source.getTemperature();
         if (Objects.nonNull(policy) && Objects.nonNull(policy.getTemperature())) {
@@ -383,7 +390,9 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .build();
     }
 
-    /** 模型配置只接受整秒，向上取整；流式阻塞仍使用精确剩余时间作为硬截止。 */
+    /**
+     * 模型配置只接受整秒，向上取整；流式阻塞仍使用精确剩余时间作为硬截止。
+     */
     private static int timeoutSeconds(Duration timeout) {
         long seconds = timeout.toSeconds();
         if (!timeout.minusSeconds(seconds).isZero()) {

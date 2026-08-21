@@ -4,8 +4,10 @@ import com.lingxi.workbench.agentruntime.event.ExecutionEvent;
 import com.lingxi.workbench.agentruntime.event.ExecutionEventPayload;
 import com.lingxi.workbench.agentruntime.event.RuntimeEventSink;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
+import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
+import com.lingxi.workbench.application.runtime.model.ExecutionSkillActivationCommand;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatInteractionEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatPlanStepBO;
@@ -44,15 +46,32 @@ public class ApplicationRuntimeEventSinkFactory {
             ExecutionEventType eventType = ExecutionEventType.valueOf(event.getType().name());
             String message = event.getPayload() == null ? null : event.getPayload().message();
             reserveApplicationBudget(event);
-            persistenceService.appendEvent(ExecutionEventCommand.builder()
+            ExecutionEventCommand command = ExecutionEventCommand.builder()
                     .runId(event.getRunId())
                     .sequenceNo(event.getSequenceNo())
                     .occurredAt(event.getOccurredAt())
                     .eventType(eventType)
                     .planNo(planNo(event))
+                    .stepId(stepId(event))
+                    .stepStatus(stepStatus(event))
                     .displayName(eventType.getDescribe())
                     .message(message)
-                    .build());
+                    .build();
+            if (event.getPayload() instanceof ExecutionEventPayload.Skill skill) {
+                persistenceService.appendSkillActivationEvent(command,
+                        ExecutionSkillActivationCommand.builder()
+                                .runId(event.getRunId())
+                                .agentVersionId(event.getAgentVersionId())
+                                .skillId(skill.getSkillId())
+                                .skillVersionId(skill.getSkillVersionId())
+                                .skillCode(skill.getSkillCode())
+                                .checksum(skill.getChecksum())
+                                .reason(skill.getReason())
+                                .effectiveToolCodes(skill.getEffectiveToolCodes())
+                                .build());
+            } else {
+                persistenceService.appendEvent(command);
+            }
             publishProjection(event);
         }
 
@@ -91,6 +110,13 @@ public class ApplicationRuntimeEventSinkFactory {
                                             step.getCapabilityCode()))
                                     .toList());
                 }
+            } else if (event.getPayload() instanceof ExecutionEventPayload.Step step) {
+                timeline.planNo(step.getPlanNo())
+                        .stepId(step.getStep().getId())
+                        .displayName(step.getStep().getName())
+                        .stepStatus(ExecutionStepStatus.valueOf(step.getStatus().name()));
+            } else if (event.getPayload() instanceof ExecutionEventPayload.Clarification clarification) {
+                timeline.planNo(clarification.getPlanNo());
             }
             execution.getEventPublisher().publishExecution(timeline.build());
             if (event.getPayload() instanceof ExecutionEventPayload.Model model
@@ -112,7 +138,24 @@ public class ApplicationRuntimeEventSinkFactory {
         }
 
         private static Integer planNo(ExecutionEvent event) {
-            return event.getPayload() instanceof ExecutionEventPayload.Plan plan ? plan.getPlanNo() : null;
+            if (event.getPayload() instanceof ExecutionEventPayload.Plan plan) {
+                return plan.getPlanNo();
+            }
+            if (event.getPayload() instanceof ExecutionEventPayload.Step step) {
+                return step.getPlanNo();
+            }
+            return event.getPayload() instanceof ExecutionEventPayload.Clarification clarification
+                    ? clarification.getPlanNo() : null;
+        }
+
+        private static String stepId(ExecutionEvent event) {
+            return event.getPayload() instanceof ExecutionEventPayload.Step step
+                    ? step.getStep().getId() : null;
+        }
+
+        private static ExecutionStepStatus stepStatus(ExecutionEvent event) {
+            return event.getPayload() instanceof ExecutionEventPayload.Step step
+                    ? ExecutionStepStatus.valueOf(step.getStatus().name()) : null;
         }
 
         private void publishHuman(ExecutionEventType type, ExecutionEventPayload.Human human) {

@@ -55,6 +55,19 @@ class AgentSkillBindingResolverTest {
     }
 
     @Test
+    void shouldFreezeModelRoutedSystemSkill() {
+        SkillEntity skill = skill(1L, 11L);
+        SkillVersionEntity version = version(11L, skillSnapshot(SkillActivationMode.MODEL_ROUTED));
+        when(skillRepo.findAllByIds(List.of(1L))).thenReturn(List.of(skill));
+        when(versionRepo.findAllByIds(List.of(11L))).thenReturn(List.of(version));
+
+        List<AgentSkillBindingSnapshot> bindings = resolver.resolve(List.of(1L), List.of("knowledge_search"));
+
+        assertEquals(SkillActivationMode.MODEL_ROUTED,
+                bindings.getFirst().getSkill().getActivationMode());
+    }
+
+    @Test
     void shouldAllowHistoricalFrozenVersionWhenCurrentPublishedVersionChanged() {
         SkillEntity skill = skill(1L, 12L);
         SkillVersionEntity historical = version(11L, skillSnapshot());
@@ -140,13 +153,17 @@ class AgentSkillBindingResolverTest {
     }
 
     private static SkillVersionSnapshot skillSnapshot() {
+        return skillSnapshot(SkillActivationMode.ALWAYS_ON);
+    }
+
+    private static SkillVersionSnapshot skillSnapshot(SkillActivationMode mode) {
         return SkillVersionSnapshot.builder()
                 .schemaVersion(1)
                 .code("fact_check")
                 .name("事实核验")
                 .description("核验回答依据")
                 .instructions("先核验事实，再给出结论。")
-                .activationMode(SkillActivationMode.ALWAYS_ON)
+                .activationMode(mode)
                 .requestedToolCodes(List.of("knowledge_search", "calendar_write"))
                 .build();
     }

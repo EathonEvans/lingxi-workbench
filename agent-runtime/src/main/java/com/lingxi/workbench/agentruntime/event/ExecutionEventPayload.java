@@ -1,7 +1,10 @@
 package com.lingxi.workbench.agentruntime.event;
 
 import com.lingxi.workbench.agentruntime.checkpoint.RuntimeInterruption;
+import com.lingxi.workbench.agentruntime.plan.AgentInvocationStatus;
+import com.lingxi.workbench.agentruntime.planner.PlannerClarification;
 import com.lingxi.workbench.agentruntime.planner.PlannerDecision;
+import com.lingxi.workbench.agentruntime.planner.PlannerStep;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationReason;
 import lombok.Builder;
@@ -12,7 +15,8 @@ import java.util.List;
 /** 与事件类型匹配的安全载荷，不包含 Prompt、思维链、Tool 参数或原始结果。 */
 public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run, ExecutionEventPayload.Agent,
         ExecutionEventPayload.Model, ExecutionEventPayload.Skill, ExecutionEventPayload.Tool,
-        ExecutionEventPayload.Human, ExecutionEventPayload.Plan, ExecutionEventPayload.Failure {
+        ExecutionEventPayload.Human, ExecutionEventPayload.Plan, ExecutionEventPayload.Step,
+        ExecutionEventPayload.Clarification, ExecutionEventPayload.Failure {
 
     String message();
 
@@ -39,6 +43,51 @@ public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run,
         public Plan(int planNo, PlannerDecision decision, String message) {
             this.planNo = planNo;
             this.decision = decision;
+            this.message = message;
+        }
+
+        @Override
+        public String message() {
+            return message;
+        }
+    }
+
+    /** 计划步骤事件只携带可展示定义和终态，不包含输入与原始结果。 */
+    @Getter
+    final class Step implements ExecutionEventPayload {
+
+        private final int planNo;
+        private final PlannerStep step;
+        private final AgentInvocationStatus status;
+        private final String errorCode;
+        private final String message;
+
+        public Step(int planNo, PlannerStep step, AgentInvocationStatus status, String errorCode,
+                    String message) {
+            this.planNo = planNo;
+            this.step = java.util.Objects.requireNonNull(step, "计划步骤不能为空");
+            this.status = java.util.Objects.requireNonNull(status, "步骤状态不能为空");
+            this.errorCode = errorCode;
+            this.message = message;
+        }
+
+        @Override
+        public String message() {
+            return message;
+        }
+    }
+
+    /** 用户澄清事件只携带已校验的展示问题。 */
+    @Getter
+    final class Clarification implements ExecutionEventPayload {
+
+        private final int planNo;
+        private final PlannerClarification clarification;
+        private final String message;
+
+        public Clarification(int planNo, PlannerClarification clarification, String message) {
+            this.planNo = planNo;
+            this.clarification = java.util.Objects.requireNonNull(clarification, "澄清信息不能为空");
             this.message = message;
         }
 

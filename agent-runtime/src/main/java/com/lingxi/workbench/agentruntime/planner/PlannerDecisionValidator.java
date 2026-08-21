@@ -19,7 +19,7 @@ public class PlannerDecisionValidator {
             throw invalid("Planner决策或校验上下文不完整");
         }
         switch (decision.getAction()) {
-            case EXECUTE_AGENT -> validateDirect(decision, context);
+            case EXECUTE_CAPABILITY -> validateDirect(decision, context);
             case EXECUTE_PLAN -> validatePlan(decision, context);
             case CLARIFY -> validateClarification(decision);
         }

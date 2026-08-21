@@ -1,6 +1,8 @@
 # Application 执行大脑 V1 代码设计
 
-> 状态：目标代码设计
+> 状态：历史代码设计，执行期职责已由
+> [Agent Runtime 内核收束设计](./agent-runtime-core-convergence-v1.md) 直接替换；本文仅用于追溯 Application
+> 收束前的模型，不再作为当前 Runtime 合同。
 > 更新时间：2026-08-08
 > 关联计划：`docs/development/application-execution-brain-v1.md`
 

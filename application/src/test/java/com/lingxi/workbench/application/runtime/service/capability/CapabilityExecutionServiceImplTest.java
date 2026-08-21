@@ -1,5 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.capability;
 
+import com.lingxi.workbench.agentruntime.model.AgentReconciliationPendingException;
 import com.lingxi.workbench.application.runtime.service.agent.AgentExecutorRegistry;
 import com.lingxi.workbench.application.runtime.service.agent.SpecialistAgentExecutor;
 
@@ -21,6 +22,8 @@ import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
+import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
+import com.lingxi.workbench.workflow.service.impl.ApplicationWorkflowExecutionPortsFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 import org.springframework.beans.factory.ObjectProvider;
@@ -93,6 +96,26 @@ class CapabilityExecutionServiceImplTest {
     }
 
     @Test
+    void shouldRequireReconciliationWhenWriteAgentCompletedWithOversizedResult() {
+        ApplicationCapabilityChecksum checksum = new ApplicationCapabilityChecksum();
+        AgentChatService agentChatService = mock(AgentChatService.class);
+        AgentRuntimeService agentRuntimeService = mock(AgentRuntimeService.class);
+        TokenCountEstimator estimator = mock(TokenCountEstimator.class);
+        ChatExecutionContext context = context();
+        AgentRuntimeSnapshot snapshot = agentSnapshot();
+        when(agentRuntimeService.resolveVersion(60L, 70L)).thenReturn(snapshot);
+        when(agentChatService.chat(snapshot, "问题", context)).thenReturn(completed("写操作已完成"));
+        when(estimator.estimate("写操作已完成")).thenReturn(101);
+        CapabilityExecutionServiceImpl service = service(
+                agentChatService, agentRuntimeService, checksum, estimator);
+        ApplicationCapabilityDefinition capability = agentCapability(checksum.calculate(70L), 2);
+        capability.setRiskLevel(CapabilityRiskLevel.WRITE);
+
+        assertThrows(AgentReconciliationPendingException.class,
+                () -> service.execute(request(capability, context)));
+    }
+
+    @Test
     void shouldLeaveAgentTimeoutToApplicationDeadline() {
         ApplicationCapabilityChecksum checksum = new ApplicationCapabilityChecksum();
         AgentRuntimeService agentRuntimeService = mock(AgentRuntimeService.class);
@@ -146,9 +169,10 @@ class CapabilityExecutionServiceImplTest {
                 registryProvider,
                 agentRuntimeService,
                 mock(WorkflowRuntimeRepo.class),
-                (definition, request) -> {
+                (definition, request, ports) -> {
                     throw new AssertionError("Agent测试不应进入Workflow");
                 },
+                mock(ApplicationWorkflowExecutionPortsFactory.class),
                 mock(ToolRuntimeRepo.class),
                 mock(ToolRuntimeService.class),
                 checksum,
@@ -171,6 +195,7 @@ class CapabilityExecutionServiceImplTest {
                 .timeoutSeconds(timeoutSeconds)
                 .maxCalls(1)
                 .resultTokenBudget(100)
+                .riskLevel(CapabilityRiskLevel.READ_ONLY)
                 .build();
     }
 

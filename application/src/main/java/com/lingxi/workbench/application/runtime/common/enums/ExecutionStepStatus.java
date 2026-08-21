@@ -12,6 +12,8 @@ public enum ExecutionStepStatus {
     COMPLETED("COMPLETED", "已完成"),
     FAILED("FAILED", "失败"),
     CANCELLED("CANCELLED", "已取消"),
+    INTERRUPTED("INTERRUPTED", "等待人工确认"),
+    REUSED("REUSED", "已复用"),
     SKIPPED("SKIPPED", "已跳过");
 
     @EnumValue

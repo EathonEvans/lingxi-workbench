@@ -14,12 +14,18 @@ public enum AgentToolExecutionMode {
     DYNAMIC_READ_ONLY("DYNAMIC_READ_ONLY", "动态只读"),
     SIDE_EFFECT("SIDE_EFFECT", "存在副作用");
 
-    /** 稳定编码。 */
+    /**
+     * 稳定编码。
+     */
     private final String code;
-    /** 中文说明。 */
+    /**
+     * 中文说明。
+     */
     private final String describe;
 
-    /** 相同入参在单次执行内是否可以安全复用已有结果。 */
+    /**
+     * 相同入参在单次执行内是否可以安全复用已有结果。
+     */
     public boolean canReuseResult() {
         return this == DETERMINISTIC_READ_ONLY;
     }

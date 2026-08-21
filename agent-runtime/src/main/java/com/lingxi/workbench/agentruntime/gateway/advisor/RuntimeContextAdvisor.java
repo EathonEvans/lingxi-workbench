@@ -52,6 +52,7 @@ public class RuntimeContextAdvisor implements CallAdvisor, StreamAdvisor {
     public static final String EXECUTION_STATE = "lingxi.runtime.execution-state";
     public static final String RUN_ID = "lingxi.runtime.run-id";
     public static final String AGENT_VERSION_ID = "lingxi.runtime.agent-version-id";
+    public static final String PROMPT_ENRICHMENT = "lingxi.runtime.prompt-enrichment";
 
     @Override
     public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
@@ -76,7 +77,8 @@ public class RuntimeContextAdvisor implements CallAdvisor, StreamAdvisor {
     private static ChatClientRequest enrich(ChatClientRequest request) {
         ExecutionState state = requireState(request);
         return request.mutate()
-                .prompt(enrichPrompt(request.prompt(), state, isFinalCall(request)))
+                .prompt(isPromptEnrichmentEnabled(request)
+                        ? enrichPrompt(request.prompt(), state, isFinalCall(request)) : request.prompt())
                 .context(RUN_ID, state.getRunId())
                 .context(AGENT_VERSION_ID, state.getAgentVersionId())
                 .build();
@@ -110,6 +112,10 @@ public class RuntimeContextAdvisor implements CallAdvisor, StreamAdvisor {
 
     private static boolean isFinalCall(ChatClientRequest request) {
         return Boolean.TRUE.equals(request.context().get(RuntimeModelAdvisor.FINAL_MODEL_CALL));
+    }
+
+    private static boolean isPromptEnrichmentEnabled(ChatClientRequest request) {
+        return !Boolean.FALSE.equals(request.context().get(PROMPT_ENRICHMENT));
     }
 
     static ExecutionState requireState(ChatClientRequest request) {

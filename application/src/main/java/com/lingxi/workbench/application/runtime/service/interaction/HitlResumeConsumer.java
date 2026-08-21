@@ -28,7 +28,6 @@ public class HitlResumeConsumer implements RocketMQListener<HitlResumeMessage> {
     @Override
     public void onMessage(HitlResumeMessage message) {
         chatStreamService.resumeInteraction(message.getInteractionId());
-        log.info("HITL恢复事件处理完成，eventId={}，interactionId={}",
-                message.getEventId(), message.getInteractionId());
+        log.info("HITL恢复事件处理完成，eventId={}，interactionId={}", message.getEventId(), message.getInteractionId());
     }
 }

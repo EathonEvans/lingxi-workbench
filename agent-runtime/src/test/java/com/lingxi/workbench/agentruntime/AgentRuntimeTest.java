@@ -7,12 +7,14 @@ import com.lingxi.workbench.agentruntime.event.ExecutionEvent;
 import com.lingxi.workbench.agentruntime.event.ExecutionEventType;
 import com.lingxi.workbench.agentruntime.event.RuntimeEventSink;
 import com.lingxi.workbench.agentruntime.gateway.SpringAiStreamingChatGateway;
+import com.lingxi.workbench.agentruntime.hook.SkillHook;
 import com.lingxi.workbench.agentruntime.model.AgentRunCancelledException;
 import com.lingxi.workbench.agentruntime.model.AgentRunRequest;
 import com.lingxi.workbench.agentruntime.model.AgentRunResult;
 import com.lingxi.workbench.agentruntime.model.AgentResumeRequest;
 import com.lingxi.workbench.agentruntime.model.AgentRuntimeLimitException;
 import com.lingxi.workbench.agentruntime.model.ExecutionPolicy;
+import com.lingxi.workbench.agentruntime.model.ExecutionScope;
 import com.lingxi.workbench.agentruntime.model.ExecutionState;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
@@ -46,7 +48,7 @@ class AgentRuntimeTest {
                 new ChatStreamChunk("", TokenUsage.of(8, 2, 10))));
         RecordingSink sink = new RecordingSink();
 
-        AgentRunResult result = new AgentRuntime(gateway).run(request(sink, Duration.ofSeconds(2), 7L));
+        AgentRunResult result = runtime(gateway).run(request(sink, Duration.ofSeconds(2), 7L));
 
         assertInstanceOf(AgentRunResult.Completed.class, result);
         assertEquals("你好", result.content());
@@ -64,12 +66,35 @@ class AgentRuntimeTest {
     }
 
     @Test
+    void shouldKeepRunLifecycleOpenForDelegatedInvocation() {
+        SpringAiStreamingChatGateway gateway = gateway(Flux.just(new ChatStreamChunk("子任务完成")));
+        RecordingSink sink = new RecordingSink();
+        AgentRunRequest request = AgentRunRequest.builder()
+                .runId("run-supervisor")
+                .agentId(11L)
+                .agentVersionId(21L)
+                .scope(ExecutionScope.INVOCATION)
+                .modelCommand(command())
+                .policy(policy(Duration.ofSeconds(2), Duration.ZERO, 100))
+                .eventSink(sink)
+                .initialUsage(TokenUsage.empty())
+                .build();
+
+        AgentRunResult result = runtime(gateway).run(request);
+
+        assertEquals("子任务完成", result.content());
+        assertEquals(List.of(ExecutionEventType.AGENT_STARTED, ExecutionEventType.MODEL_STARTED,
+                        ExecutionEventType.MODEL_COMPLETED, ExecutionEventType.AGENT_COMPLETED),
+                sink.events.stream().map(ExecutionEvent::getType).toList());
+    }
+
+    @Test
     void shouldReturnPartialWhenDeadlineHasUsefulOutput() {
         SpringAiStreamingChatGateway gateway = gateway(Flux.concat(
                 Flux.just(new ChatStreamChunk("可用结果")), Flux.never()));
         RecordingSink sink = new RecordingSink();
 
-        AgentRunResult result = new AgentRuntime(gateway).run(request(sink, Duration.ofMillis(60), 0L));
+        AgentRunResult result = runtime(gateway).run(request(sink, Duration.ofMillis(60), 0L));
 
         assertInstanceOf(AgentRunResult.Partial.class, result);
         assertEquals("可用结果", result.content());
@@ -92,7 +117,7 @@ class AgentRuntimeTest {
                 .build();
         long startedAt = System.nanoTime();
 
-        AgentRunResult result = new AgentRuntime(gateway).run(request);
+        AgentRunResult result = runtime(gateway).run(request);
 
         long elapsedMillis = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
         assertInstanceOf(AgentRunResult.Partial.class, result);
@@ -105,7 +130,7 @@ class AgentRuntimeTest {
         RecordingSink sink = new RecordingSink();
 
         assertThrows(IllegalStateException.class,
-                () -> new AgentRuntime(gateway).run(request(sink, Duration.ofSeconds(2), 0L)));
+                () -> runtime(gateway).run(request(sink, Duration.ofSeconds(2), 0L)));
 
         assertEquals(1, sink.events.stream()
                 .filter(event -> event.getType() == ExecutionEventType.RUN_FAILED)
@@ -119,7 +144,7 @@ class AgentRuntimeTest {
         RecordingSink sink = new RecordingSink();
 
         assertThrows(IllegalStateException.class,
-                () -> new AgentRuntime(gateway).run(request(sink, Duration.ofSeconds(2), 0L)));
+                () -> runtime(gateway).run(request(sink, Duration.ofSeconds(2), 0L)));
 
         assertEquals(ExecutionEventType.RUN_FAILED, sink.events.getLast().getType());
         assertEquals(0, sink.events.stream()
@@ -149,7 +174,7 @@ class AgentRuntimeTest {
                 .initialUsage(TokenUsage.empty())
                 .build();
 
-        AgentRunResult result = new AgentRuntime(gateway).run(request);
+        AgentRunResult result = runtime(gateway).run(request);
 
         assertEquals("收尾回答", result.content());
         assertEquals(List.of(ExecutionEventType.RUN_STARTED, ExecutionEventType.AGENT_STARTED,
@@ -178,7 +203,7 @@ class AgentRuntimeTest {
                 .initialUsage(TokenUsage.of(5, 5, 10))
                 .build();
 
-        assertThrows(AgentRuntimeLimitException.class, () -> new AgentRuntime(gateway).run(request));
+        assertThrows(AgentRuntimeLimitException.class, () -> runtime(gateway).run(request));
         assertEquals(ExecutionEventType.RUN_FAILED, sink.events.getLast().getType());
     }
 
@@ -189,7 +214,7 @@ class AgentRuntimeTest {
         sink.cancelled.set(true);
 
         assertThrows(AgentRunCancelledException.class,
-                () -> new AgentRuntime(gateway).run(request(sink, Duration.ofSeconds(2), 0L)));
+                () -> runtime(gateway).run(request(sink, Duration.ofSeconds(2), 0L)));
 
         assertEquals(ExecutionEventType.RUN_CANCELLED, sink.events.getLast().getType());
         assertEquals(0, sink.events.stream()
@@ -207,7 +232,7 @@ class AgentRuntimeTest {
         }));
         RecordingSink sink = new RecordingSink();
 
-        AgentRunResult result = new AgentRuntime(gateway).run(
+        AgentRunResult result = runtime(gateway).run(
                 request(sink, Duration.ofSeconds(2), 0L));
 
         AgentRunResult.Interrupted interrupted = assertInstanceOf(AgentRunResult.Interrupted.class, result);
@@ -237,7 +262,7 @@ class AgentRuntimeTest {
                         .authorizedToolCodes(List.of()).build())
                 .build();
 
-        AgentRunResult result = new AgentRuntime(gateway).resume(
+        AgentRunResult result = runtime(gateway).resume(
                 new AgentResumeRequest(request, checkpoint, 91L, "fp"));
 
         assertEquals("恢复完成", result.content());
@@ -254,6 +279,12 @@ class AgentRuntimeTest {
             return chunks.doOnComplete(() -> state.completeModelCall(callNo, TokenUsage.of(8, 2, 10), false));
         }));
         return gateway;
+    }
+
+    private static AgentRuntime runtime(SpringAiStreamingChatGateway gateway) {
+        SkillRouter skillRouter = mock(SkillRouter.class);
+        when(skillRouter.route(any(), any(), any())).thenReturn(List.of());
+        return new AgentRuntime(gateway, new SkillHook(skillRouter));
     }
 
     private static AgentRunRequest request(RecordingSink sink, Duration timeout, long initialSequence) {

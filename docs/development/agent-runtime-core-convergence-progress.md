@@ -382,3 +382,403 @@
 - 下批入口条件：开始 Batch 5 前重新检查三个仓库状态、Batch 4 DONE 与本地错误记录；先回归
   typed Planner、结构重试预算、计划事件/快照、全量 `verify.sh` 和 Application 真实启动，全部通过后
   再修改 Plan-and-Execute 生产代码。
+
+## 2026-08-21 14:52 Batch 5 START
+
+- 分支与工作区：Server 为 `agent/agent-runtime-convergence...origin/agent/agent-runtime-convergence`，
+  已提交 Batch 0–4；Admin 为 `agent/admin-skill-auth...origin/agent/admin-skill-auth`、Web 为
+  `main...origin/main`，两者均干净。Server 另有 21 个未提交文件，经归类主要为注释/格式调整，
+  其中 `.gitignore` 新增 `docs`、Chat Generation 稳定事件 code 改为小写属于未记录语义变更，
+  本批视为既有改动保护，不纳入 Plan-and-Execute 设计，也不直接覆盖。
+- 开发前本地进度：已重新完整读取根目录和 Server `AGENTS.md`，复查 Batch 4 DONE、Batch 5
+  出入口及 `.learnings`；确认 Application 仍持有计划循环、步骤状态、能力委派、重规划和最终综合，
+  Runtime 当前只持有 typed Planner 决策生成与校验。
+- 上批回归命令与结果：Planner/Runtime/Application 9 个聚焦测试类共 40 项通过；
+  `./scripts/verify.sh` 八模块全部 `SUCCESS`，共 600 项测试、0 失败、0 错误、1 项既有环境跳过。
+  使用全量构建产物启动 Application 时已完成 Web、PostgreSQL、MinIO 和 RocketMQ Bean 装配，
+  但配置的 `192.168.86.2:9876` 当前拒绝连接，MQ 消费者生命周期启动失败；本机无 Docker CLI，
+  无法通过仓库 Compose 恢复依赖。该外部环境限制已记录到 `.learnings/ERRORS.md`，不通过关闭
+  消费者或增加静默降级绕过，依赖恢复后补做成功启动。
+- 本批目标：在 `agent-runtime` 建立唯一 Plan-and-Execute 运行入口，统一步骤隔离状态、共享 Run
+  预算、能力调用、失败分类、有界重规划、副作用去重、Partial 收口和禁用 Tool 的最终综合；
+  Application 收为锁定版本/Prompt/上下文准备、Runtime 能力适配、事件/快照转发与结果落库。
+- 本批不做：不迁移 Workflow 图协议与实现，不删除 `ChatExecutionContextRegistry`，不实现
+  `EXPLICIT_ONLY`/`MODEL_ROUTED` Skill，不引入 Spring AI Alibaba 依赖，不处理上述两个无来源
+  的语义改动。
+- 契约、Schema、配置与数据预期：在 Runtime 定义稳定的 `RuntimeCapabilityInvoker` 边界和
+  typed 计划执行模型，Application 将锁定的 Agent/Workflow/Tool 适配为该边界；复用既有运行、
+  计划、步骤和事件表，预期无对外 API、Schema、部署配置或开发数据写入。
+- 剩余开发计划：Batch 5–7；本批完成后依次处理 Workflow/Application/Memory 边界和 Skill
+  全激活模式与最终清理验收。
+
+## 2026-08-21 15:17 Batch 5 DONE
+
+- 分支与工作区：Server 仍为
+  `agent/agent-runtime-convergence...origin/agent/agent-runtime-convergence`；Admin 的
+  `agent/admin-skill-auth` 与 Web 的 `main` 均保持干净。本批未暂存、提交或推送；开发前识别的
+  `.gitignore` 与 Chat Generation code 语义改动继续按既有改动保护，未混入本批设计处理。
+- 开发前本地进度与上批回归：重新读取根目录和 Server `AGENTS.md`、检查三个仓库、Batch 4 DONE
+  与本地错误记录；Planner/Runtime/Application 聚焦回归 40 项、八模块 `verify.sh` 600 项全部通过后
+  才开始迁移。开发前 Application 启动仅受 RocketMQ 临时拒绝连接限制，未用禁用消费者或降级绕过。
+- 实际开发内容：
+  - 在 `agent-runtime` 建立唯一 `SupervisorRuntime`，统一初始规划、串行计划执行、直接能力执行、
+    有界重规划、预算边界、Partial/Clarification/Interruption 和最终综合；Planner 继续使用同一个
+    `ExecutionState`，模型调用由 Spring AI `ChatClient`、`RuntimeContextAdvisor` 与
+    `RuntimeModelAdvisor` 统一记账；最终综合显式关闭 Tool 自动注册；
+  - 建立具体 `RuntimeCapabilityInvoker`、`RuntimeCapability`、`AgentInvocationState`、
+    `RuntimePlanStore` 与 typed Supervisor 请求/结果；每个步骤隔离输入和局部终态，同时把子调用实际
+    模型、Tool、Token 和最后事件序号合并进共享 Run 预算与单调事件序列；
+  - Agent、Workflow、Tool 三类锁定能力均通过同一边界调用；步骤输入只由当前任务与已完成依赖结果
+    编译，Planner 不能提交自由参数。能力失败按稳定错误分类，有界重规划；写能力相同参数只复用结果，
+    不重复消耗能力调用/委派额度，不同参数直接拒绝；
+  - 新增 `STEP_STARTED/REUSED/COMPLETED/FAILED`、`CLARIFICATION_REQUIRED` 和 Agent 调用终态事件；
+    以 `ExecutionScope.RUN/INVOCATION` 区分根运行和 Supervisor 子 Agent，子调用不再提前发出整次
+    Run 的完成、部分完成、失败或取消事件；
+  - 写能力已经完成但步骤事实落库或结果预算确认失败时统一进入
+    `RUN_RECONCILIATION_PENDING`，禁止作为普通失败重试；Application 的能力执行边界也按
+    `CapabilityRiskLevel` 保留该语义；
+  - Application 的 `SupervisorAgentExecutor` 只准备发布 Prompt、模型配置、能力目录、历史与预算，
+    将锁定能力适配给 Runtime，并转发事件、澄清/HITL 和最终结果；`ApplicationRuntimePlanStore`
+    把 typed 计划与步骤终态追加到现有事实表。
+- 删除/合并的旧路径：删除 Application 的 `PlannerService*`、`PlanExecutionService*`、
+  `PlannerRuntimeCoordinator*`、`FinalSynthesisService*`、`PlanInputCompiler` 及其重复 Request/Result/
+  Context/Step 模型和旧单元测试；Planner 动作直接更名为 `EXECUTE_CAPABILITY`，没有别名、双路径、
+  fallback 或旧运行时兼容逻辑。
+- 契约、Schema、配置与数据变更：Runtime/Application Java 契约直接替换；步骤增加
+  `INTERRUPTED/REUSED`，事件增加步骤、澄清和 Agent 终态，复用现有无 CHECK 约束的
+  `VARCHAR/JSONB` 事实表，无数据库迁移、对外 API、前端、部署配置或开发数据写入；未引入
+  Spring AI Alibaba 依赖。
+- 收束回归命令与结果：
+  - 聚焦回归 Runtime 15 项、Application 18 项通过，覆盖直接能力、写副作用复用、重规划、待对账、
+    Invocation 生命周期隔离、步骤事件投影与计划事实追加；
+  - `./mvnw -pl application -am test` 通过：Framework 51 项（1 项既有环境跳过）、Infra AI 26 项、
+    Workflow Core 9 项、Agent Runtime 42 项、Application 266 项，0 失败、0 错误；
+  - `./scripts/verify.sh` 沙箱外完整通过，八个 Maven 模块全部 `SUCCESS`，合计 597 项测试、
+    0 失败、0 错误、1 项既有环境跳过；
+  - `git diff --check` 通过；静态审计确认无 Application 旧 Plan/FinalSynthesis 运行类、无 Planner
+    `EXECUTE_AGENT` 旧动作、无 Spring AI Alibaba 依赖、`agent-runtime` 无 Application/Workflow
+    反向依赖，生产代码无新增直接 `ChatModel.call/stream` 路径。
+- 手工/真实链路验证：依赖恢复后使用本批八模块构建产物在端口 51343 启动 Application 成功；
+  Spring 上下文、Supervisor Runtime、PostgreSQL、RocketMQ 生产者与四个消费者、MinIO 均完成装配，
+  Hikari 建立真实数据库连接；验证后通过 `SIGINT` 停止进程，无遗留验证进程。开发前 RocketMQ
+  外部阻塞已关闭。
+- 开发过程纠错：Mockito 嵌套 stubbing、重复目标补丁、猜测源码路径和带引号 glob 四类问题均记录在
+  本地 `.learnings/ERRORS.md` 并已修复；未通过绕过测试或放宽业务校验处理。
+- 已知问题或限制：Workflow 图执行协议与 LangGraph4j 实现仍在 Application，
+  `ChatExecutionContextRegistry` 仍是 Workflow Agent 节点的进程内侧载上下文；Application 尚未完全
+  收到目标的五项职责。`EXPLICIT_ONLY`、`MODEL_ROUTED` Skill 与最终真实发布版本端到端验收留待
+  Batch 7。
+- 剩余开发计划：Batch 6–7 未完成。Batch 6 迁移 Workflow 执行边界到 `workflow-core`、让 Workflow
+  Agent 节点显式调用 Runtime、删除进程内上下文注册表并增加架构约束测试；Batch 7 完成 Skill 全模式、
+  旧契约清理和三个仓库最终回归。
+- 下批入口条件：开始 Batch 6 前重新检查三个仓库和本记录，先回归本批 Supervisor Runtime、能力边界、
+  写副作用对账、步骤事件/事实、八模块 `verify.sh` 与 Application 真实启动，通过后再迁移 Workflow。
+
+## 2026-08-21 15:22 Batch 6 START
+
+- 分支与工作区：Server 为 `agent/agent-runtime-convergence`，保留已完成但未提交的 Batch 5 与开发前
+  已识别既有改动；Admin `agent/admin-skill-auth`、Web `main` 均干净。本批不暂存、提交或推送。
+- 开发前本地进度：Batch 5 已有 DONE 记录；Application 仍持有 Workflow LangGraph4j 引擎、运行监听、
+  Agent 节点适配和 `ChatExecutionContextRegistry`，这是本批迁移对象。`agent-runtime` 已完成唯一
+  Supervisor Plan-and-Execute 与能力边界，可作为 Workflow Agent 节点的明确调用目标。
+- 上批回归命令与结果：聚焦 Runtime 15 项、Application 18 项通过；
+  `./mvnw -pl application -am test` 五模块 394 项通过（1 项既有环境跳过）；
+  `./scripts/verify.sh` 八模块 597 项全部通过（1 项既有环境跳过）；Application 在 51343 真实启动成功，
+  PostgreSQL、RocketMQ、MinIO 和 Runtime Bean 均完成装配，验证进程已停止。
+- 本批目标：Workflow 保持独立图执行域，将执行协议与 LangGraph4j 实现迁入 `workflow-core`；Workflow
+  Agent 节点通过显式请求边界调用 Agent Runtime，删除进程内侧载上下文注册表；瘦身 Application 的
+  Workflow/能力编排并增加架构约束测试。
+- 本批不做：不把 Workflow 图状态并入 `ExecutionState`，不把 Application 业务 Entity/Repo/权限迁入
+  `workflow-core`，不实现 Skill 新激活模式，不引入 Spring AI Alibaba 依赖，不处理受保护既有语义改动。
+- 契约、Schema、配置与数据预期：优先迁移纯 Workflow 协议、引擎和可注入节点调用边界；Application
+  只实现版本加载、权限/上下文适配、事件与结果持久化。预期无对外 API、Schema 或部署配置变更。
+- 剩余开发计划：Batch 6–7；当前开始 Batch 6 架构盘点与迁移。
+
+## 2026-08-21 15:31 Batch 6 DONE
+
+- 分支与工作区：Server 仍为 `agent/agent-runtime-convergence...origin/agent/agent-runtime-convergence`；
+  Admin `agent/admin-skill-auth`、Web `main` 均保持干净。本批保留 Batch 5 与开发前识别的既有改动，
+  未暂存、提交或推送。
+- 开发前本地进度与上批回归：检查三个仓库、Batch 5 DONE、根目录与 Server `AGENTS.md` 以及本地
+  错误记录；先确认 Batch 5 聚焦测试、Application Reactor、八模块 verify 和真实启动结果均通过，
+  再迁移 Workflow 生产代码。
+- 实际开发内容：
+  - 将 Workflow 执行请求/结果、节点调用协议、运行监听协议、运行上下文、节点 Trace、图状态与
+    LangGraph4j 执行器整体迁入 `workflow-core`；LangGraph4j 依赖随唯一实现迁入 Core，Application
+    不再直接依赖或导入图引擎；
+  - 新增三字段 `WorkflowExecutionPorts`，每次执行显式绑定 Agent 节点、意图识别节点和运行监听器；
+    `LangGraphWorkflowExecutor` 只保留无状态 Validator，不再把 Application 回调固化在 Spring 单例；
+  - 新增具体 `ApplicationWorkflowExecutionPortsFactory`，使用当前 `ChatExecutionContext` 创建本次
+    Workflow 的 Agent 调用闭包与事实/SSE 监听器；`ChatAgentNodeInvoker` 改为显式接收上下文，删除
+    `ChatExecutionContextRegistry` 及 Application Chat 的注册/清理分支；
+  - Workflow Run、Event、Attempt 的 Entity/Repo/事务服务继续留在 Application；三个数据库枚举
+    保留 `@EnumValue`，Core `WorkflowNodeStatus` 不携带 ORM 注解，Attempt 落库前显式转换持久化状态；
+  - 增加 `WorkflowRuntimeBoundaryTest`，固定图执行器无 Application 回调字段、公开无参构造、
+    `execute` 必须携带每次执行端口，以及 Core 状态不依赖持久化框架；端口工厂测试覆盖上下文绑定、
+    事件持久化优先和 SSE 失败不篡改运行事实。
+- 删除/合并的旧路径：删除 Application 内 Workflow 图引擎、图状态、执行协议/端口重复类、旧
+  `WorkflowRunListenerImpl` 和进程级 `ChatExecutionContextRegistry`；没有保留兼容构造器、旧
+  `execute(definition, request)` 重载、别名、回退分支或第二套 Workflow 状态。
+- 契约、Schema、配置与数据变更：直接替换模块内 Java 合同；Workflow `ExecutionState` 与 Agent
+  `ExecutionState` 继续保持独立边界；数据库表、API、前端、迁移和部署配置无变化；未引入 Spring AI
+  Alibaba 依赖。
+- 收束回归命令与结果：
+  - 7 个 Workflow/Application 聚焦测试类共 28 项通过，覆盖图分支、端口显式绑定、Agent 上下文、
+    Run/Node 事实、SSE 异常和 Application Chat 回归；
+  - `./mvnw -pl application -am test` 通过：Framework 51 项（1 项既有环境跳过）、Infra AI 26 项、
+    Workflow Core 15 项、Agent Runtime 42 项、Application 263 项，共 397 项，0 失败、0 错误；
+  - `./scripts/verify.sh` 在沙箱外完整通过，8 个模块全部 `SUCCESS`，共 600 项测试、0 失败、0 错误、
+    1 项既有环境跳过；
+  - `git diff --check` 通过；静态审计确认 Workflow Core 无 Application/Chat/MyBatis/Spring/Hutool
+    反向依赖，Application 无 LangGraph4j 直接依赖、旧 Workflow 引擎文件或上下文注册表。
+- 手工/真实链路验证：尝试启动本批真实 Application 前检查到 PostgreSQL、RocketMQ、MinIO 均未监听，
+  随后 `./scripts/dev-start.sh` 因当前 shell 无 `docker` 命令而无法恢复依赖；未通过禁用消费者、伪造
+  Bean 或静默降级绕过。Batch 5 同一分支在本批开发前已完成完整真实启动，本批外部环境限制已记录到
+  `.learnings/ERRORS.md`，恢复 Docker 后需补做 Workflow 真实路径验收。
+- 已知问题或限制：`EXPLICIT_ONLY`、`MODEL_ROUTED` Skill 尚未接入统一运行态选择和真实发布路径；
+  Memory 仍需做最终归属审计，Application 还要按目标五项职责完成旧契约清理；本批没有把 Workflow
+  图状态错误并入 Agent `ExecutionState`。
+- 剩余开发计划：仅 Batch 7 未完成。下一批完成 Skill 全激活模式、Memory/Hook/Interceptor/Tool/HITL
+  最终边界审计，删除剩余旧契约，执行三个仓库静态检查、后端全量 verify，并在外部依赖可用时完成
+  发布版本 Application -> Supervisor/Workflow -> Agent -> Tool -> audit 的真实链路验收。
+- 下批入口条件：开始 Batch 7 前重新检查三个仓库和本记录，先回归本批 Workflow Core、显式端口、
+  Run 事实与 Batch 5 Supervisor Runtime；依赖可用时优先补做 Application 真实启动，再修改 Skill 与
+  最终边界生产代码。
+
+## 2026-08-21 15:32 Batch 7 START
+
+- 分支与工作区：Server 为 `agent/agent-runtime-convergence...origin/agent/agent-runtime-convergence`，保留
+  Batch 5/6 与开发前识别的既有改动；Admin `agent/admin-skill-auth`、Web `main` 均干净。三个仓库
+  均未发现来源不明的新改动，本批不暂存、提交或推送。
+- 开发前本地进度：重新检查根目录与 Server `AGENTS.md`、Batch 6 DONE 和本地错误记录；`git diff
+  --check` 通过。外部依赖仍因当前 shell 无 Docker CLI 无法恢复，本批先执行不依赖外部服务的确定性
+  回归，不通过关闭消费者、伪造 Bean 或兼容分支绕过真实启动。
+- 上批回归：重新执行 Workflow Core 图引擎/边界、Application 显式端口、Workflow Run 事实、Agent
+  节点、Capability 和 Application Chat 共 7 个聚焦测试类，28 项全部通过，0 失败、0 错误。
+- 本批目标：在锁定 AgentVersion 范围内贯通 `ALWAYS_ON`、服务端校验的 `EXPLICIT_ONLY` 与 Runtime
+  模型选择的 `MODEL_ROUTED`；模型路由只披露 code/name/description，选中后才把完整 instructions
+  激活进统一 `ExecutionState`，并让 HITL Checkpoint 恢复同一冻结 Skill 集。随后审计 Memory、Hook、
+  Interceptor、Tool、HITL 与 Application 五项职责，删除剩余旧契约并执行三个仓库收束回归。
+- Spring AI 取舍：模型路由复用 Spring AI `ChatClient`、typed structured output、Advisor 和统一模型预算；
+  当前单 Agent 冻结 Skill 上限为 3，目录规模未达到 Tool Search Advisor 的收益阈值，本批不引入其额外
+  检索链路，并以架构测试固定该决定。未引入 Spring AI Alibaba 依赖。
+- 契约预告：Chat 请求将增加可选显式 Skill code 列表，Checkpoint JSON 协议直接升级且不保留旧版本
+  读取兼容；数据库表暂不变。若开发中发现 Schema、配置或跨服务契约变化，将在 DONE 中逐项记录。
+- 剩余开发计划：Batch 7 正在进行；完成后本次 Agent Runtime 内核收束计划无后续开发批次，仅保留
+  外部依赖恢复后的真实启动与发布版本端到端验收（若本批环境仍不具备）。
+
+## 2026-08-21 15:54 Batch 7 DONE
+
+- 分支与工作区：Server 仍为
+  `agent/agent-runtime-convergence...origin/agent/agent-runtime-convergence`，Admin 为
+  `agent/admin-skill-auth...origin/agent/admin-skill-auth`，Web 为 `main...origin/main`。三个仓库均保留
+  本轮未提交改动，本批未暂存、提交或推送；Server 开始前识别的 `.gitignore` 与 Chat Generation
+  code 既有语义改动继续原样保护。
+- 开发前本地进度与上批回归：重新检查三个 Git 仓库、根目录与各目标仓库 `AGENTS.md`、Batch 6
+  DONE 及本地纠错记录；先重跑 Workflow Core 图引擎/边界、Application 显式端口、Workflow Run
+  事实、Agent 节点、Capability 和 Application Chat 共 28 项，全部通过后才进入 Skill 收束。
+- Runtime 与 Spring AI 收束：
+  - `AgentRuntime` 在统一生命周期内调用 `SkillHook`；`ALWAYS_ON`、服务端校验的 `EXPLICIT_ONLY`、
+    Runtime 模型选择的 `MODEL_ROUTED` 都写入同一 `ExecutionState`、单调 `SKILL_ACTIVATED` 事件与
+    模型/Token 预算；HITL Resume 不重复路由；
+  - `SkillRouter` 使用 Spring AI `ChatClient`、`BeanOutputConverter`、供应商原生 JSON Schema（支持时）、
+    `StructuredOutputValidationAdvisor`、`RuntimeContextAdvisor` 和 `RuntimeModelAdvisor`；路由 Prompt 只披露
+    code/name/description，不泄露未激活 instructions，关闭 Tool 自动注册，并把最多一次结构化修复纳入
+    同一模型调用额度；
+  - AgentVersion 冻结目录上限固定为 3，因此未引入收益不足的 Tool Search 检索链路；无 Tool 的
+    MODEL_ROUTED 路径为路由、可选修复、最终回答保留至多 3 次模型调用，有 Tool 时继续由统一 Tool Loop
+    使用剩余额度；
+  - 生命周期扩展仍使用具体 `SkillHook`、`HumanApprovalHook`；单次模型拦截使用 Spring AI Advisor，
+    Tool 拦截使用受控 `RuntimeToolCallback`，没有新增泛化 Interceptor、空接口或一对一抽象；
+  - Memory 保持为 Application 加载、裁剪、持久化的可信入口上下文，Runtime 只消费冻结 Prompt/历史/
+    摘要/长期记忆。没有套用 Spring AI ChatMemory Advisor，因为 Lingxi 的发布版本、上下文预算、Tool
+    消息与 HITL Checkpoint 恢复语义不能由进程级 ChatMemory 替代。
+- Application、API 与控制面收束：
+  - `SkillRuntimeService` 只校验数据库当前状态、版本归属、Schema/checksum、Tool 权限交集与 Token 预算，
+    向 Runtime 返回冻结 `SkillRuntimeCatalog`，不再决定激活；Skill 激活事件先原子落事件与审计，再转发
+    SSE；
+  - Chat API 增加最多 3 个可选 `skillCodes`；显式 Skill 只允许直接 SPECIALIST 目标，且必须属于该
+    AgentVersion 锁定的 `EXPLICIT_ONLY` 目录。Workflow/Supervisor 显式选择直接拒绝，避免跨多个 Agent
+    猜测归属；Web 请求合同同步支持该字段；
+  - Admin Agent 绑定允许三种激活模式，编辑器和版本查看器展示实际策略，不再把所有 Skill 硬编码为
+    自动启用；全局选择接口仍只暴露已发布、系统预置且系统可见的 Skill，不放宽用户/私有归属边界；
+  - Checkpoint 协议直接升级到 V3，保存显式 code 与 Skill 激活原因，恢复时使用同一冻结目录校验
+    mode/reason/checksum/必选集合；不读取旧 Payload，不保留兼容字段或迁移分支；
+  - 新增 `ApplicationRuntimeBoundaryTest`，固定 Application 适配器不得直接持有 `ChatClient`、`ChatModel`
+    或 `ToolCallingManager`，旧 Plan Coordinator、旧上下文注册表不可恢复。Application 只负责发布版本与
+    权限校验、可信上下文准备、Runtime/Workflow 调用适配、事件转发和运行事实/结果落库。
+- 数据一致性：增加 `20260821_execution_run_skill_event_idempotency_v1.sql` 及回滚脚本，为
+  `ai_execution_run_skill` 增加 `event_sequence_no` 和 `(run_id, event_sequence_no)` 唯一索引；Skill
+  激活事实与单调事件一一绑定，重放已有事件不重复插入。历史事实使用负主键回填，与新事件正序号隔离；
+  `schema.sql` 同步更新。除此之外无配置或开发数据写入。
+- 删除与静态边界：Batch 5/6 已删除的 Application Plan/FinalSynthesis/Coordinator、Workflow 重复协议、
+  LangGraph4j Application 实现和 `ChatExecutionContextRegistry` 在 clean 构建后均不存在；生产代码搜索确认
+  无 `agent-execute`、Spring AI Alibaba、旧 Skill loader/审计合同，Application Runtime 无直接 Spring AI
+  执行引擎字段，Workflow Core 无 Application/Chat/MyBatis/Spring/Hutool 反向依赖。
+- 收束回归命令与结果：
+  - Batch 7 Runtime/Workflow/Admin/Application 12 个聚焦测试类共 79 项通过；
+  - `./mvnw -pl application -am test` 共 414 项通过，0 失败、0 错误、1 项既有环境跳过；
+  - `./scripts/verify.sh` 首次在受限沙箱内因 Admin 三个本地 HTTP 测试禁止绑定端口而停止，未跳过测试；
+    随后在允许回环端口的环境执行同一 clean verify，八模块全部 `SUCCESS`，共 618 项测试、0 失败、
+    0 错误、1 项既有环境跳过；
+  - Admin `pnpm lint`、`pnpm build` 通过；Web `pnpm test` 16 项、`pnpm lint`、`pnpm build` 通过；三个
+    仓库 `git diff --check` 通过。
+- 手工/真实链路验证：本批结束时当前 shell 无 Docker CLI，PostgreSQL 5432、RocketMQ 9876、MinIO
+  9000 均未监听，无法应用新迁移、启动完整 Application 或执行发布版本
+  `Application -> Supervisor/Workflow -> Agent -> Skill -> Tool -> audit` 真实链路。未通过关闭消费者、
+  伪造 Bean 或静默降级制造成功；Batch 5 已在同一分支完成过真实 Application 装配与启动。
+- 开发过程纠错：新增 import、直接替换合同后的陈旧测试、Mockito 嵌套 stubbing、带引号模块 glob、
+  沙箱端口绑定五项问题已记录在 `.learnings/ERRORS.md` 并修复或使用正确执行环境重跑。
+- 剩余开发计划：本次 Batch 0–7 代码收束全部完成，无后续开发批次。仅剩外部环境恢复后的验收：执行
+  新增数据库迁移，真实启动 Application/Admin，发布包含三种激活策略的 Agent/Application，分别验证
+  直接 Agent、Supervisor、Workflow、Tool、HITL Resume、事件与 `ai_execution_run_skill` 审计；同时在
+  已登录 Admin 页面人工确认 Skill 策略标签。验收通过后再决定是否提交三个仓库。
+
+## 2026-08-21 16:52 Batch 8 ACCEPTANCE START
+
+- 批次定位：Batch 0–7 的生产代码收束已经完成，本批只做外部环境恢复后的最终验收和交付收口，不新增
+  Runtime 抽象、不改运行语义，也不引入 Spring AI Agent Utils 或 Spring AI Alibaba。
+- 分支与工作区：Server 为 `agent/agent-runtime-convergence...origin/agent/agent-runtime-convergence`，Admin 为
+  `agent/admin-skill-auth...origin/agent/admin-skill-auth`，Web 为 `main...origin/main`；三个仓库继续保留
+  Batch 5–7 未提交变更，未暂存、提交、推送或覆盖既有文件。
+- 开发前回归：`./mvnw -pl application -am test` 通过，Framework 51 项（1 项既有环境跳过）、Infra AI
+  26 项、Workflow Core 15 项、Agent Runtime 47 项、Application 275 项，共 414 项；Admin `pnpm lint`
+  与 `pnpm build` 通过；Web `pnpm test` 16 项、`pnpm lint`、`pnpm build` 通过。
+- 本批验收范围：应用 `20260821_execution_run_skill_event_idempotency_v1.sql`，真实启动 Admin 与
+  Application，发布包含 `ALWAYS_ON`、`EXPLICIT_ONLY`、`MODEL_ROUTED` 的冻结 Agent/Application 版本，
+  依次验证直接 Agent、Supervisor、Workflow、Skill -> Tool、HITL pause/resume、单调 ExecutionEvent 与
+  `ai_execution_run_skill` 一一审计，以及 Admin 策略标签。
+
+## 2026-08-21 16:57 Batch 8 ACCEPTANCE BLOCKED
+
+- 阻塞证据：当前 shell 无 Docker、OrbStack、Podman，也无 PostgreSQL、MinIO、RocketMQ 本地服务二进制；
+  `127.0.0.1` 与既定开发主机 `192.168.86.2` 的 5432、9876、9000 端口均未监听。仓库只有
+  `.env.example`，没有可直接使用的本地 `.env`。因此无法安全应用迁移、启动完整服务或创建真实发布数据。
+- 已完成的替代验证：在允许回环端口绑定的环境重新执行 `./scripts/verify.sh`，八模块全部 `SUCCESS`，
+  共 618 项测试、0 失败、0 错误、1 项既有环境跳过；残留扫描只在架构测试的禁止名单中命中旧类名，
+  Application Runtime 生产代码没有直接持有 `ChatClient`、`ChatModel` 或 `ToolCallingManager`；Server
+  `git diff --check` 通过。
+- 本批开发内容：未修改生产代码、API、Schema、配置或前端合同；仅补充本验收进度记录。没有通过关闭
+  MQ 消费、绕过密钥、伪造数据库或静默降级制造“真实验收成功”。
+- 恢复入口：依赖服务可用后，从本记录重新开始 Batch 8；先备份并确认目标数据库，再执行新增迁移并校验
+  `event_sequence_no` 非空及 `(run_id, event_sequence_no)` 唯一索引，然后真实启动 Admin/Application，
+  完成三种 Skill 激活、直接 Agent/Supervisor/Workflow/Tool/HITL 和事件审计验收，最后重跑三仓检查并
+  将本记录追加为 `Batch 8 ACCEPTANCE DONE`。
+- 剩余计划：仅剩上述真实环境验收和已登录 Admin 页面人工确认；未完成前不把整个收束计划标记为最终
+  验收通过，也不新增 Batch 9 开发范围。
+
+## 2026-08-21 17:15 Batch 8 ACCEPTANCE RESUMED
+
+- 阻塞更正：用户确认 Docker 容器已启动后，在允许局域网访问的环境重新检查，`192.168.86.2` 的
+  PostgreSQL 5432、Redis 6379、RocketMQ 9876、MinIO 9000 均连接成功，MinIO 健康端点返回 200。
+  上一条 `BLOCKED` 使用沙箱内网络失败作为服务关闭证据，属于执行环境假阴性，已记录到本地纠错台账；
+  后续容器/局域网状态必须在沙箱外复核。
+- 数据库迁移：确认真实开发库为 `192.168.86.2:5432/lingxi_dev`，`ai_execution_run_skill` 迁移前存在、
+  历史行数为 0，目标列与索引不存在，当前账号具备 UPDATE 与 Schema CREATE 权限；随后在单事务中执行
+  `20260821_execution_run_skill_event_idempotency_v1.sql`。回读确认 `event_sequence_no` 为 NOT NULL、
+  `uq_execution_run_skill_event` 为唯一索引，空序号和重复 `(run_id,event_sequence_no)` 均为 0。
+- 真实启动：使用仓库开发配置与已确认数据库连接启动 Application 8080、Admin 8081；两者均完成
+  PostgreSQL、Redis、RocketMQ、MinIO 和 Spring 上下文装配。Application 的 HITL、会话摘要、交互记录、
+  用户画像四个 RocketMQ Consumer 均运行，Admin 知识切分 Consumer 运行。
+- 发布数据检查：当前 Active `career_assistant` 为 Application Schema V11，但发布 Supervisor/专家 Agent
+  仍为 Schema V7，另一个回归 Agent 为 V6；数据库没有 Skill，因此还不能执行三种激活策略真实验收。
+  必须通过 Admin 正常业务流程创建并发布 Skill，再重新发布 Agent/Application，禁止直接修改发布快照。
+- 当前暂停点：Admin 前端已在 3006 启动并打开登录页；应用内浏览器无既有会话，Chrome 未连接。为避免
+  读取、猜测或重置管理员密码，等待用户在已显示的本地登录页手动登录。服务和浏览器页面保持运行。
+- 剩余计划：登录完成后创建/发布 `ALWAYS_ON`、`EXPLICIT_ONLY`、`MODEL_ROUTED` Skill，绑定并重新发布
+  Schema V8 Agent 与 Application；依次执行直接 Agent、Supervisor、Workflow、Skill -> Tool、HITL
+  pause/resume、ExecutionEvent 与 `ai_execution_run_skill` 审计及 Admin 策略标签验收，最后全量回归并追加
+  `Batch 8 ACCEPTANCE DONE`。
+
+## 2026-08-21 18:06 Batch 8 ACCEPTANCE DONE
+
+- 环境与迁移：更正默认沙箱对局域网依赖的假阴性后，确认 `192.168.86.2` 的 PostgreSQL、Redis、
+  RocketMQ、MinIO 均可用；在 `lingxi_dev` 单事务应用
+  `20260821_execution_run_skill_event_idempotency_v1.sql`，回读确认 `event_sequence_no` 非空、
+  `(run_id,event_sequence_no)` 唯一且无重复数据。Application 启动时必须 unset `.env.example` 中的空
+  `LINGXI_REDIS_PASSWORD`，避免覆盖 Spring 开发默认值。
+- 正常控制面发布：通过已登录 Admin 创建并发布三个 Skill V1：`runtime_time_guard`（`ALWAYS_ON`，请求
+  `system_current_time`）、`runtime_explicit_summary`（`EXPLICIT_ONLY`）、
+  `runtime_model_routed_career`（`MODEL_ROUTED`）；个人求职教练与 Agent 委派器发布 V6，个人求职助手
+  发布 V12。Admin 编辑器与版本详情人工确认三种策略标签和冻结绑定可见。
+- Spring AI/模型配置核验：真实 Supervisor 首次使用供应商原生 JSON Schema 时被 DeepSeek 兼容端点以
+  `response_format type is unavailable` 拒绝。控制面移除两个 DeepSeek Chat 实例不真实的原生
+  `STRUCTURED_OUTPUT` 能力标记，Runtime 随后使用既有 Spring AI `BeanOutputConverter +
+  StructuredOutputValidationAdvisor` 非原生路径完成结构化规划；没有增加 Application fallback、供应商
+  特判或 Spring AI Alibaba 依赖。
+- 真实 Agent Runtime 路径：
+  - Supervisor 运行 `2090735752024612864` 完成规划、委派个人求职教练、激活 `ALWAYS_ON` 与
+    `MODEL_ROUTED` Skill、执行 `system_current_time` 和知识搜索，最终 `RUN_COMPLETED`；
+  - 直接专家运行 `2090736252795150336` 同时激活 `ALWAYS_ON`、显式 `EXPLICIT_ONLY` 与
+    `MODEL_ROUTED`，执行用户信息/知识搜索并完成；Supervisor fallback 携带显式 Skill 时被服务端按边界
+    正确拒绝；
+  - 数据库审计确认三个 Skill 分别以 `ALWAYS_ON`、`EXPLICIT`、`MODEL_ROUTED` 原因写入
+    `ai_execution_run_skill`，序号与单调 `SKILL_ACTIVATED` 事件一一对应；未显式请求的运行不存在
+    `EXPLICIT_ONLY` 审计行。
+- HITL 真实恢复：临时把无副作用的 `system_current_time` 配置为调用前批准，运行
+  `2090739460896645120` 进入 `HUMAN_REQUIRED` 与 interaction 16；批准后同一 `runId` 产生
+  `HUMAN_RESOLVED`，当前时间 Tool 只执行一次，随后知识搜索与最终模型调用完成，终态为
+  `RUN_COMPLETED`。验收后已把 Tool 恢复为直接执行。
+- Workflow 边界：临时发布 V13，把 `intent_3` 快速路由绑定到已发布的 `codex_valid_workflow`；真实请求
+  进入 Workflow，Start/End 节点均产生 `STEP_STARTED/STEP_COMPLETED`，随后因既有 Workflow 快照没有
+  产出非空 `response` 被 `BUSINESS_RULE_REJECTED` 正确拒绝。另一个 `codex_qa_workflow` 草稿仍含旧
+  `__start__` 节点 ID，无法通过当前校验。因此本批验证了 Application -> Workflow 调度、节点事件与失败
+  边界，但没有伪造成功响应。验收后草稿恢复为 0 个显式 Workflow 能力、1 条 Agent 快速路由，并通过
+  版本历史重新激活 V12；V13 仅保留不可变验收历史。数据库确认当前正式版 V12 无 `intent_3` 映射。
+- 收束回归：
+  - 后端模块回归 `./mvnw -pl admin,application -am test` 在允许回环端口的环境通过；
+  - `./scripts/verify.sh` 八个模块全部 `SUCCESS`，共 618 项测试、0 失败、0 错误、1 项既有环境跳过；
+  - Admin `pnpm lint`、`pnpm build` 通过；Web `pnpm test` 16 项、`pnpm lint`、`pnpm build` 通过；
+  - Server `git diff --check` 通过。本批未新增生产代码，数据库和控制面变更均通过正常迁移、发布、激活
+    与 Tool 编辑流程完成。
+- 当前结论：Agent Runtime 内核收束的直接 Agent、Supervisor、三种 Skill、Tool、Memory 入口、HITL、
+  事件、审计和 Workflow 边界均完成真实或明确失败语义验收。Application 当前恢复为 V12，Tool 恢复为
+  直接执行；没有遗留临时运行配置。
+- 剩余计划：Runtime 收束无阻塞项。控制面数据维护可另行修复并重新发布一个符合当前协议、能够输出
+  非空 `response` 的 Workflow，再补一条 Workflow 成功终态验收；下一开发批次同时清理未被运行端读取的
+  `ChatRequest.agentCode` 旧请求字段，继续遵循“先回归上一批、单批开发、收束回归、更新记录”的循环。
+
+## 2026-08-21 18:08 Batch 9 FINAL CLOSURE START
+
+- 批次定位：只处理 Batch 8 明确留下的两个收尾项：删除运行端从未读取的 `ChatRequest.agentCode` 旧请求
+  字段；通过正常控制面发布一个符合当前协议、能够输出非空 `response` 的 Workflow，并补齐成功终态真实
+  验收。不新增 Runtime 抽象、兼容分支或新功能范围。
+- 开发前检查与上批回归：三个仓库继续保留 Batch 5–8 未提交改动，未暂存、提交或推送；先执行
+  `./scripts/verify.sh`，默认沙箱仅因 Admin 三个回环 HTTP 测试禁止 Socket 而失败，在允许回环端口的环境
+  重跑后八模块全部 `SUCCESS`，共 618 项测试、0 失败、0 错误、1 项既有环境跳过。Admin `pnpm lint`、
+  `pnpm build` 与 Web `pnpm test` 16 项、`pnpm lint`、`pnpm build` 均通过。
+- 开发计划：先直接删除旧请求字段并用 Application 边界测试锁定；再通过 Admin 创建、校验、发布最小
+  Start -> End Workflow，临时把其加入 Application 快速路由执行真实 Chat；审计成功状态、追加事件与
+  非空消息后恢复正式版本和草稿；最后执行三个仓库全量回归并更新本记录。本批完成后无剩余开发计划。
+
+## 2026-08-21 18:24 Batch 9 FINAL CLOSURE DONE
+
+- 代码收尾：从 `ChatRequest` 直接删除未被运行端读取的 `agentCode` 旧字段，不保留 alias、兼容读取或
+  fallback；`ApplicationRuntimeBoundaryTest` 增加负向反射断言，固定该字段及 getter 不得恢复。聚焦测试
+  `ApplicationRuntimeBoundaryTest` 4 项通过，生产代码残留扫描为 0，唯一文本命中是该负向边界测试。
+- 正常控制面发布：通过 Admin 创建、校验并发布 `runtime_success_workflow` V1。Workflow 使用当前协议的
+  Start -> End 图，End 映射 `response <- query`，未直接写数据库、伪造运行事实或绕过发布校验。随后临时
+  发布 `career_assistant` V14，将 `intent_3` 快速路由绑定到该 Workflow，形成真实 Application Chat 入口。
+- Workflow 成功终态验收：请求“请计算12加30等于多少”产生顶层 execution
+  `2090744830893428736`、Workflow run `62d8a466-bffb-46b0-8b89-dcbbf43086e2`、assistant message 388；
+  顶层 `ai_execution_run` 为 `SUCCEEDED / TERMINAL / WORKFLOW`，Workflow run 为 `SUCCEEDED`，用户与
+  Assistant 消息均为 `COMPLETED` 且 response 非空。追加事件严格为 `RUN_STARTED`、Start 节点开始/成功、
+  End 节点开始/成功、`RUN_SUCCEEDED`，序号 1–6 单调无缺口；SSE 同步收到两个节点的
+  `STEP_STARTED/STEP_COMPLETED` 与 done。
+- 环境恢复：通过版本历史重新激活 Application V12，并把草稿中的临时 Workflow 能力和 `intent_3`
+  快速直达恢复掉。数据库回读确认当前正式版 ID 21 / V12、正式快照没有 `intent_3` 映射，草稿显式
+  Workflow 能力为 0、快速路由为 1；V14 仅保留为不可变验收历史，已发布的成功验收 Workflow 保留为
+  可复用控制面资产。Tool 仍为直接执行，既有 Admin 8801 与 Docker 依赖未停止或修改。
+- 最终收束回归：
+  - `./scripts/verify.sh` 八模块全部 `SUCCESS`，共 619 项测试、0 失败、0 错误、1 项既有环境跳过；
+  - Admin `pnpm lint`、`pnpm build` 通过；Web `pnpm test` 16 项、`pnpm lint`、`pnpm build` 通过；
+  - Server、Admin、Web 三个仓库 `git diff --check` 全部通过；无生产代码 `agentCode`、`agent-execute`、
+    旧 package、Spring AI Alibaba 或 Agent Utils 依赖残留；
+  - 本轮启动的 Application 8080 与 Admin Vite 3006 已正常停止，未停止用户原有的 Admin 8801 服务。
+- 最终结论：Batch 0–9 既定 Agent Runtime 内核收束目标全部完成。Agent 生命周期、统一状态与事件、迭代
+  预算、Spring AI Advisor/ToolCallingManager/结构化输出、Hook、Skill、Tool、Memory、HITL、Supervisor、
+  Plan & Execute 和 Workflow 边界均已完成代码收束与真实链路验收；Application 保持发布版本加载、可信
+  上下文入口、Runtime/Workflow 调用、事件转发和结果落库职责。没有旧运行时兼容逻辑、新空抽象、
+  Spring AI Alibaba 或 Agent Utils 生产依赖。
+- 剩余开发计划：无。本次三个仓库仍保留未提交改动，未暂存、提交或推送；后续仅需按用户指令进行代码
+  审阅、分仓提交与推送，不再增加内核收束 Batch。

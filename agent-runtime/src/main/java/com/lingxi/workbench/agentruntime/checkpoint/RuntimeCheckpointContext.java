@@ -7,6 +7,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 /** Application 在进入 Runtime 前冻结的检查点定位上下文。 */
 @Data
 @Builder
@@ -20,6 +22,7 @@ public class RuntimeCheckpointContext {
     private Long userId;
     private Long conversationId;
     private Long assistantMessageId;
+    private List<String> explicitSkillCodes;
     private TokenUsage applicationUsageBeforeAgent;
     private Integer applicationModelCallsBeforeAgent;
     private Integer applicationToolCallsBeforeAgent;

@@ -53,7 +53,9 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
      * Redis 增量事件仓库，使浏览器刷新和本机任务释放后仍可恢复工具状态与文本。
      */
     private final ChatGenerationEventRepo eventRepo;
-    /** 后台生成任务拥有的根 Trace 生命周期。 */
+    /**
+     * 后台生成任务拥有的根 Trace 生命周期。
+     */
     private final AiTraceRun traceRun;
     /**
      * 按到达顺序累积模型文本增量，终态时一次性保存完整或部分回答。
@@ -80,7 +82,9 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
      * 最近一个携带真实 Usage 的模型分片返回的 Token 用量。
      */
     private TokenUsage tokenUsage = TokenUsage.empty();
-    /** 是否已经产生可向用户保留的文本、步骤结果或成功工具证据。 */
+    /**
+     * 是否已经产生可向用户保留的文本、步骤结果或成功工具证据。
+     */
     private boolean usefulProgress;
 
     @Builder
@@ -172,7 +176,9 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
         eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
     }
 
-    /** 发布不包含模型思维链的 Agent 阶段进度；该事件不参与回答正文累计。 */
+    /**
+     * 发布不包含模型思维链的 Agent 阶段进度；该事件不参与回答正文累计。
+     */
     @Override
     public synchronized void publishProgress(AgentProgressEvent event) {
         if (terminal) {
@@ -194,7 +200,9 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
         eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
     }
 
-    /** 发布持久化 HITL 等待事件；事件不包含原始 Tool 参数。 */
+    /**
+     * 发布持久化 HITL 等待事件；事件不包含原始 Tool 参数。
+     */
     @Override
     public synchronized void publishInteractionRequired(ChatInteractionEventBO event) {
         if (terminal) {
@@ -206,7 +214,9 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
         eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
     }
 
-    /** 发布人工决策已完成事件，随后同一运行继续输出进度。 */
+    /**
+     * 发布人工决策已完成事件，随后同一运行继续输出进度。
+     */
     @Override
     public synchronized void publishInteractionResolved(ChatInteractionEventBO event) {
         if (terminal) {
@@ -218,7 +228,9 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
         eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
     }
 
-    /** 结束当前观察流但不把 Assistant 推进为业务终态，恢复任务将继续使用同一消息。 */
+    /**
+     * 结束当前观察流但不把 Assistant 推进为业务终态，恢复任务将继续使用同一消息。
+     */
     public synchronized boolean pauseForHuman() {
         if (terminal) {
             return false;
@@ -244,7 +256,9 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
         eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
     }
 
-    /** 发布计划步骤文本增量；该事件不参与最终Assistant正文累计。 */
+    /**
+     * 发布计划步骤文本增量；该事件不参与最终Assistant正文累计。
+     */
     @Override
     public synchronized void publishStepOutput(ChatStepOutputEventBO event) {
         if (terminal || event == null || CharSequenceUtil.isEmpty(event.content())) {
@@ -296,7 +310,9 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
         return true;
     }
 
-    /** 判断任务是否已被完成、失败、取消或中断中的某一终态抢占。 */
+    /**
+     * 判断任务是否已被完成、失败、取消或中断中的某一终态抢占。
+     */
     public synchronized boolean isTerminal() {
         return terminal;
     }
@@ -315,7 +331,9 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
         return tokenUsage;
     }
 
-    /** 硬截止后只有存在真实文本或可信执行结果时才允许降级完成。 */
+    /**
+     * 硬截止后只有存在真实文本或可信执行结果时才允许降级完成。
+     */
     public synchronized boolean hasUsefulProgress() {
         return usefulProgress;
     }

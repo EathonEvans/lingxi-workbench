@@ -11,8 +11,10 @@ import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionRunStartCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionStepAttemptCommand;
+import com.lingxi.workbench.application.runtime.model.ExecutionSkillActivationCommand;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionEventEntity;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionRunEntity;
+import com.lingxi.workbench.application.runtime.model.entity.ExecutionRunSkillEntity;
 import com.lingxi.workbench.application.runtime.repo.ExecutionEventRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionPlanSnapshotRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionRunRepo;
@@ -22,10 +24,12 @@ import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
+import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationReason;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -144,6 +148,60 @@ class ExecutionPersistenceServiceImplTest {
         assertEquals(existing, result);
         org.mockito.Mockito.verify(eventRepo, org.mockito.Mockito.never())
                 .insert(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void shouldPersistSkillActivationEventAndAuditFactTogether() {
+        ExecutionRunRepo runRepo = mock(ExecutionRunRepo.class);
+        ExecutionEventRepo eventRepo = mock(ExecutionEventRepo.class);
+        ExecutionRunSkillRepo skillRepo = mock(ExecutionRunSkillRepo.class);
+        when(runRepo.lockByRunId("run-skill")).thenReturn(Optional.of(new ExecutionRunEntity()));
+        when(eventRepo.nextSequence("run-skill")).thenReturn(1L);
+        ExecutionPersistenceServiceImpl service = new ExecutionPersistenceServiceImpl(runRepo,
+                mock(ExecutionPlanSnapshotRepo.class), mock(ExecutionStepAttemptRepo.class), eventRepo,
+                skillRepo, new ExecutionDecisionChecksum());
+
+        service.appendSkillActivationEvent(ExecutionEventCommand.builder()
+                        .runId("run-skill").sequenceNo(1L)
+                        .eventType(ExecutionEventType.SKILL_ACTIVATED).message("Skill已激活").build(),
+                ExecutionSkillActivationCommand.builder().runId("run-skill").agentVersionId(20L)
+                        .skillId(1L).skillVersionId(11L).skillCode("fact_check").checksum("checksum")
+                        .reason(SkillActivationReason.EXPLICIT).effectiveToolCodes(List.of("search")).build());
+
+        verify(eventRepo).insert(org.mockito.ArgumentMatchers.any());
+        ArgumentCaptor<ExecutionRunSkillEntity> skillCaptor =
+                ArgumentCaptor.forClass(ExecutionRunSkillEntity.class);
+        verify(skillRepo).insert(skillCaptor.capture());
+        assertEquals(1L, skillCaptor.getValue().getEventSequenceNo());
+        assertEquals(SkillActivationReason.EXPLICIT, skillCaptor.getValue().getActivationReason());
+        assertEquals(List.of("search"), skillCaptor.getValue().getEffectiveToolCodes());
+    }
+
+    @Test
+    void shouldNotDuplicateSkillAuditWhenActivationEventIsReplayed() {
+        ExecutionRunRepo runRepo = mock(ExecutionRunRepo.class);
+        ExecutionEventRepo eventRepo = mock(ExecutionEventRepo.class);
+        ExecutionRunSkillRepo skillRepo = mock(ExecutionRunSkillRepo.class);
+        when(runRepo.lockByRunId("run-skill")).thenReturn(Optional.of(new ExecutionRunEntity()));
+        ExecutionEventEntity existing = new ExecutionEventEntity();
+        existing.setRunId("run-skill");
+        existing.setSequenceNo(2L);
+        existing.setEventType(ExecutionEventType.SKILL_ACTIVATED);
+        when(eventRepo.findBySequence("run-skill", 2L)).thenReturn(Optional.of(existing));
+        when(skillRepo.existsByEvent("run-skill", 2L)).thenReturn(true);
+        ExecutionPersistenceServiceImpl service = new ExecutionPersistenceServiceImpl(runRepo,
+                mock(ExecutionPlanSnapshotRepo.class), mock(ExecutionStepAttemptRepo.class), eventRepo,
+                skillRepo, new ExecutionDecisionChecksum());
+
+        ExecutionEventEntity result = service.appendSkillActivationEvent(ExecutionEventCommand.builder()
+                        .runId("run-skill").sequenceNo(2L)
+                        .eventType(ExecutionEventType.SKILL_ACTIVATED).message("Skill已激活").build(),
+                ExecutionSkillActivationCommand.builder().runId("run-skill").agentVersionId(20L)
+                        .skillId(1L).skillVersionId(11L).skillCode("fact_check").checksum("checksum")
+                        .reason(SkillActivationReason.EXPLICIT).effectiveToolCodes(List.of("search")).build());
+
+        assertEquals(existing, result);
+        verify(skillRepo, org.mockito.Mockito.never()).insert(org.mockito.ArgumentMatchers.any());
     }
 
     private static ExecutionPersistenceServiceImpl service(ExecutionRunRepo runRepo, ExecutionEventRepo eventRepo) {

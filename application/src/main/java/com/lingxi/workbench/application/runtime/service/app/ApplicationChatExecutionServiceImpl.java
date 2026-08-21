@@ -23,7 +23,6 @@ import com.lingxi.workbench.application.runtime.model.IntentRoutingEvidence;
 import com.lingxi.workbench.application.runtime.model.IntentRoutingResult;
 import com.lingxi.workbench.application.runtime.service.agent.AgentRuntimeService;
 import com.lingxi.workbench.application.runtime.service.capability.CapabilityExecutionService;
-import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionContextRegistry;
 import com.lingxi.workbench.application.runtime.service.execution.ExecutionPersistenceService;
 import com.lingxi.workbench.application.runtime.service.routing.IntentRoutingService;
 import com.lingxi.workbench.application.runtime.service.interaction.InteractionSessionService;
@@ -35,6 +34,7 @@ import com.lingxi.workbench.chat.service.ConversationContextService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
+import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationMode;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionRunStatus;
@@ -50,7 +50,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -69,7 +71,7 @@ import java.util.stream.Collectors;
  *   <li>FIXED_RESPONSE / CLARIFICATION → 不调模型，直接返回</li>
  *   <li>快速路由未命中或不适合确定性消歧时，进入 Application 锁定的 fallback Agent</li>
  *   <li>全部 AGENT/WORKFLOW 目标统一走 CapabilityExecutionService</li>
- *   <li>finally 清理进程内执行上下文注册表</li>
+ *   <li>持久化终态和结果；Workflow与Agent上下文均通过显式参数传递</li>
  * </ol>
  *
  * <h3>关键设计</h3>
@@ -92,10 +94,6 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
      * 统一能力执行入口，内部按 AGENT / WORKFLOW 类型分发。
      */
     private final CapabilityExecutionService capabilityExecutionService;
-    /**
-     * 进程内执行上下文注册表。Workflow 节点只携带 executionId，通过注册表读取上下文。
-     */
-    private final ChatExecutionContextRegistry executionContextRegistry;
     /**
      * 会话上下文准备：窗口记忆 + 摘要 + 长期记忆 + 运行时变量。
      */
@@ -125,7 +123,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
      * 先准备共享上下文，再尝试可选快速路由，其他请求统一交给 fallback Agent。
      *
      * <p>默认入口和快速路由统一通过发布快照中的能力目录执行，共享同一份可信对话上下文，
-     * 并在 finally 中清理进程内状态。</p>
+     * 并由能力调用显式传递本次执行上下文。</p>
      */
     @Override
     public ApplicationChatResult execute(ApplicationChatExecutionRequest request) {
@@ -187,7 +185,10 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                 || !Objects.equals(checkpoint.getContext().getConversationId(),
                         request.getTurn().conversationId())
                 || !Objects.equals(checkpoint.getContext().getAssistantMessageId(),
-                        request.getTurn().assistantMessageId())) {
+                        request.getTurn().assistantMessageId())
+                || !Objects.equals(List.copyOf(Objects.requireNonNullElseGet(
+                        checkpoint.getContext().getExplicitSkillCodes(), List::of)),
+                        request.getExplicitSkillCodes())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "Runtime Checkpoint与当前恢复请求不一致");
         }
         String query = checkpoint.getContext().getQuery();
@@ -359,6 +360,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         String executionId = resume == null ? IdUtil.getSnowflakeNextIdStr()
                 : resume.getCheckpoint().getState().getRunId();
         ChatDispatch.Capability capabilityDispatch = (ChatDispatch.Capability) dispatch;
+        validateExplicitSkillTarget(request, capabilityDispatch);
         if (resume == null) {
             executionPersistenceService.startRun(ExecutionRunStartCommand.builder()
                     .application(snapshot)
@@ -377,9 +379,6 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         // ② 基于最终执行问题派生运行时变量，并构建本轮唯一的可写执行上下文
         ChatExecutionContext executionContext = createExecutionContext(
                 request, conversationContext, executionId, dispatch.query(), startedAt);
-
-        // ③ Workflow节点只携带executionId，通过注册表读取同一份可信上下文
-        executionContextRegistry.register(executionContext);
 
         try {
             ApplicationChatResult result = aiStageObserver.observeExecution(executionId, executionMode(dispatch),
@@ -420,9 +419,34 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                         Duration.between(startedAt, Instant.now()).toMillis(), exception);
             }
             throw exception;
-        } finally {
-            // ⑥ 成功和失败都必须清理，避免用户会话数据滞留在进程内存中
-            executionContextRegistry.remove(executionId);
+        }
+    }
+
+    /** 显式Skill只允许绑定到本次直接执行的已锁定领域专家，禁止跨Workflow或Supervisor猜测目标。 */
+    private static void validateExplicitSkillTarget(ApplicationChatExecutionRequest request,
+                                                    ChatDispatch.Capability dispatch) {
+        List<String> explicitCodes = request.getExplicitSkillCodes();
+        if (explicitCodes.isEmpty()) {
+            return;
+        }
+        AgentRuntimeSnapshot agent = dispatch.hints().agent();
+        if (dispatch.capability().getType() != ApplicationCapabilityType.AGENT || agent == null
+                || agent.definition().getRole() != AgentRole.SPECIALIST) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT,
+                    "显式Skill只能用于直接执行的领域专家能力");
+        }
+        if (new HashSet<>(explicitCodes).size() != explicitCodes.size()) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "显式Skill不能重复选择");
+        }
+        Map<String, com.lingxi.workbench.infra.ai.skill.model.AgentSkillBindingSnapshot> bindings =
+                agent.definition().resolveSkills().stream().collect(Collectors.toUnmodifiableMap(
+                        binding -> binding.getSkill().getCode(), binding -> binding));
+        for (String code : explicitCodes) {
+            com.lingxi.workbench.infra.ai.skill.model.AgentSkillBindingSnapshot binding = bindings.get(code);
+            if (binding == null || binding.getSkill().getActivationMode() != SkillActivationMode.EXPLICIT_ONLY) {
+                throw new BusinessException(HttpStatusEnum.CONFLICT,
+                        "显式Skill不在目标AgentVersion的EXPLICIT_ONLY目录中：" + code);
+            }
         }
     }
 
@@ -451,6 +475,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                 .conversationContext(conversationContext)
                 .runtimePolicy(snapshot.definition().runtimePolicy())
                 .contextBudget(snapshot.definition().contextPolicy().budget())
+                .explicitSkillCodes(request.getExplicitSkillCodes())
                 .startedAt(startedAt)
                 .tokenUsageAccumulator(initialUsage(conversationContext.getPreparationTokenUsage()))
                 .modelCallCounter(new AtomicInteger(conversationContext.getPreparationModelCalls()))

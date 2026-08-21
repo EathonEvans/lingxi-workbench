@@ -1,9 +1,11 @@
 package com.lingxi.workbench.application.runtime.service.agent;
 
 import com.lingxi.workbench.agentruntime.AgentRuntime;
+import com.lingxi.workbench.agentruntime.SkillRouter;
 import com.lingxi.workbench.agentruntime.gateway.SpringAiStreamingChatGateway;
+import com.lingxi.workbench.agentruntime.hook.SkillHook;
 import com.lingxi.workbench.agentruntime.model.ExecutionState;
-import com.lingxi.workbench.agentruntime.model.SkillActivation;
+import com.lingxi.workbench.agentruntime.model.SkillRuntimeCatalog;
 import com.lingxi.workbench.application.runtime.service.app.RuntimeVariablesInitializer;
 
 import com.alibaba.fastjson2.JSONObject;
@@ -35,7 +37,6 @@ import com.lingxi.workbench.infra.ai.chat.model.command.ChatStreamCommand;
 import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationMode;
-import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationReason;
 import com.lingxi.workbench.infra.ai.skill.model.AgentSkillBindingSnapshot;
 import com.lingxi.workbench.infra.ai.skill.model.SkillVersionSnapshot;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
@@ -369,10 +370,9 @@ class AgentChatServiceImplTest {
                 .deniedToolCodes(List.of())
                 .build();
         definition.setSkills(List.of(binding));
-        SkillActivation activatedSkill = new SkillActivation(binding, SkillActivationReason.ALWAYS_ON);
         SkillRuntimeService skillRuntimeService = mock(SkillRuntimeService.class);
-        when(skillRuntimeService.resolveAlwaysOn(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
-                .thenReturn(List.of(activatedSkill));
+        when(skillRuntimeService.load(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).thenReturn(new SkillRuntimeCatalog(List.of(binding), List.of()));
         ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
         AtomicReference<ExecutionState> capturedState = new AtomicReference<>();
@@ -403,7 +403,8 @@ class AgentChatServiceImplTest {
         assertFalse(captured.get().systemPrompt().contains("已激活Skill"));
         assertTrue(capturedState.get().skillInstructions().contains("事实核验 (fact_check@V1)"));
         assertTrue(capturedState.get().skillInstructions().contains("回答前核验关键事实。"));
-        verify(persistenceService).recordActivatedSkills("run-skill", 20L, List.of(activatedSkill));
+        verify(persistenceService).appendSkillActivationEvent(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     private static AgentChatServiceImpl service(AgentRuntimeDefinition definition, PromptRuntimeService promptRuntimeService, StreamingChatGateway streamingChatGateway, ToolRuntimeService toolRuntimeService) {
@@ -448,13 +449,15 @@ class AgentChatServiceImplTest {
                             })
                             .doOnComplete(() -> state.completeModelCall(callNo, usage.get(), false));
                 }));
-        return new AgentRuntime(runtimeGateway);
+        SkillRouter skillRouter = mock(SkillRouter.class);
+        when(skillRouter.route(any(), any(), any())).thenReturn(List.of());
+        return new AgentRuntime(runtimeGateway, new SkillHook(skillRouter));
     }
 
     private static SkillRuntimeService emptySkillRuntimeService() {
         SkillRuntimeService service = mock(SkillRuntimeService.class);
-        when(service.resolveAlwaysOn(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
-                .thenReturn(List.of());
+        when(service.load(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).thenReturn(SkillRuntimeCatalog.empty());
         return service;
     }
 

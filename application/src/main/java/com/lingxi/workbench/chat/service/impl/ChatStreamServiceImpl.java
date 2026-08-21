@@ -1,6 +1,7 @@
 package com.lingxi.workbench.chat.service.impl;
 
 import cn.hutool.core.text.CharSequenceUtil;
+import com.lingxi.workbench.application.runtime.common.enums.ExecutionCheckpointStatus;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
@@ -159,6 +160,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                     .loginUser(loginUser)
                     .turn(turn)
                     .clarificationResponse(request.getClarificationResponse())
+                    .explicitSkillCodes(request.getSkillCodes())
                     .eventPublisher(task)
                     .build();
             this.startGeneration(executionRequest);
@@ -243,12 +245,12 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     public void resumeInteraction(Long interactionId) {
         InteractionSessionEntity interaction = interactionRepo.findById(interactionId)
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "HITL交互不存在"));
-        if (interaction.getStatus() != com.lingxi.workbench.application.runtime.common.enums.InteractionSessionStatus.RESOLVED) {
+        if (interaction.getStatus() != InteractionSessionStatus.RESOLVED) {
             return;
         }
         ExecutionCheckpointEntity checkpoint = checkpointRepo.findById(interaction.getCheckpointId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "HITL检查点不存在"));
-        if (checkpoint.getStatus() != com.lingxi.workbench.application.runtime.common.enums.ExecutionCheckpointStatus.ACTIVE
+        if (checkpoint.getStatus() != ExecutionCheckpointStatus.ACTIVE
                 || checkpoint.getCheckpointVersion() == null
                 || checkpoint.getCheckpointVersion() != RuntimeCheckpoint.CURRENT_VERSION
                 || checkpoint.getPayload() == null
@@ -294,6 +296,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 .query(runtimeCheckpoint.getContext().getQuery())
                 .loginUser(loginUser)
                 .turn(turn)
+                .explicitSkillCodes(runtimeCheckpoint.getContext().getExplicitSkillCodes())
                 .eventPublisher(task)
                 .resumeContext(ExecutionResumeContext.builder()
                         .checkpoint(runtimeCheckpoint)

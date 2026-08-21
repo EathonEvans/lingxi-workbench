@@ -1,6 +1,8 @@
 # Application 执行大脑 V1 开发计划
 
-> 状态：实施中
+> 状态：历史实施计划，已由
+> [Agent Runtime 内核收束设计](./agent-runtime-core-convergence-v1.md) 与
+> [收束开发计划](./agent-runtime-core-convergence-development-plan-v1.md) 取代。
 > 更新时间：2026-08-08
 > 目标：将 Chat 主链从“意图树决定一切”调整为“共享上下文 + 可选快速路由 + 模型规划 + 受控能力执行”。
 

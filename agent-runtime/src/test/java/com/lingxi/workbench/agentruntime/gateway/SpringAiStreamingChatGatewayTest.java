@@ -314,7 +314,8 @@ class SpringAiStreamingChatGatewayTest {
                 .initialUsage(checkpoint.getState().getTokenUsage())
                 .checkpointStore(store).checkpointContext(checkpointContext)
                 .build();
-        state.restore(checkpoint.getState(), List.of());
+        state.restore(checkpoint.getState(),
+                com.lingxi.workbench.agentruntime.model.SkillRuntimeCatalog.empty());
         return state;
     }
 

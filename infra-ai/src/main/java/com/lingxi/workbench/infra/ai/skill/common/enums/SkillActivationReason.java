@@ -3,7 +3,9 @@ package com.lingxi.workbench.infra.ai.skill.common.enums;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
-/** Skill 本轮实际激活原因。 */
+/**
+ * Skill 本轮实际激活原因。
+ */
 @Getter
 @RequiredArgsConstructor
 public enum SkillActivationReason {

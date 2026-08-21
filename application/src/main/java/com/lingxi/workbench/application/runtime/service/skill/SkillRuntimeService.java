@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.skill;
 
-import com.lingxi.workbench.agentruntime.model.SkillActivation;
+import com.lingxi.workbench.agentruntime.model.SkillRuntimeCatalog;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
 import com.lingxi.workbench.application.runtime.model.entity.RuntimeSkillEntity;
 import com.lingxi.workbench.application.runtime.model.entity.RuntimeSkillVersionEntity;
@@ -8,7 +8,6 @@ import com.lingxi.workbench.application.runtime.repo.SkillRuntimeRepo;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationMode;
-import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationReason;
 import com.lingxi.workbench.infra.ai.skill.common.enums.SkillLifecycleStatus;
 import com.lingxi.workbench.infra.ai.skill.common.enums.SkillSecurityStatus;
 import com.lingxi.workbench.infra.ai.skill.model.AgentSkillBindingSnapshot;
@@ -28,24 +27,33 @@ import java.util.stream.Collectors;
 
 import static com.lingxi.workbench.infra.ai.skill.common.constants.SkillSchemaConstants.SKILL_SCHEMA_VERSION;
 
-/** 执行前校验 AgentVersion 锁定的 SkillVersion，并解析本轮自动激活集合。 */
+/**
+ * 执行前校验 AgentVersion 锁定的 SkillVersion，并向 Runtime 提供冻结目录与显式选择。
+ */
 @Service
 @RequiredArgsConstructor
 public class SkillRuntimeService {
 
-    private static final int MAX_ALWAYS_ON_SKILLS = 3;
+    private static final int MAX_SKILLS = 3;
 
     private final SkillRuntimeRepo repo;
     private final SkillSnapshotChecksum snapshotChecksum;
     private final TokenCountEstimator tokenCountEstimator;
 
-    public List<SkillActivation> resolveAlwaysOn(AgentRuntimeDefinition agent, ContextBudgetPolicy budget) {
+    public SkillRuntimeCatalog load(AgentRuntimeDefinition agent, ContextBudgetPolicy budget,
+                                    List<String> explicitSkillCodes) {
         List<AgentSkillBindingSnapshot> bindings = agent.resolveSkills();
-        if (bindings.size() > MAX_ALWAYS_ON_SKILLS) {
-            throw invalid("单轮自动激活Skill数量超过平台上限");
+        if (bindings.size() > MAX_SKILLS) {
+            throw invalid("AgentVersion锁定的Skill数量超过平台上限");
         }
+        List<String> explicitCodes = List.copyOf(
+                Objects.requireNonNullElseGet(explicitSkillCodes, List::of));
+        requireUnique(explicitCodes, "显式Skill不能重复选择");
         if (bindings.isEmpty()) {
-            return List.of();
+            if (!explicitCodes.isEmpty()) {
+                throw invalid("显式Skill不在当前AgentVersion冻结目录中");
+            }
+            return SkillRuntimeCatalog.empty();
         }
         if (bindings.stream().anyMatch(binding -> Objects.isNull(binding) || Objects.isNull(binding.getSkill()))) {
             throw invalid("AgentVersion包含不完整的Skill绑定");
@@ -53,32 +61,48 @@ public class SkillRuntimeService {
 
         List<Long> skillIds = bindings.stream().map(AgentSkillBindingSnapshot::getSkillId).toList();
         List<Long> versionIds = bindings.stream().map(AgentSkillBindingSnapshot::getSkillVersionId).toList();
+        List<String> skillCodes = bindings.stream().map(binding -> binding.getSkill().getCode()).toList();
         requirePresent(skillIds, "AgentVersion存在无效Skill绑定");
         requirePresent(versionIds, "AgentVersion存在无效SkillVersion绑定");
         requireUnique(skillIds, "AgentVersion存在重复Skill绑定");
         requireUnique(versionIds, "AgentVersion存在重复SkillVersion绑定");
+        requireUnique(skillCodes, "AgentVersion存在重复Skill编码");
         Map<Long, RuntimeSkillEntity> skills = repo.findSkills(skillIds).stream()
                 .collect(Collectors.toMap(RuntimeSkillEntity::getId, Function.identity()));
+        // 查询 skill 版本
         Map<Long, RuntimeSkillVersionEntity> versions = repo.findVersions(versionIds).stream()
                 .collect(Collectors.toMap(RuntimeSkillVersionEntity::getId, Function.identity()));
         Set<String> agentTools = new HashSet<>(agent.resolveToolCodes());
+        Map<String, AgentSkillBindingSnapshot> bindingsByCode = bindings.stream()
+                .collect(Collectors.toMap(binding -> binding.getSkill().getCode(), Function.identity()));
         int totalTokens = 0;
         for (AgentSkillBindingSnapshot binding : bindings) {
-            if (Objects.isNull(binding) || Objects.isNull(binding.getSkill())
-                    || binding.getSkill().getActivationMode() != SkillActivationMode.ALWAYS_ON) {
-                throw invalid("AgentVersion包含当前运行协议不支持的Skill绑定");
+            if (Objects.isNull(binding.getSkill().getActivationMode())) {
+                throw invalid("AgentVersion包含缺少激活模式的Skill绑定");
             }
             RuntimeSkillEntity skill = skills.get(binding.getSkillId());
             RuntimeSkillVersionEntity version = versions.get(binding.getSkillVersionId());
             validateBinding(binding, skill, version, agentTools);
-            totalTokens += tokenCountEstimator.estimate(binding.getSkill().getInstructions());
+            totalTokens += tokenCountEstimator.estimate(binding.getSkill().getCode())
+                    + tokenCountEstimator.estimate(binding.getSkill().getName())
+                    + tokenCountEstimator.estimate(Objects.requireNonNullElse(
+                    binding.getSkill().getDescription(), ""))
+                    + tokenCountEstimator.estimate(binding.getSkill().getInstructions());
         }
         if (totalTokens > budget.getMaxCapabilityTokens()) {
-            throw invalid("Skill指令超过Application能力描述Token预算");
+            throw invalid("Skill元数据与指令超过Application能力描述Token预算");
         }
-        return bindings.stream()
-                .map(binding -> new SkillActivation(binding, SkillActivationReason.ALWAYS_ON))
-                .toList();
+        for (String explicitCode : explicitCodes) {
+            if (explicitCode == null || explicitCode.isBlank()) {
+                throw invalid("显式Skill编码不能为空");
+            }
+            AgentSkillBindingSnapshot binding = bindingsByCode.get(explicitCode);
+            if (binding == null
+                    || binding.getSkill().getActivationMode() != SkillActivationMode.EXPLICIT_ONLY) {
+                throw invalid("显式Skill不在当前AgentVersion的EXPLICIT_ONLY目录中：" + explicitCode);
+            }
+        }
+        return new SkillRuntimeCatalog(bindings, explicitCodes);
     }
 
     private void validateBinding(AgentSkillBindingSnapshot binding, RuntimeSkillEntity skill,

@@ -82,7 +82,11 @@ public class WorkflowRunServiceImpl implements WorkflowRunService {
         attempt.setNodeId(node.id());
         attempt.setNodeType(node.type());
         attempt.setAttemptNo(1);
-        attempt.setStatus(trace.getStatus());
+        WorkflowNodeRunStatus nodeStatus = switch (trace.getStatus()) {
+            case SUCCEEDED -> WorkflowNodeRunStatus.SUCCEEDED;
+            case FAILED -> WorkflowNodeRunStatus.FAILED;
+        };
+        attempt.setStatus(nodeStatus);
         attempt.setStartedAt(toOffsetDateTime(trace.getStartedAt()));
         attempt.setFinishedAt(toOffsetDateTime(trace.getFinishedAt()));
         attempt.setDurationMillis(Duration.between(trace.getStartedAt(), trace.getFinishedAt()).toMillis());
@@ -94,10 +98,6 @@ public class WorkflowRunServiceImpl implements WorkflowRunService {
         WorkflowRunEventType eventType = switch (trace.getStatus()) {
             case SUCCEEDED -> WorkflowRunEventType.NODE_SUCCEEDED;
             case FAILED -> WorkflowRunEventType.NODE_FAILED;
-        };
-        WorkflowNodeRunStatus nodeStatus = switch (trace.getStatus()) {
-            case SUCCEEDED -> WorkflowNodeRunStatus.SUCCEEDED;
-            case FAILED -> WorkflowNodeRunStatus.FAILED;
         };
         String message = switch (trace.getStatus()) {
             case SUCCEEDED -> "节点执行成功";

@@ -5,6 +5,10 @@ import com.lingxi.workbench.agentruntime.event.ExecutionEventType;
 import com.lingxi.workbench.agentruntime.event.RuntimeEventSink;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
+import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationMode;
+import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationReason;
+import com.lingxi.workbench.infra.ai.skill.model.AgentSkillBindingSnapshot;
+import com.lingxi.workbench.infra.ai.skill.model.SkillVersionSnapshot;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionContext;
@@ -77,6 +81,33 @@ class ExecutionStateTest {
         assertEquals(2, state.beforeFinalModelCall());
     }
 
+    @Test
+    void shouldRestoreActivatedSkillWithPersistedReasonWithoutRerouting() {
+        AgentSkillBindingSnapshot binding = skillBinding(SkillActivationMode.MODEL_ROUTED);
+        ExecutionState original = state(new RecordingSink(), 4, 4, 100, 120);
+        original.activateSkill(new SkillActivation(binding, SkillActivationReason.MODEL_ROUTED));
+        com.lingxi.workbench.agentruntime.checkpoint.ExecutionStateSnapshot snapshot = original.snapshot();
+        ExecutionState restored = state(new RecordingSink(), 4, 4, 100, 120);
+
+        restored.restore(snapshot, new SkillRuntimeCatalog(List.of(binding), List.of()));
+
+        assertTrue(restored.skillInstructions().contains("fact_check-instructions"));
+        assertEquals(SkillActivationReason.MODEL_ROUTED, snapshot.getSkills().getFirst().reason());
+    }
+
+    @Test
+    void shouldRejectCheckpointReasonThatDoesNotMatchFrozenActivationMode() {
+        AgentSkillBindingSnapshot binding = skillBinding(SkillActivationMode.EXPLICIT_ONLY);
+        ExecutionState original = state(new RecordingSink(), 4, 4, 100, 120);
+        original.activateSkill(new SkillActivation(binding, SkillActivationReason.EXPLICIT));
+        com.lingxi.workbench.agentruntime.checkpoint.ExecutionStateSnapshot snapshot = original.snapshot();
+        snapshot.setSkills(List.of(new com.lingxi.workbench.agentruntime.checkpoint.ExecutionStateSnapshot.SkillState(
+                binding.getSkillVersionId(), binding.getChecksum(), SkillActivationReason.MODEL_ROUTED)));
+
+        assertThrows(IllegalArgumentException.class, () -> state(new RecordingSink(), 4, 4, 100, 120)
+                .restore(snapshot, new SkillRuntimeCatalog(List.of(binding), List.of("fact_check"))));
+    }
+
     private static ExecutionState state(RecordingSink sink, int maxModelCalls, int maxToolCalls,
                                         int maxTotalTokens, int maxFinalizationTokens) {
         AgentTool tool = tool();
@@ -130,6 +161,15 @@ class ExecutionStateTest {
                 return callback;
             }
         };
+    }
+
+    private static AgentSkillBindingSnapshot skillBinding(SkillActivationMode mode) {
+        return AgentSkillBindingSnapshot.builder().skillId(1L).skillVersionId(11L).versionNo(1)
+                .checksum("checksum")
+                .skill(SkillVersionSnapshot.builder().schemaVersion(1).code("fact_check").name("事实核验")
+                        .description("核验事实").instructions("fact_check-instructions")
+                        .activationMode(mode).requestedToolCodes(List.of()).build())
+                .effectiveToolCodes(List.of()).deniedToolCodes(List.of()).build();
     }
 
     private static final class RecordingSink implements RuntimeEventSink {

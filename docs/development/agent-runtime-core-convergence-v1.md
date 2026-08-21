@@ -1,6 +1,6 @@
 # Agent Runtime 内核收束设计
 
-> 状态：已确认，待按批次实施
+> 状态：Batch 0–7 已实施完成；外部依赖恢复后补真实发布版本端到端验收
 > 日期：2026-08-17
 > 适用仓库：`lingxi-workbench-server`，同时考虑当前 Admin、Web 的未提交状态
 > 目标：借鉴 Spring AI Alibaba Agent Framework 的职责划分，但不引入其依赖；以 Spring AI 2.0 作为模型交互基座

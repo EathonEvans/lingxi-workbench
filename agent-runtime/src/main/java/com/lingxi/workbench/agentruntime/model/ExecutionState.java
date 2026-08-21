@@ -11,10 +11,14 @@ import com.lingxi.workbench.agentruntime.event.ExecutionEventType;
 import com.lingxi.workbench.agentruntime.event.ExecutionStage;
 import com.lingxi.workbench.agentruntime.event.RuntimeEventSink;
 import com.lingxi.workbench.agentruntime.loop.AgentToolExecutionLedger;
+import com.lingxi.workbench.agentruntime.plan.AgentInvocationState;
+import com.lingxi.workbench.agentruntime.plan.AgentInvocationStatus;
 import com.lingxi.workbench.agentruntime.planner.PlannerDecision;
+import com.lingxi.workbench.agentruntime.planner.PlannerClarification;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
 import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationMode;
+import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationReason;
 import com.lingxi.workbench.infra.ai.skill.model.AgentSkillBindingSnapshot;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
@@ -49,6 +53,7 @@ public final class ExecutionState {
     private final Long agentId;
     @Getter
     private final Long agentVersionId;
+    private final ExecutionScope scope;
     @Getter
     private final ExecutionPolicy policy;
     @Getter
@@ -66,6 +71,7 @@ public final class ExecutionState {
     private final AtomicInteger modelCalls;
     private final AtomicInteger toolCalls;
     private final TokenUsageAccumulator tokenUsage;
+    private final boolean finalModelCallReserved;
     private final StringBuilder output = new StringBuilder();
     private final AtomicReference<Instant> lastOutputAt = new AtomicReference<>();
     private boolean finalizationRequested;
@@ -76,12 +82,13 @@ public final class ExecutionState {
     private volatile ExecutionStatus status = ExecutionStatus.RUNNING;
 
     @Builder
-    private ExecutionState(String runId, Long agentId, Long agentVersionId, ExecutionPolicy policy,
+    private ExecutionState(String runId, Long agentId, Long agentVersionId, ExecutionScope scope,
+                           ExecutionPolicy policy,
                            RuntimeEventSink eventSink, AgentToolRuntimeConfig toolRuntimeConfig,
                            List<String> authorizedToolCodes, Long initialSequenceNo,
                            Integer initialModelCalls, Integer initialToolCalls, TokenUsage initialUsage,
                            Instant startedAt, RuntimeCheckpointContext checkpointContext,
-                           RuntimeCheckpointStore checkpointStore) {
+                           RuntimeCheckpointStore checkpointStore, Boolean finalModelCallReserved) {
         if (Objects.isNull(runId) || runId.isBlank() || Objects.isNull(agentId)
                 || Objects.isNull(agentVersionId)) {
             throw new IllegalArgumentException("Agent执行身份不能为空");
@@ -89,6 +96,7 @@ public final class ExecutionState {
         this.runId = runId;
         this.agentId = agentId;
         this.agentVersionId = agentVersionId;
+        this.scope = Objects.requireNonNullElse(scope, ExecutionScope.RUN);
         this.policy = Objects.requireNonNull(policy, "Agent执行策略不能为空");
         this.eventSink = Objects.requireNonNull(eventSink, "Runtime事件接收器不能为空");
         this.toolRuntimeConfig = toolRuntimeConfig;
@@ -107,14 +115,15 @@ public final class ExecutionState {
         this.toolCalls = new AtomicInteger(Objects.requireNonNullElse(initialToolCalls, 0));
         this.tokenUsage = new TokenUsageAccumulator();
         this.tokenUsage.initialize(initialUsage);
+        this.finalModelCallReserved = Boolean.TRUE.equals(finalModelCallReserved);
     }
 
     /** 从持久Checkpoint恢复运行事实，并校验当前加载的冻结版本没有漂移。 */
-    public synchronized void restore(ExecutionStateSnapshot snapshot, List<SkillActivation> currentSkills) {
+    public synchronized void restore(ExecutionStateSnapshot snapshot, SkillRuntimeCatalog currentSkills) {
         Objects.requireNonNull(snapshot, "ExecutionState检查点不能为空");
         validateSnapshotIdentity(snapshot);
         validateSnapshotPolicy(snapshot);
-        validateSnapshotSkills(snapshot, currentSkills);
+        List<SkillActivation> restoredSkills = validateSnapshotSkills(snapshot, currentSkills);
         List<ExecutionStateSnapshot.ToolCallCount> counts = snapshot.getToolCallCounts() == null
                 ? List.of() : snapshot.getToolCallCounts();
         toolCallCounts.clear();
@@ -126,17 +135,19 @@ public final class ExecutionState {
         }
         toolLedger.restore(snapshot.getToolLedger());
         skillActivations.clear();
-        skillActivations.addAll(currentSkills == null ? List.of() : currentSkills);
+        skillActivations.addAll(restoredSkills);
         finalizationRequested = Boolean.TRUE.equals(snapshot.getFinalizationRequested());
         finalizationReason = snapshot.getFinalizationReason();
         output.setLength(0);
         output.append(Objects.requireNonNullElse(snapshot.getOutput(), ""));
     }
 
-    /** 发布 Run 与 Agent 的唯一开始事件。 */
+    /** 根调用发布 Run 开始；每个隔离调用只发布自身 Agent 开始。 */
     public void start() {
-        publish(ExecutionEventType.RUN_STARTED, ExecutionStage.RUNTIME,
-                new ExecutionEventPayload.Run("Agent运行已开始"));
+        if (scope.isRun()) {
+            publish(ExecutionEventType.RUN_STARTED, ExecutionStage.RUNTIME,
+                    new ExecutionEventPayload.Run("Agent运行已开始"));
+        }
         publish(ExecutionEventType.AGENT_STARTED, ExecutionStage.AGENT,
                 new ExecutionEventPayload.Agent(agentId, agentVersionId, "Agent调用已开始"));
     }
@@ -213,7 +224,8 @@ public final class ExecutionState {
         ensureWithinDeadline();
         ensureTokenCapacity(policy.getMaxTotalTokens(), "AGENT_TOKEN_LIMIT");
         int callNo = modelCalls.incrementAndGet();
-        int workingLimit = hasTools() ? policy.getMaxModelCalls() - 1 : policy.getMaxModelCalls();
+        int workingLimit = hasTools() || finalModelCallReserved
+                ? policy.getMaxModelCalls() - 1 : policy.getMaxModelCalls();
         if (callNo > workingLimit) {
             modelCalls.decrementAndGet();
             throw new AgentRuntimeLimitException("AGENT_MODEL_CALL_LIMIT", "Agent工作模型调用次数已达到上限");
@@ -221,6 +233,11 @@ public final class ExecutionState {
         publish(ExecutionEventType.MODEL_STARTED, ExecutionStage.MODEL,
                 new ExecutionEventPayload.Model(callNo, TokenUsage.empty(), false, "模型调用已开始"));
         return callNo;
+    }
+
+    /** 返回工作模型尚可使用的调用次数，Skill路由必须为最终回答保留一次。 */
+    public int remainingModelCalls() {
+        return Math.max(policy.getMaxModelCalls() - modelCalls.get(), 0);
     }
 
     /** 禁用Tool的最终模型调用只使用预留调用和Token硬额度。 */
@@ -248,6 +265,63 @@ public final class ExecutionState {
         tokenUsage.add(usage);
         publish(ExecutionEventType.MODEL_COMPLETED, ExecutionStage.MODEL,
                 new ExecutionEventPayload.Model(callNo, usage, finalCall, "模型调用已完成"));
+    }
+
+    /** 合并隔离能力调用的实际消耗，并把事件序号推进到子调用之后。 */
+    public synchronized void recordDelegatedUsage(int delegatedModelCalls, int delegatedToolCalls,
+                                                  TokenUsage usage, long delegatedLastSequenceNo) {
+        ensureRunning();
+        if (delegatedModelCalls < 0 || delegatedToolCalls < 0) {
+            throw new IllegalArgumentException("委派调用计数不能小于0");
+        }
+        modelCalls.addAndGet(delegatedModelCalls);
+        toolCalls.addAndGet(delegatedToolCalls);
+        tokenUsage.add(usage);
+        eventSequence.accumulateAndGet(delegatedLastSequenceNo, Math::max);
+    }
+
+    /** Runtime 主循环在启动新步骤前检查取消、截止和工作预算。 */
+    public void ensureActive() {
+        ensureRunning();
+        ensureNotCancelled();
+        ensureWithinDeadline();
+    }
+
+    public boolean hasWorkingCapacity() {
+        Integer usedTokens = tokenUsage.snapshot().totalTokens();
+        return modelCalls.get() < policy.getMaxModelCalls() - 1
+                && Objects.requireNonNullElse(usedTokens, 0) < policy.getMaxTotalTokens();
+    }
+
+    public boolean hasFinalizationCapacity() {
+        Integer usedTokens = tokenUsage.snapshot().totalTokens();
+        return modelCalls.get() < policy.getMaxModelCalls()
+                && Objects.requireNonNullElse(usedTokens, 0) < policy.getMaxFinalizationTokens();
+    }
+
+    public void stepStarted(int planNo, AgentInvocationState invocation) {
+        publishStep(ExecutionEventType.STEP_STARTED, planNo, invocation, AgentInvocationStatus.RUNNING,
+                null, "步骤已开始");
+    }
+
+    public void stepReused(int planNo, AgentInvocationState invocation) {
+        publishStep(ExecutionEventType.STEP_REUSED, planNo, invocation, AgentInvocationStatus.REUSED,
+                null, "已复用相同副作用步骤结果");
+    }
+
+    public void stepCompleted(int planNo, AgentInvocationState invocation) {
+        publishStep(ExecutionEventType.STEP_COMPLETED, planNo, invocation, AgentInvocationStatus.COMPLETED,
+                null, "步骤已完成");
+    }
+
+    public void stepFailed(int planNo, AgentInvocationState invocation, String errorCode, String message) {
+        publishStep(ExecutionEventType.STEP_FAILED, planNo, invocation, AgentInvocationStatus.FAILED,
+                errorCode, message);
+    }
+
+    public void clarificationRequired(int planNo, PlannerClarification clarification) {
+        publish(ExecutionEventType.CLARIFICATION_REQUIRED, ExecutionStage.HUMAN,
+                new ExecutionEventPayload.Clarification(planNo, clarification, clarification.getQuestion()));
     }
 
     /** 按全局、单轮和单Tool上限筛选模型请求的调用，未知Tool永不执行。 */
@@ -371,19 +445,32 @@ public final class ExecutionState {
         status = ExecutionStatus.SUCCEEDED;
         publish(ExecutionEventType.AGENT_COMPLETED, ExecutionStage.AGENT,
                 new ExecutionEventPayload.Agent(agentId, agentVersionId, "Agent调用已完成"));
-        publish(ExecutionEventType.RUN_COMPLETED, ExecutionStage.TERMINAL,
-                new ExecutionEventPayload.Run("Agent运行已完成"));
+        if (scope.isRun()) {
+            publish(ExecutionEventType.RUN_COMPLETED, ExecutionStage.TERMINAL,
+                    new ExecutionEventPayload.Run("Agent运行已完成"));
+        }
     }
 
     public synchronized void completePartial(String reason) {
         ensureRunning();
         status = ExecutionStatus.PARTIAL;
-        publish(ExecutionEventType.RUN_PARTIAL, ExecutionStage.TERMINAL,
+        publish(ExecutionEventType.AGENT_PARTIAL, ExecutionStage.AGENT,
                 new ExecutionEventPayload.Failure("TIME_LIMIT_PARTIAL", reason));
+        if (scope.isRun()) {
+            publish(ExecutionEventType.RUN_PARTIAL, ExecutionStage.TERMINAL,
+                    new ExecutionEventPayload.Failure("TIME_LIMIT_PARTIAL", reason));
+        }
     }
 
     public synchronized void fail(Throwable exception) {
         if (status != ExecutionStatus.RUNNING) {
+            return;
+        }
+        if (exception instanceof AgentReconciliationPendingException) {
+            status = ExecutionStatus.RECONCILIATION_PENDING;
+            publish(ExecutionEventType.RUN_RECONCILIATION_PENDING, ExecutionStage.TERMINAL,
+                    new ExecutionEventPayload.Failure("TOOL_RECONCILIATION_PENDING",
+                            "外部能力结果等待本地对账"));
             return;
         }
         status = ExecutionStatus.FAILED;
@@ -392,8 +479,12 @@ public final class ExecutionState {
                 : exception instanceof AgentExecutionDeadlineExceededException
                         ? "AGENT_EXECUTION_TIMEOUT"
                         : "AGENT_RUNTIME_FAILED";
-        publish(ExecutionEventType.RUN_FAILED, ExecutionStage.TERMINAL,
-                new ExecutionEventPayload.Failure(code, "Agent运行失败"));
+        publish(ExecutionEventType.AGENT_FAILED, ExecutionStage.AGENT,
+                new ExecutionEventPayload.Failure(code, "Agent调用失败"));
+        if (scope.isRun()) {
+            publish(ExecutionEventType.RUN_FAILED, ExecutionStage.TERMINAL,
+                    new ExecutionEventPayload.Failure(code, "Agent运行失败"));
+        }
     }
 
     public synchronized void cancel() {
@@ -401,8 +492,12 @@ public final class ExecutionState {
             return;
         }
         status = ExecutionStatus.CANCELLED;
-        publish(ExecutionEventType.RUN_CANCELLED, ExecutionStage.TERMINAL,
-                new ExecutionEventPayload.Run("Agent运行已取消"));
+        publish(ExecutionEventType.AGENT_CANCELLED, ExecutionStage.AGENT,
+                new ExecutionEventPayload.Agent(agentId, agentVersionId, "Agent调用已取消"));
+        if (scope.isRun()) {
+            publish(ExecutionEventType.RUN_CANCELLED, ExecutionStage.TERMINAL,
+                    new ExecutionEventPayload.Run("Agent运行已取消"));
+        }
     }
 
     public boolean isCancelled() {
@@ -476,7 +571,8 @@ public final class ExecutionState {
                 .toList();
         List<ExecutionStateSnapshot.SkillState> skills = skillActivations.stream()
                 .map(activation -> new ExecutionStateSnapshot.SkillState(
-                        activation.binding().getSkillVersionId(), activation.binding().getChecksum()))
+                        activation.binding().getSkillVersionId(), activation.binding().getChecksum(),
+                        activation.reason()))
                 .toList();
         return ExecutionStateSnapshot.builder()
                 .runId(runId)
@@ -587,19 +683,39 @@ public final class ExecutionState {
         }
     }
 
-    private static void validateSnapshotSkills(ExecutionStateSnapshot snapshot,
-                                               List<SkillActivation> currentSkills) {
+    private static List<SkillActivation> validateSnapshotSkills(ExecutionStateSnapshot snapshot,
+                                                                SkillRuntimeCatalog currentSkills) {
         List<ExecutionStateSnapshot.SkillState> persisted = snapshot.getSkills() == null
                 ? List.of() : snapshot.getSkills();
-        List<SkillActivation> current = currentSkills == null ? List.of() : currentSkills;
-        Map<Long, String> currentChecksums = current.stream().collect(Collectors.toUnmodifiableMap(
-                activation -> activation.binding().getSkillVersionId(),
-                activation -> activation.binding().getChecksum()));
-        boolean matched = persisted.size() == currentChecksums.size() && persisted.stream().allMatch(skill ->
-                Objects.equals(currentChecksums.get(skill.skillVersionId()), skill.checksum()));
-        if (!matched) {
+        SkillRuntimeCatalog catalog = Objects.requireNonNullElseGet(currentSkills, SkillRuntimeCatalog::empty);
+        Map<Long, AgentSkillBindingSnapshot> bindings = catalog.bindings().stream()
+                .collect(Collectors.toUnmodifiableMap(AgentSkillBindingSnapshot::getSkillVersionId,
+                        Function.identity()));
+        Set<String> explicitCodes = Set.copyOf(catalog.explicitSkillCodes());
+        Set<Long> required = catalog.bindings().stream()
+                .filter(binding -> binding.getSkill().getActivationMode() == SkillActivationMode.ALWAYS_ON
+                        || binding.getSkill().getActivationMode() == SkillActivationMode.EXPLICIT_ONLY
+                        && explicitCodes.contains(binding.getSkill().getCode()))
+                .map(AgentSkillBindingSnapshot::getSkillVersionId)
+                .collect(Collectors.toUnmodifiableSet());
+        if (persisted.stream().map(ExecutionStateSnapshot.SkillState::skillVersionId).distinct().count()
+                != persisted.size()) {
             throw new IllegalArgumentException("Checkpoint SkillVersion已经漂移");
         }
+        List<SkillActivation> restored = persisted.stream().map(skill -> {
+            AgentSkillBindingSnapshot binding = bindings.get(skill.skillVersionId());
+            if (binding == null || !Objects.equals(binding.getChecksum(), skill.checksum())
+                    || !isReasonAllowed(binding.getSkill().getActivationMode(), skill.reason())) {
+                throw new IllegalArgumentException("Checkpoint SkillVersion已经漂移");
+            }
+            return new SkillActivation(binding, skill.reason());
+        }).toList();
+        Set<Long> restoredIds = restored.stream().map(activation -> activation.binding().getSkillVersionId())
+                .collect(Collectors.toUnmodifiableSet());
+        if (!restoredIds.containsAll(required)) {
+            throw new IllegalArgumentException("Checkpoint缺少本轮必须激活的SkillVersion");
+        }
+        return restored;
     }
 
     private static Map<String, AgentToolDefinition> resolveToolDefinitions(AgentToolRuntimeConfig config) {
@@ -613,10 +729,16 @@ public final class ExecutionState {
     private AgentSkillBindingSnapshot requireSkillActivation(SkillActivation activation) {
         if (Objects.isNull(activation) || Objects.isNull(activation.binding())
                 || Objects.isNull(activation.binding().getSkill()) || Objects.isNull(activation.reason())
-                || activation.binding().getSkill().getActivationMode() != SkillActivationMode.ALWAYS_ON) {
-            throw new IllegalArgumentException("Runtime只接受完整的ALWAYS_ON Skill激活事实");
+                || !isReasonAllowed(activation.binding().getSkill().getActivationMode(), activation.reason())) {
+            throw new IllegalArgumentException("Runtime只接受激活模式与原因一致的完整Skill事实");
         }
         return activation.binding();
+    }
+
+    private static boolean isReasonAllowed(SkillActivationMode mode, SkillActivationReason reason) {
+        return mode == SkillActivationMode.ALWAYS_ON && reason == SkillActivationReason.ALWAYS_ON
+                || mode == SkillActivationMode.EXPLICIT_ONLY && reason == SkillActivationReason.EXPLICIT
+                || mode == SkillActivationMode.MODEL_ROUTED && reason == SkillActivationReason.MODEL_ROUTED;
     }
 
     private boolean hasReachedToolExecutionLimit(List<AssistantMessage.ToolCall> approved) {
@@ -632,6 +754,12 @@ public final class ExecutionState {
         publish(type, ExecutionStage.TOOL, invocationId,
                 new ExecutionEventPayload.Tool(definition.getCode(), definition.getDisplayName(),
                         durationMillis, errorCode));
+    }
+
+    private void publishStep(ExecutionEventType type, int planNo, AgentInvocationState invocation,
+                             AgentInvocationStatus status, String errorCode, String message) {
+        publish(type, ExecutionStage.PLAN, new ExecutionEventPayload.Step(planNo, invocation.getStep(), status,
+                errorCode, message));
     }
 
     private void ensureRunning() {

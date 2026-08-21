@@ -2,12 +2,9 @@ package com.lingxi.workbench.application.runtime.service.agent;
 
 import com.lingxi.workbench.agentruntime.model.AgentRunResult;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
-import com.lingxi.workbench.application.runtime.service.agent.AgentChatService;
-import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionContextRegistry;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.model.AgentNodeInvocation;
-import com.lingxi.workbench.workflow.service.AgentNodeInvoker;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -16,27 +13,24 @@ import java.util.Map;
 /**
  * Workflow Agent 节点到 Agent 对话主服务的薄适配器。
  *
- * <p>这里只处理 Workflow 协议：解析节点输入、通过 executionId 获取对话上下文，
+ * <p>这里只处理 Workflow 协议：解析节点输入并使用本次执行显式传入的可信对话上下文，
  * 再调用 {@link AgentChatService}。RAG、Prompt、模型和工具逻辑全部属于 Agent
  * 对话服务，不能回流到本适配器。</p>
  */
 @Component
 @RequiredArgsConstructor
-public class ChatAgentNodeInvoker implements AgentNodeInvoker {
+public class ChatAgentNodeInvoker {
 
     private final AgentChatService agentChatService;
-    private final ChatExecutionContextRegistry executionContextRegistry;
 
-    @Override
-    public Map<String, Object> invoke(AgentNodeInvocation invocation) {
+    public Map<String, Object> invoke(AgentNodeInvocation invocation, ChatExecutionContext executionContext) {
         Object queryValue = invocation.getInputs().get("query");
         if (!(queryValue instanceof String query) || query.isBlank()) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "Agent节点输入query必须是非空字符串: " + invocation.getNodeId());
         }
 
-        ChatExecutionContext executionCtx = executionContextRegistry.require(invocation.getExecutionId());
         AgentRunResult result = agentChatService.chat(
-                invocation.getAgentId(), invocation.getAgentVersionId(), query, executionCtx);
+                invocation.getAgentId(), invocation.getAgentVersionId(), query, executionContext);
         if (result instanceof AgentRunResult.Interrupted) {
             throw new BusinessException(HttpStatusEnum.CONFLICT,
                     "Workflow Agent节点不能使用Agent级HITL；请由Workflow交互节点管理暂停与恢复");

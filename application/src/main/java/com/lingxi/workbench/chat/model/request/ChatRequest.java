@@ -11,6 +11,9 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+import java.util.Objects;
+
 /**
  * 创建模型生成任务请求。
  */
@@ -58,13 +61,16 @@ public class ChatRequest {
     @Valid
     ClarificationResponseRequest clarificationResponse;
 
-    /**
-     * agent标识
-     */
-    String agentCode;
+    /** 本轮显式启用的 EXPLICIT_ONLY Skill code。 */
+    @Size(max = 3, message = "单轮最多显式启用3个Skill")
+    List<@Pattern(regexp = "^[a-z][a-z0-9_-]{1,63}$", message = "Skill编码格式不正确") String> skillCodes;
 
     public String getQuery() {
         return query.trim();
+    }
+
+    public List<String> getSkillCodes() {
+        return List.copyOf(Objects.requireNonNullElseGet(skillCodes, List::of));
     }
 
     /** 新会话和已有会话入口必须且只能选择一个。 */

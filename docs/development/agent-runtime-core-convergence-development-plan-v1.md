@@ -1,7 +1,7 @@
 # Agent Runtime 内核收束开发计划
 
-> 状态：执行中，Batch 0–4 已完成
-> 更新日期：2026-08-18
+> 状态：Batch 0–7 已执行完成；剩余外部验收见进度记录
+> 更新日期：2026-08-21
 > 设计基线：[Agent Runtime 内核收束设计](agent-runtime-core-convergence-v1.md)
 > 持续记录：[Agent Runtime 内核收束开发进度](agent-runtime-core-convergence-progress.md)
 

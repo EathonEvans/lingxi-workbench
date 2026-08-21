@@ -50,7 +50,7 @@ class PlannerRuntimeTest {
 
         PlannerRunResult result = fixture.runtime.run(request(fixture.config, fixture.sink, 1, 1));
 
-        assertEquals(PlannerDecisionAction.EXECUTE_AGENT, result.decision().getAction());
+        assertEquals(PlannerDecisionAction.EXECUTE_CAPABILITY, result.decision().getAction());
         assertEquals("research", result.decision().getCapabilityCode());
         assertEquals(11, result.tokenUsage().totalTokens());
         assertEquals(1, result.modelCalls());
@@ -62,9 +62,9 @@ class PlannerRuntimeTest {
     @Test
     void shouldRepairStrictProtocolAndBusinessValidationWithinBudget() {
         Fixture fixture = fixture(false,
-                response("{\"action\":\"EXECUTE_AGENT\",\"capabilityCode\":\"research\",\"unknown\":true}",
+                response("{\"action\":\"EXECUTE_CAPABILITY\",\"capabilityCode\":\"research\",\"unknown\":true}",
                         5, 2, 7),
-                response("{\"action\":\"EXECUTE_AGENT\",\"capabilityCode\":\"unauthorized\"}", 5, 2, 7),
+                response("{\"action\":\"EXECUTE_CAPABILITY\",\"capabilityCode\":\"unauthorized\"}", 5, 2, 7),
                 response(validDirectJson(), 5, 2, 7));
 
         PlannerRunResult result = fixture.runtime.run(request(fixture.config, fixture.sink, 1, 2));
@@ -78,7 +78,7 @@ class PlannerRuntimeTest {
     @Test
     void shouldReturnSafeClarificationAfterBoundedRepairs() {
         Fixture fixture = fixture(false,
-                response("{\"action\":\"EXECUTE_AGENT\",\"capabilityCode\":\"unauthorized\"}", 4, 1, 5),
+                response("{\"action\":\"EXECUTE_CAPABILITY\",\"capabilityCode\":\"unauthorized\"}", 4, 1, 5),
                 response("{\"action\":\"EXECUTE_PLAN\",\"plan\":null}", 4, 1, 5));
 
         PlannerRunResult result = fixture.runtime.run(request(fixture.config, fixture.sink, 2, 8));
@@ -173,7 +173,7 @@ class PlannerRuntimeTest {
     }
 
     private static String validDirectJson() {
-        return "{\"action\":\"EXECUTE_AGENT\",\"capabilityCode\":\"research\"}";
+        return "{\"action\":\"EXECUTE_CAPABILITY\",\"capabilityCode\":\"research\"}";
     }
 
     private record Fixture(PlannerRuntime runtime, ChatModelRuntimeConfig config,

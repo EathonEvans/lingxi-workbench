@@ -8,8 +8,10 @@ import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.common.enums.WorkflowRunEventType;
 import com.lingxi.workbench.workflow.common.enums.WorkflowRunStatus;
+import com.lingxi.workbench.workflow.common.enums.WorkflowNodeRunStatus;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowExecutionRequest;
+import com.lingxi.workbench.workflow.model.WorkflowExecutionPorts;
 import com.lingxi.workbench.workflow.model.WorkflowNodeDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowNodeStatus;
 import com.lingxi.workbench.workflow.model.WorkflowNodeTrace;
@@ -97,7 +99,7 @@ class WorkflowRunServiceImplTest {
         ArgumentCaptor<WorkflowNodeAttemptEntity> attemptCaptor = ArgumentCaptor.forClass(WorkflowNodeAttemptEntity.class);
         verify(attemptRepo).insert(attemptCaptor.capture());
         assertThat(attemptCaptor.getValue()).satisfies(attempt -> {
-            assertThat(attempt.getStatus()).isEqualTo(WorkflowNodeStatus.FAILED);
+            assertThat(attempt.getStatus()).isEqualTo(WorkflowNodeRunStatus.FAILED);
             assertThat(attempt.getDurationMillis()).isEqualTo(25L);
             assertThat(attempt.getErrorCode()).isEqualTo("WORKFLOW_NODE_FAILED");
         });
@@ -127,6 +129,7 @@ class WorkflowRunServiceImplTest {
                 .runId("workflow-run-1")
                 .definition(definition)
                 .request(new WorkflowExecutionRequest("execution-1", 10L, 11L, Map.of("query", "测试")))
+                .ports(new WorkflowExecutionPorts(invocation -> Map.of(), invocation -> Map.of(), null))
                 .startedAt(Instant.parse("2026-08-09T06:00:00Z"))
                 .build();
     }

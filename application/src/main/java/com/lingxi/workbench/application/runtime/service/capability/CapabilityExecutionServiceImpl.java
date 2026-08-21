@@ -1,5 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.capability;
 
+import com.lingxi.workbench.agentruntime.model.AgentReconciliationPendingException;
 import com.lingxi.workbench.application.runtime.service.agent.AgentExecutorRegistry;
 
 import com.alibaba.fastjson2.JSON;
@@ -24,11 +25,14 @@ import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
+import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowExecutionRequest;
+import com.lingxi.workbench.workflow.model.WorkflowExecutionPorts;
 import com.lingxi.workbench.workflow.model.WorkflowExecutionResult;
 import com.lingxi.workbench.workflow.model.config.AgentNodeConfig;
 import com.lingxi.workbench.workflow.service.WorkflowExecutor;
+import com.lingxi.workbench.workflow.service.impl.ApplicationWorkflowExecutionPortsFactory;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
@@ -63,6 +67,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
     private final AgentRuntimeService agentRuntimeService;
     private final WorkflowRuntimeRepo workflowRuntimeRepo;
     private final WorkflowExecutor workflowExecutor;
+    private final ApplicationWorkflowExecutionPortsFactory workflowExecutionPortsFactory;
     private final ToolRuntimeRepo toolRuntimeRepo;
     private final ToolRuntimeService toolRuntimeService;
     private final ApplicationCapabilityChecksum checksum;
@@ -110,7 +115,11 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
         // 结果 Token 预算校验：超出 Application 发布快照预算即拒绝该结果
         if (!result.isInterrupted()
                 && tokenCountEstimator.estimate(result.content()) > request.getCapability().getResultTokenBudget()) {
-            throw invalid("能力结果超过Application发布快照Token预算");
+            BusinessException exception = invalid("能力结果超过Application发布快照Token预算");
+            if (request.getCapability().getRiskLevel() != CapabilityRiskLevel.READ_ONLY) {
+                throw new AgentReconciliationPendingException(exception);
+            }
+            throw exception;
         }
         return result;
     }
@@ -219,7 +228,8 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
         requireChecksum(capability, checksum.calculate(definition));
         WorkflowExecutionRequest workflowRequest = new WorkflowExecutionRequest(
                 request.getContext().getExecutionId(), capability.getTargetId(), capability.getTargetVersionId(), Map.of("query", requireQuery(request.getInputs())));
-        WorkflowExecutionResult result = workflowExecutor.execute(definition, workflowRequest);
+        WorkflowExecutionPorts ports = workflowExecutionPortsFactory.create(request.getContext());
+        WorkflowExecutionResult result = workflowExecutor.execute(definition, workflowRequest, ports);
         // 工作流必须输出非空 response 才能作为能力结果
         String answer = resolveAnswer(result).orElseThrow(() -> invalid("WorkflowVersion必须输出非空response"));
         // 取首个 Agent 节点的模型实例ID作为结果归因依据
@@ -374,7 +384,8 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
      */
     private static void requireRequest(CapabilityExecutionRequest request) {
         if (request == null || request.getCapability() == null || request.getCapability().getType() == null
-                || request.getCapability().getTargetId() == null || request.getInputs() == null || request.getContext() == null) {
+                || request.getCapability().getRiskLevel() == null || request.getCapability().getTargetId() == null
+                || request.getInputs() == null || request.getContext() == null) {
             throw invalid("能力执行请求不完整");
         }
         if (request.getCapability().getTimeoutSeconds() == null || request.getCapability().getTimeoutSeconds() < 1

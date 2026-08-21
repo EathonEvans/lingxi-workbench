@@ -8,7 +8,9 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
-/** AgentVersion 发布时锁定的 SkillVersion 及其 Tool 权限交集。 */
+/**
+ * AgentVersion 发布时锁定的 SkillVersion 及其 Tool 权限交集。
+ */
 @Data
 @Builder
 @NoArgsConstructor
@@ -20,8 +22,12 @@ public class AgentSkillBindingSnapshot {
     private Integer versionNo;
     private String checksum;
     private SkillVersionSnapshot skill;
-    /** Skill 请求且同时位于 Agent Tool 白名单中的编码。 */
+    /**
+     * Skill 请求且同时位于 Agent Tool 白名单中的编码。
+     */
     private List<String> effectiveToolCodes;
-    /** Skill 请求但未获 AgentVersion 授权的编码，仅用于治理审计。 */
+    /**
+     * Skill 请求但未获 AgentVersion 授权的编码，仅用于治理审计。
+     */
     private List<String> deniedToolCodes;
 }

@@ -4,13 +4,14 @@ import com.lingxi.workbench.application.runtime.service.plan.ExecutionDecisionCh
 
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionRunStatus;
+import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
-import com.lingxi.workbench.agentruntime.model.SkillActivation;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionPlanSnapshotCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionRunStartCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionStepAttemptCommand;
+import com.lingxi.workbench.application.runtime.model.ExecutionSkillActivationCommand;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionEventEntity;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionPlanSnapshotEntity;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionRunEntity;
@@ -31,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /** Application 顶级运行与 Plan 明细的事务实现。 */
@@ -125,27 +127,25 @@ public class ExecutionPersistenceServiceImpl implements ExecutionPersistenceServ
 
     @Override
     @Transactional
-    public void recordActivatedSkills(String runId, Long agentVersionId, List<SkillActivation> skills) {
-        if (skills.isEmpty()) {
-            return;
+    public ExecutionEventEntity appendSkillActivationEvent(ExecutionEventCommand event,
+                                                            ExecutionSkillActivationCommand activation) {
+        requireSkillActivation(event, activation);
+        ExecutionEventEntity persisted = appendEvent(event);
+        if (runSkillRepo.existsByEvent(activation.getRunId(), persisted.getSequenceNo())) {
+            return persisted;
         }
-        requireRun(runId);
-        if (agentVersionId == null) {
-            throw invalid("记录Skill激活事实时缺少AgentVersion");
-        }
-        List<ExecutionRunSkillEntity> entities = skills.stream().map(activated -> {
-            ExecutionRunSkillEntity entity = new ExecutionRunSkillEntity();
-            entity.setRunId(runId);
-            entity.setAgentVersionId(agentVersionId);
-            entity.setSkillId(activated.binding().getSkillId());
-            entity.setSkillVersionId(activated.binding().getSkillVersionId());
-            entity.setSkillCode(activated.binding().getSkill().getCode());
-            entity.setSkillChecksum(activated.binding().getChecksum());
-            entity.setActivationReason(activated.reason());
-            entity.setEffectiveToolCodes(activated.binding().getEffectiveToolCodes());
-            return entity;
-        }).toList();
-        runSkillRepo.insertAll(entities);
+        ExecutionRunSkillEntity entity = new ExecutionRunSkillEntity();
+        entity.setRunId(activation.getRunId());
+        entity.setEventSequenceNo(persisted.getSequenceNo());
+        entity.setAgentVersionId(activation.getAgentVersionId());
+        entity.setSkillId(activation.getSkillId());
+        entity.setSkillVersionId(activation.getSkillVersionId());
+        entity.setSkillCode(activation.getSkillCode());
+        entity.setSkillChecksum(activation.getChecksum());
+        entity.setActivationReason(activation.getReason());
+        entity.setEffectiveToolCodes(List.copyOf(activation.getEffectiveToolCodes()));
+        runSkillRepo.insert(entity);
+        return persisted;
     }
 
     @Override
@@ -237,6 +237,20 @@ public class ExecutionPersistenceServiceImpl implements ExecutionPersistenceServ
         }
         if (command.getStatus() == ExecutionStepStatus.RUNNING) {
             throw invalid("步骤尝试只能追加最终状态");
+        }
+    }
+
+    private static void requireSkillActivation(ExecutionEventCommand event,
+                                               ExecutionSkillActivationCommand activation) {
+        if (event == null || event.getEventType() != ExecutionEventType.SKILL_ACTIVATED
+                || event.getSequenceNo() == null || event.getSequenceNo() < 1
+                || activation == null || !Objects.equals(event.getRunId(), activation.getRunId())
+                || activation.getAgentVersionId() == null || activation.getSkillId() == null
+                || activation.getSkillVersionId() == null || activation.getSkillCode() == null
+                || activation.getSkillCode().isBlank() || activation.getChecksum() == null
+                || activation.getChecksum().isBlank() || activation.getReason() == null
+                || activation.getEffectiveToolCodes() == null) {
+            throw invalid("Skill激活事件参数不完整");
         }
     }
 

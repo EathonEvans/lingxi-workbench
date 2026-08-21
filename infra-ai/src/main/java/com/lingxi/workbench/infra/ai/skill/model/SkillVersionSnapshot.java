@@ -20,18 +20,32 @@ import java.util.List;
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class SkillVersionSnapshot {
 
-    /** 快照协议版本。 */
+    /**
+     * 快照协议版本。
+     */
     private Integer schemaVersion;
-    /** Skill 稳定编码。 */
+    /**
+     * Skill 稳定编码。
+     */
     private String code;
-    /** 展示名称。 */
+    /**
+     * 展示名称。
+     */
     private String name;
-    /** 候选路由描述。 */
+    /**
+     * 候选路由描述。
+     */
     private String description;
-    /** 受控注入的工作方法正文。 */
+    /**
+     * 受控注入的工作方法正文。
+     */
     private String instructions;
-    /** 激活方式。 */
+    /**
+     * 激活方式。
+     */
     private SkillActivationMode activationMode;
-    /** Skill 请求的 Tool 编码，不代表已经获得授权。 */
+    /**
+     * Skill 请求的 Tool 编码，不代表已经获得授权。
+     */
     private List<String> requestedToolCodes;
 }

@@ -35,9 +35,9 @@ public class AgentRuntime {
     private final SpringAiStreamingChatGateway streamingChatGateway;
     private final SkillHook skillHook;
 
-    public AgentRuntime(SpringAiStreamingChatGateway streamingChatGateway) {
+    public AgentRuntime(SpringAiStreamingChatGateway streamingChatGateway, SkillHook skillHook) {
         this.streamingChatGateway = streamingChatGateway;
-        this.skillHook = new SkillHook();
+        this.skillHook = skillHook;
     }
 
     /**
@@ -49,6 +49,7 @@ public class AgentRuntime {
                 .runId(request.getRunId())
                 .agentId(request.getAgentId())
                 .agentVersionId(request.getAgentVersionId())
+                .scope(request.getScope())
                 .policy(request.getPolicy())
                 .eventSink(request.getEventSink())
                 .toolRuntimeConfig(request.getModelCommand().toolRuntimeConfig().orElse(null))
@@ -61,7 +62,8 @@ public class AgentRuntime {
                 .checkpointStore(request.getCheckpointStore())
                 .build();
         state.start();
-        skillHook.beforeAgent(state, request.getSkillActivations());
+        skillHook.beforeAgent(state, request.getSkillCatalog(), request.getModelCommand(),
+                !request.isFinalizationOnly());
         if (request.isFinalizationOnly()) {
             state.requestFinalization("Application已进入仅收尾阶段");
         }
@@ -82,6 +84,7 @@ public class AgentRuntime {
                 .runId(request.getRunId())
                 .agentId(request.getAgentId())
                 .agentVersionId(request.getAgentVersionId())
+                .scope(request.getScope())
                 .policy(request.getPolicy())
                 .eventSink(request.getEventSink())
                 .toolRuntimeConfig(request.getModelCommand().toolRuntimeConfig().orElse(null))
@@ -94,7 +97,7 @@ public class AgentRuntime {
                 .checkpointContext(request.getCheckpointContext())
                 .checkpointStore(request.getCheckpointStore())
                 .build();
-        state.restore(snapshot, request.getSkillActivations());
+        state.restore(snapshot, request.getSkillCatalog());
         Flux<ChatStreamChunk> stream = streamingChatGateway.resume(request.getModelCommand(), state,
                 checkpoint, resumeRequest.interactionId(), resumeRequest.fingerprint());
         return execute(request, state, stream);

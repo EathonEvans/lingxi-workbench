@@ -9,7 +9,6 @@ import com.lingxi.workbench.admin.skill.repo.SkillRepo;
 import com.lingxi.workbench.admin.skill.repo.SkillVersionRepo;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
-import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationMode;
 import com.lingxi.workbench.infra.ai.skill.common.enums.SkillLifecycleStatus;
 import com.lingxi.workbench.infra.ai.skill.common.enums.SkillSecurityStatus;
 import com.lingxi.workbench.infra.ai.skill.model.AgentSkillBindingSnapshot;
@@ -56,7 +55,7 @@ public class AgentSkillBindingResolver {
     public List<AgentSkillBindingSnapshot> resolve(List<Long> skillIds, List<String> agentToolCodes) {
         List<Long> requestedIds = Objects.requireNonNullElse(skillIds, List.of());
         if (requestedIds.size() > MAX_SKILLS) {
-            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "单个Agent最多绑定3个自动启用Skill");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "单个Agent最多绑定3个Skill");
         }
         if (new HashSet<>(requestedIds).size() != requestedIds.size()) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "Skill不能重复绑定");
@@ -173,7 +172,7 @@ public class AgentSkillBindingResolver {
                 || !Objects.equals(version.getSchemaVersion(), SKILL_SCHEMA_VERSION)
                 || Objects.isNull(version.getSnapshot())
                 || !Objects.equals(version.getSnapshot().getSchemaVersion(), SKILL_SCHEMA_VERSION)
-                || version.getSnapshot().getActivationMode() != SkillActivationMode.ALWAYS_ON
+                || Objects.isNull(version.getSnapshot().getActivationMode())
                 || !Objects.equals(version.getSnapshot().getCode(), skill.getCode())
                 || !Objects.equals(snapshotChecksum.calculate(version.getSnapshot()), version.getSnapshotChecksum())) {
             return false;
@@ -195,7 +194,7 @@ public class AgentSkillBindingResolver {
                 || !Objects.equals(version.getVersionNo(), binding.getVersionNo())
                 || !Objects.equals(version.getSchemaVersion(), SKILL_SCHEMA_VERSION)
                 || Objects.isNull(version.getSnapshot())
-                || version.getSnapshot().getActivationMode() != SkillActivationMode.ALWAYS_ON
+                || Objects.isNull(version.getSnapshot().getActivationMode())
                 || !Objects.equals(skill.getCode(), binding.getSkill().getCode())
                 || !Objects.equals(version.getSnapshotChecksum(), binding.getChecksum())
                 || !Objects.equals(snapshotChecksum.calculate(version.getSnapshot()), binding.getChecksum())

@@ -1,5 +1,9 @@
 # Workflow Engine V1
 
+> 状态：历史 POC。当前 Workflow 执行协议与 LangGraph4j 实现归属 `workflow-core`，Agent 节点通过显式
+> 端口调用 Agent Runtime；以
+> [Agent Runtime 内核收束设计](./agent-runtime-core-convergence-v1.md) 为准。
+
 ## 目标
 
 本 POC 验证配置驱动的多 Agent Workflow 是否可以在不改变现有 Chat/RAG

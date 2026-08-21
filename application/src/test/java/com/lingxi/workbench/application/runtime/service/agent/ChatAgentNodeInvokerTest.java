@@ -3,8 +3,6 @@ package com.lingxi.workbench.application.runtime.service.agent;
 import com.lingxi.workbench.application.runtime.service.app.RuntimeVariablesInitializer;
 
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
-import com.lingxi.workbench.application.runtime.service.agent.AgentChatService;
-import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionContextRegistry;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
@@ -38,9 +36,6 @@ class ChatAgentNodeInvokerTest {
                                 10L))
                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
                 .build();
-        ChatExecutionContextRegistry registry =
-                new ChatExecutionContextRegistry();
-        registry.register(context);
         AtomicReference<ChatExecutionContext> capturedContext =
                 new AtomicReference<>();
         AgentChatService agentChatService = mock(AgentChatService.class);
@@ -50,9 +45,9 @@ class ChatAgentNodeInvokerTest {
                     return new com.lingxi.workbench.agentruntime.model.AgentRunResult.Completed(
                             "Agent回答", com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage.empty(), 0L);
                 });
-        ChatAgentNodeInvoker invoker = new ChatAgentNodeInvoker(agentChatService, registry);
+        ChatAgentNodeInvoker invoker = new ChatAgentNodeInvoker(agentChatService);
 
-        Map<String, Object> output = invoker.invoke(invocation("问题"));
+        Map<String, Object> output = invoker.invoke(invocation("问题"), context);
 
         assertEquals("Agent回答", output.get("answer"));
         assertEquals(context, capturedContext.get());
@@ -60,12 +55,12 @@ class ChatAgentNodeInvokerTest {
 
     @Test
     void shouldRejectBlankWorkflowQueryBeforeCallingAgent() {
-        ChatAgentNodeInvoker invoker = new ChatAgentNodeInvoker(
-                mock(AgentChatService.class), new ChatExecutionContextRegistry());
+        ChatAgentNodeInvoker invoker = new ChatAgentNodeInvoker(mock(AgentChatService.class));
+        ChatExecutionContext context = mock(ChatExecutionContext.class);
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
-                () -> invoker.invoke(invocation(" ")));
+                () -> invoker.invoke(invocation(" "), context));
 
         assertEquals(
                 "Agent节点输入query必须是非空字符串: agent-node",

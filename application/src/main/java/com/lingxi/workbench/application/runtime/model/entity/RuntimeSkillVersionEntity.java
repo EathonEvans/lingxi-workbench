@@ -9,7 +9,9 @@ import org.apache.ibatis.type.JdbcType;
 
 import java.time.OffsetDateTime;
 
-/** SkillVersion 运行端只读实体。 */
+/**
+ * SkillVersion 运行端只读实体。
+ */
 @Data
 @TableName(value = "lingxi_core.ai_skill_version", autoResultMap = true)
 public class RuntimeSkillVersionEntity {

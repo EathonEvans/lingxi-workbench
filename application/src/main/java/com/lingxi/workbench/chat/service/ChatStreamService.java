@@ -16,7 +16,7 @@ public interface ChatStreamService {
     /**
      * 持久化当前问答轮次并启动独立于 SSE 连接的模型生成任务。
      *
-     * @param request 用户输入、会话标识和客户端幂等消息标识
+     * @param request   用户输入、会话标识和客户端幂等消息标识
      * @param loginUser 请求开始时冻结的登录用户快照
      * @return 已落库的会话、用户消息和 Assistant 消息主键
      */
@@ -32,9 +32,13 @@ public interface ChatStreamService {
      */
     void cancel(Long assistantMessageId, Long userId);
 
-    /** RocketMQ 消费者根据已提交的人工作业恢复同一 Assistant 与执行 Run。 */
+    /**
+     * RocketMQ 消费者根据已提交的人工作业恢复同一 Assistant 与执行 Run。
+     */
     void resumeInteraction(Long interactionId);
 
-    /** 修复当前实例已无后台任务但数据库仍为生成中的过期占位消息。 */
+    /**
+     * 修复当前实例已无后台任务但数据库仍为生成中的过期占位消息。
+     */
     int reconcileStaleGenerations(OffsetDateTime before, int limit);
 }

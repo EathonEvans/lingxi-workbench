@@ -1,5 +1,8 @@
 # Workflow V1 开发计划
 
+> 状态：Workflow V1 历史开发计划。当前 Workflow/Agent/Application 边界以
+> [Agent Runtime 内核收束设计](./agent-runtime-core-convergence-v1.md) 为准；本文继续保留控制面业务范围参考。
+
 ## 1. 实现目标
 
 本轮将现有 VueFlow 画布和 LangGraph4j POC 补齐为可管理、可发布、可执行、可观测的 Workflow V1。完成后，运营人员能够创建包含条件分支和多个 Agent 的 Workflow，独立校验并发布不可变版本；Application 运行时能够执行指定 WorkflowVersion，并反馈节点级执行状态。

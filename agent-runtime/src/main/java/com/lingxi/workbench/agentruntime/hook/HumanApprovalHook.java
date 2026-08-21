@@ -20,7 +20,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-/** 在 Spring AI 执行原始 ToolCall 前创建持久检查点并中断 Runtime。 */
+/**
+ * 在 Spring AI 执行原始 ToolCall 前创建持久检查点并中断 Runtime。
+ */
 @Component
 public class HumanApprovalHook {
 
@@ -70,7 +72,9 @@ public class HumanApprovalHook {
         return Optional.of(interruption);
     }
 
-    /** 恢复前重新绑定当前冻结Tool定义，任何配置或资源范围漂移都会拒绝旧审批。 */
+    /**
+     * 恢复前重新绑定当前冻结Tool定义，任何配置或资源范围漂移都会拒绝旧审批。
+     */
     public void validateResume(RuntimeCheckpoint checkpoint, ExecutionState state) {
         RuntimeCheckpoint.ToolCallSnapshot call = Objects.requireNonNull(checkpoint.getPendingToolCall(),
                 "Checkpoint待执行ToolCall不能为空");

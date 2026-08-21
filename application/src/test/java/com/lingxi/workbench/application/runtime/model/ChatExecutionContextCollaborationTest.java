@@ -1,5 +1,6 @@
 package com.lingxi.workbench.application.runtime.model;
 
+import com.lingxi.workbench.agentruntime.model.ExecutionScope;
 import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionEventPublisher;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;
@@ -34,6 +35,8 @@ class ChatExecutionContextCollaborationTest {
         assertEquals(0, publishedTexts.get());
         assertEquals("核对退款规则", child.getRuntimeVariables().require(RuntimeVariableAccessors.USER_QUERY));
         assertEquals(15, parent.tokenUsage().totalTokens());
+        assertEquals(ExecutionScope.RUN, parent.getExecutionScope());
+        assertEquals(ExecutionScope.INVOCATION, child.getExecutionScope());
     }
 
     @Test

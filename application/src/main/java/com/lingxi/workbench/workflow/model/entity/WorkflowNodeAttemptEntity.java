@@ -3,7 +3,7 @@ package com.lingxi.workbench.workflow.model.entity;
 import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.lingxi.workbench.workflow.model.WorkflowNodeStatus;
+import com.lingxi.workbench.workflow.common.enums.WorkflowNodeRunStatus;
 import com.lingxi.workbench.workflow.model.WorkflowNodeType;
 import lombok.Data;
 
@@ -19,7 +19,7 @@ public class WorkflowNodeAttemptEntity {
     private String nodeId;
     private WorkflowNodeType nodeType;
     private Integer attemptNo;
-    private WorkflowNodeStatus status;
+    private WorkflowNodeRunStatus status;
     private OffsetDateTime startedAt;
     private OffsetDateTime finishedAt;
     private Long durationMillis;

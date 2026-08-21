@@ -9,15 +9,17 @@ import lombok.NoArgsConstructor;
 import java.time.OffsetDateTime;
 import java.util.List;
 
-/** Runtime 在人工中断点持久化的完整、稳定、可移植状态。 */
+/**
+ * Runtime 在人工中断点持久化的完整、稳定、可移植状态。
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class RuntimeCheckpoint {
 
-    /** V1是已废弃的Application简化Payload；V2起由Runtime独占完整恢复协议。 */
-    public static final int CURRENT_VERSION = 2;
+    /** V3保存Skill激活原因，由Runtime按同一冻结目录恢复，不兼容旧Payload。 */
+    public static final int CURRENT_VERSION = 3;
 
     private Integer version;
     private RuntimeCheckpointContext context;
@@ -29,7 +31,9 @@ public class RuntimeCheckpoint {
     private String fingerprint;
     private OffsetDateTime expiresAt;
 
-    /** Spring AI Message 的稳定快照。 */
+    /**
+     * Spring AI Message 的稳定快照。
+     */
     @Data
     @Builder
     @NoArgsConstructor
@@ -41,7 +45,9 @@ public class RuntimeCheckpoint {
         private List<ToolResponseSnapshot> toolResponses;
     }
 
-    /** 原始 Spring AI ToolCall。 */
+    /**
+     * 原始 Spring AI ToolCall。
+     */
     @Data
     @Builder
     @NoArgsConstructor
@@ -53,7 +59,9 @@ public class RuntimeCheckpoint {
         private String arguments;
     }
 
-    /** Spring AI ToolResponse。 */
+    /**
+     * Spring AI ToolResponse。
+     */
     @Data
     @Builder
     @NoArgsConstructor

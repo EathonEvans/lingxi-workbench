@@ -21,8 +21,9 @@ public class AgentRunRequest {
     private final String runId;
     private final Long agentId;
     private final Long agentVersionId;
+    private final ExecutionScope scope;
     private final ChatStreamCommand modelCommand;
-    private final List<SkillActivation> skillActivations;
+    private final SkillRuntimeCatalog skillCatalog;
     private final List<String> authorizedToolCodes;
     private final boolean finalizationOnly;
     private final ExecutionPolicy policy;
@@ -33,11 +34,15 @@ public class AgentRunRequest {
     private final RuntimeCheckpointContext checkpointContext;
     private final RuntimeCheckpointStore checkpointStore;
 
-    public List<SkillActivation> getSkillActivations() {
-        return List.copyOf(java.util.Objects.requireNonNullElseGet(skillActivations, List::of));
+    public SkillRuntimeCatalog getSkillCatalog() {
+        return java.util.Objects.requireNonNullElseGet(skillCatalog, SkillRuntimeCatalog::empty);
     }
 
     public List<String> getAuthorizedToolCodes() {
         return List.copyOf(java.util.Objects.requireNonNullElseGet(authorizedToolCodes, List::of));
+    }
+
+    public ExecutionScope getScope() {
+        return java.util.Objects.requireNonNullElse(scope, ExecutionScope.RUN);
     }
 }

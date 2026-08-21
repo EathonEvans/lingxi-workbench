@@ -10,17 +10,23 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.time.Duration;
 
-/** Chat SSE 的有界异步执行配置，避免生产环境使用默认的无界临时线程。 */
+/**
+ * Chat SSE 的有界异步执行配置，避免生产环境使用默认的无界临时线程。
+ */
 @Configuration
 public class ChatWebConfiguration implements WebMvcConfigurer {
 
     static final String EXECUTOR_NAME = "chatMvcTaskExecutor";
-    /** 传输层兜底必须覆盖Application最大执行时限及流式宽限，不能提前终止后台任务。 */
+    /**
+     * 传输层兜底必须覆盖Application最大执行时限及流式宽限，不能提前终止后台任务。
+     */
     static final long ASYNC_TIMEOUT_MILLIS = Duration.ofHours(2).toMillis();
 
     private final ThreadPoolTaskExecutor executor = createExecutor();
 
-    /** 为 Spring MVC 异步请求提供独立、有界且可传播观测上下文的线程池。 */
+    /**
+     * 为 Spring MVC 异步请求提供独立、有界且可传播观测上下文的线程池。
+     */
     @Bean(name = EXECUTOR_NAME)
     public AsyncTaskExecutor chatMvcTaskExecutor() {
         return executor;

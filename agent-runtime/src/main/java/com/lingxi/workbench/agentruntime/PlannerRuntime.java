@@ -39,7 +39,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Supervisor 决策生成、typed structured output、有限修复和业务校验的唯一 Runtime。 */
+/**
+ * Supervisor 决策生成、typed structured output、有限修复和业务校验的唯一 Runtime。
+ */
 @Component
 public class PlannerRuntime {
 
@@ -67,7 +69,9 @@ public class PlannerRuntime {
         this.outputConverter = new BeanOutputConverter<>(PlannerDecision.class, strictJsonMapper());
     }
 
-    /** 执行一次初始规划或重规划，所有协议修复均消耗同一 ExecutionState 预算。 */
+    /**
+     * 执行一次初始规划或重规划，所有协议修复均消耗同一 ExecutionState 预算。
+     */
     public PlannerRunResult run(PlannerRunRequest request) {
         requireRequest(request);
         ExecutionState state = ExecutionState.builder()
@@ -81,6 +85,15 @@ public class PlannerRuntime {
                 .initialModelCalls(0)
                 .initialToolCalls(0)
                 .build();
+        return run(request, state);
+    }
+
+    /** 在 Supervisor 共享状态中执行一轮规划，只返回本轮新增的模型与 Token 消耗。 */
+    public PlannerRunResult run(PlannerRunRequest request, ExecutionState state) {
+        requireRequest(request);
+        Objects.requireNonNull(state, "Planner ExecutionState不能为空");
+        int initialModelCalls = state.modelCalls();
+        TokenUsageSnapshot initialUsage = new TokenUsageSnapshot(state.tokenUsage());
         state.planning(request.getPlanNo());
         int maxAttempts = Math.min(1 + request.getMaxProtocolRepairAttempts(),
                 request.getPolicy().getMaxModelCalls());
@@ -92,7 +105,7 @@ public class PlannerRuntime {
                 PlannerDecision decision = call(request, state, attemptPrompt);
                 validator.validate(decision, request.getValidationContext());
                 state.planCreated(request.getPlanNo(), decision);
-                return new PlannerRunResult(decision, state.tokenUsage(), state.modelCalls(), state.lastSequenceNo());
+                return result(decision, state, initialModelCalls, initialUsage);
             } catch (JacksonException | PlannerDecisionValidationException exception) {
                 validationMessage = safeValidationMessage(exception);
             } catch (AgentRuntimeLimitException exception) {
@@ -105,7 +118,13 @@ public class PlannerRuntime {
         }
         PlannerDecision fallback = safeClarification();
         state.planCreated(request.getPlanNo(), fallback);
-        return new PlannerRunResult(fallback, state.tokenUsage(), state.modelCalls(), state.lastSequenceNo());
+        return result(fallback, state, initialModelCalls, initialUsage);
+    }
+
+    private static PlannerRunResult result(PlannerDecision decision, ExecutionState state,
+                                           int initialModelCalls, TokenUsageSnapshot initialUsage) {
+        return new PlannerRunResult(decision, initialUsage.delta(state.tokenUsage()),
+                state.modelCalls() - initialModelCalls, state.lastSequenceNo());
     }
 
     private PlannerDecision call(PlannerRunRequest request, ExecutionState state, String userPrompt) {
@@ -130,9 +149,11 @@ public class PlannerRuntime {
         return Objects.requireNonNull(response.entity(), "Planner模型未返回结构化决策");
     }
 
-    /** 官方 Advisor 位于模型预算 Advisor 外层，确保其每次自修复都重新占用 Runtime 额度。 */
+    /**
+     * 官方 Advisor 位于模型预算 Advisor 外层，确保其每次自修复都重新占用 Runtime 额度。
+     */
     private StructuredOutputValidationAdvisor structuredOutputAdvisor(PlannerRunRequest request,
-                                                                       ExecutionState state) {
+                                                                      ExecutionState state) {
         int remainingCalls = request.getPolicy().getMaxModelCalls() - state.modelCalls();
         int repeatAttempts = Math.min(request.getMaxProtocolRepairAttempts(),
                 Math.max(remainingCalls - 1, 0));
@@ -144,7 +165,9 @@ public class PlannerRuntime {
                 .build();
     }
 
-    /** 只有模型实例明确声明 STRUCTURED_OUTPUT 时才发送供应商原生 JSON Schema。 */
+    /**
+     * 只有模型实例明确声明 STRUCTURED_OUTPUT 时才发送供应商原生 JSON Schema。
+     */
     private Prompt structuredPrompt(List<Message> messages, OpenAiChatOptions defaults,
                                     ChatModelRuntimeConfig config) {
         if (!config.isStructuredOutputSupported()) {
@@ -191,5 +214,27 @@ public class PlannerRuntime {
                 .addModules(JacksonUtils.instantiateAvailableModules())
                 .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                 .build();
+    }
+
+    private record TokenUsageSnapshot(Integer inputTokens, Integer outputTokens, Integer totalTokens) {
+
+        private TokenUsageSnapshot(com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage usage) {
+            this(usage.inputTokens(), usage.outputTokens(), usage.totalTokens());
+        }
+
+        private com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage delta(
+                com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage current) {
+            return com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage.of(
+                    subtract(current.inputTokens(), inputTokens),
+                    subtract(current.outputTokens(), outputTokens),
+                    subtract(current.totalTokens(), totalTokens));
+        }
+
+        private static Integer subtract(Integer current, Integer initial) {
+            if (current == null && initial == null) {
+                return null;
+            }
+            return Objects.requireNonNullElse(current, 0) - Objects.requireNonNullElse(initial, 0);
+        }
     }
 }

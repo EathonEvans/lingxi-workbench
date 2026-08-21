@@ -18,6 +18,7 @@ public class ExecutionRunSkillEntity {
 
     private Long id;
     private String runId;
+    private Long eventSequenceNo;
     private Long agentVersionId;
     private Long skillId;
     private Long skillVersionId;

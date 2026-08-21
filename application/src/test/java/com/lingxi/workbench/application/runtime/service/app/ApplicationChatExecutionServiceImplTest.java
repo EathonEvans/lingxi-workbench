@@ -14,7 +14,6 @@ import com.lingxi.workbench.application.runtime.model.CapabilityExecutionResult;
 import com.lingxi.workbench.application.runtime.model.IntentRoutingResult;
 import com.lingxi.workbench.application.runtime.service.agent.AgentRuntimeService;
 import com.lingxi.workbench.application.runtime.service.capability.CapabilityExecutionService;
-import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionContextRegistry;
 import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionEventPublisher;
 import com.lingxi.workbench.application.runtime.service.execution.ExecutionPersistenceService;
 import com.lingxi.workbench.application.runtime.service.routing.IntentRoutingService;
@@ -29,7 +28,6 @@ import com.lingxi.workbench.chat.service.ConversationContextService;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
-import com.lingxi.workbench.workflow.exception.WorkflowExecutionException;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
@@ -39,6 +37,9 @@ import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.InteractionRecordMemoryConfig;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
+import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationMode;
+import com.lingxi.workbench.infra.ai.skill.model.AgentSkillBindingSnapshot;
+import com.lingxi.workbench.infra.ai.skill.model.SkillVersionSnapshot;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
 import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
@@ -65,7 +66,7 @@ class ApplicationChatExecutionServiceImplTest {
     @Test
     void shouldReturnFixedResponseWithoutStartingExecution() {
         ApplicationChatExecutionServiceImpl service = service(
-                unexpectedCapabilityService(), new ChatExecutionContextRegistry(), conversationContextService(),
+                unexpectedCapabilityService(), conversationContextService(),
                 (context, response) -> IntentRoutingResult.builder()
                         .action(IntentRoutingAction.FIXED_RESPONSE)
                         .response("固定回答")
@@ -88,7 +89,7 @@ class ApplicationChatExecutionServiceImplTest {
                 .build();
         ChatExecutionEventPublisher eventPublisher = mock(ChatExecutionEventPublisher.class);
         ApplicationChatExecutionServiceImpl service = service(
-                unexpectedCapabilityService(), new ChatExecutionContextRegistry(), conversationContextService(),
+                unexpectedCapabilityService(), conversationContextService(),
                 (context, response) -> IntentRoutingResult.builder()
                         .action(IntentRoutingAction.CLARIFICATION)
                         .response("请选择需要办理的业务")
@@ -115,20 +116,17 @@ class ApplicationChatExecutionServiceImplTest {
                         .build())
                 .build();
         AppRuntimeSnapshot snapshot = routedSnapshot(mapping, capability, memory, false);
-        ChatExecutionContextRegistry registry = new ChatExecutionContextRegistry();
-        AtomicReference<String> executionId = new AtomicReference<>();
         CapabilityExecutionService capabilityService = request -> {
-            executionId.set(request.getContext().getExecutionId());
             assertEquals("refund_workflow", request.getCapability().getCode());
             assertEquals("退款问题", request.getInputs().getString("query"));
             assertEquals(70L, request.getContext().getMemoryConfig().getEmbeddingModelInstanceId());
-            assertEquals("测试用户", registry.require(request.getContext().getExecutionId())
+            assertEquals("测试用户", request.getContext()
                     .getRuntimeVariables().require(RuntimeVariableAccessors.USER_NAME));
             request.getContext().recordUsage(TokenUsage.of(5, 1, 6));
             return new CapabilityExecutionResult("退款回答", 99L, List.of());
         };
         ApplicationChatExecutionServiceImpl service = service(
-                capabilityService, registry, conversationContextService(TokenUsage.of(10, 2, 12)),
+                capabilityService, conversationContextService(TokenUsage.of(10, 2, 12)),
                 routed(mapping), plannerDisabled());
 
         ApplicationChatResult result = service.execute(executionRequest(snapshot, "退款问题"));
@@ -136,7 +134,6 @@ class ApplicationChatExecutionServiceImplTest {
         assertEquals("退款回答", result.answer());
         assertEquals(99L, result.modelInstanceId());
         assertEquals(TokenUsage.of(15, 3, 18), result.tokenUsage());
-        assertThrows(WorkflowExecutionException.class, () -> registry.require(executionId.get()));
     }
 
     @Test
@@ -151,7 +148,7 @@ class ApplicationChatExecutionServiceImplTest {
                     executed.set(request);
                     return new CapabilityExecutionResult("Agent回答", 88L, List.of());
                 },
-                new ChatExecutionContextRegistry(), conversationContextService(), routed(mapping), plannerDisabled());
+                conversationContextService(), routed(mapping), plannerDisabled());
 
         ApplicationChatResult result = service.execute(executionRequest(
                 routedSnapshot(mapping, capability, MemoryConfig.disabled(), false), "咨询问题"));
@@ -159,6 +156,48 @@ class ApplicationChatExecutionServiceImplTest {
         assertEquals("Agent回答", result.answer());
         assertEquals("consult_agent", executed.get().getCapability().getCode());
         assertEquals("咨询问题", executed.get().getInputs().getString("query"));
+    }
+
+    @Test
+    void shouldValidateExplicitSkillAgainstDirectSpecialistVersionBeforeExecution() {
+        ApplicationIntentMapping mapping = mapping(
+                IntentExecutionTargetType.AGENT, "consult_agent", 60L, 70L);
+        ApplicationCapabilityDefinition capability = capability(
+                "consult_agent", ApplicationCapabilityType.AGENT, 60L, 70L);
+        AtomicReference<CapabilityExecutionRequest> executed = new AtomicReference<>();
+        ApplicationChatExecutionServiceImpl service = service(request -> {
+            executed.set(request);
+            return new CapabilityExecutionResult("显式Skill回答", 88L, List.of());
+        }, conversationContextService(), routed(mapping), plannerDisabled());
+        ApplicationChatExecutionRequest request = ApplicationChatExecutionRequest.builder()
+                .application(routedSnapshot(mapping, capability, MemoryConfig.disabled(), false))
+                .query("核验事实").loginUser(new LoginUser(7L, "tester", "测试用户", null))
+                .turn(new ChatTurnBO(10L, 11L, 12L, 3))
+                .explicitSkillCodes(List.of("fact_check"))
+                .eventPublisher(ChatExecutionEventPublisher.noop()).build();
+
+        ApplicationChatResult result = service.execute(request);
+
+        assertEquals("显式Skill回答", result.answer());
+        assertEquals(List.of("fact_check"), executed.get().getContext().getExplicitSkillCodes());
+    }
+
+    @Test
+    void shouldRejectExplicitSkillForWorkflowTarget() {
+        ApplicationIntentMapping mapping = mapping(
+                IntentExecutionTargetType.WORKFLOW, "refund_workflow", 40L, 50L);
+        ApplicationCapabilityDefinition capability = capability(
+                "refund_workflow", ApplicationCapabilityType.WORKFLOW, 40L, 50L);
+        ApplicationChatExecutionServiceImpl service = service(unexpectedCapabilityService(),
+                conversationContextService(), routed(mapping), plannerDisabled());
+        ApplicationChatExecutionRequest request = ApplicationChatExecutionRequest.builder()
+                .application(routedSnapshot(mapping, capability, MemoryConfig.disabled(), false))
+                .query("退款问题").loginUser(new LoginUser(7L, "tester", "测试用户", null))
+                .turn(new ChatTurnBO(10L, 11L, 12L, 3))
+                .explicitSkillCodes(List.of("fact_check"))
+                .eventPublisher(ChatExecutionEventPublisher.noop()).build();
+
+        assertThrows(BusinessException.class, () -> service.execute(request));
     }
 
     @Test
@@ -172,7 +211,7 @@ class ApplicationChatExecutionServiceImplTest {
                     executed.set(request);
                     return new CapabilityExecutionResult("默认回答", 77L, List.of());
                 },
-                new ChatExecutionContextRegistry(), conversationContextService(), routingService, plannerDisabled());
+                conversationContextService(), routingService, plannerDisabled());
 
         ApplicationChatResult result = service.execute(executionRequest(defaultSnapshot(), "普通问题"));
 
@@ -193,7 +232,7 @@ class ApplicationChatExecutionServiceImplTest {
                 .timeoutSeconds(60)
                 .build());
         ApplicationChatExecutionServiceImpl service = service(
-                unexpectedCapabilityService(), new ChatExecutionContextRegistry(),
+                unexpectedCapabilityService(),
                 conversationContextService(TokenUsage.of(8, 4, 12)),
                 (context, response) -> IntentRoutingResult.skipped(context.routingQuery()), plannerDisabled());
 
@@ -205,10 +244,9 @@ class ApplicationChatExecutionServiceImplTest {
 
     @Test
     void shouldExecuteConfiguredFallbackCapabilityWhenFastRouteDoesNotMatch() {
-        ChatExecutionContextRegistry registry = new ChatExecutionContextRegistry();
         ApplicationChatExecutionServiceImpl service = service(
                 request -> new CapabilityExecutionResult("Fallback回答", 81L, List.of()),
-                registry, conversationContextService(),
+                conversationContextService(),
                 (context, response) -> IntentRoutingResult.noMatch(context.routingQuery()), plannerDisabled());
 
         ApplicationIntentMapping mapping = mapping(
@@ -269,7 +307,7 @@ class ApplicationChatExecutionServiceImplTest {
                 request -> {
                     throw new AgentExecutionDeadlineExceededException();
                 },
-                new ChatExecutionContextRegistry(), conversationContextService(),
+                conversationContextService(),
                 (context, response) -> IntentRoutingResult.skipped(context.routingQuery()),
                 plannerDisabled(), persistenceService);
 
@@ -287,7 +325,7 @@ class ApplicationChatExecutionServiceImplTest {
                 request -> {
                     throw new AgentRunCancelledException();
                 },
-                new ChatExecutionContextRegistry(), conversationContextService(),
+                conversationContextService(),
                 (context, response) -> IntentRoutingResult.skipped(context.routingQuery()),
                 plannerDisabled(), persistenceService);
 
@@ -301,7 +339,7 @@ class ApplicationChatExecutionServiceImplTest {
     @Test
     void shouldRejectIncompleteExecutionRequest() {
         ApplicationChatExecutionServiceImpl service = service(
-                unexpectedCapabilityService(), new ChatExecutionContextRegistry(), conversationContextService(),
+                unexpectedCapabilityService(), conversationContextService(),
                 (context, response) -> IntentRoutingResult.skipped(context.routingQuery()), plannerDisabled());
         ApplicationChatExecutionRequest request = ApplicationChatExecutionRequest.builder()
                 .application(defaultSnapshot())
@@ -313,16 +351,14 @@ class ApplicationChatExecutionServiceImplTest {
     }
 
     private static ApplicationChatExecutionServiceImpl service(CapabilityExecutionService capabilityService,
-                                                               ChatExecutionContextRegistry registry,
                                                                ConversationContextService contextService,
                                                                IntentRoutingService routingService,
                                                                Object ignoredPlannerRuntime) {
-        return service(capabilityService, registry, contextService, routingService,
+        return service(capabilityService, contextService, routingService,
                 ignoredPlannerRuntime, mock(ExecutionPersistenceService.class));
     }
 
     private static ApplicationChatExecutionServiceImpl service(CapabilityExecutionService capabilityService,
-                                                                ChatExecutionContextRegistry registry,
                                                                 ConversationContextService contextService,
                                                                 IntentRoutingService routingService,
                                                                 Object ignoredPlannerRuntime,
@@ -342,7 +378,7 @@ class ApplicationChatExecutionServiceImplTest {
                 .thenAnswer(invocation -> agentSnapshot(
                         invocation.getArgument(0), invocation.getArgument(1)));
         return new ApplicationChatExecutionServiceImpl(
-                capabilityService, registry, contextService, routingService,
+                capabilityService, contextService, routingService,
                 interactionSessionService, agentRuntimeService,
                 new AiStageObserver(ObservationRegistry.NOOP), persistenceService,
                 new RuntimeVariablesInitializer(java.time.Clock.systemUTC(), "Lingxi", java.util.Locale.CHINA));
@@ -488,6 +524,13 @@ class ApplicationChatExecutionServiceImplTest {
                 .role(AgentRole.SPECIALIST)
                 .chatModelInstanceId(80L)
                 .toolCodes(List.of())
+                .skills(List.of(AgentSkillBindingSnapshot.builder().skillId(1L).skillVersionId(11L)
+                        .versionNo(1).checksum("checksum")
+                        .skill(SkillVersionSnapshot.builder().schemaVersion(1).code("fact_check")
+                                .name("事实核验").description("核验事实").instructions("先核验再回答")
+                                .activationMode(SkillActivationMode.EXPLICIT_ONLY)
+                                .requestedToolCodes(List.of()).build())
+                        .effectiveToolCodes(List.of()).deniedToolCodes(List.of()).build()))
                 .build());
     }
 }

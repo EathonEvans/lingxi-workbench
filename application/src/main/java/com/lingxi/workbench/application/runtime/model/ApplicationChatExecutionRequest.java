@@ -9,6 +9,9 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.util.List;
+import java.util.Objects;
+
 /**
  * Application 单轮 Chat 执行所需的服务端可信输入。
  *
@@ -40,10 +43,16 @@ public class ApplicationChatExecutionRequest {
      * 上一轮澄清事件的可选结构化响应。首次对话时为 null。
      */
     private final ClarificationResponseRequest clarificationResponse;
+    /** Controller校验后进入服务端执行链的显式Skill code。 */
+    private final List<String> explicitSkillCodes;
     /**
      * SSE 事件发布器，执行过程中实时推送 chunk / tool / planning / clarification 事件。
      */
     private final ChatExecutionEventPublisher eventPublisher;
     /** HITL 消费者恢复同一 Run 时提供的可信上下文。 */
     private final ExecutionResumeContext resumeContext;
+
+    public List<String> getExplicitSkillCodes() {
+        return List.copyOf(Objects.requireNonNullElseGet(explicitSkillCodes, List::of));
+    }
 }
