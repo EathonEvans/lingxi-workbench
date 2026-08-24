@@ -87,8 +87,6 @@ function toChatMessage(msg: {
   let status: ChatMessage["status"] = "done";
   if (msg.status === "GENERATING") status = "streaming";
   else if (msg.status === "WAITING_HUMAN") status = "waiting";
-  else if (msg.status === "COMPLETED" && msg.errorCode === "TIME_LIMIT_PARTIAL")
-    status = "partial";
   else if (msg.status === "FAILED" || msg.status === "INTERRUPTED")
     status = "error";
   else if (msg.status === "CANCELLED") status = "stopped";
@@ -818,6 +816,8 @@ export default function WorkbenchShell() {
                         message.tools?.length) ? (
                         <ExecutionTrace
                           key={message.status === "streaming" ? "running" : "settled"}
+                          errorMessage={message.errorMessage}
+                          failed={message.status === "error"}
                           streaming={message.status === "streaming"}
                           progress={message.progress}
                           subAgents={message.subAgents}
@@ -850,7 +850,10 @@ export default function WorkbenchShell() {
                           ) : (
                             message.content
                           )
-                        ) : message.status === "streaming" || message.status === "waiting" ? (
+                        ) : message.status === "streaming"
+                          || message.status === "waiting"
+                          || message.status === "error"
+                          || message.status === "stopped" ? (
                           null
                         ) : (
                           "暂未生成内容"
@@ -878,25 +881,6 @@ export default function WorkbenchShell() {
                           <button onClick={retryLastPrompt} type="button">
                             <RotateCcw size={14} />
                             {resumeAvailable ? "继续接收" : "重新生成"}
-                          </button>
-                        </div>
-                      )}
-                      {message.status === "partial" && (
-                        <div className={styles.messagePartial} role="status">
-                          <span>
-                            {message.errorMessage ||
-                              "本轮已达到执行边界，以上是基于现有信息整理的部分结果。"}
-                          </span>
-                          <button
-                            disabled={streaming || conversationStatus === "ARCHIVED"}
-                            onClick={() =>
-                              void sendPrompt(
-                                "请继续完成上一轮未完成的回答，直接衔接已有内容，避免重复已经给出的部分。",
-                              )
-                            }
-                            type="button"
-                          >
-                            继续完成
                           </button>
                         </div>
                       )}

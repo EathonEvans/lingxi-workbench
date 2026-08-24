@@ -6,7 +6,6 @@ import type {
   ChatAgentProgressEvent,
   ChatClarificationEvent,
   ChatExecutionTimelineEvent,
-  ChatErrorPayload,
   ChatInteractionEvent,
   ChatStart,
   ChatStepOutputEvent,
@@ -19,6 +18,7 @@ import {
   ChatStreamError,
   decideInteraction,
   isServerMessageId,
+  isResumableStreamError,
   listPendingInteractions,
   resumeChat,
   streamChat,
@@ -32,7 +32,7 @@ export type ChatMessage = {
   errorCode?: string;
   id: string;
   role: "assistant" | "user";
-  status?: "done" | "error" | "partial" | "stopped" | "streaming" | "waiting";
+  status?: "done" | "error" | "stopped" | "streaming" | "waiting";
   progress?: ChatAgentProgressEvent[];
   subAgents?: ChatSubAgentEvent[];
   stepOutputs?: ChatStepOutputEvent[];
@@ -51,7 +51,6 @@ type PendingGeneration = {
   clarification?: ChatClarificationEvent;
   interaction?: ChatInteractionEvent;
   cancelled?: boolean;
-  partial?: ChatErrorPayload;
   subAgents: ChatSubAgentEvent[];
   stepOutputs: ChatStepOutputEvent[];
   timeline: ChatExecutionTimelineEvent[];
@@ -66,7 +65,6 @@ type GenerationHandlers = {
   onInteractionRequired: (event: ChatInteractionEvent) => void;
   onInteractionResolved: (event: ChatInteractionEvent) => void;
   onProgress: (event: ChatAgentProgressEvent) => void;
-  onPartial: (event: ChatErrorPayload) => void;
   onSnapshot: (content: string) => void;
   onStart: (start: ChatStart) => void;
   onStepOutput: (event: ChatStepOutputEvent) => void;
@@ -107,15 +105,6 @@ type UseChatStreamReturn = {
 
 const PENDING_GENERATION_KEY = "lingxi-pending-generation";
 const MAX_STEP_OUTPUT_CHARACTERS = 12000;
-const MODEL_ERROR_CODE = "AI_MODEL_ERROR";
-const NON_RESUMABLE_ERROR_CODES = new Set([
-  MODEL_ERROR_CODE,
-  "AI_MODEL_TIMEOUT",
-  "AGENT_INPUT_TOKEN_LIMIT",
-  "AGENT_MODEL_CALL_LIMIT",
-  "AGENT_OUTPUT_TOKEN_LIMIT",
-  "AGENT_TOOL_CALL_LIMIT",
-]);
 
 function readPendingGeneration(): PendingGeneration | undefined {
   try {
@@ -222,7 +211,7 @@ export function useChatStream({
   );
 
   const finishGeneration = useCallback((pending: PendingGeneration) => {
-    if (pending.cancelled || pending.partial) return;
+    if (pending.cancelled) return;
     setMessages((current) =>
       current.map((message) =>
         message.id === pending.assistantMessageId
@@ -292,21 +281,6 @@ export function useChatStream({
         pending.lastSequence = Math.max(pending.lastSequence, event.sequence);
         savePendingGeneration(pending);
         updateAssistant(pending, (message) => ({ ...message, progress: pending.progress }));
-      },
-      onPartial: (event) => {
-        if (!isActive()) return;
-        pending.partial = event;
-        updateAssistant(pending, (message) => ({
-          ...message,
-          errorCode: event.code,
-          errorMessage: event.message || "已基于当前信息返回部分结果",
-          status: "partial",
-        }));
-        clearPendingGeneration();
-        pendingGenerationRef.current = undefined;
-        setPendingClarification(undefined);
-        setPendingInteraction(undefined);
-        setResumeAvailable(false);
       },
       onSnapshot: (content) => {
         if (!isActive()) return;
@@ -390,8 +364,8 @@ export function useChatStream({
         setResumeAvailable(false);
         return;
       }
-      const resumable = !(error instanceof ChatStreamError)
-        || (!NON_RESUMABLE_ERROR_CODES.has(error.code ?? "") && error.status !== 404);
+      const resumable = isResumableStreamError(error);
+      if (!resumable) clearPendingGeneration();
       setResumeAvailable(resumable);
     },
     [onLogout, updateAssistant],

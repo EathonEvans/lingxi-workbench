@@ -173,7 +173,6 @@ export type StreamChatOptions = {
   onInteractionRequired?: (event: ChatInteractionEvent) => void;
   onInteractionResolved?: (event: ChatInteractionEvent) => void;
   onProgress?: (event: ChatAgentProgressEvent) => void;
-  onPartial?: (event: ChatErrorPayload) => void;
   onTimeline?: (event: ChatExecutionTimelineEvent) => void;
   onSnapshot?: (content: string) => void;
   onStart?: (start: ChatStart) => void;
@@ -211,6 +210,12 @@ export class ChatStreamError extends Error {
     this.code = options?.code;
     this.status = options?.status;
   }
+}
+
+/** 只有任务可能仍在服务端运行的传输故障才允许续接，业务终态失败必须重新生成。 */
+export function isResumableStreamError(error: unknown): boolean {
+  return error instanceof TypeError
+    || (error instanceof ChatStreamError && error.code === "STREAM_DISCONNECTED");
 }
 
 /** 只有服务端返回的十进制消息主键才能用于续接或取消生成任务。 */
@@ -334,10 +339,6 @@ const EVENT_DISPATCH: Record<string, EventHandler> = {
     return true;
   },
 
-  partial(data, options) {
-    options.onPartial?.(JSON.parse(data) as ChatErrorPayload);
-    return true;
-  },
 };
 
 /** 处理单个 SSE 事件块。返回 true 表示流已终止。 */
@@ -540,7 +541,7 @@ async function initiateChat(options: StreamChatOptions): Promise<ChatStart> {
 async function resumeStream(
   assistantMessageId: string,
   afterSequence: number,
-  options: Pick<StreamChatOptions, "session" | "signal" | "onChunk" | "onSnapshot" | "onTool" | "onSubAgent" | "onClarification" | "onInteractionRequired" | "onInteractionResolved" | "onProgress" | "onTimeline" | "onStepOutput" | "onCancelled" | "onPartial">,
+  options: Pick<StreamChatOptions, "session" | "signal" | "onChunk" | "onSnapshot" | "onTool" | "onSubAgent" | "onClarification" | "onInteractionRequired" | "onInteractionResolved" | "onProgress" | "onTimeline" | "onStepOutput" | "onCancelled">,
 ): Promise<void> {
   if (!isServerMessageId(assistantMessageId)) {
     throw new ChatStreamError("生成任务尚未创建完成，请重新发送", {

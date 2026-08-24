@@ -20,6 +20,8 @@ import type {
 import styles from "./execution-trace.module.css";
 
 type ExecutionTraceProps = {
+  errorMessage?: string;
+  failed?: boolean;
   progress?: ChatAgentProgressEvent[];
   streaming: boolean;
   subAgents?: ChatSubAgentEvent[];
@@ -72,6 +74,8 @@ function groupTools(tools: ChatToolEvent[]): ToolGroup[] {
 }
 
 function traceSummary(
+  failed: boolean,
+  errorMessage: string | undefined,
   streaming: boolean,
   toolGroups: ToolGroup[],
   subAgents: ChatSubAgentEvent[],
@@ -82,6 +86,12 @@ function traceSummary(
   const terminal = timeline.findLast((event) =>
     ["RUN_CANCELLED", "RUN_COMPLETED", "RUN_FAILED"].includes(event.eventType),
   );
+  if (failed) {
+    return {
+      label: errorMessage || terminal?.message || "执行失败",
+      status: "failed",
+    };
+  }
   const runningTool = toolGroups.find((group) => group.status === "running");
   const runningAgent = subAgents.find((agent) => agent.status === "RUNNING");
   if (runningTool) return { label: `正在执行：${runningTool.displayName}`, status: "running" };
@@ -140,6 +150,8 @@ function traceSummary(
 }
 
 export default function ExecutionTrace({
+  errorMessage,
+  failed = false,
   progress = [],
   streaming,
   subAgents = [],
@@ -148,7 +160,15 @@ export default function ExecutionTrace({
   tools = [],
 }: ExecutionTraceProps) {
   const toolGroups = groupTools(tools);
-  const summary = traceSummary(streaming, toolGroups, subAgents, timeline, progress);
+  const summary = traceSummary(
+    failed,
+    errorMessage,
+    streaming,
+    toolGroups,
+    subAgents,
+    timeline,
+    progress,
+  );
   const visibleProgress = progress.reduce<ChatAgentProgressEvent[]>((events, event) => {
     const previous = events.at(-1);
     if (previous?.phase === event.phase && previous.message === event.message) {

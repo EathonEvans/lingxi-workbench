@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ChatStreamError,
   consumeEventStream,
+  isResumableStreamError,
   parseEventBlock,
   streamChat,
   type StreamChatOptions,
@@ -147,23 +149,6 @@ describe("consumeEventStream", () => {
     ).rejects.toThrow(/模型超时/);
   });
 
-  it("partial 事件以可继续的部分完成状态终止流", async () => {
-    const onPartial = vi.fn();
-    const opts = { ...options(), onPartial };
-    await consumeEventStream(
-      sseResponse([
-        'event: partial\ndata: {"code":"TIME_LIMIT_PARTIAL","message":"已返回部分结果"}\n\nevent: message\ndata: {"content":"不应到达","sequence":9}\n\n',
-      ]),
-      opts,
-    );
-
-    expect(onPartial).toHaveBeenCalledWith({
-      code: "TIME_LIMIT_PARTIAL",
-      message: "已返回部分结果",
-    });
-    expect(opts.onChunk).not.toHaveBeenCalled();
-  });
-
   it("工具审批事件暂停当前流且不误报连接中断", async () => {
     const onInteractionRequired = vi.fn();
     const opts = { ...options(), onInteractionRequired };
@@ -226,6 +211,24 @@ describe("consumeEventStream", () => {
 
     // 损坏事件被跳过，后续事件正常分派
     expect(opts.onChunk).toHaveBeenCalledWith("好", 2);
+  });
+});
+
+describe("isResumableStreamError", () => {
+  it("仅允许真实传输中断或浏览器网络错误续接", () => {
+    expect(isResumableStreamError(new ChatStreamError("连接中断", {
+      code: "STREAM_DISCONNECTED",
+    }))).toBe(true);
+    expect(isResumableStreamError(new TypeError("Failed to fetch"))).toBe(true);
+  });
+
+  it("服务端终态失败不允许继续接收", () => {
+    expect(isResumableStreamError(new ChatStreamError("Agent运行失败", {
+      code: "AGENT_RUNTIME_FAILED",
+    }))).toBe(false);
+    expect(isResumableStreamError(new ChatStreamError("模型超时", {
+      code: "AI_MODEL_TIMEOUT",
+    }))).toBe(false);
   });
 });
 

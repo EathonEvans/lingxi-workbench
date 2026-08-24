@@ -757,37 +757,6 @@
   background: #f5f8ff;
 }
 
-.messagePartial {
-  display: flex;
-  align-items: center;
-  width: fit-content;
-  max-width: 100%;
-  padding: 8px 10px;
-  margin-top: 10px;
-  gap: 10px;
-  border: 1px solid #ead7aa;
-  border-radius: 9px;
-  color: #886424;
-  background: #fffaf0;
-  font-size: 11px;
-}
-
-.messagePartial button {
-  flex: 0 0 auto;
-  padding: 5px 8px;
-  border: 1px solid #dbc285;
-  border-radius: 7px;
-  color: #745318;
-  background: #fff;
-  cursor: pointer;
-  font: inherit;
-}
-
-.messagePartial button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .composerWrap {
   width: min(820px, calc(100% - 48px));
   flex: 0 0 auto;
@@ -1222,18 +1191,6 @@
   border-color: rgba(111, 154, 247, 0.45);
   color: #8eb2ff;
   background: rgba(62, 104, 198, 0.14);
-}
-
-.shell[data-theme="dark"] .messagePartial {
-  border-color: rgba(225, 178, 79, 0.3);
-  color: #dfc27e;
-  background: rgba(112, 81, 26, 0.16);
-}
-
-.shell[data-theme="dark"] .messagePartial button {
-  border-color: rgba(225, 178, 79, 0.32);
-  color: #e8ca83;
-  background: rgba(255, 255, 255, 0.04);
 }
 
 .shell[data-theme="dark"] .sendButton:disabled {
