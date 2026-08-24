@@ -59,9 +59,7 @@ public class ChatModelRuntimeConfig {
      * <p>该字段仅在模型协议适配器边界转换为 {@code extraBody}，业务流程不解析其内容。</p>
      */
     private JSONObject extensionParameters;
-    /**
-     * 单次模型请求超时时间，单位为秒。
-     */
+    /** 连接、写入和连续无响应的空闲超时时间，单位为秒；持续响应不受总时长限制。 */
     private Integer timeoutSeconds;
     /**
      * 模型请求最大重试次数。

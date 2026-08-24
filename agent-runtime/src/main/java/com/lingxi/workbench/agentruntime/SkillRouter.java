@@ -1,8 +1,8 @@
 package com.lingxi.workbench.agentruntime;
 
-import com.lingxi.workbench.agentruntime.gateway.SpringAiChatClientFactory;
 import com.lingxi.workbench.agentruntime.gateway.advisor.RuntimeContextAdvisor;
 import com.lingxi.workbench.agentruntime.gateway.advisor.RuntimeModelAdvisor;
+import com.lingxi.workbench.infra.ai.chat.SpringAiChatClientFactory;
 import com.lingxi.workbench.agentruntime.model.ExecutionState;
 import com.lingxi.workbench.agentruntime.model.SkillRoutingDecision;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;

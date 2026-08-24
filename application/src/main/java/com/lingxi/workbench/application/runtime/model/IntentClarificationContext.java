@@ -41,6 +41,12 @@ import java.util.Map;
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class IntentClarificationContext {
 
+    /** 发起本次澄清的不可变路由决策事实主键 */
+    private Long decisionId;
+
+    /** 发起本次澄清的原始用户消息主键 */
+    private Long originalMessageId;
+
     /** 澄清开始时的原始用户请求文本 */
     private String originalQuery;
 

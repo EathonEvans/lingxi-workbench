@@ -61,6 +61,7 @@ import static com.lingxi.workbench.workflow.common.constants.ApplicationCollabor
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.MAX_RESOLVED_CAPABILITIES;
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.MIN_DELEGATIONS;
 import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
+import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConstants.INTENT_TREE_SCHEMA_VERSION;
 
 /**
  * Application 发布校验与引用解析。
@@ -111,13 +112,14 @@ public class ApplicationDraftValidator {
         DomainEntity root = resolveRootDomain(domainId, issues);
         AgentCollaborationDefinition collaboration = resolveCollaboration(draftDefinition.collaboration(), root, issues);
         ApplicationContextPolicy contextPolicy = resolveContextPolicy(draftDefinition.contextPolicy(), issues);
-        CapabilityCatalogSnapshot explicitCapabilities = resolveCapabilityCatalog(
-                draftDefinition.capabilityCatalog(), issues);
-        CapabilityCatalogSnapshot capabilityCatalog = mergeResolvedCapabilities(collaboration, explicitCapabilities, issues);
-        FastRouteResolution fastRouteResolution = resolveFastRoutes(
-                draftDefinition.optionalFastRoutes(), capabilityCatalog, root, issues);
-        MemoryConfig memoryConf = resolveMemory(draftDefinition.memoryConf(), fastRouteResolution.embeddingModelInstanceId(), issues);
         ApplicationRuntimePolicy runtimePolicy = resolveRuntimePolicy(draftDefinition.runtimePolicy(), issues);
+        CapabilityCatalogSnapshot explicitCapabilities = resolveCapabilityCatalog(
+                draftDefinition.capabilityCatalog(), runtimePolicy.getMaxDelegations(), issues);
+        CapabilityCatalogSnapshot capabilityCatalog = mergeResolvedCapabilities(
+                collaboration, explicitCapabilities, runtimePolicy.getMaxDelegations(), issues);
+        IntentRoutingResolution intentRoutingResolution = resolveIntentRouting(
+                draftDefinition.intentRouting(), capabilityCatalog, root, issues);
+        MemoryConfig memoryConf = resolveMemory(draftDefinition.memoryConf(), intentRoutingResolution.embeddingModelInstanceId(), issues);
         validateRuntimeBoundaries(
                 runtimePolicy, capabilityCatalog, collaboration, contextPolicy, issues);
         if (!issues.isEmpty()) {
@@ -126,7 +128,7 @@ public class ApplicationDraftValidator {
         ApplicationDefinition resolved = ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .collaboration(collaboration)
-                .optionalFastRoutes(fastRouteResolution.binding())
+                .intentRouting(intentRoutingResolution.binding())
                 .memoryConf(memoryConf)
                 .contextPolicy(contextPolicy)
                 .fallback(new FallbackAgent(DEFAULT_AGENT_CAPABILITY_CODE))
@@ -137,7 +139,7 @@ public class ApplicationDraftValidator {
     }
 
     /** 解析并锁定能力目录中的全部执行目标。 */
-    private CapabilityCatalogSnapshot resolveCapabilityCatalog(CapabilityCatalogSnapshot draft,
+    private CapabilityCatalogSnapshot resolveCapabilityCatalog(CapabilityCatalogSnapshot draft, int readOnlyMaxCalls,
                                                                List<ApplicationValidationIssueVO> issues) {
         List<ApplicationCapabilityDefinition> resolved = new ArrayList<>();
         Set<String> codes = new HashSet<>();
@@ -149,7 +151,8 @@ public class ApplicationDraftValidator {
         for (int index = 0; index < capabilities.size(); index++) {
             ApplicationCapabilityDefinition capability = capabilities.get(index);
             String field = "definition.capabilityCatalog.capabilities[" + index + "]";
-            ApplicationCapabilityDefinition item = resolveCapability(capability, field, codes, issues);
+            ApplicationCapabilityDefinition item = resolveCapability(
+                    capability, field, codes, readOnlyMaxCalls, issues);
             if (Objects.nonNull(item)) {
                 resolved.add(item);
             }
@@ -161,13 +164,16 @@ public class ApplicationDraftValidator {
     private static CapabilityCatalogSnapshot mergeResolvedCapabilities(
             AgentCollaborationDefinition collaboration,
             CapabilityCatalogSnapshot explicitCapabilities,
+            int readOnlyMaxCalls,
             List<ApplicationValidationIssueVO> issues) {
         List<ApplicationCapabilityDefinition> capabilities = new ArrayList<>();
         Set<String> codes = new HashSet<>();
         if (Objects.nonNull(collaboration)) {
-            addAgentCapability(DEFAULT_AGENT_CAPABILITY_CODE, collaboration.supervisor(), capabilities, codes, issues);
+            addAgentCapability(DEFAULT_AGENT_CAPABILITY_CODE, collaboration.supervisor(), capabilities, codes,
+                    readOnlyMaxCalls, issues);
             for (ApplicationAgentReference member : collaboration.members()) {
-                addAgentCapability("agent_" + member.agentId(), member, capabilities, codes, issues);
+                addAgentCapability("agent_" + member.agentId(), member, capabilities, codes,
+                        readOnlyMaxCalls, issues);
             }
         }
         for (ApplicationCapabilityDefinition capability : explicitCapabilities.capabilities()) {
@@ -190,6 +196,7 @@ public class ApplicationDraftValidator {
             ApplicationAgentReference reference,
             List<ApplicationCapabilityDefinition> capabilities,
             Set<String> codes,
+            int readOnlyMaxCalls,
             List<ApplicationValidationIssueVO> issues) {
         if (Objects.isNull(reference) || !codes.add(code)) {
             issues.add(issue("CAPABILITY_CODE_DUPLICATED", "definition.collaboration",
@@ -210,12 +217,13 @@ public class ApplicationDraftValidator {
                 .configurationChecksum(checksum(reference.agentVersionId()))
                 .riskLevel(CapabilityRiskLevel.READ_ONLY)
                 .timeoutSeconds(120)
-                .maxCalls(1)
+                .maxCalls(Math.max(readOnlyMaxCalls, 1))
                 .resultTokenBudget(8_192)
                 .build());
     }
 
-    private ApplicationCapabilityDefinition resolveCapability(ApplicationCapabilityDefinition draft, String field, Set<String> codes,
+    private ApplicationCapabilityDefinition resolveCapability(ApplicationCapabilityDefinition draft, String field,
+                                                              Set<String> codes, int readOnlyMaxCalls,
                                                               List<ApplicationValidationIssueVO> issues) {
         if (Objects.isNull(draft) || isBlank(draft.getCode()) || !CAPABILITY_CODE_PATTERN.matcher(draft.getCode()).matches()) {
             issues.add(issue("CAPABILITY_CODE_INVALID", field + ".code", "能力编码需使用2到64位小写字母、数字或下划线"));
@@ -235,7 +243,7 @@ public class ApplicationDraftValidator {
             return null;
         }
         validateCapabilityPolicy(draft, field, issues);
-        return resolveWorkflowCapability(draft, field, issues);
+        return resolveWorkflowCapability(draft, field, readOnlyMaxCalls, issues);
     }
 
     private static void validateCapabilityPolicy(ApplicationCapabilityDefinition capability, String field,
@@ -247,11 +255,17 @@ public class ApplicationDraftValidator {
                 field + ".timeoutSeconds", "能力超时时间", issues);
         validateOptionalRange(capability.getMaxCalls(), 1, 20, "CAPABILITY_CALLS_INVALID",
                 field + ".maxCalls", "能力调用次数", issues);
+        if (capability.getRiskLevel() != null && capability.getRiskLevel() != CapabilityRiskLevel.READ_ONLY
+                && capability.getMaxCalls() != null && capability.getMaxCalls() != 1) {
+            issues.add(issue("CAPABILITY_SIDE_EFFECT_CALLS_INVALID", field + ".maxCalls",
+                    "写操作和高风险能力的最大调用次数必须为1"));
+        }
         validateOptionalRange(capability.getResultTokenBudget(), 128, 32000, "CAPABILITY_RESULT_BUDGET_INVALID",
                 field + ".resultTokenBudget", "能力结果Token预算", issues);
     }
 
     private ApplicationCapabilityDefinition resolveWorkflowCapability(ApplicationCapabilityDefinition draft, String field,
+                                                                      int readOnlyMaxCalls,
                                                                       List<ApplicationValidationIssueVO> issues) {
         WorkflowService.WorkflowReference workflow = workflowService.findReference(draft.getTargetId()).orElse(null);
         if (Objects.isNull(workflow) || !workflow.active()) {
@@ -267,12 +281,15 @@ public class ApplicationDraftValidator {
             return null;
         }
         return baseCapability(draft, workflow.name(), draft.getDescription(), versionId, queryInputSchema(), responseOutputSchema(),
-                "WORKFLOW_VERSION", checksum(definition));
+                "WORKFLOW_VERSION", checksum(definition), readOnlyMaxCalls);
     }
 
     private static ApplicationCapabilityDefinition baseCapability(ApplicationCapabilityDefinition draft, String name, String description,
                                                                   Long versionId, JSONObject inputSchema, JSONObject outputSchema,
-                                                                  String implementationType, String configurationChecksum) {
+                                                                  String implementationType, String configurationChecksum,
+                                                                  int readOnlyMaxCalls) {
+        CapabilityRiskLevel riskLevel = Objects.requireNonNullElse(
+                draft.getRiskLevel(), CapabilityRiskLevel.READ_ONLY);
         return ApplicationCapabilityDefinition.builder()
                 .code(draft.getCode())
                 .type(draft.getType())
@@ -284,15 +301,19 @@ public class ApplicationDraftValidator {
                 .outputSchema(outputSchema)
                 .implementationType(implementationType)
                 .configurationChecksum(configurationChecksum)
-                .riskLevel(Objects.requireNonNullElse(draft.getRiskLevel(), CapabilityRiskLevel.READ_ONLY))
+                .riskLevel(riskLevel)
                 .timeoutSeconds(defaultIfNull(draft.getTimeoutSeconds(), 120))
-                .maxCalls(defaultIfNull(draft.getMaxCalls(), 1))
+                .maxCalls(defaultIfNull(draft.getMaxCalls(), defaultCapabilityMaxCalls(riskLevel, readOnlyMaxCalls)))
                 .resultTokenBudget(defaultIfNull(draft.getResultTokenBudget(), 8192))
                 .build();
     }
 
     private static String normalizedDescription(ApplicationCapabilityDefinition draft, String fallback) {
         return isBlank(draft.getDescription()) ? fallback : draft.getDescription();
+    }
+
+    private static int defaultCapabilityMaxCalls(CapabilityRiskLevel riskLevel, int readOnlyMaxCalls) {
+        return riskLevel == CapabilityRiskLevel.READ_ONLY ? Math.max(readOnlyMaxCalls, 1) : 1;
     }
 
     private static ApplicationRuntimePolicy resolveRuntimePolicy(ApplicationRuntimePolicy draft, List<ApplicationValidationIssueVO> issues) {
@@ -302,26 +323,16 @@ public class ApplicationDraftValidator {
         validateRange(policy.getMaxDelegations(), 0, 10, "RUNTIME_DELEGATIONS_INVALID", "definition.runtimePolicy.maxDelegations", "委派次数", issues);
         validateRange(policy.getTotalTokenBudget(), 1024, 1000000, "RUNTIME_TOKEN_BUDGET_INVALID", "definition.runtimePolicy.totalTokenBudget", "总Token预算", issues);
         validateRange(policy.effectiveTokenGracePercent(), 0, 30, "RUNTIME_TOKEN_GRACE_INVALID", "definition.runtimePolicy.tokenGracePercent", "Token收口缓冲比例", issues);
-        validateRange(policy.getTimeoutSeconds(), 30, 3600, "RUNTIME_TIMEOUT_INVALID", "definition.runtimePolicy.timeoutSeconds", "总超时时间", issues);
-        validateRange(policy.effectiveFinalizationReserveSeconds(), 5, 300, "RUNTIME_FINALIZATION_RESERVE_INVALID", "definition.runtimePolicy.finalizationReserveSeconds", "收口预留时间", issues);
-        validateRange(policy.effectiveTimeoutGracePercent(), 0, 30, "RUNTIME_TIMEOUT_GRACE_INVALID", "definition.runtimePolicy.timeoutGracePercent", "流式超时宽限比例", issues);
-        if (policy.effectiveFinalizationReserveSeconds() >= policy.getTimeoutSeconds()) {
-            issues.add(issue("RUNTIME_FINALIZATION_RESERVE_EXCEEDS_TIMEOUT", "definition.runtimePolicy.finalizationReserveSeconds",
-                    "收口预留时间必须小于Application总超时"));
-        }
         return ApplicationRuntimePolicy.builder()
                 .maxModelCalls(policy.getMaxModelCalls())
                 .maxToolCalls(policy.getMaxToolCalls())
                 .maxDelegations(policy.getMaxDelegations())
                 .totalTokenBudget(policy.getTotalTokenBudget())
                 .tokenGracePercent(policy.effectiveTokenGracePercent())
-                .timeoutSeconds(policy.getTimeoutSeconds())
-                .finalizationReserveSeconds(policy.effectiveFinalizationReserveSeconds())
-                .timeoutGracePercent(policy.effectiveTimeoutGracePercent())
                 .build();
     }
 
-    /** Application总预算必须覆盖每个能力的局部边界和已启用协作。 */
+    /** Application预算必须覆盖能力结果和已启用协作。 */
     private static void validateRuntimeBoundaries(ApplicationRuntimePolicy runtimePolicy,
                                                   CapabilityCatalogSnapshot catalog,
                                                   AgentCollaborationDefinition collaboration,
@@ -345,13 +356,13 @@ public class ApplicationDraftValidator {
         for (int index = 0; index < catalog.capabilities().size(); index++) {
             ApplicationCapabilityDefinition capability = catalog.capabilities().get(index);
             String field = "definition.capabilityCatalog.capabilities[" + index + "]";
-            if (capability.getTimeoutSeconds() > runtimePolicy.getTimeoutSeconds()) {
-                issues.add(issue("CAPABILITY_TIMEOUT_EXCEEDS_RUNTIME", field + ".timeoutSeconds",
-                        "能力超时时间不能超过Application总超时"));
-            }
             if (capability.getResultTokenBudget() > runtimePolicy.getTotalTokenBudget()) {
                 issues.add(issue("CAPABILITY_RESULT_BUDGET_EXCEEDS_RUNTIME", field + ".resultTokenBudget",
                         "能力结果Token预算不能超过Application总Token预算"));
+            }
+            if (capability.getMaxCalls() > runtimePolicy.getMaxDelegations()) {
+                issues.add(issue("CAPABILITY_CALLS_EXCEED_DELEGATIONS", field + ".maxCalls",
+                        "能力调用次数不能超过Application委派次数上限"));
             }
         }
     }
@@ -392,38 +403,42 @@ public class ApplicationDraftValidator {
     }
 
     /**
-     * 校验并锁定可选快速路由；只要求被选中的叶子映射到已发布能力。
+     * 校验并锁定意图路由；只要求被选中的叶子映射到已发布能力。
      */
-    private FastRouteResolution resolveFastRoutes(ApplicationIntentBinding draft,
-                                                  CapabilityCatalogSnapshot capabilityCatalog,
-                                                  DomainEntity root,
-                                                  List<ApplicationValidationIssueVO> issues) {
+    private IntentRoutingResolution resolveIntentRouting(ApplicationIntentBinding draft,
+                                                         CapabilityCatalogSnapshot capabilityCatalog,
+                                                         DomainEntity root,
+                                                         List<ApplicationValidationIssueVO> issues) {
         if (Objects.isNull(draft) || !draft.isEnabled()) {
-            return new FastRouteResolution(null, null);
+            return new IntentRoutingResolution(null, null);
         }
         int initialIssueCount = issues.size();
         if (Objects.isNull(draft.getIntentTreeId())) {
-            issues.add(issue("FAST_ROUTE_TREE_REQUIRED", "definition.optionalFastRoutes.intentTreeId", "请选择意图树"));
-            return new FastRouteResolution(null, null);
+            issues.add(issue("INTENT_ROUTING_TREE_REQUIRED", "definition.intentRouting.intentTreeId", "请选择意图树"));
+            return new IntentRoutingResolution(null, null);
         }
         ApplicationIntentTreeReferenceGateway.IntentTreeReference tree = intentTreeReferenceGateway
                 .findPublishedTree(draft.getIntentTreeId())
                 .orElse(null);
         if (Objects.isNull(tree)) {
-            issues.add(issue("FAST_ROUTE_TREE_NOT_FOUND", "definition.optionalFastRoutes.intentTreeId", "意图树不存在"));
-            return new FastRouteResolution(null, null);
+            issues.add(issue("INTENT_ROUTING_TREE_NOT_FOUND", "definition.intentRouting.intentTreeId", "意图树不存在"));
+            return new IntentRoutingResolution(null, null);
         }
         if (!tree.active()) {
-            issues.add(issue("FAST_ROUTE_TREE_DISABLED", "definition.optionalFastRoutes.intentTreeId", "意图树已停用"));
+            issues.add(issue("INTENT_ROUTING_TREE_DISABLED", "definition.intentRouting.intentTreeId", "意图树已停用"));
         }
         Long treeDomainId = intentTreeReferenceGateway.findDomainId(draft.getIntentTreeId()).orElse(null);
         if (Objects.nonNull(root) && !belongsToRoot(treeDomainId, root.getId())) {
-            issues.add(issue("FAST_ROUTE_TREE_DOMAIN_MISMATCH", "definition.optionalFastRoutes.intentTreeId",
+            issues.add(issue("INTENT_ROUTING_TREE_DOMAIN_MISMATCH", "definition.intentRouting.intentTreeId",
                     "意图树不属于Application选择的一级领域"));
         }
         if (Objects.isNull(tree.versionId()) || Objects.isNull(tree.definition())) {
-            issues.add(issue("FAST_ROUTE_TREE_UNPUBLISHED", "definition.optionalFastRoutes.intentTreeId", "意图树尚无可用正式版本"));
-            return new FastRouteResolution(null, null);
+            issues.add(issue("INTENT_ROUTING_TREE_UNPUBLISHED", "definition.intentRouting.intentTreeId", "意图树尚无可用正式版本"));
+            return new IntentRoutingResolution(null, null);
+        }
+        if (tree.definition().schemaVersion() != INTENT_TREE_SCHEMA_VERSION) {
+            issues.add(issue("INTENT_ROUTING_TREE_SCHEMA_UNSUPPORTED", "definition.intentRouting.intentTreeId", "意图树生效版本不是Schema V2，请重新发布"));
+            return new IntentRoutingResolution(null, tree.definition().embeddingModelInstanceId());
         }
 
         Set<String> leafCodes = tree.definition().nodes().stream()
@@ -435,26 +450,26 @@ public class ApplicationDraftValidator {
         Set<String> mappedCodes = new HashSet<>();
         List<ApplicationIntentMapping> mappings = draft.mappings();
         if (mappings.isEmpty()) {
-            issues.add(issue("FAST_ROUTE_MAPPING_REQUIRED", "definition.optionalFastRoutes.mappings", "请至少配置一个需要确定性直达的叶子"));
+            issues.add(issue("INTENT_ROUTING_MAPPING_REQUIRED", "definition.intentRouting.mappings", "请至少配置一个允许确定性直达的叶子"));
         }
         for (int index = 0; index < mappings.size(); index++) {
             ApplicationIntentMapping mapping = mappings.get(index);
-            String field = "definition.optionalFastRoutes.mappings[" + index + "]";
+            String field = "definition.intentRouting.mappings[" + index + "]";
             if (Objects.isNull(mapping) || !leafCodes.contains(mapping.getIntentCode())) {
-                issues.add(issue("FAST_ROUTE_MAPPING_UNKNOWN", field + ".intentCode", "快速路由必须引用当前正式版本中的启用叶子意图"));
+                issues.add(issue("INTENT_ROUTING_MAPPING_UNKNOWN", field + ".intentCode", "意图路由必须引用当前正式版本中的启用叶子意图"));
                 continue;
             }
             if (!mappedCodes.add(mapping.getIntentCode())) {
-                issues.add(issue("FAST_ROUTE_MAPPING_DUPLICATED", field + ".intentCode", "同一叶子意图不能重复配置快速路由"));
+                issues.add(issue("INTENT_ROUTING_MAPPING_DUPLICATED", field + ".intentCode", "同一叶子意图不能重复配置路由"));
                 continue;
             }
-            ApplicationIntentMapping resolved = resolveFastRouteTarget(mapping, capabilityCatalog, field, issues);
+            ApplicationIntentMapping resolved = resolveIntentRoutingTarget(mapping, capabilityCatalog, field, issues);
             if (Objects.nonNull(resolved)) {
                 resolvedMappings.add(resolved);
             }
         }
         if (issues.size() > initialIssueCount) {
-            return new FastRouteResolution(null, tree.definition().embeddingModelInstanceId());
+            return new IntentRoutingResolution(null, tree.definition().embeddingModelInstanceId());
         }
         ApplicationIntentBinding binding = ApplicationIntentBinding.builder()
                 .enabled(true)
@@ -462,15 +477,15 @@ public class ApplicationDraftValidator {
                 .intentTreeVersionId(tree.versionId())
                 .mappings(resolvedMappings)
                 .build();
-        return new FastRouteResolution(binding, tree.definition().embeddingModelInstanceId());
+        return new IntentRoutingResolution(binding, tree.definition().embeddingModelInstanceId());
     }
 
-    private ApplicationIntentMapping resolveFastRouteTarget(ApplicationIntentMapping mapping,
-                                                            CapabilityCatalogSnapshot capabilityCatalog,
-                                                            String field,
-                                                            List<ApplicationValidationIssueVO> issues) {
+    private ApplicationIntentMapping resolveIntentRoutingTarget(ApplicationIntentMapping mapping,
+                                                                CapabilityCatalogSnapshot capabilityCatalog,
+                                                                String field,
+                                                                List<ApplicationValidationIssueVO> issues) {
         if (Objects.isNull(mapping.getTargetType())) {
-            issues.add(issue("FAST_ROUTE_TARGET_REQUIRED", field + ".targetType", "请选择快速路由执行目标"));
+            issues.add(issue("INTENT_ROUTING_TARGET_REQUIRED", field + ".targetType", "请选择意图路由执行目标"));
             return null;
         }
         if (mapping.getTargetType() == IntentExecutionTargetType.FIXED_RESPONSE) {
@@ -487,15 +502,15 @@ public class ApplicationDraftValidator {
         ApplicationCapabilityType expectedType = mapping.getTargetType() == IntentExecutionTargetType.WORKFLOW
                 ? ApplicationCapabilityType.WORKFLOW
                 : ApplicationCapabilityType.AGENT;
-        ApplicationCapabilityDefinition capability = findFastRouteCapability(mapping, expectedType, capabilityCatalog);
+        ApplicationCapabilityDefinition capability = findIntentRoutingCapability(mapping, expectedType, capabilityCatalog);
         if (Objects.isNull(capability)) {
-            issues.add(issue("FAST_ROUTE_CAPABILITY_UNAVAILABLE", field + ".capabilityCode", "请选择能力目录中唯一可用的执行能力"));
+            issues.add(issue("INTENT_ROUTING_CAPABILITY_UNAVAILABLE", field + ".capabilityCode", "请选择能力目录中唯一可用的执行能力"));
             return null;
         }
         if (capability.getType() == ApplicationCapabilityType.AGENT) {
             AgentReferenceService.AgentReference agent = agentReferenceService.findAgent(capability.getTargetId()).orElse(null);
             if (Objects.isNull(agent) || agent.identity().role() != AgentRole.SPECIALIST) {
-                issues.add(issue("FAST_ROUTE_AGENT_ROLE_INVALID", field + ".capabilityCode", "快速路由只能指向领域专家能力"));
+                issues.add(issue("INTENT_ROUTING_AGENT_ROLE_INVALID", field + ".capabilityCode", "意图路由只能指向领域专家能力"));
                 return null;
             }
         }
@@ -508,8 +523,8 @@ public class ApplicationDraftValidator {
                 .build();
     }
 
-    private static ApplicationCapabilityDefinition findFastRouteCapability(ApplicationIntentMapping mapping, ApplicationCapabilityType expectedType,
-                                                                           CapabilityCatalogSnapshot catalog) {
+    private static ApplicationCapabilityDefinition findIntentRoutingCapability(ApplicationIntentMapping mapping, ApplicationCapabilityType expectedType,
+                                                                               CapabilityCatalogSnapshot catalog) {
         List<ApplicationCapabilityDefinition> matches = catalog.capabilities().stream()
                 .filter(capability -> capability.getType() == expectedType)
                 .filter(capability -> isBlank(mapping.getCapabilityCode())
@@ -520,7 +535,7 @@ public class ApplicationDraftValidator {
     }
 
     /**
-     * 分别校验三类记忆配置，交互记录在启用快速路由时复用意图树向量模型。
+     * 分别校验三类记忆配置，交互记录在启用意图路由时复用意图树向量模型。
      */
     private MemoryConfig resolveMemory(MemoryConfig draft, Long intentEmbeddingModelInstanceId, List<ApplicationValidationIssueVO> issues) {
         MemoryConfig source = Objects.requireNonNullElseGet(draft, MemoryConfig::disabled);
@@ -938,12 +953,12 @@ public class ApplicationDraftValidator {
     }
 
     /**
-     * 发布校验内部的快速路由解析结果。
+     * 发布校验内部的意图路由解析结果。
      *
-     * @param binding                  已锁定意图树版本的快速路由配置
+     * @param binding                  已锁定意图树版本的意图路由配置
      * @param embeddingModelInstanceId 意图树正式版本冻结的Embedding模型实例主键
      */
-    private record FastRouteResolution(
+    private record IntentRoutingResolution(
             ApplicationIntentBinding binding,
             Long embeddingModelInstanceId) {
     }

@@ -13,7 +13,6 @@ import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
-import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
 import com.lingxi.workbench.observability.service.AiTraceRun;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
@@ -82,10 +81,6 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
      * 最近一个携带真实 Usage 的模型分片返回的 Token 用量。
      */
     private TokenUsage tokenUsage = TokenUsage.empty();
-    /**
-     * 是否已经产生可向用户保留的文本、步骤结果或成功工具证据。
-     */
-    private boolean usefulProgress;
 
     @Builder
     private RunningGenerationTask(ChatTurnBO turn, Long userId, Long applicationVersionId, MemoryConfig memoryConfig,
@@ -99,7 +94,6 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
         this.traceRun = Objects.requireNonNull(traceRun, "Agent根Trace不能为空");
         if (CharSequenceUtil.isNotEmpty(initialAnswer)) {
             answer.append(initialAnswer);
-            usefulProgress = true;
         }
         tokenUsage = Objects.requireNonNullElseGet(initialUsage, TokenUsage::empty);
         sequence = Objects.requireNonNullElse(initialSequence, 0L);
@@ -146,7 +140,6 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
             return;
         }
         answer.append(chunk.content());
-        usefulProgress = true;
         ChatGenerationEventBO event = ChatGenerationEventBO.chunk(++sequence, chunk.content());
         eventRepo.append(id(), event);
         eventSink.emitNext(event, Sinks.EmitFailureHandler.FAIL_FAST);
@@ -169,9 +162,6 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
             return;
         }
         ChatGenerationEventBO generationEvent = ChatGenerationEventBO.tool(++sequence, event);
-        if (event.getStatus() == AgentToolExecutionStatus.SUCCEEDED) {
-            usefulProgress = true;
-        }
         eventRepo.append(id(), generationEvent);
         eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
     }
@@ -265,7 +255,6 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
             return;
         }
         ChatGenerationEventBO generationEvent = ChatGenerationEventBO.stepOutput(++sequence, event);
-        usefulProgress = true;
         eventRepo.append(id(), generationEvent);
         eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
     }
@@ -329,13 +318,6 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
      */
     public synchronized TokenUsage tokenUsage() {
         return tokenUsage;
-    }
-
-    /**
-     * 硬截止后只有存在真实文本或可信执行结果时才允许降级完成。
-     */
-    public synchronized boolean hasUsefulProgress() {
-        return usefulProgress;
     }
 
     /**

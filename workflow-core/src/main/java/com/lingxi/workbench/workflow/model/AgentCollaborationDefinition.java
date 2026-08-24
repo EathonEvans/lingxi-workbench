@@ -17,7 +17,7 @@ import java.util.List;
  *       成员 Agent 不再继续委派。深度固定为 1。</li>
  * </ul>
  *
- * <p>运行时流程：快速路由未命中时进入主Agent，主Agent完成规划、委派、重规划和结果综合；
+ * <p>运行时流程：意图路由转交时进入主Agent，主Agent完成规划、委派、重规划和结果综合；
  * 领域专家只处理被分配的具体业务任务，不能继续委派。</p>
  *
  * @param supervisor Supervisor Agent 的快照引用，含 agentId、agentVersionId、名称和职责描述

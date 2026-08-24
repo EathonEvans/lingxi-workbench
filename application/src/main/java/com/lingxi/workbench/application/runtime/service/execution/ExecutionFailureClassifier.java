@@ -1,10 +1,8 @@
 package com.lingxi.workbench.application.runtime.service.execution;
 
-import com.lingxi.workbench.agentruntime.model.AgentExecutionDeadlineExceededException;
 import com.lingxi.workbench.agentruntime.model.AgentReconciliationPendingException;
 import com.lingxi.workbench.agentruntime.model.AgentRuntimeLimitException;
 import com.lingxi.workbench.application.runtime.model.ExecutionFailure;
-import com.lingxi.workbench.application.runtime.model.ExecutionDeadlineExceededException;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.springframework.stereotype.Component;
 
@@ -21,12 +19,6 @@ public class ExecutionFailureClassifier {
             if (current instanceof AgentReconciliationPendingException) {
                 return new ExecutionFailure("TOOL_RECONCILIATION_PENDING",
                         "外部操作可能已完成，系统正在核对结果，请勿重复提交", false);
-            }
-            if (current instanceof ExecutionDeadlineExceededException) {
-                return new ExecutionFailure("EXECUTION_TIME_LIMIT", "本次处理已达到时间上限", true);
-            }
-            if (current instanceof AgentExecutionDeadlineExceededException) {
-                return new ExecutionFailure("EXECUTION_TIME_LIMIT", "本次处理已达到时间上限", true);
             }
             if (current instanceof AgentRuntimeLimitException limit) {
                 return new ExecutionFailure(limit.getCode(), limit.getMessage(), true);

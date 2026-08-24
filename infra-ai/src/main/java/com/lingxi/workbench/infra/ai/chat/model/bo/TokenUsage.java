@@ -1,5 +1,6 @@
 package com.lingxi.workbench.infra.ai.chat.model.bo;
 
+import java.io.Serializable;
 import java.util.Objects;
 
 /**
@@ -12,7 +13,7 @@ import java.util.Objects;
  * @param outputTokens 输出 Token 数
  * @param totalTokens  总 Token 数
  */
-public record TokenUsage(Integer inputTokens, Integer outputTokens, Integer totalTokens) {
+public record TokenUsage(Integer inputTokens, Integer outputTokens, Integer totalTokens) implements Serializable {
 
     public TokenUsage {
         if (Objects.isNull(totalTokens) && Objects.nonNull(inputTokens) && Objects.nonNull(outputTokens)) {

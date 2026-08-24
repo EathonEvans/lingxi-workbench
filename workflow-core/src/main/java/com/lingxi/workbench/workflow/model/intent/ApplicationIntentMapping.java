@@ -48,7 +48,7 @@ public class ApplicationIntentMapping {
     private IntentExecutionTargetType targetType;
 
     /**
-     * 可选快速路由引用的能力目录编码
+     * 意图路由引用的能力目录编码
      */
     private String capabilityCode;
 

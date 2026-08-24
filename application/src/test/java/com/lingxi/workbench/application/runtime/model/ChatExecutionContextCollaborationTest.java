@@ -12,7 +12,6 @@ import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import org.junit.jupiter.api.Test;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -81,7 +80,7 @@ class ChatExecutionContextCollaborationTest {
                 .runtimeVariables(new RuntimeVariables())
                 .turn(new ChatTurnBO(8L, 9L, 10L, 1))
                 .runtimePolicy(ApplicationRuntimePolicy.builder()
-                        .maxModelCalls(2).maxToolCalls(3).totalTokenBudget(100).timeoutSeconds(60).build())
+                        .maxModelCalls(2).maxToolCalls(3).totalTokenBudget(100).build())
                 .build();
         ChatExecutionContext child = parent.forkForQuery("子任务");
 
@@ -94,29 +93,6 @@ class ChatExecutionContextCollaborationTest {
         assertEquals(0, child.remainingToolCalls());
         assertThrows(BusinessException.class, parent::reserveModelCall);
         assertThrows(BusinessException.class, () -> child.reserveToolCalls(1));
-    }
-
-    @Test
-    void shouldFinalizeBeforeHardDeadlineWithoutConsumingRemainingWorkBudget() {
-        ChatExecutionContext context = ChatExecutionContext.builder()
-                .executionId("execution-1")
-                .runtimeVariables(new RuntimeVariables())
-                .turn(new ChatTurnBO(8L, 9L, 10L, 1))
-                .runtimePolicy(ApplicationRuntimePolicy.builder()
-                        .maxModelCalls(4)
-                        .maxToolCalls(4)
-                        .maxDelegations(2)
-                        .totalTokenBudget(100)
-                        .timeoutSeconds(120)
-                        .finalizationReserveSeconds(30)
-                        .build())
-                .startedAt(Instant.now().minusSeconds(95))
-                .build();
-
-        assertTrue(context.hasReachedSoftDeadline());
-        assertTrue(context.shouldFinalize());
-        assertEquals(4, context.remainingModelCalls());
-        assertEquals(4, context.remainingToolCalls());
     }
 
     private static ChatExecutionContext context(AtomicInteger publishedTexts, int maxDelegations) {
@@ -134,7 +110,6 @@ class ChatExecutionContextCollaborationTest {
                         .maxToolCalls(4)
                         .maxDelegations(maxDelegations)
                         .totalTokenBudget(100)
-                        .timeoutSeconds(60)
                         .build())
                 .eventPublisher(new ChatExecutionEventPublisher() {
                     @Override

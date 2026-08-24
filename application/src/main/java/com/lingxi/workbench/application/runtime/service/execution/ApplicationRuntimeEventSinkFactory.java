@@ -209,9 +209,6 @@ public class ApplicationRuntimeEventSinkFactory {
 
         @Override
         public void onText(ChatStreamChunk chunk) {
-            if (!chunk.content().isEmpty()) {
-                execution.markOutputActivity();
-            }
             execution.recordUsage(chunk);
             execution.getEventPublisher().publishText(chunk);
         }

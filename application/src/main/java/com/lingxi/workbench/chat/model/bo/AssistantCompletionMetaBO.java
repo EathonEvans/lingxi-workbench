@@ -12,8 +12,4 @@ public record AssistantCompletionMetaBO(Long modelInstanceId, String code, Strin
     public static AssistantCompletionMetaBO completed(Long modelInstanceId) {
         return new AssistantCompletionMetaBO(modelInstanceId, null, null);
     }
-
-    public static AssistantCompletionMetaBO partial(String code, String message) {
-        return new AssistantCompletionMetaBO(null, code, message);
-    }
 }

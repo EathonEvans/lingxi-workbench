@@ -4,11 +4,20 @@ import com.lingxi.workbench.application.runtime.service.app.RuntimeVariablesInit
 
 import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingAction;
 import com.lingxi.workbench.application.runtime.common.enums.IntentClarificationType;
+import com.lingxi.workbench.application.runtime.common.enums.IntentDecisionReason;
+import com.lingxi.workbench.application.runtime.common.enums.IntentSemanticAction;
 import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingSessionStatus;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.IntentClarificationContext;
 import com.lingxi.workbench.application.runtime.model.IntentRoutingResult;
+import com.lingxi.workbench.application.runtime.model.IntentCandidate;
+import com.lingxi.workbench.application.runtime.model.IntentRecognizedSlot;
+import com.lingxi.workbench.application.runtime.model.IntentSemanticDecision;
+import com.lingxi.workbench.application.runtime.model.IntentSemanticDecisionResult;
+import com.lingxi.workbench.application.runtime.model.IntentSemanticSlotValue;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.application.runtime.model.entity.IntentRoutingSessionEntity;
+import com.lingxi.workbench.application.runtime.model.entity.IntentRoutingDecisionEntity;
 import com.lingxi.workbench.application.runtime.model.entity.RuntimeIntentTreeVersionEntity;
 import com.lingxi.workbench.application.runtime.repo.IntentRoutingSessionRepo;
 import com.lingxi.workbench.application.runtime.repo.IntentTreeRuntimeRepo;
@@ -33,11 +42,13 @@ import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
 import com.lingxi.workbench.workflow.model.intent.IntentNodeDefinition;
 import com.lingxi.workbench.workflow.model.intent.IntentNodeType;
 import com.lingxi.workbench.workflow.model.intent.IntentRoutingPolicy;
+import com.lingxi.workbench.workflow.model.intent.IntentDecisionFailureAction;
 import com.lingxi.workbench.workflow.model.intent.IntentSlotDefinition;
 import com.lingxi.workbench.workflow.model.intent.IntentSlotValueType;
 import com.lingxi.workbench.workflow.model.intent.IntentTreeDefinition;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -48,7 +59,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -62,17 +75,43 @@ class IntentRoutingServiceImplTest {
     private final IntentRoutingSessionRepo sessionRepo = mock(IntentRoutingSessionRepo.class);
     private final ModelRuntimeConfigService modelConfigService = mock(ModelRuntimeConfigService.class);
     private final EmbeddingGateway embeddingGateway = mock(EmbeddingGateway.class);
-    private final IntentRecognitionServiceImpl recognitionService = new IntentRecognitionServiceImpl(
+    private final IntentCandidateRetriever candidateRetriever = new IntentCandidateRetriever(
             intentTreeRepo, vectorRepo, modelConfigService, embeddingGateway);
+    private final IntentSemanticDecisionService semanticDecisionService = mock(IntentSemanticDecisionService.class);
+    private final IntentRoutingDecisionPersistenceServiceImpl decisionPersistenceService =
+            mock(IntentRoutingDecisionPersistenceServiceImpl.class);
     private final IntentRoutingServiceImpl service = new IntentRoutingServiceImpl(
-            intentTreeRepo, recognitionService, sessionRepo);
+            intentTreeRepo, candidateRetriever, semanticDecisionService, sessionRepo, decisionPersistenceService);
 
     @BeforeEach
     void setUp() {
+        when(decisionPersistenceService.append(any(), any())).thenReturn(900L);
         when(sessionRepo.findPending(10L, 7L, 30L)).thenReturn(Optional.empty());
         when(modelConfigService.getEmbeddingModelConfig(88L))
                 .thenReturn(EmbeddingModelRuntimeConfig.builder().instanceId(88L).build());
         when(embeddingGateway.embed(any(), any())).thenReturn(List.of(new float[]{1F, 0F}));
+        when(semanticDecisionService.decide(any(), any(), any())).thenAnswer(invocation -> {
+            List<IntentCandidate> candidates = invocation.getArgument(2);
+            IntentSemanticDecision decision = candidates.size() == 1
+                    ? IntentSemanticDecision.builder()
+                    .action(IntentSemanticAction.SELECT)
+                    .selectedIntentCode(candidates.getFirst().intentCode())
+                    .reasonCode(IntentDecisionReason.SINGLE_INTENT)
+                    .build()
+                    : IntentSemanticDecision.builder()
+                    .action(IntentSemanticAction.CLARIFY)
+                    .alternativeIntentCodes(candidates.stream().map(IntentCandidate::intentCode).toList())
+                    .reasonCode(IntentDecisionReason.AMBIGUOUS_INTENT)
+                    .build();
+            return IntentSemanticDecisionResult.builder()
+                    .decision(decision)
+                    .tokenUsage(TokenUsage.empty())
+                    .modelCalls(1)
+                    .retryCount(0)
+                    .modelInstanceId(9L)
+                    .promptVersionId(10L)
+                    .build();
+        });
     }
 
     @Test
@@ -82,12 +121,20 @@ class IntentRoutingServiceImplTest {
 
         IntentRoutingResult result = route(optionalSnapshot(List.of(optionalWorkflowMapping("refund"))), "我想咨询");
 
-        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.NO_MATCH);
+        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.DEFER_TO_AGENT);
         assertThat(result.getExecutionQuery()).isEqualTo("我想咨询");
+        assertThat(result.getDecisionId()).isEqualTo(900L);
+        ArgumentCaptor<IntentRoutingDecisionEntity> decisionCaptor =
+                ArgumentCaptor.forClass(IntentRoutingDecisionEntity.class);
+        verify(decisionPersistenceService).append(decisionCaptor.capture(), isNull());
+        assertThat(decisionCaptor.getValue().getAction()).isEqualTo(IntentRoutingAction.DEFER_TO_AGENT);
+        assertThat(decisionCaptor.getValue().getReason().getCode()).isEqualTo("NO_CANDIDATE");
+        assertThat(decisionCaptor.getValue().getCandidateEvidence()).isEmpty();
+        verify(semanticDecisionService, never()).decide(any(), any(), any());
     }
 
     @Test
-    void shouldRouteHighConfidenceLeafToPublishedWorkflow() {
+    void shouldRouteHighSimilarityLeafToPublishedWorkflow() {
         stubVersion(List.of(leaf("refund", "申请退款")));
         when(vectorRepo.search(any(), any(), any(), any(Integer.class)))
                 .thenReturn(List.of(new IntentVectorRuntimeRepo.IntentCandidateRow("refund-node", "refund", 0.91)));
@@ -97,11 +144,30 @@ class IntentRoutingServiceImplTest {
         assertThat(result.getAction()).isEqualTo(IntentRoutingAction.EXECUTE_WORKFLOW);
         assertThat(result.getIntentCode()).isEqualTo("refund");
         assertThat(result.getExecutionQuery()).isEqualTo("我要退款");
+        assertThat(result.getDecisionId()).isEqualTo(900L);
+        assertThat(result.getModelCalls()).isEqualTo(1);
         // 路由决策证据携带门控原因与命中相似度，供 INTENT_ROUTE 观测
-        assertThat(result.getRoutingEvidence().getReason().name()).isEqualTo("ROUTED_BY_VECTOR");
+        assertThat(result.getRoutingEvidence().getReason().name()).isEqualTo("ROUTED_BY_SEMANTIC");
         assertThat(result.getRoutingEvidence().candidates())
-                .extracting(candidate -> candidate.getIntentCode() + ":" + candidate.getConfidence())
+                .extracting(candidate -> candidate.getIntentCode() + ":" + candidate.getSimilarity())
                 .containsExactly("refund:0.91");
+        ArgumentCaptor<IntentRoutingDecisionEntity> decisionCaptor =
+                ArgumentCaptor.forClass(IntentRoutingDecisionEntity.class);
+        verify(decisionPersistenceService).append(decisionCaptor.capture(), isNull());
+        IntentRoutingDecisionEntity decision = decisionCaptor.getValue();
+        assertThat(decision.getConversationId()).isEqualTo(10L);
+        assertThat(decision.getUserMessageId()).isEqualTo(11L);
+        assertThat(decision.getAssistantMessageId()).isEqualTo(12L);
+        assertThat(decision.getApplicationVersionId()).isEqualTo(30L);
+        assertThat(decision.getIntentTreeVersionId()).isEqualTo(20L);
+        assertThat(decision.getSelectedIntentCode()).isEqualTo("refund");
+        assertThat(decision.getCapabilityCode()).isEqualTo("refund_workflow");
+        assertThat(decision.getCandidateEvidence()).singleElement().satisfies(candidate -> {
+            assertThat(candidate.intentCode()).isEqualTo("refund");
+            assertThat(candidate.rank()).isEqualTo(1);
+            assertThat(candidate.capabilityCode()).isEqualTo("refund_workflow");
+        });
+        assertThat(decision.getSemanticDecision().recognizedSlotCodes()).isEmpty();
     }
 
     @Test
@@ -118,6 +184,46 @@ class IntentRoutingServiceImplTest {
 
         assertThat(result.getExecutionQuery()).isEqualTo("iPhone 订单可以退款吗");
         org.mockito.Mockito.verify(embeddingGateway).embed(eq(List.of("iPhone 订单可以退款吗")), any());
+    }
+
+    @Test
+    void shouldUseRecognizedRequiredSlotWithoutClarification() {
+        IntentNodeDefinition refund = leaf("refund", "申请退款");
+        refund.setSlots(List.of(IntentSlotDefinition.builder()
+                .code("orderNo")
+                .name("订单号")
+                .valueType(IntentSlotValueType.STRING)
+                .required(true)
+                .build()));
+        stubVersion(List.of(refund));
+        when(vectorRepo.search(any(), any(), any(), any(Integer.class)))
+                .thenReturn(List.of(new IntentVectorRuntimeRepo.IntentCandidateRow("refund-node", "refund", 0.91)));
+        IntentSemanticSlotValue slotValue = new IntentSemanticSlotValue();
+        slotValue.setStringValue("A10086");
+        IntentRecognizedSlot recognizedSlot = new IntentRecognizedSlot();
+        recognizedSlot.setSlotCode("orderNo");
+        recognizedSlot.setValue(slotValue);
+        IntentSemanticDecisionResult semanticResult = IntentSemanticDecisionResult.builder()
+                .decision(IntentSemanticDecision.builder()
+                        .action(IntentSemanticAction.SELECT)
+                        .selectedIntentCode("refund")
+                        .recognizedSlots(List.of(recognizedSlot))
+                        .reasonCode(IntentDecisionReason.SINGLE_INTENT)
+                        .build())
+                .tokenUsage(TokenUsage.empty())
+                .modelCalls(1)
+                .retryCount(0)
+                .modelInstanceId(9L)
+                .promptVersionId(10L)
+                .build();
+        doReturn(semanticResult).when(semanticDecisionService).decide(any(), any(), any());
+
+        IntentRoutingResult result = route(optionalSnapshot(List.of(optionalWorkflowMapping("refund"))),
+                "退款订单A10086");
+
+        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.EXECUTE_WORKFLOW);
+        assertThat(result.getExecutionQuery()).isEqualTo("退款订单A10086\n已确认参数：orderNo=A10086");
+        verify(sessionRepo, never()).insert(any());
     }
 
     @Test
@@ -141,9 +247,9 @@ class IntentRoutingServiceImplTest {
                 .extracting(ChatClarificationEventBO.ClarificationOptionBO::code)
                 .containsExactly("refund", "exchange");
         // 同能力歧义的证据同样进入观测：门控原因 + 全部候选相似度
-        assertThat(result.getRoutingEvidence().getReason().name()).isEqualTo("AMBIGUOUS_WITHIN_CAPABILITY");
+        assertThat(result.getRoutingEvidence().getReason().name()).isEqualTo("SEMANTIC_CLARIFICATION");
         assertThat(result.getRoutingEvidence().candidates())
-                .extracting(candidate -> candidate.getIntentCode() + ":" + candidate.getConfidence())
+                .extracting(candidate -> candidate.getIntentCode() + ":" + candidate.getSimilarity())
                 .containsExactly("refund:0.91", "exchange:0.87");
     }
 
@@ -170,6 +276,7 @@ class IntentRoutingServiceImplTest {
 
         assertThat(result.getAction()).isEqualTo(IntentRoutingAction.EXECUTE_WORKFLOW);
         assertThat(result.getExecutionQuery()).isEqualTo("订单商品有问题");
+        assertThat(result.getRoutingEvidence().getReason().getCode()).isEqualTo("CLARIFICATION_RESOLVED");
         assertThat(session.getStatus()).isEqualTo(IntentRoutingSessionStatus.RESOLVED);
     }
 
@@ -204,6 +311,7 @@ class IntentRoutingServiceImplTest {
 
         assertThat(result.getAction()).isEqualTo(IntentRoutingAction.EXECUTE_WORKFLOW);
         assertThat(result.getExecutionQuery()).isEqualTo("我要退款\n已确认参数：orderNo=A10086");
+        assertThat(result.getRoutingEvidence().getReason().getCode()).isEqualTo("CLARIFICATION_RESOLVED");
         assertThat(session.getStatus()).isEqualTo(IntentRoutingSessionStatus.COMPLETED);
     }
 
@@ -239,6 +347,7 @@ class IntentRoutingServiceImplTest {
         // 非法值不写入槽位，重问并提示数字格式
         assertThat(result.getAction()).isEqualTo(IntentRoutingAction.CLARIFICATION);
         assertThat(result.getClarification().getQuestion()).contains("数字");
+        assertThat(result.getRoutingEvidence().getReason().getCode()).isEqualTo("CLARIFICATION_RETRY");
         assertThat(session.getRoundNo()).isEqualTo(2);
         assertThat(session.getContext().getCollectedSlots()).doesNotContainKey("orderNo");
         assertThat(session.getStatus()).isEqualTo(IntentRoutingSessionStatus.PENDING);
@@ -317,18 +426,18 @@ class IntentRoutingServiceImplTest {
                 "abc",
                 response);
 
-        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.NO_MATCH);
+        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.DEFER_TO_AGENT);
         assertThat(session.getStatus()).isEqualTo(IntentRoutingSessionStatus.FAILED);
     }
 
     @Test
-    void shouldFallThroughWhenOptionalFastRouteHasNoCandidate() {
+    void shouldFallThroughWhenOptionalIntentRoutingHasNoCandidate() {
         stubVersion(List.of(leaf("refund", "申请退款")));
         when(vectorRepo.search(any(), any(), any(), any(Integer.class))).thenReturn(List.of());
 
         IntentRoutingResult result = route(optionalSnapshot(List.of(optionalWorkflowMapping("refund"))), "聊聊天");
 
-        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.NO_MATCH);
+        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.DEFER_TO_AGENT);
         assertThat(result.getExecutionQuery()).isEqualTo("聊聊天");
     }
 
@@ -340,7 +449,8 @@ class IntentRoutingServiceImplTest {
 
         IntentRoutingResult result = route(optionalSnapshot(List.of(optionalWorkflowMapping("refund"))), "我要换货");
 
-        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.NO_MATCH);
+        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.DEFER_TO_AGENT);
+        assertThat(result.getRoutingEvidence().getReason().name()).isEqualTo("UNMAPPED_CANDIDATE");
     }
 
     @Test
@@ -377,12 +487,23 @@ class IntentRoutingServiceImplTest {
                         optionalWorkflowMapping("refund"),
                         workflowMapping("exchange", "exchange_workflow", 41L, 51L)),
                 List.of(fallbackCap(), refundCapability(), exchangeCapability));
+        IntentSemanticDecisionResult decisionResult = IntentSemanticDecisionResult.builder()
+                        .decision(IntentSemanticDecision.builder()
+                                .action(IntentSemanticAction.DEFER)
+                                .reasonCode(IntentDecisionReason.MULTIPLE_INTENTS)
+                                .build())
+                        .tokenUsage(TokenUsage.empty())
+                        .modelCalls(1)
+                        .modelInstanceId(9L)
+                        .promptVersionId(10L)
+                        .build();
+        doReturn(decisionResult).when(semanticDecisionService).decide(any(), any(), any());
 
         IntentRoutingResult result = route(snapshot, "订单有问题");
 
         assertThat(result.getAction()).isEqualTo(IntentRoutingAction.DEFER_TO_AGENT);
         assertThat(result.getRoutingEvidence().getReason().name())
-                .isEqualTo("AMBIGUOUS_ACROSS_CAPABILITIES");
+                .isEqualTo("SEMANTIC_DEFER");
         assertThat(result.getRoutingEvidence().candidates())
                 .extracting(candidate -> candidate.getCapabilityCode())
                 .containsExactly("refund_workflow", "exchange_workflow");
@@ -461,9 +582,18 @@ class IntentRoutingServiceImplTest {
         version.setIntentTreeId(2L);
         version.setEmbeddingModelInstanceId(88L);
         version.setDefinitionSnapshot(new IntentTreeDefinition(
-                1,
+                2,
                 88L,
-                new IntentRoutingPolicy(5, new BigDecimal("0.65"), new BigDecimal("0.08")),
+                IntentRoutingPolicy.builder()
+                        .topK(5)
+                        .recallThreshold(new BigDecimal("0.65"))
+                        .chatModelInstanceId(89L)
+                        .decisionPromptVersionId(90L)
+                        .maxOutputTokens(512)
+                        .timeoutSeconds(30)
+                        .maxRepeatAttempts(1)
+                        .decisionFailureAction(IntentDecisionFailureAction.DEFER)
+                        .build(),
                 nodes));
         when(intentTreeRepo.findVersion(2L, 20L)).thenReturn(Optional.of(version));
     }
@@ -475,7 +605,7 @@ class IntentRoutingServiceImplTest {
     private static AppRuntimeSnapshot optionalSnapshot(
             List<ApplicationIntentMapping> mappings,
             List<ApplicationCapabilityDefinition> capabilities) {
-        ApplicationIntentBinding fastRoutes = ApplicationIntentBinding.builder()
+        ApplicationIntentBinding intentRouting = ApplicationIntentBinding.builder()
                 .enabled(true)
                 .intentTreeId(2L)
                 .intentTreeVersionId(20L)
@@ -487,7 +617,7 @@ class IntentRoutingServiceImplTest {
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder()
                         .capabilities(capabilities)
                         .build())
-                .optionalFastRoutes(fastRoutes)
+                .intentRouting(intentRouting)
                 .build());
     }
 

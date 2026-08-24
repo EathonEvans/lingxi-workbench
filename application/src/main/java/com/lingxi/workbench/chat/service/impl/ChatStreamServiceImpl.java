@@ -78,10 +78,6 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     private static final String MODEL_ERROR_CODE = "AI_MODEL_ERROR";
     private static final String TASK_START_ERROR_CODE = "GENERATION_START_ERROR";
     private static final String TASK_START_ERROR_MESSAGE = "模型生成任务启动失败";
-    private static final String TIME_LIMIT_CODE = "EXECUTION_TIME_LIMIT";
-    private static final String TIME_LIMIT_PARTIAL_CODE = "TIME_LIMIT_PARTIAL";
-    private static final String TIME_LIMIT_PARTIAL_MESSAGE = "本次处理已达到时间上限，已保留当前可用结果";
-    private static final String TIME_LIMIT_PROGRESS_SUMMARY = "本次已完成部分信息收集与处理，但在结果完整收口前达到时间上限。你可以继续处理，或缩小问题范围后重试。";
     // 运行中对话任务
     private final Map<Long, RunningGenerationTask> runningTasks = new ConcurrentHashMap<>();
 
@@ -434,10 +430,6 @@ public class ChatStreamServiceImpl implements ChatStreamService {
             return;
         }
         ChatFailure failure = resolveFailure(exception);
-        if (TIME_LIMIT_CODE.equals(failure.code()) && task.hasUsefulProgress()) {
-            completePartialTask(task, exception);
-            return;
-        }
         try {
             conversationService.failAssistant(task.id(), task.answer(), failure.code(), failure.persistedMessage(), task.tokenUsage());
         } catch (RuntimeException persistenceException) {
@@ -478,45 +470,6 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 .revision(interruption.getRevision())
                 .expiresAt(interruption.getExpiresAt())
                 .build();
-    }
-
-    /**
-     * 硬截止时已经产生可信文本或执行结果，按降级完成保存而不是伪装成模型失败。
-     */
-    private void completePartialTask(RunningGenerationTask task, Throwable exception) {
-        String content = CharSequenceUtil.isNotBlank(task.answer())
-                ? task.answer()
-                : TIME_LIMIT_PROGRESS_SUMMARY;
-        task.reconcileFinalResult(content, task.tokenUsage());
-        try {
-            conversationEventPublisher.completePartial(
-                    task.turn(), task.applicationVersionId(), content, task.tokenUsage(),
-                    TIME_LIMIT_PARTIAL_CODE, TIME_LIMIT_PARTIAL_MESSAGE);
-            task.publishTerminal(ChatGenerationEventBO.partial(
-                    TIME_LIMIT_PARTIAL_CODE, TIME_LIMIT_PARTIAL_MESSAGE));
-        } catch (RuntimeException persistenceException) {
-            if (isCompletionPersisted(task, persistenceException)) {
-                // 部分结果已完成落库时保留降级完成语义，等待事务回查或运维对账补齐消息事件。
-                log.warn("事务消息回执异常但部分回答已完成落库，assistantMessageId={}", task.id());
-                task.publishTerminal(ChatGenerationEventBO.partial(
-                        TIME_LIMIT_PARTIAL_CODE, TIME_LIMIT_PARTIAL_MESSAGE));
-            } else {
-                log.error("部分回答终态保存失败，assistantMessageId={}", task.id(), persistenceException);
-                try {
-                    conversationService.failAssistant(task.id(), content, "TERMINAL_PERSIST_ERROR",
-                            "部分回答终态保存失败，请稍后重试", task.tokenUsage());
-                } catch (RuntimeException failurePersistenceException) {
-                    persistenceException.addSuppressed(failurePersistenceException);
-                    log.error("部分回答失败状态保存异常，assistantMessageId={}", task.id(), failurePersistenceException);
-                }
-                task.publishTerminal(ChatGenerationEventBO.failed(
-                        "TERMINAL_PERSIST_ERROR", "回答保存失败，请稍后重试"));
-            }
-        } finally {
-            runningTasks.remove(task.id(), task);
-            task.traceRun().fail(exception);
-            log.warn("模型任务达到时间上限并降级完成，assistantMessageId={}", task.id());
-        }
     }
 
     /** 事务消息发送结果不确定时，以PostgreSQL中的Assistant终态作为用户侧结果依据。 */
@@ -631,10 +584,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      */
     private ChatGenerationEventBO statusToTerminalEvent(ConversationMessageEntity message) {
         return switch (message.getStatus()) {
-            case COMPLETED -> TIME_LIMIT_PARTIAL_CODE.equals(message.getErrorCode())
-                    ? ChatGenerationEventBO.partial(TIME_LIMIT_PARTIAL_CODE,
-                            Objects.requireNonNullElse(message.getErrorMessage(), TIME_LIMIT_PARTIAL_MESSAGE))
-                    : ChatGenerationEventBO.completed();
+            case COMPLETED -> ChatGenerationEventBO.completed();
             case CANCELLED -> ChatGenerationEventBO.cancelled();
             case FAILED -> restoredFailureEvent(message);
             case INTERRUPTED, GENERATING -> ChatGenerationEventBO.failed();

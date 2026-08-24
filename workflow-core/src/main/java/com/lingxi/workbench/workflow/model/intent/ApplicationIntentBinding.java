@@ -16,8 +16,8 @@ import java.util.List;
  * {@code intentTreeVersionId}，之后该意图树即使发布新版本也不会影响
  * 已发布的 ApplicationVersion。</p>
  *
- * <p>该结构写入 {@code optionalFastRoutes}，只对确定命中的已映射叶子直达；
- * 其他请求进入 Planner 或默认 ReAct Agent。</p>
+ * <p>该结构写入 {@code intentRouting}，只对语义决策选择的已映射叶子直达；
+ * 其他请求进入发布版本锁定的 fallback Agent。</p>
  *
  * <p>字段说明：</p>
  * <ul>

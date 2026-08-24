@@ -2,6 +2,7 @@ package com.lingxi.workbench.admin.intent.service;
 
 import com.lingxi.workbench.admin.intent.model.vo.IntentTreeValidationIssueVO;
 import com.lingxi.workbench.workflow.model.intent.IntentNodeDefinition;
+import com.lingxi.workbench.workflow.model.intent.IntentDecisionFailureAction;
 import com.lingxi.workbench.workflow.model.intent.IntentNodeType;
 import com.lingxi.workbench.workflow.model.intent.IntentRoutingPolicy;
 import com.lingxi.workbench.workflow.model.intent.IntentSlotDefinition;
@@ -13,6 +14,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConstants.INTENT_TREE_SCHEMA_VERSION;
 
 class IntentTreeDefinitionValidatorTest {
 
@@ -60,8 +62,44 @@ class IntentTreeDefinitionValidatorTest {
         assertThat(issues).extracting(IntentTreeValidationIssueVO::code).contains("POSITIVE_EXAMPLES_INSUFFICIENT", "CLARIFICATION_REQUIRED");
     }
 
+    @Test
+    void shouldRejectUnsupportedSchemaAndUnsafeDecisionLimits() {
+        IntentRoutingPolicy policy = IntentRoutingPolicy.builder()
+                .topK(0)
+                .recallThreshold(new BigDecimal("1.10"))
+                .maxOutputTokens(32)
+                .timeoutSeconds(61)
+                .maxRepeatAttempts(2)
+                .build();
+        IntentTreeDefinition definition = new IntentTreeDefinition(
+                INTENT_TREE_SCHEMA_VERSION - 1, 8L, policy,
+                List.of(router("root", "root", null), leaf("refund", "refund", "root",
+                        List.of("我要申请退款", "这个订单怎么退货"), List.of())));
+
+        List<IntentTreeValidationIssueVO> issues = validator.validate(definition);
+
+        assertThat(issues).extracting(IntentTreeValidationIssueVO::code).contains(
+                "SCHEMA_VERSION_UNSUPPORTED",
+                "TOP_K_INVALID",
+                "RECALL_THRESHOLD_INVALID",
+                "OUTPUT_TOKENS_INVALID",
+                "TIMEOUT_INVALID",
+                "REPEAT_ATTEMPTS_INVALID",
+                "FAILURE_ACTION_REQUIRED");
+    }
+
     private static IntentTreeDefinition definition(List<IntentNodeDefinition> nodes) {
-        return new IntentTreeDefinition(1, 8L, new IntentRoutingPolicy(5, new BigDecimal("0.65"), new BigDecimal("0.08")), nodes);
+        IntentRoutingPolicy policy = IntentRoutingPolicy.builder()
+                .topK(5)
+                .recallThreshold(new BigDecimal("0.65"))
+                .chatModelInstanceId(9L)
+                .decisionPromptVersionId(10L)
+                .maxOutputTokens(512)
+                .timeoutSeconds(30)
+                .maxRepeatAttempts(1)
+                .decisionFailureAction(IntentDecisionFailureAction.DEFER)
+                .build();
+        return new IntentTreeDefinition(INTENT_TREE_SCHEMA_VERSION, 8L, policy, nodes);
     }
 
     private static IntentNodeDefinition router(String id, String code, String parentId) {

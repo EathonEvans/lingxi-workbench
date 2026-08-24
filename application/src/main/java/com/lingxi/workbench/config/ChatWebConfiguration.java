@@ -8,8 +8,6 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.servlet.config.annotation.AsyncSupportConfigurer;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
-import java.time.Duration;
-
 /**
  * Chat SSE 的有界异步执行配置，避免生产环境使用默认的无界临时线程。
  */
@@ -17,10 +15,8 @@ import java.time.Duration;
 public class ChatWebConfiguration implements WebMvcConfigurer {
 
     static final String EXECUTOR_NAME = "chatMvcTaskExecutor";
-    /**
-     * 传输层兜底必须覆盖Application最大执行时限及流式宽限，不能提前终止后台任务。
-     */
-    static final long ASYNC_TIMEOUT_MILLIS = Duration.ofHours(2).toMillis();
+    /** Servlet 异步超时设为 0，SSE 生命周期只由终态、取消或连接断开控制。 */
+    static final long NO_ASYNC_TIMEOUT_MILLIS = 0L;
 
     private final ThreadPoolTaskExecutor executor = createExecutor();
 
@@ -35,7 +31,7 @@ public class ChatWebConfiguration implements WebMvcConfigurer {
     @Override
     public void configureAsyncSupport(AsyncSupportConfigurer configurer) {
         configurer.setTaskExecutor(executor);
-        configurer.setDefaultTimeout(ASYNC_TIMEOUT_MILLIS);
+        configurer.setDefaultTimeout(NO_ASYNC_TIMEOUT_MILLIS);
     }
 
     private static ThreadPoolTaskExecutor createExecutor() {

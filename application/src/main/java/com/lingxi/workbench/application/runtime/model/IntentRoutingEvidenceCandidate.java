@@ -12,7 +12,7 @@ import lombok.Getter;
 public class IntentRoutingEvidenceCandidate {
     private final String intentCode;
     private final String intentName;
-    private final double confidence;
+    private final double similarity;
     private final String capabilityCode;
     private final String capabilityDescription;
 }

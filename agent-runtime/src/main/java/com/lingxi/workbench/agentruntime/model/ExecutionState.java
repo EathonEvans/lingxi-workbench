@@ -27,7 +27,6 @@ import lombok.Builder;
 import lombok.Getter;
 import org.springframework.ai.chat.messages.AssistantMessage;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -38,14 +37,11 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /** 一次 Agent Runtime 调用唯一的可变执行事实。 */
 public final class ExecutionState {
-
-    private static final Duration ACTIVE_OUTPUT_WINDOW = Duration.ofSeconds(15);
 
     @Getter
     private final String runId;
@@ -56,8 +52,6 @@ public final class ExecutionState {
     private final ExecutionScope scope;
     @Getter
     private final ExecutionPolicy policy;
-    @Getter
-    private final Instant startedAt;
     private final RuntimeEventSink eventSink;
     private final AgentToolRuntimeConfig toolRuntimeConfig;
     private final RuntimeCheckpointContext checkpointContext;
@@ -73,7 +67,6 @@ public final class ExecutionState {
     private final TokenUsageAccumulator tokenUsage;
     private final boolean finalModelCallReserved;
     private final StringBuilder output = new StringBuilder();
-    private final AtomicReference<Instant> lastOutputAt = new AtomicReference<>();
     private boolean finalizationRequested;
     private String finalizationReason;
     private RuntimeInterruption interruption;
@@ -87,8 +80,8 @@ public final class ExecutionState {
                            RuntimeEventSink eventSink, AgentToolRuntimeConfig toolRuntimeConfig,
                            List<String> authorizedToolCodes, Long initialSequenceNo,
                            Integer initialModelCalls, Integer initialToolCalls, TokenUsage initialUsage,
-                           Instant startedAt, RuntimeCheckpointContext checkpointContext,
-                           RuntimeCheckpointStore checkpointStore, Boolean finalModelCallReserved) {
+                           RuntimeCheckpointContext checkpointContext, RuntimeCheckpointStore checkpointStore,
+                           Boolean finalModelCallReserved) {
         if (Objects.isNull(runId) || runId.isBlank() || Objects.isNull(agentId)
                 || Objects.isNull(agentVersionId)) {
             throw new IllegalArgumentException("Agent执行身份不能为空");
@@ -109,7 +102,6 @@ public final class ExecutionState {
                 && (policy.getMaxModelCalls() < 2 || policy.getMaxToolCalls() < 1)) {
             throw new IllegalArgumentException("启用Tool时必须预留最终模型调用和Tool额度");
         }
-        this.startedAt = Objects.requireNonNullElseGet(startedAt, Instant::now);
         this.eventSequence = new AtomicLong(Objects.requireNonNullElse(initialSequenceNo, 0L));
         this.modelCalls = new AtomicInteger(Objects.requireNonNullElse(initialModelCalls, 0));
         this.toolCalls = new AtomicInteger(Objects.requireNonNullElse(initialToolCalls, 0));
@@ -221,7 +213,6 @@ public final class ExecutionState {
     public int beforeModelCall() {
         ensureRunning();
         ensureNotCancelled();
-        ensureWithinDeadline();
         ensureTokenCapacity(policy.getMaxTotalTokens(), "AGENT_TOKEN_LIMIT");
         int callNo = modelCalls.incrementAndGet();
         int workingLimit = hasTools() || finalModelCallReserved
@@ -244,7 +235,6 @@ public final class ExecutionState {
     public int beforeFinalModelCall() {
         ensureRunning();
         ensureNotCancelled();
-        ensureWithinDeadline();
         ensureTokenCapacity(policy.getMaxFinalizationTokens(), "AGENT_TOKEN_HARD_LIMIT");
         requestFinalization(finalizationReason());
         int callNo = modelCalls.incrementAndGet();
@@ -280,11 +270,10 @@ public final class ExecutionState {
         eventSequence.accumulateAndGet(delegatedLastSequenceNo, Math::max);
     }
 
-    /** Runtime 主循环在启动新步骤前检查取消、截止和工作预算。 */
+    /** Runtime 主循环在启动新步骤前检查取消状态。 */
     public void ensureActive() {
         ensureRunning();
         ensureNotCancelled();
-        ensureWithinDeadline();
     }
 
     public boolean hasWorkingCapacity() {
@@ -328,7 +317,6 @@ public final class ExecutionState {
     public synchronized ToolCallSelection selectToolCalls(List<AssistantMessage.ToolCall> requestedCalls) {
         ensureRunning();
         ensureNotCancelled();
-        ensureWithinDeadline();
         List<AssistantMessage.ToolCall> calls = List.copyOf(
                 Objects.requireNonNull(requestedCalls, "模型工具调用列表不能为空"));
         List<AssistantMessage.ToolCall> candidates = calls.stream()
@@ -436,7 +424,6 @@ public final class ExecutionState {
     public synchronized void appendOutput(String content) {
         if (Objects.nonNull(content) && !content.isEmpty()) {
             output.append(content);
-            lastOutputAt.set(Instant.now());
         }
     }
 
@@ -455,10 +442,10 @@ public final class ExecutionState {
         ensureRunning();
         status = ExecutionStatus.PARTIAL;
         publish(ExecutionEventType.AGENT_PARTIAL, ExecutionStage.AGENT,
-                new ExecutionEventPayload.Failure("TIME_LIMIT_PARTIAL", reason));
+                new ExecutionEventPayload.Failure("BUDGET_LIMIT_PARTIAL", reason));
         if (scope.isRun()) {
             publish(ExecutionEventType.RUN_PARTIAL, ExecutionStage.TERMINAL,
-                    new ExecutionEventPayload.Failure("TIME_LIMIT_PARTIAL", reason));
+                    new ExecutionEventPayload.Failure("BUDGET_LIMIT_PARTIAL", reason));
         }
     }
 
@@ -476,9 +463,7 @@ public final class ExecutionState {
         status = ExecutionStatus.FAILED;
         String code = exception instanceof AgentRuntimeLimitException limit
                 ? limit.getCode()
-                : exception instanceof AgentExecutionDeadlineExceededException
-                        ? "AGENT_EXECUTION_TIMEOUT"
-                        : "AGENT_RUNTIME_FAILED";
+                : "AGENT_RUNTIME_FAILED";
         publish(ExecutionEventType.AGENT_FAILED, ExecutionStage.AGENT,
                 new ExecutionEventPayload.Failure(code, "Agent调用失败"));
         if (scope.isRun()) {
@@ -502,16 +487,6 @@ public final class ExecutionState {
 
     public boolean isCancelled() {
         return eventSink.isCancelled() || Thread.currentThread().isInterrupted();
-    }
-
-    public boolean isDeadlineReached() {
-        return !Instant.now().isBefore(startedAt.plus(policy.getTimeout()));
-    }
-
-    public boolean canUseActiveOutputGrace() {
-        Instant outputAt = lastOutputAt.get();
-        return !policy.getActiveOutputGrace().isZero() && Objects.nonNull(outputAt)
-                && !outputAt.isBefore(Instant.now().minus(ACTIVE_OUTPUT_WINDOW));
     }
 
     public synchronized String output() {
@@ -549,11 +524,10 @@ public final class ExecutionState {
         return checkpointStore;
     }
 
-    /** 领取批准调用前再次校验取消与硬截止，过期运行绝不执行外部副作用。 */
+    /** 领取批准调用前再次校验运行与取消状态。 */
     public void ensureResumable() {
         ensureRunning();
         ensureNotCancelled();
-        ensureWithinDeadline();
     }
 
     public AgentToolDefinition requireToolDefinition(String toolCode) {
@@ -582,13 +556,10 @@ public final class ExecutionState {
                 .maxToolCalls(policy.getMaxToolCalls())
                 .maxTotalTokens(policy.getMaxTotalTokens())
                 .maxFinalizationTokens(policy.getMaxFinalizationTokens())
-                .timeoutMillis(policy.getTimeout().toMillis())
-                .activeOutputGraceMillis(policy.getActiveOutputGrace().toMillis())
                 .modelCalls(modelCalls.get())
                 .toolCalls(toolCalls.get())
                 .tokenUsage(tokenUsage.snapshot())
                 .lastSequenceNo(eventSequence.get())
-                .activeElapsedMillis(Duration.between(startedAt, Instant.now()).toMillis())
                 .finalizationRequested(finalizationRequested)
                 .finalizationReason(finalizationReason)
                 .output(output.toString())
@@ -676,9 +647,7 @@ public final class ExecutionState {
         if (!Objects.equals(snapshot.getMaxModelCalls(), policy.getMaxModelCalls())
                 || !Objects.equals(snapshot.getMaxToolCalls(), policy.getMaxToolCalls())
                 || !Objects.equals(snapshot.getMaxTotalTokens(), policy.getMaxTotalTokens())
-                || !Objects.equals(snapshot.getMaxFinalizationTokens(), policy.getMaxFinalizationTokens())
-                || !Objects.equals(snapshot.getTimeoutMillis(), policy.getTimeout().toMillis())
-                || !Objects.equals(snapshot.getActiveOutputGraceMillis(), policy.getActiveOutputGrace().toMillis())) {
+                || !Objects.equals(snapshot.getMaxFinalizationTokens(), policy.getMaxFinalizationTokens())) {
             throw new IllegalArgumentException("Checkpoint执行策略已经漂移");
         }
     }
@@ -771,12 +740,6 @@ public final class ExecutionState {
     private void ensureNotCancelled() {
         if (isCancelled()) {
             throw new AgentRunCancelledException();
-        }
-    }
-
-    private void ensureWithinDeadline() {
-        if (isDeadlineReached()) {
-            throw new AgentExecutionDeadlineExceededException();
         }
     }
 

@@ -49,9 +49,9 @@ public class ConversationContextServiceImpl implements ConversationContextServic
      *
      * <p>按固定顺序完成窗口记忆加载、会话摘要截断、长期记忆加载、运行时变量初始化和
      * 问题重写，最终组装为后续路由与执行共用的 {@link ConversationContext}。
-     * 所有记忆内容都受单轮 Token 预算约束，重写调用还受 Application 总超时约束。</p>
+     * 所有记忆内容都受单轮 Token 预算约束，问题重写使用自身模型请求超时。</p>
      *
-     * @param input 上下文准备输入（应用快照、原始问题、登录用户、对话轮次和起始时间）
+     * @param input 上下文准备输入（应用快照、原始问题、登录用户和对话轮次）
      * @return 已准备的共享对话上下文
      */
     @Override
@@ -60,9 +60,6 @@ public class ConversationContextServiceImpl implements ConversationContextServic
         String query = input.query();
         LoginUser loginUser = input.loginUser();
         ChatTurnBO turn = input.turn();
-        ApplicationRuntimePolicy runtimePolicy = application.definition().runtimePolicy();
-        Instant deadline = input.startedAt().plusSeconds(runtimePolicy.getTimeoutSeconds());
-
         // ① 从 Application 发布快照读取上下文策略和 Token 预算
         ApplicationContextPolicy contextPolicy = application.definition().contextPolicy();
         ContextBudgetPolicy budget = contextPolicy.budget();
@@ -91,14 +88,12 @@ public class ConversationContextServiceImpl implements ConversationContextServic
         }
 
         // ⑥ 问题重写：存在历史时消解指代；没有历史时保持原问题，避免无意义模型调用
-        ContextualizationPolicy contextualizationPolicy = withinDeadline(contextPolicy.contextualization(), deadline);
+        ContextualizationPolicy contextualizationPolicy = contextPolicy.contextualization();
         QueryRewriter.RewriteResult rewrite = queryRewriter.rewrite(contextualizationPolicy, query, runtimeVariables, memory.recentMessages());
         TokenUsage rewriteUsage = rewrite.usage();
         log.info("问题重写完成，conversationId={}，rewritten={}，modelCalls={}，inputTokens={}，outputTokens={}",
                 turn.conversationId(), !Objects.equals(query, rewrite.query()), rewrite.modelCalls(),
                 rewriteUsage.inputTokens(), rewriteUsage.outputTokens());
-        ensureWithinDeadline(deadline);
-
         // ⑦ 组装不可变 ConversationContext，共享给后续路由和执行
         return ConversationContext.builder()
                 .applicationSnapshot(application)
@@ -114,68 +109,6 @@ public class ConversationContextServiceImpl implements ConversationContextServic
                 .preparationTokenUsage(rewrite.usage())
                 .preparationModelCalls(rewrite.modelCalls())
                 .build();
-    }
-
-    /**
-     * 将问题重写策略的局部超时压缩到 Application 单轮硬截止之内。
-     *
-     * <p>重写超时必须与剩余总超时取较小值，避免局部调用越过整轮截止；
-     * 剩余时间不足 1 秒时直接抛出超时异常。</p>
-     *
-     * @param policy   发布快照中的问题重写策略
-     * @param deadline 本轮执行的总截止时间
-     * @return 超时已压缩的重写策略（禁用时原样返回）
-     */
-    private static ContextualizationPolicy withinDeadline(ContextualizationPolicy policy, Instant deadline) {
-        Duration remaining = remaining(deadline);
-        if (!policy.isEnabled()) {
-            return policy;
-        }
-        int timeoutSeconds = Math.min(policy.effectiveTimeoutSeconds(), Math.toIntExact(remaining.toSeconds()));
-        if (timeoutSeconds < 1) {
-            throw timeoutExceeded();
-        }
-        return ContextualizationPolicy.builder()
-                .enabled(true)
-                .chatModelInstanceId(policy.getChatModelInstanceId())
-                .promptVersionId(policy.getPromptVersionId())
-                .fallbackToOriginal(policy.isFallbackToOriginal())
-                .maxOutputTokens(policy.effectiveMaxOutputTokens())
-                .maxOutputCharacters(policy.effectiveMaxOutputCharacters())
-                .timeoutSeconds(timeoutSeconds)
-                .build();
-    }
-
-    /**
-     * 校验本轮执行仍在总截止时间之内，超时则抛出业务异常。
-     *
-     * @param deadline 本轮执行的总截止时间
-     */
-    private static void ensureWithinDeadline(Instant deadline) {
-        remaining(deadline);
-    }
-
-    /**
-     * 计算距离总截止时间剩余的时长，已过期时抛出超时异常。
-     *
-     * @param deadline 本轮执行的总截止时间
-     * @return 剩余时长（保证为正）
-     */
-    private static Duration remaining(Instant deadline) {
-        Duration remaining = Duration.between(Instant.now(), deadline);
-        if (remaining.isZero() || remaining.isNegative()) {
-            throw timeoutExceeded();
-        }
-        return remaining;
-    }
-
-    /**
-     * 构造单轮执行超过总超时的统一业务异常。
-     *
-     * @return 冲突状态的超时异常
-     */
-    private static BusinessException timeoutExceeded() {
-        return new BusinessException(HttpStatusEnum.CONFLICT, "Application单轮执行超过总超时");
     }
 
     /**

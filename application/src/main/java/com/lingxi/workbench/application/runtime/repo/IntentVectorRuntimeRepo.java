@@ -26,9 +26,8 @@ import java.util.List;
  *   <li>按相似度降序、编码升序（确定性排序）返回前 topK 个候选</li>
  * </ol>
  *
- * <p>注意：反例不进入向量索引。阈值过滤（recallThreshold）和
- * 歧义判断（ambiguityMargin）由上层 {@code IntentRoutingServiceImpl} 处理，
- * 本 Repo 只负责精确召回。</p>
+ * <p>注意：反例不进入向量索引。阈值过滤由上层处理，
+ * 本 Repo 只负责精确召回，不承担最终语义决策。</p>
  */
 @Repository
 @RequiredArgsConstructor

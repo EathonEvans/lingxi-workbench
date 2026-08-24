@@ -2,6 +2,7 @@ package com.lingxi.workbench.agentruntime.gateway;
 
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import org.springframework.ai.chat.metadata.Usage;
+import org.springframework.ai.chat.model.ChatResponse;
 
 import java.util.Objects;
 
@@ -19,6 +20,14 @@ public final class TokenUsageConverter {
             return TokenUsage.empty();
         }
         return TokenUsage.of(usage.getPromptTokens(), usage.getCompletionTokens(), usage.getTotalTokens());
+    }
+
+    /** 从完整 ChatResponse 转换用量，供 typed structured output 调用边界复用。 */
+    public static TokenUsage convert(ChatResponse response) {
+        if (Objects.isNull(response) || Objects.isNull(response.getMetadata())) {
+            return TokenUsage.empty();
+        }
+        return convert(response.getMetadata().getUsage());
     }
 
     /**

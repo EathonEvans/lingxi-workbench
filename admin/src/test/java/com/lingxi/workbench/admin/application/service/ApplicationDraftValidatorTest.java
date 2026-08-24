@@ -39,6 +39,7 @@ import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
 import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
 import com.lingxi.workbench.workflow.model.intent.IntentNodeDefinition;
 import com.lingxi.workbench.workflow.model.intent.IntentNodeType;
+import com.lingxi.workbench.workflow.model.intent.IntentDecisionFailureAction;
 import com.lingxi.workbench.workflow.model.intent.IntentRoutingPolicy;
 import com.lingxi.workbench.workflow.model.intent.IntentTreeDefinition;
 import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
@@ -54,6 +55,7 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
+import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConstants.INTENT_TREE_SCHEMA_VERSION;
 import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -161,9 +163,9 @@ class ApplicationDraftValidatorTest {
                 .enabled(true)
                 .build();
         IntentTreeDefinition treeDefinition = new IntentTreeDefinition(
-                1,
+                INTENT_TREE_SCHEMA_VERSION,
                 88L,
-                new IntentRoutingPolicy(5, new BigDecimal("0.65"), new BigDecimal("0.08")),
+                intentRoutingPolicy(),
                 List.of(leaf, exchangeLeaf));
         ApplicationDraftValidator intentValidator = new ApplicationDraftValidator(
                 gateway,
@@ -193,16 +195,41 @@ class ApplicationDraftValidatorTest {
                                         .type(ApplicationCapabilityType.WORKFLOW)
                                         .targetId(30L)
                                         .build()))
-                        .optionalFastRoutes(binding)
+                        .intentRouting(binding)
                         .build());
 
         assertThat(result.valid()).isTrue();
-        assertThat(result.definition().optionalFastRoutes().getIntentTreeVersionId()).isEqualTo(200L);
-        assertThat(result.definition().optionalFastRoutes().mappings()).singleElement()
+        assertThat(result.definition().intentRouting().getIntentTreeVersionId()).isEqualTo(200L);
+        assertThat(result.definition().intentRouting().mappings()).singleElement()
                 .satisfies(mapping -> {
                     assertThat(mapping.getCapabilityCode()).isEqualTo("refund_workflow");
                     assertThat(mapping.getTargetVersionId()).isEqualTo(300L);
                 });
+    }
+
+    @Test
+    void shouldRejectPublishedIntentTreeWithLegacySchema() {
+        IntentTreeDefinition legacyDefinition = new IntentTreeDefinition(
+                INTENT_TREE_SCHEMA_VERSION - 1, 88L, intentRoutingPolicy(), List.of());
+        ApplicationDraftValidator intentValidator = new ApplicationDraftValidator(
+                gateway,
+                intentGateway(intentTreeId -> Optional.of(new ApplicationIntentTreeReferenceGateway.IntentTreeReference(
+                        intentTreeId, true, 200L, legacyDefinition))),
+                workflowService,
+                modelInstanceService,
+                promptService,
+                domainRepo);
+        ApplicationIntentBinding binding = ApplicationIntentBinding.builder()
+                .enabled(true)
+                .intentTreeId(2L)
+                .mappings(List.of())
+                .build();
+
+        ApplicationDefinitionResolution result = resolve(intentValidator,
+                fallbackDefinitionBuilder().intentRouting(binding).build());
+
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .contains("INTENT_ROUTING_TREE_SCHEMA_UNSUPPORTED");
     }
 
     @Test
@@ -235,15 +262,56 @@ class ApplicationDraftValidatorTest {
 
         assertThat(result.valid()).isTrue();
         assertThat(result.definition().schemaVersion()).isEqualTo(APPLICATION_SCHEMA_VERSION);
-        assertThat(result.definition().optionalFastRoutes()).isNull();
+        assertThat(result.definition().intentRouting()).isNull();
         assertThat(result.definition().fallback().cap()).isEqualTo("default_agent");
+        assertThat(result.definition().runtimePolicy().getMaxDelegations()).isEqualTo(4);
         assertThat(result.definition().capabilityCatalog().capabilities())
                 .filteredOn(capability -> "default_agent".equals(capability.getCode()))
                 .singleElement()
                 .satisfies(capability -> {
                     assertThat(capability.getCode()).isEqualTo("default_agent");
                     assertThat(capability.getTargetVersionId()).isEqualTo(401L);
+                    assertThat(capability.getMaxCalls()).isEqualTo(4);
                 });
+    }
+
+    @Test
+    void shouldDefaultReadOnlyWorkflowCallsToDelegationBudget() {
+        workflows.put(30L, new WorkflowService.WorkflowReference(30L, true, 300L, "调研流程"));
+        workflowVersions.put(key(30L, 300L), workflowDefinition());
+        ApplicationCapabilityDefinition capability = ApplicationCapabilityDefinition.builder()
+                .code("research_workflow")
+                .type(ApplicationCapabilityType.WORKFLOW)
+                .targetId(30L)
+                .build();
+
+        ApplicationDefinitionResolution result = resolve(validator, fallbackDefinitionBuilder()
+                .capabilityCatalog(catalog(capability))
+                .build());
+
+        assertThat(result.valid()).isTrue();
+        assertThat(resolvedCapability(result.definition(), "research_workflow").getMaxCalls()).isEqualTo(4);
+    }
+
+    @Test
+    void shouldRejectRepeatedSideEffectCapability() {
+        workflows.put(30L, new WorkflowService.WorkflowReference(30L, true, 300L, "提交流程"));
+        workflowVersions.put(key(30L, 300L), workflowDefinition());
+        ApplicationCapabilityDefinition capability = ApplicationCapabilityDefinition.builder()
+                .code("submit_workflow")
+                .type(ApplicationCapabilityType.WORKFLOW)
+                .targetId(30L)
+                .riskLevel(CapabilityRiskLevel.WRITE)
+                .maxCalls(2)
+                .build();
+
+        ApplicationDefinitionResolution result = resolve(validator, fallbackDefinitionBuilder()
+                .capabilityCatalog(catalog(capability))
+                .build());
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .contains("CAPABILITY_SIDE_EFFECT_CALLS_INVALID");
     }
 
     @Test
@@ -422,7 +490,7 @@ class ApplicationDraftValidatorTest {
     }
 
     @Test
-    void shouldRejectCapabilityBoundaryExceedingApplicationRuntimeBudget() {
+    void shouldRejectCapabilityResultExceedingApplicationRuntimeBudget() {
         gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
         gateway.addVersion(40L, 401L);
         ApplicationCapabilityDefinition fallbackCap = ApplicationCapabilityDefinition.builder()
@@ -437,7 +505,6 @@ class ApplicationDraftValidatorTest {
                 .maxToolCalls(4)
                 .maxDelegations(0)
                 .totalTokenBudget(1024)
-                .timeoutSeconds(100)
                 .build();
         ApplicationDefinition draft = fallbackDefinitionBuilder()
                 .capabilityCatalog(catalog(fallbackCap))
@@ -448,7 +515,8 @@ class ApplicationDraftValidatorTest {
 
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
-                .contains("CAPABILITY_TIMEOUT_EXCEEDS_RUNTIME", "CAPABILITY_RESULT_BUDGET_EXCEEDS_RUNTIME");
+                .contains("CAPABILITY_RESULT_BUDGET_EXCEEDS_RUNTIME")
+                .doesNotContain("CAPABILITY_TIMEOUT_EXCEEDS_RUNTIME");
     }
 
     @Test
@@ -466,25 +534,6 @@ class ApplicationDraftValidatorTest {
         assertThat(result.valid()).isFalse();
         assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
                 .contains("RUNTIME_TOKEN_GRACE_INVALID");
-    }
-
-    @Test
-    void shouldRejectInvalidTimeoutFinalizationPolicy() {
-        gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
-        gateway.addVersion(40L, 401L);
-        ApplicationRuntimePolicy runtimePolicy = ApplicationRuntimePolicy.defaults();
-        runtimePolicy.setTimeoutSeconds(60);
-        runtimePolicy.setFinalizationReserveSeconds(60);
-        runtimePolicy.setTimeoutGracePercent(31);
-        ApplicationDefinition draft = fallbackDefinitionBuilder()
-                .runtimePolicy(runtimePolicy)
-                .build();
-
-        ApplicationDefinitionResolution result = resolve(validator, draft);
-
-        assertThat(result.valid()).isFalse();
-        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
-                .contains("RUNTIME_FINALIZATION_RESERVE_EXCEEDS_TIMEOUT", "RUNTIME_TIMEOUT_GRACE_INVALID");
     }
 
     @Test
@@ -561,9 +610,9 @@ class ApplicationDraftValidatorTest {
                 .enabled(true)
                 .build();
         IntentTreeDefinition treeDefinition = new IntentTreeDefinition(
-                1,
+                INTENT_TREE_SCHEMA_VERSION,
                 88L,
-                new IntentRoutingPolicy(5, new BigDecimal("0.65"), new BigDecimal("0.08")),
+                intentRoutingPolicy(),
                 List.of(leaf));
         ApplicationDraftValidator memoryValidator = new ApplicationDraftValidator(
                 gateway,
@@ -574,7 +623,7 @@ class ApplicationDraftValidatorTest {
                 promptService,
                 domainRepo);
         addMemoryReferences();
-        models.put(88L, new ModelInstanceReferenceBO(88L, ModelType.EMBEDDING, EnableStatus.ACTIVE));
+        models.put(88L, modelReference(88L, ModelType.EMBEDDING));
         ApplicationIntentBinding binding = ApplicationIntentBinding.builder()
                 .enabled(true)
                 .intentTreeId(2L)
@@ -585,14 +634,14 @@ class ApplicationDraftValidatorTest {
                         .build()))
                 .build();
         return resolve(memoryValidator, fallbackDefinitionBuilder()
-                .optionalFastRoutes(binding)
+                .intentRouting(binding)
                 .memoryConf(memoryConfig(memoryEmbeddingInstanceId))
                 .build());
     }
 
     private void addMemoryReferences() {
-        models.put(401L, new ModelInstanceReferenceBO(401L, ModelType.EMBEDDING, EnableStatus.ACTIVE));
-        models.put(402L, new ModelInstanceReferenceBO(402L, ModelType.CHAT, EnableStatus.ACTIVE));
+        models.put(401L, modelReference(401L, ModelType.EMBEDDING));
+        models.put(402L, modelReference(402L, ModelType.CHAT));
         prompts.put(501L, new PromptService.PromptVersionReference(501L, PromptRole.SYSTEM, true, List.of()));
         prompts.put(502L, new PromptService.PromptVersionReference(502L, PromptRole.SYSTEM, true, List.of()));
         prompts.put(503L, new PromptService.PromptVersionReference(503L, PromptRole.SYSTEM, true, List.of()));
@@ -623,7 +672,7 @@ class ApplicationDraftValidatorTest {
     void shouldValidateAndFreezeContextualizationPolicy() {
         gateway.addAgent(10L, true, 101L);
         gateway.addVersion(10L, 101L);
-        models.put(601L, new ModelInstanceReferenceBO(601L, ModelType.CHAT, EnableStatus.ACTIVE));
+        models.put(601L, modelReference(601L, ModelType.CHAT));
         prompts.put(701L, new PromptService.PromptVersionReference(
                 701L, PromptRole.SYSTEM, true, contextualizationVariables()));
         ContextualizationPolicy contextualization = ContextualizationPolicy.builder()
@@ -676,7 +725,7 @@ class ApplicationDraftValidatorTest {
     void shouldRejectRemovedVariableInContextualizationPrompt() {
         gateway.addAgent(10L, true, 101L);
         gateway.addVersion(10L, 101L);
-        models.put(601L, new ModelInstanceReferenceBO(601L, ModelType.CHAT, EnableStatus.ACTIVE));
+        models.put(601L, modelReference(601L, ModelType.CHAT));
         List<PromptService.PromptVariableReference> variables = List.of(
                 new PromptService.PromptVariableReference("query.rewrite_history", PromptVariableType.MESSAGE_LIST));
         prompts.put(701L, new PromptService.PromptVersionReference(701L, PromptRole.SYSTEM, true, variables));
@@ -702,7 +751,7 @@ class ApplicationDraftValidatorTest {
     void shouldRejectMissingRequiredContextualizationVariables() {
         gateway.addAgent(10L, true, 101L);
         gateway.addVersion(10L, 101L);
-        models.put(601L, new ModelInstanceReferenceBO(601L, ModelType.CHAT, EnableStatus.ACTIVE));
+        models.put(601L, modelReference(601L, ModelType.CHAT));
         prompts.put(701L, new PromptService.PromptVersionReference(701L, PromptRole.SYSTEM, true, List.of()));
         ApplicationDefinition draft = fallbackDefinitionBuilder()
                 .contextPolicy(ApplicationContextPolicy.builder()
@@ -726,6 +775,27 @@ class ApplicationDraftValidatorTest {
         return List.of(
                 new PromptService.PromptVariableReference("user.query", PromptVariableType.STRING),
                 new PromptService.PromptVariableReference("query.contextualization_history", PromptVariableType.MESSAGE_LIST));
+    }
+
+    private static ModelInstanceReferenceBO modelReference(Long id, ModelType modelType) {
+        return ModelInstanceReferenceBO.builder()
+                .id(id)
+                .modelType(modelType)
+                .status(EnableStatus.ACTIVE)
+                .build();
+    }
+
+    private static IntentRoutingPolicy intentRoutingPolicy() {
+        return IntentRoutingPolicy.builder()
+                .topK(5)
+                .recallThreshold(new BigDecimal("0.65"))
+                .chatModelInstanceId(89L)
+                .decisionPromptVersionId(90L)
+                .maxOutputTokens(512)
+                .timeoutSeconds(30)
+                .maxRepeatAttempts(1)
+                .decisionFailureAction(IntentDecisionFailureAction.DEFER)
+                .build();
     }
 
     private static ApplicationDefinition definition() {
@@ -765,7 +835,7 @@ class ApplicationDraftValidatorTest {
     }
 
     private static WorkflowDefinition workflowDefinition() {
-        return new WorkflowDefinition(1, "refund", List.of(), List.of());
+        return new WorkflowDefinition(2, "refund", List.of(), List.of());
     }
 
     private WorkflowService workflowService() {

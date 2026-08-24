@@ -2,7 +2,6 @@ package com.lingxi.workbench.agentruntime.plan;
 
 import com.lingxi.workbench.agentruntime.event.RuntimeEventSink;
 import com.lingxi.workbench.agentruntime.model.ExecutionPolicy;
-import com.lingxi.workbench.agentruntime.planner.PlannerDecisionValidationContext;
 import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
@@ -28,7 +27,6 @@ public class SupervisorRunRequest {
     private final String query;
     private final List<ChatHistoryMessage> history;
     private final ChatModelRuntimeConfig modelConfig;
-    private final PlannerDecisionValidationContext validationContext;
     private final PlanPolicy planPolicy;
     private final ExecutionPolicy executionPolicy;
     private final int maxDelegations;

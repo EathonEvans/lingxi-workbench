@@ -3,18 +3,19 @@ package com.lingxi.workbench.agentruntime.planner;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 
-/** Planner 决策校验只依赖发布版本冻结的能力白名单和步骤上限。 */
+/** Planner 决策校验使用当前规划轮次真实可用的能力与委派预算。 */
 @Getter
 @Builder
 public class PlannerDecisionValidationContext {
 
-    private Set<String> authorizedCapabilityCodes;
+    private Map<String, Integer> remainingCapabilityCalls;
     private int maxSteps;
+    private int remainingDelegations;
 
-    public Set<String> authorizedCapabilityCodes() {
-        return Set.copyOf(Objects.requireNonNullElseGet(authorizedCapabilityCodes, Set::of));
+    public Map<String, Integer> remainingCapabilityCalls() {
+        return Map.copyOf(Objects.requireNonNullElseGet(remainingCapabilityCalls, Map::of));
     }
 }

@@ -1,5 +1,6 @@
 package com.lingxi.workbench.agentruntime.gateway;
 
+import com.lingxi.workbench.infra.ai.chat.SpringAiChatClientFactory;
 import com.lingxi.workbench.agentruntime.event.ExecutionEvent;
 import com.lingxi.workbench.agentruntime.event.ExecutionEventType;
 import com.lingxi.workbench.agentruntime.event.RuntimeEventSink;
@@ -74,8 +75,6 @@ class RuntimeAdvisorIntegrationTest {
                         .maxToolCalls(0)
                         .maxTotalTokens(100)
                         .maxFinalizationTokens(100)
-                        .timeout(Duration.ofSeconds(2))
-                        .activeOutputGrace(Duration.ZERO)
                         .build())
                 .eventSink(sink)
                 .build();
@@ -143,8 +142,6 @@ class RuntimeAdvisorIntegrationTest {
                         .maxToolCalls(1)
                         .maxTotalTokens(100)
                         .maxFinalizationTokens(120)
-                        .timeout(Duration.ofSeconds(2))
-                        .activeOutputGrace(Duration.ZERO)
                         .build())
                 .eventSink(sink)
                 .toolRuntimeConfig(toolConfig)

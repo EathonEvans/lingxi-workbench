@@ -53,18 +53,12 @@ public enum ChatGenerationEventType {
      * 步骤失败后开始有限重规划。
      */
     REPLANNING("replanning", "正在重规划"),
-    /**
-     * 从数据库恢复的完整或部分回答快照。
-     */
+    /** 从数据库恢复的已生成回答快照。 */
     SNAPSHOT("snapshot", "回答快照"),
     /**
      * 模型回答生成完成。
      */
     COMPLETED("completed", "生成完成"),
-    /**
-     * 达到运行边界后保留已有可用内容并降级完成。
-     */
-    PARTIAL("partial", "部分完成"),
     /**
      * 模型调用失败。
      */

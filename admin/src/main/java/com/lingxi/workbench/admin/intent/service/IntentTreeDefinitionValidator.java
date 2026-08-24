@@ -19,11 +19,19 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConstants.INTENT_TREE_SCHEMA_VERSION;
+import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConstants.MAX_OUTPUT_TOKENS;
+import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConstants.MAX_REPEAT_ATTEMPTS;
+import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConstants.MAX_TIMEOUT_SECONDS;
+import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConstants.MAX_TOP_K;
+import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConstants.MIN_OUTPUT_TOKENS;
+import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConstants.MIN_TIMEOUT_SECONDS;
+import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConstants.MIN_TOP_K;
+
 /** 意图树结构、语义样本、槽位和召回策略的发布校验器。 */
 @Component
 public class IntentTreeDefinitionValidator {
 
-    private static final int SCHEMA_VERSION = 1;
     private static final int MAX_NODE_COUNT = 100;
     private static final int MAX_DEPTH = 3;
     private static final int MIN_POSITIVE_EXAMPLES = 2;
@@ -36,8 +44,8 @@ public class IntentTreeDefinitionValidator {
             issues.add(issue("DEFINITION_REQUIRED", "definition", "意图树定义不能为空"));
             return issues;
         }
-        if (definition.schemaVersion() != SCHEMA_VERSION) {
-            issues.add(issue("SCHEMA_VERSION_UNSUPPORTED", "definition.schemaVersion", "当前仅支持Schema V1"));
+        if (definition.schemaVersion() != INTENT_TREE_SCHEMA_VERSION) {
+            issues.add(issue("SCHEMA_VERSION_UNSUPPORTED", "definition.schemaVersion", "当前仅支持Schema V2"));
         }
         validateRoutingPolicy(definition.routingPolicy(), issues);
         validateNodes(definition.nodes(), issues);
@@ -49,11 +57,26 @@ public class IntentTreeDefinitionValidator {
             issues.add(issue("ROUTING_POLICY_REQUIRED", "definition.routingPolicy", "请配置候选召回策略"));
             return;
         }
-        if (policy.topK() < 1 || policy.topK() > 20) {
+        if (policy.topK() < MIN_TOP_K || policy.topK() > MAX_TOP_K) {
             issues.add(issue("TOP_K_INVALID", "definition.routingPolicy.topK", "Top-K必须在1到20之间"));
         }
         validateProbability(policy.recallThreshold(), "RECALL_THRESHOLD_INVALID", "definition.routingPolicy.recallThreshold", "召回阈值", issues);
-        validateProbability(policy.ambiguityMargin(), "AMBIGUITY_MARGIN_INVALID", "definition.routingPolicy.ambiguityMargin", "歧义分差", issues);
+        validateRange(policy.maxOutputTokens(), MIN_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS,
+                "OUTPUT_TOKENS_INVALID", "definition.routingPolicy.maxOutputTokens", "输出Token上限", issues);
+        validateRange(policy.timeoutSeconds(), MIN_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS,
+                "TIMEOUT_INVALID", "definition.routingPolicy.timeoutSeconds", "决策超时", issues);
+        validateRange(policy.maxRepeatAttempts(), 0, MAX_REPEAT_ATTEMPTS,
+                "REPEAT_ATTEMPTS_INVALID", "definition.routingPolicy.maxRepeatAttempts", "结构化输出修复次数", issues);
+        if (Objects.isNull(policy.decisionFailureAction())) {
+            issues.add(issue("FAILURE_ACTION_REQUIRED", "definition.routingPolicy.decisionFailureAction", "请选择语义决策失败动作"));
+        }
+    }
+
+    private static void validateRange(int value, int minimum, int maximum, String code, String field, String label,
+                                      List<IntentTreeValidationIssueVO> issues) {
+        if (value < minimum || value > maximum) {
+            issues.add(issue(code, field, label + "必须在" + minimum + "到" + maximum + "之间"));
+        }
     }
 
     private static void validateProbability(BigDecimal value, String code, String field, String label, List<IntentTreeValidationIssueVO> issues) {

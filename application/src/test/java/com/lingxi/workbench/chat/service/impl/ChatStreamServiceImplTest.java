@@ -3,7 +3,6 @@ package com.lingxi.workbench.chat.service.impl;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
-import com.lingxi.workbench.application.runtime.model.ExecutionDeadlineExceededException;
 import com.lingxi.workbench.application.runtime.model.InteractionSessionContext;
 import com.lingxi.workbench.application.runtime.model.entity.InteractionSessionEntity;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionStatus;
@@ -354,14 +353,14 @@ class ChatStreamServiceImplTest {
     }
 
     @Test
-    void shouldKeepUsefulOutputAsPartialCompletionAtExecutionDeadline() {
+    void shouldFailWhenModelStopsRespondingAfterUsefulOutput() {
         ApplicationExecutionGate gate = new ApplicationExecutionGate();
         doAnswer(invocation -> {
             ApplicationChatExecutionRequest request = invocation.getArgument(0);
             gate.markStarted();
             gate.awaitRelease();
             request.getEventPublisher().publishText(new ChatStreamChunk("已经整理出的可用内容"));
-            throw new ExecutionDeadlineExceededException();
+            throw new java.util.concurrent.TimeoutException("response idle timeout");
         }).when(applicationChatExecutionService).execute(any(ApplicationChatExecutionRequest.class));
 
         service.start(createChatRequest(), LOGIN_USER);
@@ -375,44 +374,9 @@ class ChatStreamServiceImplTest {
 
         assertEquals(List.of(
                 ChatGenerationEventBO.chunk(1, "已经整理出的可用内容"),
-                ChatGenerationEventBO.partial("TIME_LIMIT_PARTIAL", "本次处理已达到时间上限，已保留当前可用结果")), events);
-        verify(conversationEventPublisher).completePartial(
-                new ChatTurnBO(10L, 11L, 12L, 3), 30L, "已经整理出的可用内容", TokenUsage.empty(),
-                "TIME_LIMIT_PARTIAL", "本次处理已达到时间上限，已保留当前可用结果");
-        verify(conversationService, never()).failAssistant(anyLong(), any(), any(), any(), any());
-    }
-
-    @Test
-    void shouldKeepPartialResultWhenTransactionAckFailsAfterDatabaseCommit() {
-        ApplicationExecutionGate gate = new ApplicationExecutionGate();
-        doAnswer(invocation -> {
-            ApplicationChatExecutionRequest request = invocation.getArgument(0);
-            gate.markStarted();
-            gate.awaitRelease();
-            request.getEventPublisher().publishText(new ChatStreamChunk("已生成的部分结果"));
-            throw new ExecutionDeadlineExceededException();
-        }).when(applicationChatExecutionService).execute(any(ApplicationChatExecutionRequest.class));
-        doThrow(new IllegalStateException("事务回执异常"))
-                .when(conversationEventPublisher)
-                .completePartial(any(), any(), any(), any(), any(), any());
-        when(conversationService.findAssistantCompletionStatus(10L, 12L, 30L))
-                .thenReturn(Optional.of(MessageStatus.COMPLETED));
-
-        service.start(createChatRequest(), LOGIN_USER);
-        gate.awaitStarted();
-        CompletableFuture<List<ChatGenerationEventBO>> eventsFuture =
-                service.resume(12L, 0, 7L).collectList().toFuture();
-        gate.release();
-
-        List<ChatGenerationEventBO> events = eventsFuture
-                .orTimeout(Duration.ofSeconds(2).toMillis(), TimeUnit.MILLISECONDS)
-                .join();
-
-        assertEquals(List.of(
-                ChatGenerationEventBO.chunk(1, "已生成的部分结果"),
-                ChatGenerationEventBO.partial(
-                        "TIME_LIMIT_PARTIAL", "本次处理已达到时间上限，已保留当前可用结果")), events);
-        verify(conversationService, never()).failAssistant(anyLong(), any(), any(), any(), any());
+                ChatGenerationEventBO.failed("AI_MODEL_TIMEOUT", "模型响应超时，请重试")), events);
+        verify(conversationService).failAssistant(
+                12L, "已经整理出的可用内容", "AI_MODEL_TIMEOUT", "模型响应超时，请重试", TokenUsage.empty());
     }
 
     @Test
@@ -482,20 +446,6 @@ class ChatStreamServiceImplTest {
                 ChatGenerationEventBO.snapshot("数据库中的完整回答"),
                 ChatGenerationEventBO.completed()), events);
         assertEquals(ChatGenerationEventType.COMPLETED, events.get(1).type());
-    }
-
-    @Test
-    void shouldRestorePersistedPartialCompletion() {
-        ConversationMessageEntity completed = assistant(MessageStatus.COMPLETED, "数据库中的部分回答");
-        completed.setErrorCode("TIME_LIMIT_PARTIAL");
-        completed.setErrorMessage("本次处理已达到时间上限，已保留当前可用结果");
-        when(messageRepo.findOwnedAssistantMessage(12L, 7L)).thenReturn(Optional.of(completed));
-
-        List<ChatGenerationEventBO> events = service.resume(12L, 0, 7L).collectList().block();
-
-        assertEquals(List.of(
-                ChatGenerationEventBO.snapshot("数据库中的部分回答"),
-                ChatGenerationEventBO.partial("TIME_LIMIT_PARTIAL", "本次处理已达到时间上限，已保留当前可用结果")), events);
     }
 
     @Test

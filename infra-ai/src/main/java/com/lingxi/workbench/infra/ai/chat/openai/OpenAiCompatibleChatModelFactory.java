@@ -2,6 +2,7 @@ package com.lingxi.workbench.infra.ai.chat.openai;
 
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.outbound.ModelOutboundAddressPolicy;
+import com.openai.core.Timeout;
 import io.micrometer.observation.ObservationRegistry;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
@@ -16,6 +17,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /** 根据数据库运行配置创建 OpenAI 兼容协议 ChatModel。 */
 @Component
@@ -58,12 +60,14 @@ public class OpenAiCompatibleChatModelFactory {
     }
 
     private OpenAiChatModel buildModel(ChatModelRuntimeConfig config) {
+        Duration responseIdleTimeout = Duration.ofSeconds(config.getTimeoutSeconds());
         // 连接地址、密钥、模型编码和容错参数都来自本次查询的运行配置，不使用进程启动时的固定配置。
         OpenAiChatOptions.Builder options = OpenAiChatOptions.builder()
                 .baseUrl(config.getBaseUrl())
                 .apiKey(config.getApiKey())
                 .model(config.getModelCode())
-                .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
+                // 禁用整次HTTP调用倒计时；连接与连续无响应保护由底层OkHttp分别执行。
+                .timeout(Duration.ZERO)
                 .maxRetries(config.getMaxRetries())
                 // OpenAI 兼容协议通常在流式响应的最后一个数据块返回用量。
                 .streamUsage(true);
@@ -91,8 +95,25 @@ public class OpenAiCompatibleChatModelFactory {
         // ChatModel 只服务当前调用，不缓存包含明文 API Key 的客户端对象。
         return OpenAiChatModel.builder()
                 .options(options.build())
+                .httpClientBuilderCustomizer(builder -> builder
+                        .timeout(responseIdleTimeout(responseIdleTimeout))
+                        .interceptor(chain -> chain
+                                .withConnectTimeout(Math.toIntExact(responseIdleTimeout.toMillis()), TimeUnit.MILLISECONDS)
+                                .withReadTimeout(Math.toIntExact(responseIdleTimeout.toMillis()), TimeUnit.MILLISECONDS)
+                                .withWriteTimeout(Math.toIntExact(responseIdleTimeout.toMillis()), TimeUnit.MILLISECONDS)
+                                .proceed(chain.request())))
                 // 必须显式使用应用级 ObservationRegistry，否则手动创建的 ChatModel 只会上报 NOOP 观测。
                 .observationRegistry(observationRegistry)
+                .build();
+    }
+
+    /** 连接、写入和连续无响应有边界，但持续返回数据的调用没有总时限。 */
+    static Timeout responseIdleTimeout(Duration timeout) {
+        return Timeout.builder()
+                .connect(timeout)
+                .read(timeout)
+                .write(timeout)
+                .request(Duration.ZERO)
                 .build();
     }
 

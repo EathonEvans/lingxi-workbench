@@ -34,7 +34,7 @@ public class ApplicationWorkflowExecutionPortsFactory {
         WorkflowRunListener runListener = new BoundWorkflowRunListener(runService, executionContext);
         return new WorkflowExecutionPorts(
                 invocation -> agentNodeInvoker.invoke(invocation, executionContext),
-                intentClassifierNodeInvoker,
+                invocation -> intentClassifierNodeInvoker.invoke(invocation, executionContext),
                 runListener);
     }
 

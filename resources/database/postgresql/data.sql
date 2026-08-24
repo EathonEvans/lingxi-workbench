@@ -69,6 +69,25 @@ SET parent_id  = EXCLUDED.parent_id,
     visible    = TRUE,
     status     = 'ACTIVE';
 
+-- 评测中心管理运行评分和回归数据集，外部Langfuse访问统一经过Admin后端。
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, route_path, component, icon, sort_order, visible, status)
+SELECT workbench.id, '评测中心', 'EVALUATION_CENTER', 'MENU', '/dashboard/evaluation',
+       'dashboard/evaluation/index', 'ri:flask-line', 30, TRUE, 'ACTIVE'
+FROM lingxi_core.sys_menu workbench
+WHERE workbench.code = 'WORKBENCH'
+ON CONFLICT (code) DO UPDATE
+SET parent_id  = EXCLUDED.parent_id,
+    name       = EXCLUDED.name,
+    menu_type  = EXCLUDED.menu_type,
+    route_path = EXCLUDED.route_path,
+    component  = EXCLUDED.component,
+    icon       = EXCLUDED.icon,
+    permission_code = NULL,
+    sort_order = EXCLUDED.sort_order,
+    visible    = TRUE,
+    status     = 'ACTIVE';
+
 -- 保留既有DASHBOARD菜单主键，仅将其调整为工作台目录下的仪表盘页面。
 INSERT INTO lingxi_core.sys_menu
     (parent_id, name, code, menu_type, route_path, component, icon, sort_order, visible, status)

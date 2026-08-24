@@ -10,6 +10,7 @@ import com.lingxi.workbench.agentruntime.hook.HumanApprovalHook;
 import com.lingxi.workbench.agentruntime.loop.RuntimeToolCallback;
 import com.lingxi.workbench.agentruntime.model.ExecutionState;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
+import com.lingxi.workbench.infra.ai.chat.SpringAiChatClientFactory;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatStreamCommand;

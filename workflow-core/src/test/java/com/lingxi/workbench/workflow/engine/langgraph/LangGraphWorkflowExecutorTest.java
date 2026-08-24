@@ -1,9 +1,13 @@
 package com.lingxi.workbench.workflow.engine.langgraph;
 
 import com.lingxi.workbench.workflow.exception.WorkflowDefinitionException;
+import com.lingxi.workbench.workflow.exception.IntentClassifierNodeException;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.workflow.model.AgentNodeInvocation;
 import com.lingxi.workbench.workflow.model.ConditionOperator;
 import com.lingxi.workbench.workflow.model.IntentClassifierNodeInvocation;
+import com.lingxi.workbench.workflow.model.IntentClassifierNodeResult;
+import com.lingxi.workbench.workflow.model.IntentClassifierNodeStatus;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowEdgeDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowExecutionRequest;
@@ -20,11 +24,13 @@ import com.lingxi.workbench.workflow.model.config.IntentClassifierNodeConfig;
 import com.lingxi.workbench.workflow.model.config.StartNodeConfig;
 import com.lingxi.workbench.workflow.service.AgentNodeInvoker;
 import com.lingxi.workbench.workflow.service.IntentClassifierNodeInvoker;
+import com.lingxi.workbench.workflow.service.WorkflowRunListener;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -43,7 +49,7 @@ class LangGraphWorkflowExecutorTest {
         WorkflowExecutionResult result = executor.execute(
                 workflowDefinition(),
                 new WorkflowExecutionRequest("run-001", 10L, 11L, Map.of("query", "如何配置知识库")),
-                ports(fakeAgentInvoker(invocations), invocation -> Map.of()));
+                ports(fakeAgentInvoker(invocations), invocation -> deferredIntentResult()));
 
         assertThat(result.outputs()).containsEntry("response", "知识库回答：如何配置知识库");
         assertThat(invocations)
@@ -72,7 +78,7 @@ class LangGraphWorkflowExecutorTest {
         WorkflowExecutionResult result = executor.execute(
                 workflowDefinition(),
                 new WorkflowExecutionRequest("run-002", 10L, 11L, Map.of("query", "今天天气怎么样")),
-                ports(fakeAgentInvoker(invocations), invocation -> Map.of()));
+                ports(fakeAgentInvoker(invocations), invocation -> deferredIntentResult()));
 
         assertThat(result.outputs()).containsEntry("response", "通用回答：今天天气怎么样");
         assertThat(invocations)
@@ -103,9 +109,9 @@ class LangGraphWorkflowExecutorTest {
         LangGraphWorkflowExecutor executor = new LangGraphWorkflowExecutor();
 
         assertThatThrownBy(() -> executor.execute(
-                        new WorkflowDefinition(1, definition.code(), invalidNodes, definition.edges()),
+                        new WorkflowDefinition(2, definition.code(), invalidNodes, definition.edges()),
                         new WorkflowExecutionRequest("run-003", 10L, 11L, Map.of("query", "测试")),
-                        ports(invocation -> Map.of(), invocation -> Map.of())))
+                        ports(invocation -> Map.of(), invocation -> deferredIntentResult())))
                 .isInstanceOf(WorkflowDefinitionException.class)
                 .hasMessageContaining("agentVersionId");
     }
@@ -116,11 +122,20 @@ class LangGraphWorkflowExecutorTest {
         LangGraphWorkflowExecutor executor = new LangGraphWorkflowExecutor();
         WorkflowExecutionPorts ports = ports(invocation -> Map.of("answer", "退款处理完成"), invocation -> {
                     invocations.add(invocation);
-                    return Map.of(
-                            "status", "MATCHED",
-                            "intentCode", "refund",
-                            "confidence", 0.93D,
-                            "candidateCodes", List.of("refund"));
+                    return IntentClassifierNodeResult.builder()
+                            .status(IntentClassifierNodeStatus.SELECTED)
+                            .intentCode("refund")
+                            .reasonCode("SINGLE_INTENT")
+                            .similarity(0.93D)
+                            .candidateCodes(List.of("refund"))
+                            .recognizedSlots(List.of())
+                            .modelInstanceId(91L)
+                            .promptVersionId(92L)
+                            .tokenUsage(new TokenUsage(8, 3, 11))
+                            .modelCalls(1)
+                            .retryCount(0)
+                            .durationMillis(12L)
+                            .build();
                 });
 
         WorkflowExecutionResult result = executor.execute(intentWorkflowDefinition(),
@@ -130,12 +145,70 @@ class LangGraphWorkflowExecutorTest {
             assertThat(invocation.getIntentTreeId()).isEqualTo(30L);
             assertThat(invocation.getIntentTreeVersionId()).isEqualTo(31L);
             assertThat(invocation.getQuery()).isEqualTo("我要退款");
+            assertThat(invocation.getRunId()).isNotBlank();
+            assertThat(invocation.getWorkflowVersionId()).isEqualTo(21L);
         });
         assertThat(result.outputs()).containsEntry("response", "退款处理完成");
         assertThat(result.traces()).filteredOn(trace -> trace.getNodeId().equals("intent"))
-                .singleElement().satisfies(trace -> assertThat(trace.getOutputs())
-                        .containsEntry("intentCode", "refund")
-                        .containsEntry("intentStatus", "MATCHED"));
+                .singleElement().satisfies(trace -> {
+                    assertThat(trace.getOutputs())
+                            .containsEntry("intentCode", "refund")
+                            .containsEntry("intentStatus", "SELECTED")
+                            .containsEntry("intentReasonCode", "SINGLE_INTENT")
+                            .containsEntry("intentSimilarity", 0.93D);
+                    assertThat(trace.getDecisionStatus()).isEqualTo(IntentClassifierNodeStatus.SELECTED);
+                    assertThat(trace.getReasonCode()).isEqualTo("SINGLE_INTENT");
+                    assertThat(trace.getModelInstanceId()).isEqualTo(91L);
+                    assertThat(trace.getPromptVersionId()).isEqualTo(92L);
+                    assertThat(trace.getTokenUsage().totalTokens()).isEqualTo(11);
+                    assertThat(trace.getModelCalls()).isEqualTo(1);
+                });
+    }
+
+    @Test
+    void shouldExposeSafeModelFactsWhenIntentClassifierFails() {
+        IntentClassifierNodeResult failedResult = IntentClassifierNodeResult.builder()
+                .status(IntentClassifierNodeStatus.DEFERRED)
+                .reasonCode("SEMANTIC_DECISION_FAILED")
+                .candidateCodes(List.of("refund"))
+                .recognizedSlots(List.of())
+                .modelInstanceId(91L)
+                .promptVersionId(92L)
+                .tokenUsage(new TokenUsage(8, 3, 11))
+                .modelCalls(1)
+                .retryCount(0)
+                .durationMillis(15L)
+                .build();
+        AtomicReference<WorkflowNodeTrace> failedTrace = new AtomicReference<>();
+        WorkflowRunListener listener = new WorkflowRunListener() {
+            @Override
+            public void onNodeFailed(com.lingxi.workbench.workflow.model.WorkflowRunContext context,
+                                     WorkflowNodeDefinition node, WorkflowNodeTrace trace) {
+                failedTrace.set(trace);
+            }
+        };
+        WorkflowExecutionPorts ports = new WorkflowExecutionPorts(
+                invocation -> Map.of("answer", "不应执行"),
+                invocation -> {
+                    throw new IntentClassifierNodeException("分类失败", failedResult, new IllegalStateException("模型超时"));
+                },
+                listener);
+
+        assertThatThrownBy(() -> new LangGraphWorkflowExecutor().execute(
+                intentWorkflowDefinition(),
+                new WorkflowExecutionRequest("run-failed", 20L, 21L, Map.of("query", "我要退款")),
+                ports)).hasMessageContaining("intent-routing");
+
+        assertThat(failedTrace.get()).satisfies(trace -> {
+            assertThat(trace.getStatus()).isEqualTo(com.lingxi.workbench.workflow.model.WorkflowNodeStatus.FAILED);
+            assertThat(trace.getDecisionStatus()).isEqualTo(IntentClassifierNodeStatus.DEFERRED);
+            assertThat(trace.getReasonCode()).isEqualTo("SEMANTIC_DECISION_FAILED");
+            assertThat(trace.getModelInstanceId()).isEqualTo(91L);
+            assertThat(trace.getPromptVersionId()).isEqualTo(92L);
+            assertThat(trace.getTokenUsage().totalTokens()).isEqualTo(11);
+            assertThat(trace.getModelCalls()).isEqualTo(1);
+            assertThat(trace.getOutputs()).isEmpty();
+        });
     }
 
     private AgentNodeInvoker fakeAgentInvoker(List<AgentNodeInvocation> invocations) {
@@ -210,7 +283,7 @@ class LangGraphWorkflowExecutorTest {
                 WorkflowEdgeDefinition.direct("knowledge-agent", "end"),
                 WorkflowEdgeDefinition.direct("fallback-agent", "end"));
 
-        return new WorkflowDefinition(1, "knowledge-routing", nodes, edges);
+        return new WorkflowDefinition(2, "knowledge-routing", nodes, edges);
     }
 
     private WorkflowDefinition intentWorkflowDefinition() {
@@ -219,7 +292,8 @@ class LangGraphWorkflowExecutorTest {
                 new WorkflowNodeDefinition("intent", "识别意图", WorkflowNodeType.INTENT_CLASSIFIER,
                         new IntentClassifierNodeConfig(30L, 31L, "query", Map.of(
                                 "status", "intentStatus", "intentCode", "intentCode",
-                                "confidence", "intentConfidence", "candidateCodes", "intentCandidates"))),
+                                "reasonCode", "intentReasonCode", "similarity", "intentSimilarity",
+                                "candidateCodes", "intentCandidates", "recognizedSlots", "intentSlots"))),
                 new WorkflowNodeDefinition("route", "退款分支", WorkflowNodeType.CONDITION,
                         new ConditionNodeConfig("intentCode", ConditionOperator.EQUALS, "refund")),
                 new WorkflowNodeDefinition("refund-agent", "退款Agent", WorkflowNodeType.AGENT,
@@ -234,6 +308,16 @@ class LangGraphWorkflowExecutorTest {
                 WorkflowEdgeDefinition.routed("route", "fallback-agent", WorkflowRoute.NOT_MATCHED),
                 WorkflowEdgeDefinition.direct("refund-agent", "end"),
                 WorkflowEdgeDefinition.direct("fallback-agent", "end"));
-        return new WorkflowDefinition(1, "intent-routing", nodes, edges);
+        return new WorkflowDefinition(2, "intent-routing", nodes, edges);
+    }
+
+    private static IntentClassifierNodeResult deferredIntentResult() {
+        return IntentClassifierNodeResult.builder()
+                .status(IntentClassifierNodeStatus.DEFERRED)
+                .reasonCode("NO_SUITABLE_CANDIDATE")
+                .candidateCodes(List.of())
+                .recognizedSlots(List.of())
+                .tokenUsage(TokenUsage.empty())
+                .build();
     }
 }

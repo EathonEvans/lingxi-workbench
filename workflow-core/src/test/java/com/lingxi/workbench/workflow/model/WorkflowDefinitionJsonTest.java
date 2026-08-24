@@ -24,7 +24,7 @@ class WorkflowDefinitionJsonTest {
     @Test
     void shouldRoundTripPolymorphicNodeConfigs() {
         WorkflowDefinition source = new WorkflowDefinition(
-                1,
+                2,
                 "main",
                 List.of(
                         new WorkflowNodeDefinition(
@@ -35,7 +35,7 @@ class WorkflowDefinitionJsonTest {
                                         10L,
                                         11L,
                                         "query",
-                                        Map.of("intentCode", "intentCode"))),
+                                        Map.of("status", "intentStatus", "reasonCode", "intentReasonCode"))),
                         new WorkflowNodeDefinition(
                                 "agent",
                                 "问答Agent",
@@ -97,7 +97,7 @@ class WorkflowDefinitionJsonTest {
     @Test
     void shouldAllowUnlockedAgentVersionOnlyForDraftValidation() {
         WorkflowDefinition draft = new WorkflowDefinition(
-                1,
+                2,
                 "main",
                 List.of(
                         new WorkflowNodeDefinition(
@@ -125,6 +125,20 @@ class WorkflowDefinitionJsonTest {
         assertThatCode(() -> validator.validateDraft(draft)).doesNotThrowAnyException();
         assertThatThrownBy(() -> validator.validate(draft))
                 .hasMessageContaining("agentVersionId");
+    }
+
+    @Test
+    void shouldRejectV1AndLegacyIntentOutputContract() {
+        WorkflowDefinitionValidator validator = new WorkflowDefinitionValidator();
+        WorkflowDefinition v1 = intentDefinition(1, Map.of(
+                "status", "intentStatus", "reasonCode", "intentReasonCode"));
+        WorkflowDefinition legacyOutput = intentDefinition(2, Map.of(
+                "status", "intentStatus", "reasonCode", "intentReasonCode", "confidence", "intentConfidence"));
+
+        assertThatThrownBy(() -> validator.validate(v1))
+                .hasMessageContaining("schemaVersion");
+        assertThatThrownBy(() -> validator.validate(legacyOutput))
+                .hasMessageContaining("未知输出");
     }
 
     @Test
@@ -187,7 +201,7 @@ class WorkflowDefinitionJsonTest {
     }
 
     @Test
-    void shouldRoundTripApplicationOptionalFastRoutes() {
+    void shouldRoundTripApplicationIntentRouting() {
         ApplicationIntentMapping mapping = ApplicationIntentMapping.builder()
                 .intentCode("refund")
                 .targetType(IntentExecutionTargetType.WORKFLOW)
@@ -197,7 +211,7 @@ class WorkflowDefinitionJsonTest {
                 .build();
         ApplicationDefinition source = ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
-                .optionalFastRoutes(ApplicationIntentBinding.builder()
+                .intentRouting(ApplicationIntentBinding.builder()
                         .enabled(true)
                         .intentTreeId(30L)
                         .intentTreeVersionId(31L)
@@ -209,7 +223,19 @@ class WorkflowDefinitionJsonTest {
         ApplicationDefinition restored = JSON.parseObject(json, ApplicationDefinition.class);
 
         assertThat(restored).isEqualTo(source);
-        assertThat(restored.optionalFastRoutes().mappings()).singleElement()
+        assertThat(restored.intentRouting().mappings()).singleElement()
                 .satisfies(item -> assertThat(item.getCapabilityCode()).isEqualTo("refund_workflow"));
+    }
+
+    private static WorkflowDefinition intentDefinition(int schemaVersion, Map<String, String> outputMapping) {
+        List<WorkflowNodeDefinition> nodes = List.of(
+                new WorkflowNodeDefinition("start", "开始", WorkflowNodeType.START, new StartNodeConfig()),
+                new WorkflowNodeDefinition("intent", "识别意图", WorkflowNodeType.INTENT_CLASSIFIER,
+                        new IntentClassifierNodeConfig(10L, 11L, "query", outputMapping)),
+                new WorkflowNodeDefinition("end", "结束", WorkflowNodeType.END,
+                        new EndNodeConfig(Map.of("response", "intentStatus"))));
+        return new WorkflowDefinition(schemaVersion, "intent", nodes, List.of(
+                WorkflowEdgeDefinition.direct("start", "intent"),
+                WorkflowEdgeDefinition.direct("intent", "end")));
     }
 }

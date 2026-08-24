@@ -92,8 +92,6 @@ class RuntimeToolCallbackTest {
                         .maxToolCalls(2)
                         .maxTotalTokens(100)
                         .maxFinalizationTokens(120)
-                        .timeout(Duration.ofSeconds(2))
-                        .activeOutputGrace(Duration.ZERO)
                         .build())
                 .eventSink(sink)
                 .toolRuntimeConfig(config)

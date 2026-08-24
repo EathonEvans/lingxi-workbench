@@ -4,7 +4,6 @@ import com.lingxi.workbench.agentruntime.AgentRuntime;
 import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpointContext;
 import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpointStore;
 import com.lingxi.workbench.agentruntime.event.RuntimeEventSink;
-import com.lingxi.workbench.agentruntime.model.AgentExecutionDeadlineExceededException;
 import com.lingxi.workbench.agentruntime.model.AgentResumeRequest;
 import com.lingxi.workbench.agentruntime.model.AgentRunRequest;
 import com.lingxi.workbench.agentruntime.model.AgentRunResult;
@@ -40,7 +39,6 @@ import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -137,18 +135,13 @@ public class AgentChatServiceImpl implements AgentChatService {
         // 从模型实例配置出发，叠加 Agent 生成策略与剩余预算，得到本次请求的最终模型配置
         ChatModelRuntimeConfig sourceConfig = modelRuntimeConfigService.getChatModelConfig(
                 definition.getChatModelInstanceId());
-        Duration requestedModelTimeout = Duration.ofSeconds(
-                Optional.ofNullable(sourceConfig.getTimeoutSeconds())
-                        .orElse(execution.getRuntimePolicy().getTimeoutSeconds()
-                                + execution.getRuntimePolicy().effectiveTimeoutGraceSeconds()));
-        Duration hardRequestTimeout = execution.remainingTimeout(requestedModelTimeout);
-        Duration requestTimeout = execution.remainingStreamingTimeout(requestedModelTimeout);
+        int responseIdleTimeoutSeconds = Objects.requireNonNull(
+                sourceConfig.getTimeoutSeconds(), "模型响应空闲超时不能为空");
         ChatModelRuntimeConfig modelConfig = applyGenerationPolicy(
                 sourceConfig, definition.getGenerationPolicy(), execution.getContextBudget(), remainingTokenBudget,
-                requestTimeout);
+                responseIdleTimeoutSeconds);
         return this.generate(snapshot, execution, prompt, chatContext, modelConfig, skillCatalog,
-                definition.resolveToolCodes(), toolRuntimeConfig, finalizationOnly, remainingTokenBudget,
-                hardRequestTimeout, requestTimeout);
+                definition.resolveToolCodes(), toolRuntimeConfig, finalizationOnly, remainingTokenBudget);
     }
 
     /**
@@ -189,7 +182,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                                     PromptPair prompt, ModelChatContext context, ChatModelRuntimeConfig modelConfig,
                                     SkillRuntimeCatalog skillCatalog, List<String> authorizedToolCodes,
                                     Optional<AgentToolRuntimeConfig> toolRuntimeConfig, boolean finalizationOnly,
-                                    int remainingTokenBudget, Duration hardRequestTimeout, Duration requestTimeout) {
+                                    int remainingTokenBudget) {
         String systemPrompt = finalizationOnly
                 ? prompt.systemPrompt() + "\n\n" + FINALIZATION_ONLY_PROMPT
                 : prompt.systemPrompt();
@@ -201,9 +194,6 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .toolRuntimeConfig(toolRuntimeConfig.orElse(null))
                 .build();
         RuntimeEventSink eventSink = runtimeEventSinkFactory.create(execution);
-        Duration activeOutputGrace = requestTimeout.compareTo(hardRequestTimeout) > 0
-                ? requestTimeout.minus(hardRequestTimeout)
-                : Duration.ZERO;
         com.lingxi.workbench.application.runtime.model.ExecutionResumeContext resume = execution.getResumeContext();
         boolean hasModelRoutedSkill = skillCatalog.bindings().stream()
                 .anyMatch(binding -> binding.getSkill().getActivationMode()
@@ -221,17 +211,12 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .maxToolCalls(maxToolCalls)
                 .maxTotalTokens(remainingTokenBudget)
                 .maxFinalizationTokens(execution.remainingFinalizationTokenBudget())
-                .timeout(hardRequestTimeout)
-                .activeOutputGrace(activeOutputGrace)
                 .build()
                 : ExecutionPolicy.builder()
                 .maxModelCalls(maxModelCalls)
                 .maxToolCalls(maxToolCalls)
                 .maxTotalTokens(resume.getCheckpoint().getState().getMaxTotalTokens())
                 .maxFinalizationTokens(resume.getCheckpoint().getState().getMaxFinalizationTokens())
-                .timeout(Duration.ofMillis(resume.getCheckpoint().getState().getTimeoutMillis()))
-                .activeOutputGrace(Duration.ofMillis(
-                        resume.getCheckpoint().getState().getActiveOutputGraceMillis()))
                 .build();
         boolean approvalPossible = toolRuntimeConfig.stream()
                 .flatMap(config -> config.getTools().stream())
@@ -249,7 +234,6 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .applicationUsageBeforeAgent(execution.tokenUsage())
                 .applicationModelCallsBeforeAgent(execution.usedModelCalls())
                 .applicationToolCallsBeforeAgent(execution.usedToolCalls())
-                .applicationElapsedBeforeAgentMillis(execution.activeElapsedMillis())
                 .build()
                 : null;
         AgentRunRequest runRequest = AgentRunRequest.builder()
@@ -273,9 +257,6 @@ public class AgentChatServiceImpl implements AgentChatService {
                 ? agentRuntime.run(runRequest)
                 : agentRuntime.resume(new AgentResumeRequest(runRequest, resume.getCheckpoint(),
                 resume.getInteractionId(), resume.getFingerprint()));
-        if (result instanceof AgentRunResult.Partial) {
-            throw new AgentExecutionDeadlineExceededException();
-        }
         return result;
     }
 
@@ -345,20 +326,20 @@ public class AgentChatServiceImpl implements AgentChatService {
      *
      * <p>采样参数（temperature/topP）优先采用发布版本中显式配置的值；maxTokens 取模型配置、
      * 上下文预留输出 Token 与剩余 Token 预算三者的较小值，保证单次输出不会挤爆共享预算。
-     * 超时统一向上取整为整秒模型配置，流式阻塞仍使用精确剩余时间作为硬截止。</p>
+     * 模型实例的响应空闲超时原样保留，不受 Application 运行时长影响。</p>
      *
      * @param source               模型实例的原始配置
      * @param policy               Agent 发布版本声明的生成策略，可为 null
      * @param contextBudget        上下文预算（预留输出 Token）
      * @param remainingTokenBudget 当前剩余 Token 预算
-     * @param requestTimeout       本次请求的剩余超时时间
+     * @param responseIdleTimeoutSeconds 模型实例发布的响应空闲超时秒数
      * @return 叠加策略与预算后的最终模型配置
      */
     private static ChatModelRuntimeConfig applyGenerationPolicy(ChatModelRuntimeConfig source,
                                                                 AgentRuntimeDefinition.GenerationPolicy policy,
                                                                 ContextBudgetPolicy contextBudget,
                                                                 int remainingTokenBudget,
-                                                                Duration requestTimeout) {
+                                                                int responseIdleTimeoutSeconds) {
         // 采样参数：发布版本显式配置的值优先于模型实例默认值
         Double temperature = source.getTemperature();
         if (Objects.nonNull(policy) && Objects.nonNull(policy.getTemperature())) {
@@ -384,21 +365,10 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .maxTokens(maxTokens)
                 .stopSequences(source.getStopSequences())
                 .extensionParameters(source.getExtensionParameters())
-                .timeoutSeconds(timeoutSeconds(requestTimeout))
+                .timeoutSeconds(responseIdleTimeoutSeconds)
                 .maxRetries(source.getMaxRetries())
                 .structuredOutputSupported(source.isStructuredOutputSupported())
                 .build();
-    }
-
-    /**
-     * 模型配置只接受整秒，向上取整；流式阻塞仍使用精确剩余时间作为硬截止。
-     */
-    private static int timeoutSeconds(Duration timeout) {
-        long seconds = timeout.toSeconds();
-        if (!timeout.minusSeconds(seconds).isZero()) {
-            seconds++;
-        }
-        return Math.toIntExact(Math.max(1L, seconds));
     }
 
     /**

@@ -177,7 +177,6 @@ class AgentChatServiceImplTest {
                         .maxToolCalls(0)
                         .maxDelegations(0)
                         .totalTokenBudget(8000)
-                        .timeoutSeconds(120)
                         .build())
                 .build();
 
@@ -248,7 +247,6 @@ class AgentChatServiceImplTest {
                         .maxToolCalls(3)
                         .maxDelegations(0)
                         .totalTokenBudget(8000)
-                        .timeoutSeconds(120)
                         .build())
                 .build();
 
@@ -260,7 +258,7 @@ class AgentChatServiceImplTest {
     }
 
     @Test
-    void shouldClampModelTimeoutToApplicationDeadlineIncludingActiveOutputGrace() {
+    void shouldKeepPublishedModelResponseIdleTimeoutWithoutApplicationDeadlineClamp() {
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
         AgentChatServiceImpl service = service(
                 definition(),
@@ -279,17 +277,16 @@ class AgentChatServiceImplTest {
                         .maxToolCalls(0)
                         .maxDelegations(0)
                         .totalTokenBudget(8000)
-                        .timeoutSeconds(30)
                         .build())
                 .build();
 
         service.chat(10L, 20L, "如何退款", execution);
 
-        assertEquals(33, captured.get().modelConfig().getTimeoutSeconds());
+        assertEquals(120, captured.get().modelConfig().getTimeoutSeconds());
     }
 
     @Test
-    void shouldAllowNoToolRuntimeWhenActiveOutputGraceIsZero() {
+    void shouldAllowAgentWithoutToolRuntime() {
         AgentChatServiceImpl service = service(
                 definition(),
                 AgentChatServiceImplTest::promptSnapshotByVersion,
@@ -304,8 +301,6 @@ class AgentChatServiceImplTest {
                         .maxToolCalls(0)
                         .maxDelegations(0)
                         .totalTokenBudget(8000)
-                        .timeoutSeconds(30)
-                        .timeoutGracePercent(0)
                         .build())
                 .build();
 

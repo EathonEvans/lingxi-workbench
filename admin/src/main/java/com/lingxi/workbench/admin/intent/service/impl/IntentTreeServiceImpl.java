@@ -28,14 +28,21 @@ import com.lingxi.workbench.admin.intent.service.IntentTreeSnapshotChecksum;
 import com.lingxi.workbench.admin.intent.service.IntentVectorSourceBuilder;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeEmbeddingModelResolver;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
+import com.lingxi.workbench.admin.model.common.enums.ModelConnectionTestStatus;
 import com.lingxi.workbench.admin.model.model.bo.ModelInstanceReferenceBO;
 import com.lingxi.workbench.admin.model.service.ModelInstanceService;
+import com.lingxi.workbench.admin.prompt.service.PromptService;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageResult;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.embedding.EmbeddingGateway;
 import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig;
+import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
+import com.lingxi.workbench.infra.ai.variable.RuntimeVariableCatalog;
+import com.lingxi.workbench.infra.ai.variable.common.enums.BuiltInRuntimeVariable;
+import com.lingxi.workbench.infra.ai.variable.common.enums.RuntimeVariableChannel;
+import com.lingxi.workbench.workflow.model.intent.IntentDecisionFailureAction;
 import com.lingxi.workbench.workflow.model.intent.IntentNodeDefinition;
 import com.lingxi.workbench.workflow.model.intent.IntentNodeType;
 import com.lingxi.workbench.workflow.model.intent.IntentRoutingPolicy;
@@ -48,12 +55,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+
+import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConstants.INTENT_TREE_SCHEMA_VERSION;
 
 /**
  * 意图树控制面核心业务实现。
@@ -87,7 +97,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class IntentTreeServiceImpl implements IntentTreeService {
 
-    private static final int SCHEMA_VERSION = 1;
+    private static final String OPENAI_COMPATIBLE = "OPENAI_COMPATIBLE";
 
     private final IntentTreeRepo intentTreeRepo;
     private final IntentTreeDraftRepo draftRepo;
@@ -96,6 +106,7 @@ public class IntentTreeServiceImpl implements IntentTreeService {
     private final IntentTreeSnapshotChecksum snapshotChecksum;
     private final IntentTreeConverter converter;
     private final ModelInstanceService modelInstanceService;
+    private final PromptService promptService;
     private final KnowledgeEmbeddingModelResolver embeddingModelResolver;
     private final EmbeddingGateway embeddingGateway;
     private final IntentVectorSourceBuilder vectorSourceBuilder;
@@ -174,7 +185,7 @@ public class IntentTreeServiceImpl implements IntentTreeService {
         IntentTreeDefinition definition = defaultDefinition();
         IntentTreeDraftEntity draft = new IntentTreeDraftEntity();
         draft.setIntentTreeId(tree.getId());
-        draft.setSchemaVersion(SCHEMA_VERSION);
+        draft.setSchemaVersion(INTENT_TREE_SCHEMA_VERSION);
         draft.setEmbeddingModelInstanceId(definition.embeddingModelInstanceId());
         draft.setDefinition(definition);
         draft.setRevision(0L);
@@ -208,13 +219,13 @@ public class IntentTreeServiceImpl implements IntentTreeService {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "意图树草稿已被其他操作修改，请刷新后重试");
         }
         IntentTreeDefinition definition = request.getDefinition();
-        if (definition.schemaVersion() != SCHEMA_VERSION) {
-            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "当前仅支持意图树Schema V1");
+        if (definition.schemaVersion() != INTENT_TREE_SCHEMA_VERSION) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "当前仅支持意图树Schema V2");
         }
         if (Objects.nonNull(definition.nodes()) && definition.nodes().size() > 100) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "单棵意图树最多允许100个节点");
         }
-        draft.setSchemaVersion(SCHEMA_VERSION);
+        draft.setSchemaVersion(INTENT_TREE_SCHEMA_VERSION);
         draft.setEmbeddingModelInstanceId(definition.embeddingModelInstanceId());
         draft.setDefinition(definition);
         draft.setChangeNote(trimToNull(request.getChangeNote()));
@@ -368,7 +379,7 @@ public class IntentTreeServiceImpl implements IntentTreeService {
     }
 
     private List<IntentTreeValidationIssueVO> validateForPublish(IntentTreeDefinition definition) {
-        List<IntentTreeValidationIssueVO> issues = definitionValidator.validate(definition);
+        List<IntentTreeValidationIssueVO> issues = new ArrayList<>(definitionValidator.validate(definition));
         if (Objects.isNull(definition) || Objects.isNull(definition.embeddingModelInstanceId())) {
             issues.add(new IntentTreeValidationIssueVO("EMBEDDING_MODEL_REQUIRED", "definition.embeddingModelInstanceId", "请选择Embedding模型"));
             return issues;
@@ -381,7 +392,65 @@ public class IntentTreeServiceImpl implements IntentTreeService {
         } else if (model.status() != EnableStatus.ACTIVE) {
             issues.add(new IntentTreeValidationIssueVO("EMBEDDING_MODEL_DISABLED", "definition.embeddingModelInstanceId", "Embedding模型已停用"));
         }
+        if (Objects.nonNull(definition) && Objects.nonNull(definition.routingPolicy())) {
+            validateDecisionModel(definition.routingPolicy().chatModelInstanceId(), issues);
+            validateDecisionPrompt(definition.routingPolicy().decisionPromptVersionId(), issues);
+        }
         return issues;
+    }
+
+    /** 语义决策模型必须是当前控制面已验证可调用的 OpenAI 兼容 Chat 模型。 */
+    private void validateDecisionModel(Long modelId, List<IntentTreeValidationIssueVO> issues) {
+        String field = "definition.routingPolicy.chatModelInstanceId";
+        if (Objects.isNull(modelId)) {
+            issues.add(new IntentTreeValidationIssueVO("DECISION_MODEL_REQUIRED", field, "请选择意图决策Chat模型"));
+            return;
+        }
+        ModelInstanceReferenceBO model = modelInstanceService.findReference(modelId).orElse(null);
+        if (Objects.isNull(model)) {
+            issues.add(new IntentTreeValidationIssueVO("DECISION_MODEL_NOT_FOUND", field, "意图决策模型不存在"));
+        } else if (model.modelType() != ModelType.CHAT) {
+            issues.add(new IntentTreeValidationIssueVO("DECISION_MODEL_TYPE_INVALID", field, "意图决策模型必须是Chat模型"));
+        } else if (model.status() != EnableStatus.ACTIVE) {
+            issues.add(new IntentTreeValidationIssueVO("DECISION_MODEL_DISABLED", field, "意图决策模型已停用"));
+        } else if (!OPENAI_COMPATIBLE.equals(model.protocol())) {
+            issues.add(new IntentTreeValidationIssueVO("DECISION_MODEL_PROTOCOL_UNSUPPORTED", field, "意图决策模型协议暂不支持"));
+        } else if (model.lastTestStatus() != ModelConnectionTestStatus.SUCCESS) {
+            issues.add(new IntentTreeValidationIssueVO("DECISION_MODEL_UNAVAILABLE", field, "意图决策模型最近一次连通测试未成功"));
+        }
+    }
+
+    /** 决策 Prompt 只允许已发布、启用的 SYSTEM 版本及意图决策通道变量。 */
+    private void validateDecisionPrompt(Long versionId, List<IntentTreeValidationIssueVO> issues) {
+        String field = "definition.routingPolicy.decisionPromptVersionId";
+        if (Objects.isNull(versionId)) {
+            issues.add(new IntentTreeValidationIssueVO("DECISION_PROMPT_REQUIRED", field, "请选择已发布的意图决策SYSTEM Prompt版本"));
+            return;
+        }
+        PromptService.PromptVersionReference prompt = promptService.findPublishedVersion(versionId).orElse(null);
+        if (Objects.isNull(prompt) || !prompt.active()) {
+            issues.add(new IntentTreeValidationIssueVO("DECISION_PROMPT_UNAVAILABLE", field, "意图决策Prompt版本不存在、未发布或已停用"));
+            return;
+        }
+        if (prompt.role() != PromptRole.SYSTEM) {
+            issues.add(new IntentTreeValidationIssueVO("DECISION_PROMPT_ROLE_INVALID", field, "意图决策必须引用SYSTEM Prompt"));
+        }
+        for (PromptService.PromptVariableReference definition : prompt.variables()) {
+            Optional<BuiltInRuntimeVariable> variable = RuntimeVariableCatalog.find(definition.name());
+            if (variable.isEmpty()) {
+                issues.add(new IntentTreeValidationIssueVO("DECISION_PROMPT_VARIABLE_UNSUPPORTED", field,
+                        "意图决策Prompt包含运行端不支持的变量：" + definition.name()));
+                continue;
+            }
+            if (!variable.get().supportsChannel(RuntimeVariableChannel.INTENT_DECISION_PROMPT)) {
+                issues.add(new IntentTreeValidationIssueVO("DECISION_PROMPT_VARIABLE_UNSAFE", field,
+                        "意图决策Prompt禁止使用变量：" + definition.name()));
+            }
+            if (Objects.isNull(definition.type()) || !variable.get().getType().getCode().equals(definition.type().getCode())) {
+                issues.add(new IntentTreeValidationIssueVO("DECISION_PROMPT_VARIABLE_TYPE_MISMATCH", field,
+                        "意图决策Prompt变量类型不匹配：" + definition.name()));
+            }
+        }
     }
 
     /** 意图树发布及版本切换前重新确认配置领域仍处于启用状态。 */
@@ -434,7 +503,15 @@ public class IntentTreeServiceImpl implements IntentTreeService {
                 .priority(0)
                 .enabled(true)
                 .build();
-        return new IntentTreeDefinition(1, null, new IntentRoutingPolicy(5, new BigDecimal("0.65"), new BigDecimal("0.08")), List.of(root));
+        IntentRoutingPolicy policy = IntentRoutingPolicy.builder()
+                .topK(5)
+                .recallThreshold(new BigDecimal("0.65"))
+                .maxOutputTokens(512)
+                .timeoutSeconds(30)
+                .maxRepeatAttempts(1)
+                .decisionFailureAction(IntentDecisionFailureAction.DEFER)
+                .build();
+        return new IntentTreeDefinition(INTENT_TREE_SCHEMA_VERSION, null, policy, List.of(root));
     }
 
     private static String versionName(String requestedName, int versionNo) {

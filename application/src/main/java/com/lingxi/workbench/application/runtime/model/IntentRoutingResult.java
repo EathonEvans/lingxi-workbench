@@ -1,7 +1,9 @@
 package com.lingxi.workbench.application.runtime.model;
 
 import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingAction;
+import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingReason;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -21,7 +23,7 @@ import lombok.Getter;
  * </ul>
  */
 @Getter
-@Builder
+@Builder(toBuilder = true)
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class IntentRoutingResult {
 
@@ -58,42 +60,60 @@ public class IntentRoutingResult {
     /** 未直达时提供给 fallback Agent 的安全结构化证据。 */
     private final IntentRoutingEvidence routingEvidence;
 
+    /** 本次不可变路由决策事实主键。 */
+    private final Long decisionId;
+
+    /** 本次路由语义模型消耗；无模型调用时为空用量。 */
+    private final TokenUsage tokenUsage;
+
+    /** 本次路由语义模型调用次数，包含 Spring AI 结构化输出修复调用。 */
+    private final int modelCalls;
+
+    /** 本次路由语义模型重试次数。 */
+    private final int retryCount;
+
+    /** 本次路由语义模型总耗时。 */
+    private final long durationMillis;
+
     /**
-     * 当前请求未进入快速路由。
+     * 当前请求未进入意图路由。
      */
     public static IntentRoutingResult skipped(String query) {
         return builder()
                 .action(IntentRoutingAction.SKIPPED)
                 .executionQuery(query)
+                .tokenUsage(TokenUsage.empty())
                 .routingEvidence(IntentRoutingEvidence.builder()
-                        .reason(com.lingxi.workbench.application.runtime.common.enums.IntentRoutingFallbackReason.ROUTING_DISABLED)
+                        .reason(IntentRoutingReason.ROUTING_DISABLED)
                         .candidates(java.util.List.of())
                         .build())
                 .build();
     }
 
     /**
-     * 可选快速路由未命中时交还上层模型决策。
+     * 意图路由未选择执行目标时交还上层模型决策。
      */
-    public static IntentRoutingResult noMatch(String query) {
+    public static IntentRoutingResult deferUnmatched(String query, IntentRoutingReason reason) {
         return builder()
-                .action(IntentRoutingAction.NO_MATCH)
+                .action(IntentRoutingAction.DEFER_TO_AGENT)
                 .executionQuery(query)
+                .tokenUsage(TokenUsage.empty())
                 .routingEvidence(IntentRoutingEvidence.builder()
-                        .reason(com.lingxi.workbench.application.runtime.common.enums.IntentRoutingFallbackReason.NOT_MATCHED)
+                        .reason(reason)
                         .candidates(java.util.List.of())
                         .build())
                 .build();
     }
 
     /**
-     * 快速路由无法安全直达时，将裁剪后的候选证据交给 fallback Agent 二次判断。
+     * 意图路由无法安全直达时，将裁剪后的候选证据交给 fallback Agent 二次判断。
      */
     public static IntentRoutingResult defer(String query, IntentRoutingEvidence evidence) {
         return builder()
                 .action(IntentRoutingAction.DEFER_TO_AGENT)
                 .executionQuery(query)
                 .routingEvidence(evidence)
+                .tokenUsage(TokenUsage.empty())
                 .build();
     }
 }

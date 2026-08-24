@@ -101,7 +101,6 @@ class ApplicationRuntimeEventSinkFactoryTest {
                 .maxToolCalls(1)
                 .maxDelegations(0)
                 .totalTokenBudget(1000)
-                .timeoutSeconds(60)
                 .build());
         RuntimeEventSink sink = new ApplicationRuntimeEventSinkFactory(persistenceService).create(context);
 

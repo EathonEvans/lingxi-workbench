@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.model;
 
-import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingFallbackReason;
+import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingReason;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -17,7 +17,7 @@ import java.util.Objects;
 @Builder
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class IntentRoutingEvidence {
-    private final IntentRoutingFallbackReason reason;
+    private final IntentRoutingReason reason;
     private final List<IntentRoutingEvidenceCandidate> candidates;
 
     public List<IntentRoutingEvidenceCandidate> candidates() {

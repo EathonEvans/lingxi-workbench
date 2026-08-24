@@ -3,9 +3,9 @@ package com.lingxi.workbench.agentruntime;
 import com.lingxi.workbench.agentruntime.event.ExecutionEvent;
 import com.lingxi.workbench.agentruntime.event.ExecutionEventType;
 import com.lingxi.workbench.agentruntime.event.RuntimeEventSink;
-import com.lingxi.workbench.agentruntime.gateway.SpringAiChatClientFactory;
 import com.lingxi.workbench.agentruntime.gateway.advisor.RuntimeContextAdvisor;
 import com.lingxi.workbench.agentruntime.gateway.advisor.RuntimeModelAdvisor;
+import com.lingxi.workbench.infra.ai.chat.SpringAiChatClientFactory;
 import com.lingxi.workbench.agentruntime.model.ExecutionPolicy;
 import com.lingxi.workbench.agentruntime.planner.PlannerDecisionAction;
 import com.lingxi.workbench.agentruntime.planner.PlannerDecisionValidationContext;
@@ -30,7 +30,7 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -64,7 +64,12 @@ class PlannerRuntimeTest {
         Fixture fixture = fixture(false,
                 response("{\"action\":\"EXECUTE_CAPABILITY\",\"capabilityCode\":\"research\",\"unknown\":true}",
                         5, 2, 7),
-                response("{\"action\":\"EXECUTE_CAPABILITY\",\"capabilityCode\":\"unauthorized\"}", 5, 2, 7),
+                response("""
+                        {"action":"EXECUTE_PLAN","plan":{"title":"过量研究","steps":[
+                        {"id":"r1","name":"研究一","capabilityCode":"research","dependsOn":[]},
+                        {"id":"r2","name":"研究二","capabilityCode":"research","dependsOn":["r1"]},
+                        {"id":"r3","name":"研究三","capabilityCode":"research","dependsOn":["r2"]}]}}
+                        """, 5, 2, 7),
                 response(validDirectJson(), 5, 2, 7));
 
         PlannerRunResult result = fixture.runtime.run(request(fixture.config, fixture.sink, 1, 2));
@@ -122,8 +127,9 @@ class PlannerRuntimeTest {
                 .history(List.of())
                 .modelConfig(config)
                 .validationContext(PlannerDecisionValidationContext.builder()
-                        .authorizedCapabilityCodes(Set.of("research"))
+                        .remainingCapabilityCalls(Map.of("research", 2))
                         .maxSteps(4)
+                        .remainingDelegations(4)
                         .build())
                 .maxProtocolRepairAttempts(repairAttempts)
                 .policy(ExecutionPolicy.builder()
@@ -131,8 +137,6 @@ class PlannerRuntimeTest {
                         .maxToolCalls(0)
                         .maxTotalTokens(100)
                         .maxFinalizationTokens(100)
-                        .timeout(Duration.ofSeconds(3))
-                        .activeOutputGrace(Duration.ZERO)
                         .build())
                 .eventSink(sink)
                 .initialSequenceNo(0)

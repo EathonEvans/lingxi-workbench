@@ -63,14 +63,17 @@ public class WorkflowRunServiceImpl implements WorkflowRunService {
         run.setStatus(WorkflowRunStatus.RUNNING);
         run.setStartedAt(toOffsetDateTime(context.getStartedAt()));
         runRepo.insert(run);
-        appendEvent(context.getRunId(), WorkflowRunEventType.RUN_STARTED, null, null, "Workflow开始执行", context.getStartedAt(), 1L);
+        WorkflowRunEventEntity event = newEvent(context.getRunId(), WorkflowRunEventType.RUN_STARTED, "Workflow开始执行");
+        finishEvent(event, context.getStartedAt(), 1L, null);
     }
 
     @Override
     @Transactional
     public void startNode(WorkflowRunContext context, WorkflowNodeDefinition node, Instant startedAt) {
         requireRunning(context.getRunId());
-        appendEvent(context.getRunId(), WorkflowRunEventType.NODE_STARTED, node, WorkflowNodeRunStatus.RUNNING, "节点开始执行", startedAt, eventRepo.nextSequence(context.getRunId()));
+        WorkflowRunEventEntity event = newEvent(context.getRunId(), WorkflowRunEventType.NODE_STARTED, "节点开始执行");
+        applyNode(event, node, WorkflowNodeRunStatus.RUNNING);
+        finishEvent(event, startedAt, eventRepo.nextSequence(context.getRunId()), null);
     }
 
     @Override
@@ -93,6 +96,7 @@ public class WorkflowRunServiceImpl implements WorkflowRunService {
         if (trace.getStatus() == WorkflowNodeStatus.FAILED) {
             attempt.setErrorCode(NODE_ERROR_CODE);
         }
+        applyModelFacts(attempt, trace);
         attemptRepo.insert(attempt);
 
         WorkflowRunEventType eventType = switch (trace.getStatus()) {
@@ -103,7 +107,9 @@ public class WorkflowRunServiceImpl implements WorkflowRunService {
             case SUCCEEDED -> "节点执行成功";
             case FAILED -> "节点执行失败";
         };
-        appendEvent(context.getRunId(), eventType, node, nodeStatus, message, trace.getFinishedAt(), eventRepo.nextSequence(context.getRunId()));
+        WorkflowRunEventEntity event = newEvent(context.getRunId(), eventType, message);
+        applyNode(event, node, nodeStatus);
+        finishEvent(event, trace.getFinishedAt(), eventRepo.nextSequence(context.getRunId()), trace);
     }
 
     @Override
@@ -141,7 +147,8 @@ public class WorkflowRunServiceImpl implements WorkflowRunService {
         if (!runRepo.finish(run.getRunId(), status, finishedAt, errorCode)) {
             throw invalid("Workflow运行状态已变化，不能重复结束");
         }
-        appendEvent(run.getRunId(), eventType, null, null, message, finishedAt.toInstant(), eventRepo.nextSequence(run.getRunId()));
+        WorkflowRunEventEntity event = newEvent(run.getRunId(), eventType, message);
+        finishEvent(event, finishedAt.toInstant(), eventRepo.nextSequence(run.getRunId()), null);
     }
 
     private WorkflowRunEntity requireRunning(String runId) {
@@ -159,20 +166,60 @@ public class WorkflowRunServiceImpl implements WorkflowRunService {
         }
     }
 
-    private void appendEvent(String runId, WorkflowRunEventType eventType, WorkflowNodeDefinition node, WorkflowNodeRunStatus status, String message, Instant occurredAt, long sequence) {
+    private static WorkflowRunEventEntity newEvent(String runId, WorkflowRunEventType eventType, String message) {
         WorkflowRunEventEntity event = new WorkflowRunEventEntity();
         event.setRunId(runId);
-        event.setSequenceNo(sequence);
         event.setEventType(eventType);
-        if (Objects.nonNull(node)) {
-            event.setNodeId(node.id());
-            event.setNodeType(node.type());
-            event.setDisplayName(node.name());
-        }
-        event.setNodeStatus(status);
         event.setMessage(message);
+        return event;
+    }
+
+    private static void applyNode(WorkflowRunEventEntity event, WorkflowNodeDefinition node,
+                                  WorkflowNodeRunStatus status) {
+        event.setNodeId(node.id());
+        event.setNodeType(node.type());
+        event.setDisplayName(node.name());
+        event.setNodeStatus(status);
+    }
+
+    private void finishEvent(WorkflowRunEventEntity event, Instant occurredAt, long sequence,
+                             WorkflowNodeTrace trace) {
+        event.setSequenceNo(sequence);
+        if (Objects.nonNull(trace)) {
+            applyModelFacts(event, trace);
+        }
         event.setOccurredAt(toOffsetDateTime(Objects.requireNonNullElseGet(occurredAt, Instant::now)));
         eventRepo.insert(event);
+    }
+
+    private static void applyModelFacts(WorkflowNodeAttemptEntity attempt, WorkflowNodeTrace trace) {
+        if (Objects.isNull(trace.getDecisionStatus())) {
+            return;
+        }
+        attempt.setDecisionStatus(trace.getDecisionStatus());
+        attempt.setReasonCode(trace.getReasonCode());
+        attempt.setModelInstanceId(trace.getModelInstanceId());
+        attempt.setPromptVersionId(trace.getPromptVersionId());
+        attempt.setModelCalls(trace.getModelCalls());
+        attempt.setRetryCount(trace.getRetryCount());
+        attempt.setInputTokens(trace.getTokenUsage().inputTokens());
+        attempt.setOutputTokens(trace.getTokenUsage().outputTokens());
+        attempt.setTotalTokens(trace.getTokenUsage().totalTokens());
+    }
+
+    private static void applyModelFacts(WorkflowRunEventEntity event, WorkflowNodeTrace trace) {
+        if (Objects.isNull(trace.getDecisionStatus())) {
+            return;
+        }
+        event.setDecisionStatus(trace.getDecisionStatus());
+        event.setReasonCode(trace.getReasonCode());
+        event.setModelInstanceId(trace.getModelInstanceId());
+        event.setPromptVersionId(trace.getPromptVersionId());
+        event.setModelCalls(trace.getModelCalls());
+        event.setRetryCount(trace.getRetryCount());
+        event.setInputTokens(trace.getTokenUsage().inputTokens());
+        event.setOutputTokens(trace.getTokenUsage().outputTokens());
+        event.setTotalTokens(trace.getTokenUsage().totalTokens());
     }
 
     private static OffsetDateTime toOffsetDateTime(Instant instant) {

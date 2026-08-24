@@ -60,7 +60,17 @@ public class ModelInstanceServiceImpl implements ModelInstanceService {
     @Override
     @Transactional(readOnly = true)
     public Optional<ModelInstanceReferenceBO> findReference(Long id) {
-        return instanceRepo.findById(id).map(entity -> new ModelInstanceReferenceBO(entity.getId(), entity.getModelType(), entity.getStatus()));
+        return instanceRepo.findById(id).map(entity -> {
+            ModelProviderEntity provider = providerRepo.findById(entity.getProviderId()).orElse(null);
+            return ModelInstanceReferenceBO.builder()
+                    .id(entity.getId())
+                    .modelType(entity.getModelType())
+                    .status(entity.getStatus())
+                    .protocol(Objects.isNull(provider) ? null : provider.getProtocol())
+                    .capabilities(entity.getCapabilities())
+                    .lastTestStatus(entity.getLastTestStatus())
+                    .build();
+        });
     }
 
     /**

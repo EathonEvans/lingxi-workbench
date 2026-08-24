@@ -2,23 +2,29 @@ package com.lingxi.workbench.application.runtime.service.routing;
 
 import cn.hutool.core.text.CharSequenceUtil;
 import com.lingxi.workbench.application.runtime.common.enums.IntentClarificationType;
-import com.lingxi.workbench.application.runtime.common.enums.IntentRecognitionStatus;
 import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingAction;
-import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingFallbackReason;
+import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingReason;
 import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingSessionStatus;
+import com.lingxi.workbench.application.runtime.common.enums.IntentDecisionReason;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.IntentClarificationContext;
-import com.lingxi.workbench.application.runtime.model.IntentRecognitionCandidate;
-import com.lingxi.workbench.application.runtime.model.IntentRecognitionRequest;
-import com.lingxi.workbench.application.runtime.model.IntentRecognitionResult;
+import com.lingxi.workbench.application.runtime.model.IntentCandidate;
+import com.lingxi.workbench.application.runtime.model.IntentCandidateRequest;
+import com.lingxi.workbench.application.runtime.model.IntentCandidateSet;
 import com.lingxi.workbench.application.runtime.model.IntentRoutingEvidence;
 import com.lingxi.workbench.application.runtime.model.IntentRoutingEvidenceCandidate;
+import com.lingxi.workbench.application.runtime.model.IntentRoutingDecisionCandidate;
 import com.lingxi.workbench.application.runtime.model.IntentRoutingResult;
+import com.lingxi.workbench.application.runtime.model.IntentRecognizedSlot;
+import com.lingxi.workbench.application.runtime.model.IntentSemanticDecision;
+import com.lingxi.workbench.application.runtime.model.IntentSemanticDecisionResult;
+import com.lingxi.workbench.application.runtime.model.IntentSemanticDecisionSnapshot;
+import com.lingxi.workbench.application.runtime.model.IntentSemanticSlotValue;
+import com.lingxi.workbench.application.runtime.model.entity.IntentRoutingDecisionEntity;
 import com.lingxi.workbench.application.runtime.model.entity.IntentRoutingSessionEntity;
 import com.lingxi.workbench.application.runtime.model.entity.RuntimeIntentTreeVersionEntity;
 import com.lingxi.workbench.application.runtime.repo.IntentRoutingSessionRepo;
 import com.lingxi.workbench.application.runtime.repo.IntentTreeRuntimeRepo;
-import com.lingxi.workbench.application.runtime.service.routing.IntentRecognitionService;
 import com.lingxi.workbench.application.runtime.service.routing.IntentRoutingService;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
@@ -27,6 +33,7 @@ import com.lingxi.workbench.chat.model.request.ClarificationResponseRequest;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
@@ -55,8 +62,10 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConstants.INTENT_TREE_SCHEMA_VERSION;
+
 /**
- * 基于发布向量、确定性分差门控和持久化澄清会话的意图路由实现。
+ * 基于发布候选召回和持久化澄清会话的意图路由实现。
  *
  * <h2>路由入口</h2>
  * <p>{@link #route(ConversationContext, ClarificationResponseRequest)}
@@ -65,29 +74,30 @@ import java.util.stream.Collectors;
  *
  * <h2>执行流程</h2>
  * <ol>
- *   <li><b>前置检查</b>：Application 是否启用快速路由？未启用则交回执行大脑。</li>
+ *   <li><b>前置检查</b>：Application 是否启用意图路由？未启用则交回 fallback Agent。</li>
  *   <li><b>加载版本快照</b>：读取 ApplicationVersion 中锁定的 IntentTreeVersion，
  *       解析 IntentTreeDefinition 并构建 code→node 索引。</li>
  *   <li><b>检查待处理澄清</b>：同一对话中是否有 PENDING 状态的澄清会话？
  *       有 → 恢复澄清流程，处理用户的选择或槽位输入。
  *       如会话已过期或取消 → 返回 null，重新识别。</li>
  *   <li><b>新请求识别</b>：向量化用户输入 → pgvector 余弦召回 Top-K 候选
- *       → 过滤低于阈值的候选 → 判断歧义 / 确定意图。</li>
+ *       → 过滤低于阈值的候选 → 锁定模型在候选范围内作强类型语义决策。</li>
  *   <li><b>结果分发</b>：
  *       <ul>
  *         <li>无候选 → 返回未命中兜底文案</li>
- *         <li>同一能力内歧义 → 创建澄清会话；跨能力歧义 → 交给 fallback Agent</li>
- *         <li>明确意图 → 检查槽位：缺必填槽位 → 澄清采集；槽位完整 → 返回执行目标</li>
+ *         <li>CLARIFY → 创建候选消歧或缺槽位澄清会话</li>
+ *         <li>SELECT → 校验并合并已识别槽位，槽位完整后返回锁定执行目标</li>
+ *         <li>DEFER → 交给 Application fallback Agent</li>
  *       </ul>
  *   </li>
  * </ol>
  *
  * <h2>关键设计决策</h2>
  * <ul>
- *   <li><b>快速路由不使用 LLM 分类</b>：只在向量召回形成确定结果时直达锁定能力。</li>
+ *   <li><b>发布版本锁定</b>：意图树、映射和能力版本在 ApplicationVersion 中保持一致。</li>
  *   <li><b>澄清会话持久化</b>：存入 PostgreSQL 而非仅依赖 Redis。锁定
  *       versionId 和 intentTreeVersionId，防止澄清过程中新版本发布造成漂移。</li>
- *   <li><b>Agent 兜底</b>：未命中、未映射或跨能力歧义统一交给 Application 的 fallback Agent。</li>
+ *   <li><b>Agent 兜底</b>：未命中、未映射或语义决策 DEFER 统一交给 Application 的 fallback Agent。</li>
  *   <li><b>分数可解释</b>：intentScore = max(原型相似度, 各正例相似度)，
  *       保持先简单可解释，权重融合待评测数据验证后增加。</li>
  *   <li><b>每叶子一个最高分</b>：SQL 层面按 intent_code 分组取 MAX，
@@ -122,19 +132,23 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
      * 意图树版本只读查询
      */
     private final IntentTreeRuntimeRepo intentTreeRepo;
-    /** 复用发布意图树的纯向量识别能力。 */
-    private final IntentRecognitionService intentRecognitionService;
+    /** 复用发布意图树的纯候选召回能力。 */
+    private final IntentCandidateRetriever candidateRetriever;
+    /** 使用锁定模型和Prompt在候选范围内完成强类型语义决策。 */
+    private final IntentSemanticDecisionService semanticDecisionService;
     /**
      * 澄清会话持久化
      */
     private final IntentRoutingSessionRepo sessionRepo;
+    /** 路由完成后用短事务追加决策事实，并关联可选澄清会话。 */
+    private final IntentRoutingDecisionPersistenceServiceImpl decisionPersistenceService;
 
     /**
      * 意图路由入口。
      *
      * <p>每一条用户消息到达时调用此方法，优先级为：
      * <ol>
-     *   <li>未启用快速路由 → 交回 Application fallback Agent</li>
+     *   <li>未启用意图路由 → 交回 Application fallback Agent</li>
      *   <li>存在 PENDING 澄清会话 → 恢复澄清流程</li>
      *   <li>否则 → 新请求全流程识别</li>
      * </ol>
@@ -150,15 +164,19 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         LoginUser loginUser = context.getLoginUser();
         ChatTurnBO turn = context.getTurn();
         String originalQuery = context.getOriginalQuery();
-        ApplicationIntentBinding binding = application.definition().optionalFastRoutes();
+        ApplicationIntentBinding binding = application.definition().intentRouting();
         if (Objects.isNull(binding) || !binding.isEnabled()) {
-            return IntentRoutingResult.skipped(context.routingQuery());
+            return persistDecision(context, null, List.of(), null,
+                    IntentRoutingResult.skipped(context.routingQuery()));
         }
         // 加载发布版本中锁定的意图树版本快照
         RuntimeIntentTreeVersionEntity version = intentTreeRepo
                 .findVersion(binding.getIntentTreeId(), binding.getIntentTreeVersionId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "Application锁定的意图树版本不存在"));
         IntentTreeDefinition definition = Objects.requireNonNull(version.getDefinitionSnapshot(), "意图树发布定义不能为空");
+        if (definition.schemaVersion() != INTENT_TREE_SCHEMA_VERSION) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "意图树发布定义版本不受支持");
+        }
         // 构建 code → node 索引，后续按编码快速查找节点详情
         Map<String, IntentNodeDefinition> nodesByCode = definition.nodes().stream()
                 .collect(Collectors.toMap(IntentNodeDefinition::getCode, Function.identity()));
@@ -174,14 +192,11 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         Optional<IntentRoutingSessionEntity> pending = findPending(application, turn, loginUser, clarificationResponse);
         if (pending.isPresent()) {
             // 步骤 2：恢复澄清流程，处理用户的选择或槽位输入
-            // 返回 null 表示会话已过期或取消 → 作为全新请求重新识别
             IntentRoutingResult resumed = resumeClarification(pending.get(), originalQuery, clarificationResponse, configuration);
-            if (Objects.nonNull(resumed)) {
-                return resumed;
-            }
+            return persistDecision(context, configuration, List.of(), null, resumed);
         }
         // 步骤 3：全新请求——向量化 → 召回 → 门控 → 执行/澄清
-        return routeFresh(configuration, context.routingQuery(), loginUser, turn);
+        return routeFresh(configuration, context, loginUser, turn);
     }
 
     /**
@@ -229,16 +244,10 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
     /**
      * 恢复已有的澄清会话，处理用户本次的响应。
      *
-     * <p>返回值语义：</p>
-     * <ul>
-     *   <li>返回非 null → 澄清流程继续或完成，外层直接返回该结果</li>
-     *   <li>返回 null → 会话已过期/取消，外层应作为全新请求重新识别</li>
-     * </ul>
-     *
      * <p>处理流程：</p>
      * <ol>
-     *   <li>检查过期：过期 → 状态标记 EXPIRED，返回 null</li>
-     *   <li>检查取消：用户回复取消词 → 状态标记 CANCELLED，返回兜底文案</li>
+     *   <li>检查过期：过期 → 状态标记 EXPIRED，返回显式延迟决策</li>
+     *   <li>检查取消：用户回复取消词 → 状态标记 CANCELLED，返回显式延迟决策</li>
      *   <li>歧义消解类型 → 解析用户的选择（编码/名称/序号）→ 消歧成功则继续检查槽位</li>
      *   <li>缺槽位类型 → 采集用户提供的槽位值</li>
      * </ol>
@@ -246,9 +255,8 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
      * @param session     已有的 PENDING 澄清会话
      * @param query       用户本次回复文本
      * @param response    可选的澄清响应
-     * @param binding     已发布的意图绑定配置
-     * @param nodesByCode code → 节点定义映射
-     * @return 路由结果，会话取消/过期时返回 null
+     * @param configuration 已锁定的路由配置
+     * @return 路由结果
      */
     private IntentRoutingResult resumeClarification(IntentRoutingSessionEntity session, String query,
                                                     ClarificationResponseRequest response,
@@ -257,7 +265,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         if (session.getExpiresAt().isBefore(OffsetDateTime.now())) {
             session.setStatus(IntentRoutingSessionStatus.EXPIRED);
             sessionRepo.update(session);
-            return IntentRoutingResult.noMatch(query);
+            return IntentRoutingResult.deferUnmatched(query, IntentRoutingReason.CLARIFICATION_EXPIRED);
         }
         // 提取用户提供的值（优先从结构化响应中取，其次用原始文本）
         String suppliedValue = structuredValue(response, query);
@@ -265,7 +273,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         if (CANCEL_WORDS.contains(suppliedValue.trim())) {
             session.setStatus(IntentRoutingSessionStatus.CANCELLED);
             sessionRepo.update(session);
-            return clarificationFailureResult(query);
+            return clarificationFailureResult(query, IntentRoutingReason.CLARIFICATION_CANCELLED);
         }
         if (session.getClarificationType() == IntentClarificationType.INTENT_DISAMBIGUATION) {
             // 歧义消解：尝试从用户回复中识别选择了哪个候选
@@ -281,85 +289,225 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
             // 消歧成功 → 继续检查该意图的槽位是否完整
             return resolveSlotsOrTarget(
                     session, originalQuery(session.getContext(), query), configuration,
-                    configuration.getNodesByCode().get(intentCode), null);
+                    configuration.getNodesByCode().get(intentCode),
+                    reasonEvidence(IntentRoutingReason.CLARIFICATION_RESOLVED));
         }
         // MISSING_SLOT 类型：采集用户填入的槽位值
         return collectSlot(session, suppliedValue, query, configuration);
     }
 
     /**
-     * 全新的意图识别流程：向量化 → 召回 → 门控 → 分发。
-     *
-     * <p>该链路不依赖 LLM，只在向量相似度和分差满足确定性门控时直达。</p>
+     * 全新的候选路由流程：向量化 → 召回 → 安全门控 → 分发。
      *
      * <ol>
      *   <li>调用 EmbeddingGateway 将用户 query 向量化</li>
      *   <li>在指定意图树版本内按余弦相似度召回 Top-K 个候选</li>
      *   <li>过滤掉低于召回阈值的候选</li>
      *   <li>空候选 → 未命中兜底</li>
-     *   <li>Top-1 与 Top-2 分差小于歧义阈值 → 歧义澄清</li>
-     *   <li>否则 → 确定意图，检查槽位 → 执行或缺槽位澄清</li>
+     *   <li>非空候选 → 锁定模型输出 SELECT / CLARIFY / DEFER 强类型决策</li>
+     *   <li>SELECT / CLARIFY → 检查映射与槽位后执行或发起持久化澄清</li>
+     *   <li>DEFER → 交给 fallback Agent</li>
      * </ol>
      *
      * @param configuration 已锁定的路由配置
-     * @param query         用户输入文本
+     * @param context       当前对话上下文
      * @param loginUser     当前用户
      * @param turn          对话轮次
      * @return 路由结果
      */
-    private IntentRoutingResult routeFresh(RouteConfiguration configuration, String query,
+    private IntentRoutingResult routeFresh(RouteConfiguration configuration, ConversationContext context,
                                            LoginUser loginUser, ChatTurnBO turn) {
         RuntimeIntentTreeVersionEntity version = configuration.getVersion();
-        IntentRecognitionResult recognition = intentRecognitionService.recognize(new IntentRecognitionRequest(
-                version.getIntentTreeId(), version.getId(), query));
-        if (recognition.status() == IntentRecognitionStatus.NOT_MATCHED) {
-            return fallbackResult(query);
+        String query = context.routingQuery();
+
+        IntentCandidateSet candidateSet = candidateRetriever.retrieve(new IntentCandidateRequest(version.getIntentTreeId(), version.getId(), query));
+        if (candidateSet.candidates().isEmpty()) {
+            return persistDecision(context, configuration, List.of(), null, fallbackResult(query));
         }
-        IntentRecognitionCandidate topCandidate = recognition.candidates().getFirst();
-        if (recognition.status() == IntentRecognitionStatus.AMBIGUOUS) {
-            List<ApplicationIntentMapping> candidateMappings = recognition.candidates().stream()
-                    .map(candidate -> findMapping(configuration, candidate.intentCode()).orElse(null))
-                    .toList();
-            if (candidateMappings.stream().anyMatch(Objects::isNull)) {
-                return defer(configuration, query, recognition.candidates(),
-                        IntentRoutingFallbackReason.UNMAPPED_CANDIDATE);
-            }
-            Set<String> capabilityCodes = candidateMappings.stream()
-                    .map(ApplicationIntentMapping::getCapabilityCode)
-                    .filter(CharSequenceUtil::isNotBlank)
-                    .collect(Collectors.toSet());
-            boolean sameCapability = capabilityCodes.size() == 1
-                    && candidateMappings.stream().allMatch(mapping ->
-                    CharSequenceUtil.isNotBlank(mapping.getCapabilityCode()));
-            if (!sameCapability) {
-                return defer(configuration, query, recognition.candidates(),
-                        IntentRoutingFallbackReason.AMBIGUOUS_ACROSS_CAPABILITIES);
-            }
-            List<String> candidateCodes = recognition.candidates().stream()
-                    .map(IntentRecognitionCandidate::intentCode)
-                    .toList();
-            IntentClarificationContext clarificationContext = IntentClarificationContext.builder()
-                    .originalQuery(query).candidateCodes(candidateCodes).collectedSlots(new LinkedHashMap<>()).build();
-            IntentRoutingSessionEntity session = createSession(
-                    turn, loginUser, configuration, IntentClarificationType.INTENT_DISAMBIGUATION,
-                    clarificationContext);
-            return clarification(session, ambiguityQuestion(candidateCodes, configuration.getNodesByCode()),
-                    candidateCodes, configuration.getNodesByCode(),
-                    evidence(IntentRoutingFallbackReason.AMBIGUOUS_WITHIN_CAPABILITY, recognition.candidates()));
+        IntentSemanticDecisionResult semanticResult = semanticDecisionService.decide(context, version, candidateSet.candidates());
+
+        IntentSemanticDecision decision = semanticResult.getDecision();
+        IntentRoutingResult routing = switch (decision.getAction()) {
+            case SELECT -> routeSelected(configuration, query, loginUser, turn,
+                    candidateSet.candidates(), decision, IntentRoutingReason.ROUTED_BY_SEMANTIC);
+            case CLARIFY -> clarifyBySemanticDecision(configuration, query, loginUser, turn,
+                    candidateSet.candidates(), decision);
+            case DEFER -> defer(configuration, query, candidateSet.candidates(),
+                    semanticDeferReason(decision.getReasonCode()));
+        };
+        return persistDecision(context, configuration, candidateSet.candidates(), semanticResult, routing);
+    }
+
+    private static IntentRoutingReason semanticDeferReason(IntentDecisionReason reason) {
+        if (reason == IntentDecisionReason.SEMANTIC_DECISION_FAILED) {
+            return IntentRoutingReason.SEMANTIC_DECISION_FAILED;
         }
-        if (!hasMapping(configuration, topCandidate.intentCode())) {
-            return IntentRoutingResult.noMatch(query);
+        if (reason == IntentDecisionReason.MODEL_BUDGET_EXHAUSTED) {
+            return IntentRoutingReason.MODEL_BUDGET_EXHAUSTED;
         }
-        // 步骤 6：意图明确，检查槽位 → 执行目标或缺槽位澄清
-        String intentCode = topCandidate.intentCode();
-        IntentNodeDefinition node = configuration.getNodesByCode().get(intentCode);
+        return IntentRoutingReason.SEMANTIC_DEFER;
+    }
+
+    /**
+     * 追加本次路由的安全审计事实，并把模型用量附加到路由结果供 Application 并账。
+     */
+    private IntentRoutingResult persistDecision(ConversationContext context,
+                                                RouteConfiguration configuration,
+                                                List<IntentCandidate> candidates,
+                                                IntentSemanticDecisionResult semanticResult,
+                                                IntentRoutingResult routing) {
+        TokenUsage usage = Objects.isNull(semanticResult)
+                ? TokenUsage.empty() : Objects.requireNonNullElseGet(semanticResult.getTokenUsage(), TokenUsage::empty);
+        IntentRoutingReason reason = routingReason(routing);
+        RuntimeIntentTreeVersionEntity version = Objects.isNull(configuration) ? null : configuration.getVersion();
+        IntentRoutingDecisionEntity decision = IntentRoutingDecisionEntity.builder()
+                .conversationId(context.getTurn().conversationId())
+                .userId(context.getLoginUser().id())
+                .userMessageId(context.getTurn().userMessageId())
+                .assistantMessageId(context.getTurn().assistantMessageId())
+                .applicationId(context.getApplicationSnapshot().applicationId())
+                .applicationVersionId(context.getApplicationSnapshot().versionId())
+                .intentTreeId(Objects.isNull(version) ? null : version.getIntentTreeId())
+                .intentTreeVersionId(Objects.isNull(version) ? null : version.getId())
+                .embeddingModelInstanceId(Objects.isNull(version) ? null : version.getEmbeddingModelInstanceId())
+                .chatModelInstanceId(Objects.isNull(semanticResult) ? null : semanticResult.getModelInstanceId())
+                .promptVersionId(Objects.isNull(semanticResult) ? null : semanticResult.getPromptVersionId())
+                .action(routing.getAction())
+                .reason(reason)
+                .selectedIntentCode(selectedIntentCode(routing, semanticResult))
+                .capabilityCode(Objects.isNull(routing.getMapping()) ? null : routing.getMapping().getCapabilityCode())
+                .candidateEvidence(decisionCandidates(configuration, candidates))
+                .semanticDecision(semanticDecisionSnapshot(semanticResult))
+                .inputTokens(usage.inputTokens())
+                .outputTokens(usage.outputTokens())
+                .totalTokens(usage.totalTokens())
+                .modelCalls(Objects.isNull(semanticResult) ? 0 : semanticResult.getModelCalls())
+                .retryCount(Objects.isNull(semanticResult) ? 0 : semanticResult.getRetryCount())
+                .durationMillis(Objects.isNull(semanticResult) ? 0L : semanticResult.getDurationMillis())
+                .build();
+
+        Long decisionId = decisionPersistenceService.append(decision, clarificationId(routing));
+        return routing.toBuilder()
+                .decisionId(decisionId)
+                .tokenUsage(usage)
+                .modelCalls(decision.getModelCalls())
+                .retryCount(decision.getRetryCount())
+                .durationMillis(decision.getDurationMillis())
+                .build();
+    }
+
+    private static IntentRoutingReason routingReason(IntentRoutingResult routing) {
+        if (Objects.nonNull(routing.getRoutingEvidence())
+                && Objects.nonNull(routing.getRoutingEvidence().getReason())) {
+            return routing.getRoutingEvidence().getReason();
+        }
+        return switch (routing.getAction()) {
+            case SKIPPED -> IntentRoutingReason.ROUTING_DISABLED;
+            case CLARIFICATION -> IntentRoutingReason.SEMANTIC_CLARIFICATION;
+            case DEFER_TO_AGENT -> IntentRoutingReason.NO_CANDIDATE;
+            case FIXED_RESPONSE, EXECUTE_AGENT, EXECUTE_WORKFLOW -> IntentRoutingReason.ROUTED_BY_SEMANTIC;
+        };
+    }
+
+    private static List<IntentRoutingDecisionCandidate> decisionCandidates(
+            RouteConfiguration configuration, List<IntentCandidate> candidates) {
+        return candidates.stream()
+                .map(candidate -> new IntentRoutingDecisionCandidate(
+                        candidate.intentCode(), candidate.getRank(), candidate.similarity(),
+                        Objects.isNull(configuration) ? null : findMapping(configuration, candidate.intentCode())
+                                .map(ApplicationIntentMapping::getCapabilityCode)
+                                .orElse(null)))
+                .toList();
+    }
+
+    private static IntentSemanticDecisionSnapshot semanticDecisionSnapshot(
+            IntentSemanticDecisionResult semanticResult) {
+        if (Objects.isNull(semanticResult) || Objects.isNull(semanticResult.getDecision())) {
+            return null;
+        }
+        IntentSemanticDecision decision = semanticResult.getDecision();
+        return IntentSemanticDecisionSnapshot.builder()
+                .action(decision.getAction())
+                .reason(decision.getReasonCode())
+                .selectedIntentCode(decision.getSelectedIntentCode())
+                .alternativeIntentCodes(decision.alternativeIntentCodes())
+                .recognizedSlotCodes(decision.recognizedSlots().stream()
+                        .map(IntentRecognizedSlot::getSlotCode)
+                        .toList())
+                .build();
+    }
+
+    private static String selectedIntentCode(IntentRoutingResult routing,
+                                             IntentSemanticDecisionResult semanticResult) {
+        if (CharSequenceUtil.isNotBlank(routing.getIntentCode())) {
+            return routing.getIntentCode();
+        }
+        if (Objects.isNull(semanticResult) || Objects.isNull(semanticResult.getDecision())) {
+            return null;
+        }
+        return semanticResult.getDecision().getSelectedIntentCode();
+    }
+
+    private static Long clarificationId(IntentRoutingResult routing) {
+        if (routing.getAction() != IntentRoutingAction.CLARIFICATION
+                || Objects.isNull(routing.getClarification())) {
+            return null;
+        }
+        try {
+            return Long.valueOf(routing.getClarification().getClarificationId());
+        } catch (NumberFormatException exception) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "澄清会话ID格式不正确");
+        }
+    }
+
+    private IntentRoutingResult routeSelected(RouteConfiguration configuration, String query,
+                                              LoginUser loginUser, ChatTurnBO turn,
+                                              List<IntentCandidate> candidates,
+                                              IntentSemanticDecision decision,
+                                              IntentRoutingReason evidenceReason) {
+        IntentCandidate selected = findCandidate(candidates, decision.getSelectedIntentCode());
+        if (!hasMapping(configuration, selected.intentCode())) {
+            return defer(configuration, query, List.of(selected), IntentRoutingReason.UNMAPPED_CANDIDATE);
+        }
+        IntentNodeDefinition node = configuration.getNodesByCode().get(selected.intentCode());
         if (Objects.isNull(node)) {
-            return IntentRoutingResult.noMatch(query);
+            return defer(configuration, query, List.of(selected), IntentRoutingReason.UNMAPPED_CANDIDATE);
         }
-        // 创建临时会话壳（不持久化，用于槽位检查的上下文传递）
-        IntentRoutingSessionEntity transientSession = sessionShell(turn, loginUser, configuration, intentCode, query);
-        return resolveSlotsOrTarget(transientSession, query, configuration, node,
-                evidence(IntentRoutingFallbackReason.ROUTED_BY_VECTOR, List.of(topCandidate)));
+        IntentRoutingSessionEntity session = sessionShell(
+                turn, loginUser, configuration, selected.intentCode(), query);
+        session.getContext().setCollectedSlots(recognizedSlotValues(decision.recognizedSlots()));
+        return resolveSlotsOrTarget(session, query, configuration, node,
+                evidence(evidenceReason, List.of(selected)));
+    }
+
+    private IntentRoutingResult clarifyBySemanticDecision(RouteConfiguration configuration, String query,
+                                                          LoginUser loginUser, ChatTurnBO turn,
+                                                          List<IntentCandidate> candidates,
+                                                          IntentSemanticDecision decision) {
+        if (CharSequenceUtil.isNotBlank(decision.getSelectedIntentCode())) {
+            return routeSelected(configuration, query, loginUser, turn, candidates, decision,
+                    IntentRoutingReason.SEMANTIC_CLARIFICATION);
+        }
+        List<IntentCandidate> alternatives = candidates.stream()
+                .filter(candidate -> decision.alternativeIntentCodes().contains(candidate.intentCode()))
+                .toList();
+        List<ApplicationIntentMapping> mappings = alternatives.stream()
+                .map(candidate -> findMapping(configuration, candidate.intentCode()).orElse(null))
+                .toList();
+        if (mappings.stream().anyMatch(Objects::isNull)) {
+            return defer(configuration, query, alternatives, IntentRoutingReason.UNMAPPED_CANDIDATE);
+        }
+        List<String> candidateCodes = alternatives.stream().map(IntentCandidate::intentCode).toList();
+        IntentClarificationContext clarificationContext = IntentClarificationContext.builder()
+                .originalQuery(query)
+                .candidateCodes(candidateCodes)
+                .collectedSlots(new LinkedHashMap<>())
+                .build();
+        IntentRoutingSessionEntity session = createSession(turn, loginUser, configuration,
+                IntentClarificationType.INTENT_DISAMBIGUATION, clarificationContext);
+        return clarification(session, ambiguityQuestion(candidateCodes, configuration.getNodesByCode()),
+                candidateCodes, configuration.getNodesByCode(),
+                evidence(IntentRoutingReason.SEMANTIC_CLARIFICATION, alternatives));
     }
 
     /**
@@ -381,9 +529,13 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
                                                      RouteConfiguration configuration, IntentNodeDefinition node,
                                                      IntentRoutingEvidence evidence) {
         if (!hasMapping(configuration, node.getCode())) {
-            return IntentRoutingResult.noMatch(query);
+            return IntentRoutingResult.deferUnmatched(query, IntentRoutingReason.UNMAPPED_CANDIDATE);
         }
-        List<String> requiredSlots = requiredSlots(node);
+        Map<String, String> collectedSlots = Objects.requireNonNullElseGet(
+                session.getContext().getCollectedSlots(), LinkedHashMap::new);
+        List<String> requiredSlots = requiredSlots(node).stream()
+                .filter(slotCode -> !collectedSlots.containsKey(slotCode))
+                .toList();
         if (!requiredSlots.isEmpty()) {
             // 需要收集槽位：更新会话上下文，标记为 MISSING_SLOT 类型
             IntentClarificationContext context = session.getContext();
@@ -392,7 +544,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
             }
             context.setIntentCode(node.getCode());
             context.setMissingSlotCodes(requiredSlots);
-            context.setCollectedSlots(Objects.requireNonNullElseGet(context.getCollectedSlots(), LinkedHashMap::new));
+            context.setCollectedSlots(collectedSlots);
             session.setClarificationType(IntentClarificationType.MISSING_SLOT);
             session.setStatus(IntentRoutingSessionStatus.PENDING);
             session.setRoundNo(1);
@@ -406,7 +558,36 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
             return slotClarification(session, node, evidence);
         }
         // 无必填槽位 → 直接返回执行目标
-        return target(configuration, node.getCode(), query, evidence);
+        String executionQuery = collectedSlots.isEmpty() ? query : enrichedQuery(query, collectedSlots);
+        return target(configuration, node.getCode(), executionQuery, evidence);
+    }
+
+    private static IntentCandidate findCandidate(List<IntentCandidate> candidates, String intentCode) {
+        return candidates.stream()
+                .filter(candidate -> Objects.equals(candidate.intentCode(), intentCode))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "语义决策选择了候选外意图"));
+    }
+
+    private static Map<String, String> recognizedSlotValues(List<IntentRecognizedSlot> recognizedSlots) {
+        Map<String, String> values = new LinkedHashMap<>();
+        for (IntentRecognizedSlot slot : recognizedSlots) {
+            values.put(slot.getSlotCode(), semanticSlotValue(slot.getValue()));
+        }
+        return values;
+    }
+
+    private static String semanticSlotValue(IntentSemanticSlotValue value) {
+        if (Objects.nonNull(value.getStringValue())) {
+            return value.getStringValue();
+        }
+        if (Objects.nonNull(value.getNumberValue())) {
+            return value.getNumberValue().toPlainString();
+        }
+        if (Objects.nonNull(value.getDateValue())) {
+            return value.getDateValue().toString();
+        }
+        return String.valueOf(value.getBooleanValue());
     }
 
     /**
@@ -433,7 +614,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         if (missing.isEmpty()) {
             session.setStatus(IntentRoutingSessionStatus.FAILED);
             sessionRepo.update(session);
-            return clarificationFailureResult(originalQuery);
+            return clarificationFailureResult(originalQuery, IntentRoutingReason.CLARIFICATION_FAILED);
         }
         // FIFO：取出第一个待收集的槽位
         String slotCode = missing.removeFirst();
@@ -453,19 +634,21 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
                 // 超轮次 → 失败兜底
                 session.setStatus(IntentRoutingSessionStatus.FAILED);
                 sessionRepo.update(session);
-                return clarificationFailureResult(originalQuery);
+                return clarificationFailureResult(originalQuery, IntentRoutingReason.CLARIFICATION_FAILED);
             }
             // 轮次 +1，更新过期时间，继续提问下一个槽位
             session.setRoundNo(session.getRoundNo() + 1);
             session.setExpiresAt(OffsetDateTime.now().plusMinutes(CLARIFICATION_TTL_MINUTES));
             sessionRepo.update(session);
-            return slotClarification(session, configuration.getNodesByCode().get(context.getIntentCode()), null);
+            return slotClarification(session, configuration.getNodesByCode().get(context.getIntentCode()),
+                    reasonEvidence(IntentRoutingReason.CLARIFICATION_RETRY));
         }
         // 所有槽位采集完成 → 拼接 enrichedQuery，返回执行目标
         session.setStatus(IntentRoutingSessionStatus.COMPLETED);
         sessionRepo.update(session);
         return target(configuration, context.getIntentCode(),
-                enrichedQuery(originalQuery(context, originalQuery), collected), null);
+                enrichedQuery(originalQuery(context, originalQuery), collected),
+                reasonEvidence(IntentRoutingReason.CLARIFICATION_RESOLVED));
     }
 
     /**
@@ -481,7 +664,8 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         if (session.getRoundNo() >= MAX_CLARIFICATION_ROUNDS) {
             session.setStatus(IntentRoutingSessionStatus.FAILED);
             sessionRepo.update(session);
-            return clarificationFailureResult(session.getContext().getOriginalQuery());
+            return clarificationFailureResult(session.getContext().getOriginalQuery(),
+                    IntentRoutingReason.CLARIFICATION_FAILED);
         }
         session.setRoundNo(session.getRoundNo() + 1);
         session.setExpiresAt(OffsetDateTime.now().plusMinutes(CLARIFICATION_TTL_MINUTES));
@@ -499,6 +683,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
                 .action(IntentRoutingAction.CLARIFICATION)
                 .response(question)
                 .clarification(event)
+                .routingEvidence(reasonEvidence(IntentRoutingReason.CLARIFICATION_RETRY))
                 .build();
     }
 
@@ -576,14 +761,16 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         if (session.getRoundNo() >= MAX_CLARIFICATION_ROUNDS) {
             session.setStatus(IntentRoutingSessionStatus.FAILED);
             sessionRepo.update(session);
-            return clarificationFailureResult(session.getContext().getOriginalQuery());
+            return clarificationFailureResult(session.getContext().getOriginalQuery(),
+                    IntentRoutingReason.CLARIFICATION_FAILED);
         }
         session.setRoundNo(session.getRoundNo() + 1);
         session.setExpiresAt(OffsetDateTime.now().plusMinutes(CLARIFICATION_TTL_MINUTES));
         sessionRepo.update(session);
         List<String> codes = session.getContext().getCandidateCodes();
         return clarification(session, ambiguityQuestion(codes, configuration.getNodesByCode()),
-                codes, configuration.getNodesByCode(), null);
+                codes, configuration.getNodesByCode(),
+                reasonEvidence(IntentRoutingReason.CLARIFICATION_RETRY));
     }
 
     /**
@@ -669,7 +856,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
                 .filter(item -> Objects.equals(item.getIntentCode(), intentCode))
                 .findFirst();
         if (resolvedMapping.isEmpty()) {
-            return IntentRoutingResult.noMatch(query);
+            return IntentRoutingResult.deferUnmatched(query, IntentRoutingReason.UNMAPPED_CANDIDATE);
         }
         ApplicationIntentMapping mapping = resolvedMapping.orElseThrow(() ->
                 new BusinessException(HttpStatusEnum.CONFLICT, "意图缺少已发布执行映射：" + intentCode));
@@ -689,11 +876,18 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
     }
 
     private static IntentRoutingResult fallbackResult(String query) {
-        return IntentRoutingResult.noMatch(query);
+        return IntentRoutingResult.deferUnmatched(query, IntentRoutingReason.NO_CANDIDATE);
     }
 
-    private static IntentRoutingResult clarificationFailureResult(String query) {
-        return IntentRoutingResult.noMatch(query);
+    private static IntentRoutingResult clarificationFailureResult(String query, IntentRoutingReason reason) {
+        return IntentRoutingResult.deferUnmatched(query, reason);
+    }
+
+    private static IntentRoutingEvidence reasonEvidence(IntentRoutingReason reason) {
+        return IntentRoutingEvidence.builder()
+                .reason(reason)
+                .candidates(List.of())
+                .build();
     }
 
     private static boolean hasMapping(RouteConfiguration configuration, String intentCode) {
@@ -710,8 +904,8 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
     private static IntentRoutingResult defer(
             RouteConfiguration configuration,
             String query,
-            List<IntentRecognitionCandidate> candidates,
-            IntentRoutingFallbackReason reason) {
+            List<IntentCandidate> candidates,
+            IntentRoutingReason reason) {
         Map<String, ApplicationCapabilityDefinition> capabilitiesByCode = configuration.getApplication()
                 .definition().capabilityCatalog().capabilities().stream()
                 .collect(Collectors.toMap(ApplicationCapabilityDefinition::getCode, Function.identity()));
@@ -727,7 +921,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
     private static IntentRoutingEvidenceCandidate toEvidenceCandidate(
             RouteConfiguration configuration,
             Map<String, ApplicationCapabilityDefinition> capabilitiesByCode,
-            IntentRecognitionCandidate candidate) {
+            IntentCandidate candidate) {
         ApplicationIntentMapping mapping = findMapping(configuration, candidate.intentCode()).orElse(null);
         String capabilityCode = Objects.isNull(mapping) ? null : mapping.getCapabilityCode();
         ApplicationCapabilityDefinition capability = capabilitiesByCode.get(capabilityCode);
@@ -735,7 +929,7 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
         return IntentRoutingEvidenceCandidate.builder()
                 .intentCode(candidate.intentCode())
                 .intentName(Objects.isNull(node) ? candidate.intentCode() : node.getName())
-                .confidence(candidate.confidence())
+                .similarity(candidate.similarity())
                 .capabilityCode(capabilityCode)
                 .capabilityDescription(Objects.isNull(capability) ? null : capability.getDescription())
                 .build();
@@ -780,12 +974,12 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
     /**
      * 将识别候选转换为路由决策证据，候选仅保留编码与相似度。
      */
-    private static IntentRoutingEvidence evidence(IntentRoutingFallbackReason reason,
-                                                  List<IntentRecognitionCandidate> candidates) {
+    private static IntentRoutingEvidence evidence(IntentRoutingReason reason,
+                                                  List<IntentCandidate> candidates) {
         List<IntentRoutingEvidenceCandidate> evidenceCandidates = candidates.stream()
                 .map(candidate -> IntentRoutingEvidenceCandidate.builder()
                         .intentCode(candidate.intentCode())
-                        .confidence(candidate.confidence())
+                        .similarity(candidate.similarity())
                         .build())
                 .toList();
         return IntentRoutingEvidence.builder()

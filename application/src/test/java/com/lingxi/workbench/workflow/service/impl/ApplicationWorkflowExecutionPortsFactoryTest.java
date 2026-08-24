@@ -9,6 +9,8 @@ import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionE
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.AgentNodeInvocation;
+import com.lingxi.workbench.workflow.model.IntentClassifierNodeInvocation;
+import com.lingxi.workbench.workflow.model.IntentClassifierNodeResult;
 import com.lingxi.workbench.workflow.model.WorkflowExecutionRequest;
 import com.lingxi.workbench.workflow.model.WorkflowExecutionPorts;
 import com.lingxi.workbench.workflow.model.WorkflowNodeDefinition;
@@ -50,13 +52,25 @@ class ApplicationWorkflowExecutionPortsFactoryTest {
                 .inputs(Map.of("query", "问题"))
                 .build();
         when(agentNodeInvoker.invoke(invocation, executionContext)).thenReturn(Map.of("answer", "回答"));
+        IntentClassifierNodeInvocation intentInvocation = IntentClassifierNodeInvocation.builder()
+                .executionId("execution-1")
+                .runId("workflow-run-1")
+                .workflowVersionId(11L)
+                .nodeId("intent")
+                .intentTreeId(30L)
+                .intentTreeVersionId(31L)
+                .query("问题")
+                .build();
+        IntentClassifierNodeResult intentResult = mock(IntentClassifierNodeResult.class);
+        when(intentClassifierNodeInvoker.invoke(intentInvocation, executionContext)).thenReturn(intentResult);
 
         WorkflowExecutionPorts ports = new ApplicationWorkflowExecutionPortsFactory(
                 runService, agentNodeInvoker, intentClassifierNodeInvoker).create(executionContext);
 
         assertThat(ports.agentNodeInvoker().invoke(invocation)).containsEntry("answer", "回答");
-        assertSame(intentClassifierNodeInvoker, ports.intentClassifierNodeInvoker());
+        assertSame(intentResult, ports.intentClassifierNodeInvoker().invoke(intentInvocation));
         verify(agentNodeInvoker).invoke(invocation, executionContext);
+        verify(intentClassifierNodeInvoker).invoke(intentInvocation, executionContext);
     }
 
     @Test
@@ -108,9 +122,9 @@ class ApplicationWorkflowExecutionPortsFactoryTest {
     private static WorkflowRunContext runContext() {
         return WorkflowRunContext.builder()
                 .runId("workflow-run-1")
-                .definition(new WorkflowDefinition(1, "test", List.of(startNode()), List.of()))
+                .definition(new WorkflowDefinition(2, "test", List.of(startNode()), List.of()))
                 .request(new WorkflowExecutionRequest("execution-1", 10L, 11L, Map.of("query", "测试")))
-                .ports(new WorkflowExecutionPorts(invocation -> Map.of(), invocation -> Map.of(), null))
+                .ports(new WorkflowExecutionPorts(invocation -> Map.of(), invocation -> mock(IntentClassifierNodeResult.class), null))
                 .startedAt(Instant.parse("2026-08-09T06:00:00Z"))
                 .build();
     }

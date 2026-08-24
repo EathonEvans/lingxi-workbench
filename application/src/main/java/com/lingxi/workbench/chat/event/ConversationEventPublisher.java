@@ -33,12 +33,6 @@ public class ConversationEventPublisher {
         publishCompletion(turn, appVersionId, content, tokenUsage, AssistantCompletionMetaBO.completed(modelInstanceId));
     }
 
-    /** 将达到运行时限但已经可用的回答按降级完成提交，并继续发布记忆事件。 */
-    public void completePartial(ChatTurnBO turn, Long appVersionId, String content, TokenUsage tokenUsage,
-                                String code, String message) {
-        publishCompletion(turn, appVersionId, content, tokenUsage, AssistantCompletionMetaBO.partial(code, message));
-    }
-
     private void publishCompletion(ChatTurnBO turn, Long appVersionId, String content, TokenUsage tokenUsage,
                                    AssistantCompletionMetaBO metadata) {
         String eventId = COMPLETED_EVENT_PREFIX + turn.assistantMessageId();

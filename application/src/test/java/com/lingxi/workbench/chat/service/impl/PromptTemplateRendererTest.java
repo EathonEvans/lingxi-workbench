@@ -183,6 +183,27 @@ class PromptTemplateRendererTest {
     }
 
     @Test
+    void shouldKeepUserContentOutOfIntentDecisionSystemPrompt() {
+        PromptRuntimeSnapshot unsafeSnapshot = new PromptRuntimeSnapshot(
+                94L,
+                "当前问题：{{user.query}}",
+                List.of(definition("user.query", "STRING")),
+                PromptRole.SYSTEM);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> renderer.renderIntentDecisionPrompt(unsafeSnapshot, runtimeVariables()));
+
+        assertTrue(exception.getMessage().contains("意图决策提示词禁止使用变量：user.query"));
+        PromptRuntimeSnapshot safeSnapshot = new PromptRuntimeSnapshot(
+                95L,
+                "当前日期：{{system.current_date}}",
+                List.of(definition("system.current_date", "DATE")),
+                PromptRole.SYSTEM);
+        assertEquals("当前日期：2026-07-28",
+                renderer.renderIntentDecisionPrompt(safeSnapshot, runtimeVariables()));
+    }
+
+    @Test
     void shouldRejectPromptRoleMismatch() {
         PromptRuntimeSnapshot snapshot = new PromptRuntimeSnapshot(
                 89L,

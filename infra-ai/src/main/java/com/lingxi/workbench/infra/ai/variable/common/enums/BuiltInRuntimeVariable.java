@@ -24,6 +24,7 @@ public enum BuiltInRuntimeVariable {
             RuntimeVariableChannel.SYSTEM_PROMPT,
             RuntimeVariableChannel.USER_PROMPT,
             RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
+            RuntimeVariableChannel.INTENT_DECISION_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
     SYSTEM_CURRENT_DATE(
             RuntimeVariableGroup.SYSTEM,
@@ -35,6 +36,7 @@ public enum BuiltInRuntimeVariable {
             RuntimeVariableChannel.SYSTEM_PROMPT,
             RuntimeVariableChannel.USER_PROMPT,
             RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
+            RuntimeVariableChannel.INTENT_DECISION_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
     SYSTEM_TIMEZONE(
             RuntimeVariableGroup.SYSTEM,
@@ -46,6 +48,7 @@ public enum BuiltInRuntimeVariable {
             RuntimeVariableChannel.SYSTEM_PROMPT,
             RuntimeVariableChannel.USER_PROMPT,
             RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
+            RuntimeVariableChannel.INTENT_DECISION_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
     SYSTEM_LANGUAGE(
             RuntimeVariableGroup.SYSTEM,
@@ -57,6 +60,7 @@ public enum BuiltInRuntimeVariable {
             RuntimeVariableChannel.SYSTEM_PROMPT,
             RuntimeVariableChannel.USER_PROMPT,
             RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
+            RuntimeVariableChannel.INTENT_DECISION_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
     SYSTEM_PLATFORM_NAME(
             RuntimeVariableGroup.SYSTEM,
@@ -68,6 +72,7 @@ public enum BuiltInRuntimeVariable {
             RuntimeVariableChannel.SYSTEM_PROMPT,
             RuntimeVariableChannel.USER_PROMPT,
             RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT,
+            RuntimeVariableChannel.INTENT_DECISION_PROMPT,
             RuntimeVariableChannel.NODE_CONTEXT),
     COLLABORATION_MAX_DELEGATIONS(
             RuntimeVariableGroup.COLLABORATION,

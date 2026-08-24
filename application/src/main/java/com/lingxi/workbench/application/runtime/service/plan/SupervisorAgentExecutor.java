@@ -7,6 +7,7 @@ import com.lingxi.workbench.agentruntime.model.AgentReconciliationPendingExcepti
 import com.lingxi.workbench.agentruntime.model.AgentRunCancelledException;
 import com.lingxi.workbench.agentruntime.model.ExecutionPolicy;
 import com.lingxi.workbench.agentruntime.plan.RuntimeCapability;
+import com.lingxi.workbench.agentruntime.plan.RuntimeCapabilityExecutionFacts;
 import com.lingxi.workbench.agentruntime.plan.RuntimeCapabilityException;
 import com.lingxi.workbench.agentruntime.plan.RuntimeCapabilityInvocation;
 import com.lingxi.workbench.agentruntime.plan.RuntimeCapabilityInvoker;
@@ -16,7 +17,6 @@ import com.lingxi.workbench.agentruntime.plan.RuntimeCapabilityType;
 import com.lingxi.workbench.agentruntime.plan.SupervisorRunOutcome;
 import com.lingxi.workbench.agentruntime.plan.SupervisorRunRequest;
 import com.lingxi.workbench.agentruntime.plan.SupervisorRunResult;
-import com.lingxi.workbench.agentruntime.planner.PlannerDecisionValidationContext;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
 import com.lingxi.workbench.application.runtime.model.AgentExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
@@ -113,12 +113,8 @@ public class SupervisorAgentExecutor implements AgentExecutor {
                 .query(request.getQuery())
                 .history(prepared.history())
                 .modelConfig(prepared.modelConfig())
-                .validationContext(PlannerDecisionValidationContext.builder()
-                        .authorizedCapabilityCodes(prepared.capabilityIndex().keySet())
-                        .maxSteps(request.getAgent().definition().getPlanPolicy().getMaxSteps())
-                        .build())
                 .planPolicy(request.getAgent().definition().getPlanPolicy())
-                .executionPolicy(executionPolicy(execution, prepared.timeout()))
+                .executionPolicy(executionPolicy(execution))
                 .maxDelegations(execution.remainingDelegations())
                 .maxObservationTokens(execution.getContextBudget().getMaxObservationTokens())
                 .capabilities(prepared.runtimeCapabilities())
@@ -163,18 +159,16 @@ public class SupervisorAgentExecutor implements AgentExecutor {
         int maxOutputTokens = Math.min(context.getBudget().getReservedOutputTokens(),
                 Math.max(execution.remainingFinalizationTokenBudget() - estimatedInputTokens, 1));
         ChatModelRuntimeConfig source = modelRuntimeConfigService.getChatModelConfig(definition.getChatModelInstanceId());
-        Duration timeout = execution.remainingTimeout(Duration.ofSeconds(resolveRequestTimeout(
-                source, context.getApplicationSnapshot().definition().runtimePolicy())));
         ChatModelRuntimeConfig modelConfig = applyPolicy(source, definition.getGenerationPolicy(),
-                maxOutputTokens, timeout);
+                maxOutputTokens);
         List<RuntimeCapability> runtimeCapabilities = capabilityIndex.values().stream()
                 .map(SupervisorAgentExecutor::runtimeCapability)
                 .toList();
-        return new PreparedSupervisor(plannerPrompt, renderedPrompt, history, modelConfig, timeout,
+        return new PreparedSupervisor(plannerPrompt, renderedPrompt, history, modelConfig,
                 capabilityIndex, runtimeCapabilities);
     }
 
-    private static ExecutionPolicy executionPolicy(ChatExecutionContext execution, Duration timeout) {
+    private static ExecutionPolicy executionPolicy(ChatExecutionContext execution) {
         int maxModelCalls = Math.max(execution.remainingModelCalls(), 1);
         int workingTokens;
         try {
@@ -187,8 +181,6 @@ public class SupervisorAgentExecutor implements AgentExecutor {
                 .maxToolCalls(execution.remainingToolCalls())
                 .maxTotalTokens(workingTokens)
                 .maxFinalizationTokens(Math.max(execution.remainingFinalizationTokenBudget(), workingTokens))
-                .timeout(timeout)
-                .activeOutputGrace(Duration.ZERO)
                 .build();
     }
 
@@ -256,7 +248,7 @@ public class SupervisorAgentExecutor implements AgentExecutor {
 
     private static ChatModelRuntimeConfig applyPolicy(ChatModelRuntimeConfig source,
                                                       AgentRuntimeDefinition.GenerationPolicy generationPolicy,
-                                                      int maxOutputTokens, Duration timeout) {
+                                                      int maxOutputTokens) {
         int outputTokens = source.getMaxTokens() == null
                 ? maxOutputTokens : Math.min(source.getMaxTokens(), maxOutputTokens);
         Double temperature = generationPolicy != null && generationPolicy.getTemperature() != null
@@ -266,19 +258,8 @@ public class SupervisorAgentExecutor implements AgentExecutor {
         return ChatModelRuntimeConfig.builder().instanceId(source.getInstanceId()).baseUrl(source.getBaseUrl())
                 .apiKey(source.getApiKey()).modelCode(source.getModelCode()).temperature(temperature).topP(topP)
                 .maxTokens(outputTokens).stopSequences(source.getStopSequences())
-                .extensionParameters(source.getExtensionParameters()).timeoutSeconds(timeoutSeconds(timeout))
+                .extensionParameters(source.getExtensionParameters()).timeoutSeconds(source.getTimeoutSeconds())
                 .maxRetries(source.getMaxRetries()).structuredOutputSupported(source.isStructuredOutputSupported()).build();
-    }
-
-    private static int resolveRequestTimeout(ChatModelRuntimeConfig source, ApplicationRuntimePolicy policy) {
-        return Optional.ofNullable(source.getTimeoutSeconds())
-                .map(timeout -> Math.min(timeout, policy.getTimeoutSeconds()))
-                .orElse(policy.getTimeoutSeconds());
-    }
-
-    private static int timeoutSeconds(Duration timeout) {
-        long seconds = timeout.toSeconds();
-        return Math.toIntExact(Math.max(1L, timeout.minusSeconds(seconds).isZero() ? seconds : seconds + 1));
     }
 
     private static TokenUsage delta(TokenUsage before, TokenUsage after) {
@@ -348,10 +329,6 @@ public class SupervisorAgentExecutor implements AgentExecutor {
                 }
                 traces.addAll(result.traces());
                 return RuntimeCapabilityResult.builder().content(result.content())
-                        .usage(delta(beforeUsage, root.tokenUsage()))
-                        .modelCalls(root.usedModelCalls() - beforeModels)
-                        .toolCalls(root.usedToolCalls() - beforeTools)
-                        .lastSequenceNo(persistenceService.lastEventSequence(root.getExecutionId()))
                         .interruption(result.interruption()).build();
             } catch (RuntimeCapabilityException exception) {
                 throw exception;
@@ -362,6 +339,12 @@ public class SupervisorAgentExecutor implements AgentExecutor {
                 ExecutionFailure failure = failureClassifier.classify(exception);
                 throw new RuntimeCapabilityException(failure.code(), failure.clientMessage(),
                         failure.retryable(), exception);
+            } finally {
+                invocation.recordExecution(new RuntimeCapabilityExecutionFacts(
+                        root.usedModelCalls() - beforeModels,
+                        root.usedToolCalls() - beforeTools,
+                        delta(beforeUsage, root.tokenUsage()),
+                        persistenceService.lastEventSequence(root.getExecutionId())));
             }
         }
 
@@ -376,7 +359,6 @@ public class SupervisorAgentExecutor implements AgentExecutor {
 
     private record PreparedSupervisor(String plannerSystemPrompt, String synthesisSystemPrompt,
                                       List<ChatHistoryMessage> history, ChatModelRuntimeConfig modelConfig,
-                                      Duration timeout,
                                       Map<String, ApplicationCapabilityDefinition> capabilityIndex,
                                       List<RuntimeCapability> runtimeCapabilities) {
     }

@@ -57,38 +57,38 @@ public record AppRuntimeSnapshot(
         if (fallbackCount != 1) {
             throw new IllegalArgumentException("Application能力目录缺少唯一锁定的fallback Agent");
         }
-        if (Objects.nonNull(definition.optionalFastRoutes())) {
-            validateFastRoutes(definition);
+        if (Objects.nonNull(definition.intentRouting())) {
+            validateIntentRouting(definition);
         }
     }
 
-    private static void validateFastRoutes(ApplicationDefinition definition) {
-        if (!definition.optionalFastRoutes().isEnabled()) {
+    private static void validateIntentRouting(ApplicationDefinition definition) {
+        if (!definition.intentRouting().isEnabled()) {
             return;
         }
-        if (Objects.isNull(definition.optionalFastRoutes().getIntentTreeId())
-                || Objects.isNull(definition.optionalFastRoutes().getIntentTreeVersionId())
-                || definition.optionalFastRoutes().mappings().isEmpty()) {
-            throw new IllegalArgumentException("Application可选快速路由快照不完整");
+        if (Objects.isNull(definition.intentRouting().getIntentTreeId())
+                || Objects.isNull(definition.intentRouting().getIntentTreeVersionId())
+                || definition.intentRouting().mappings().isEmpty()) {
+            throw new IllegalArgumentException("Application意图路由快照不完整");
         }
-        for (ApplicationIntentMapping mapping : definition.optionalFastRoutes().mappings()) {
-            validateFastRouteMapping(definition, mapping);
+        for (ApplicationIntentMapping mapping : definition.intentRouting().mappings()) {
+            validateIntentRoutingMapping(definition, mapping);
         }
     }
 
-    private static void validateFastRouteMapping(ApplicationDefinition definition, ApplicationIntentMapping mapping) {
+    private static void validateIntentRoutingMapping(ApplicationDefinition definition, ApplicationIntentMapping mapping) {
         if (mapping == null || mapping.getIntentCode() == null || mapping.getIntentCode().isBlank()
                 || mapping.getTargetType() == null) {
-            throw new IllegalArgumentException("Application可选快速路由映射不完整");
+            throw new IllegalArgumentException("Application意图路由映射不完整");
         }
         if (mapping.getTargetType() == IntentExecutionTargetType.FIXED_RESPONSE) {
             if (mapping.getFixedResponse() == null || mapping.getFixedResponse().isBlank()) {
-                throw new IllegalArgumentException("Application可选快速路由固定答复不能为空");
+                throw new IllegalArgumentException("Application意图路由固定答复不能为空");
             }
             return;
         }
         if (mapping.getCapabilityCode() == null || mapping.getCapabilityCode().isBlank()) {
-            throw new IllegalArgumentException("Application快速路由能力编码不能为空");
+            throw new IllegalArgumentException("Application意图路由能力编码不能为空");
         }
         ApplicationCapabilityType expectedType = mapping.getTargetType() == IntentExecutionTargetType.WORKFLOW
                 ? ApplicationCapabilityType.WORKFLOW
@@ -99,6 +99,6 @@ public record AppRuntimeSnapshot(
                 .filter(item -> Objects.equals(item.getTargetId(), mapping.getTargetId()))
                 .filter(item -> Objects.equals(item.getTargetVersionId(), mapping.getTargetVersionId()))
                 .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Application快速路由未引用锁定能力目录"));
+                .orElseThrow(() -> new IllegalArgumentException("Application意图路由未引用锁定能力目录"));
     }
 }

@@ -72,8 +72,7 @@ class SkillHookTest {
         return ExecutionState.builder()
                 .runId("skill-hook-run").agentId(10L).agentVersionId(20L)
                 .policy(ExecutionPolicy.builder().maxModelCalls(3).maxToolCalls(0)
-                        .maxTotalTokens(100).maxFinalizationTokens(100)
-                        .timeout(Duration.ofSeconds(3)).activeOutputGrace(Duration.ZERO).build())
+                        .maxTotalTokens(100).maxFinalizationTokens(100).build())
                 .eventSink(sink).authorizedToolCodes(List.of()).build();
     }
 

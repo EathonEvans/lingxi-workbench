@@ -9,6 +9,7 @@ import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowNodeDefinition;
 import com.lingxi.workbench.workflow.model.config.AgentNodeConfig;
 import com.lingxi.workbench.workflow.model.config.IntentClassifierNodeConfig;
+import com.lingxi.workbench.workflow.model.intent.IntentTreeDefinition;
 import com.lingxi.workbench.workflow.service.WorkflowDefinitionValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -19,6 +20,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
+import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConstants.INTENT_TREE_SCHEMA_VERSION;
 
 /**
  * 校验独立 Workflow 草稿并在发布时锁定所有外部资源版本。
@@ -93,8 +95,15 @@ public class WorkflowDraftResolver {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "节点" + nodeId + "引用的意图树已停用");
         }
         Long versionId = Optional.ofNullable(config.intentTreeVersionId()).orElse(intentTree.publishedVersionId());
-        if (Objects.isNull(versionId) || intentTreeService.findVersion(config.intentTreeId(), versionId).isEmpty()) {
+        if (Objects.isNull(versionId)) {
             throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "节点" + nodeId + "没有可用的意图树正式版本");
+        }
+        IntentTreeDefinition version = intentTreeService.findVersion(config.intentTreeId(), versionId)
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.BAD_REQUEST,
+                        "节点" + nodeId + "没有可用的意图树正式版本"));
+        if (version.schemaVersion() != INTENT_TREE_SCHEMA_VERSION) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST,
+                    "节点" + nodeId + "只能引用V2意图树正式版本");
         }
         return new IntentClassifierNodeConfig(config.intentTreeId(), versionId, config.queryVariable(), config.outputMapping());
     }

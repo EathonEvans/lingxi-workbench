@@ -15,15 +15,9 @@ import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
 import lombok.Builder;
 import lombok.Getter;
-import reactor.core.publisher.Mono;
-
-import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 一次 Agent 对话执行期间共享的服务端运行上下文。
@@ -43,8 +37,6 @@ import java.util.concurrent.atomic.AtomicReference;
  * <p>它只在当前进程和当前对话任务内存活，不持久化，也不跨请求复用。</p>
  */
 public final class ChatExecutionContext {
-
-    private static final Duration ACTIVE_OUTPUT_WINDOW = Duration.ofSeconds(15);
 
     /**
      * 本次 Agent 对话执行的唯一标识。
@@ -109,12 +101,6 @@ public final class ChatExecutionContext {
     @Getter
     private final List<String> explicitSkillCodes;
 
-    /**
-     * 本轮请求从上下文准备开始计算的统一执行起点。
-     */
-    @Getter
-    private final Instant startedAt;
-
     /*
      * 一次 Agent 对话可能包含改写、工具判断和回答生成等多次模型调用，
      * Token 用量需要累计。
@@ -135,14 +121,6 @@ public final class ChatExecutionContext {
      */
     private final AtomicInteger delegationCounter;
     /**
-     * 最后一个真实文本分片到达时间，供硬截止判断流式输出是否仍活跃。
-     */
-    private final AtomicReference<Instant> lastOutputAt;
-    /**
-     * 一次性流式宽限只能被同一轮执行领取一次。
-     */
-    private final AtomicBoolean timeoutGraceUsed;
-    /**
      * MQ恢复时绑定的完整Runtime检查点；普通运行为空。
      */
     @Getter
@@ -157,7 +135,7 @@ public final class ChatExecutionContext {
      * @param eventPublisher   本次执行的文本和工具状态发布器
      */
     @Builder
-    private ChatExecutionContext(String executionId, ExecutionScope executionScope, RuntimeVariables runtimeVariables, ChatTurnBO turn, ChatExecutionEventPublisher eventPublisher, MemoryConfig memoryConfig, ConversationContext conversationContext, ApplicationRuntimePolicy runtimePolicy, ContextBudgetPolicy contextBudget, List<String> explicitSkillCodes, Instant startedAt, TokenUsageAccumulator tokenUsageAccumulator, AtomicInteger modelCallCounter, AtomicInteger toolCallCounter, AtomicInteger delegationCounter, AtomicReference<Instant> lastOutputAt, AtomicBoolean timeoutGraceUsed, ExecutionResumeContext resumeContext) {
+    private ChatExecutionContext(String executionId, ExecutionScope executionScope, RuntimeVariables runtimeVariables, ChatTurnBO turn, ChatExecutionEventPublisher eventPublisher, MemoryConfig memoryConfig, ConversationContext conversationContext, ApplicationRuntimePolicy runtimePolicy, ContextBudgetPolicy contextBudget, List<String> explicitSkillCodes, TokenUsageAccumulator tokenUsageAccumulator, AtomicInteger modelCallCounter, AtomicInteger toolCallCounter, AtomicInteger delegationCounter, ExecutionResumeContext resumeContext) {
         this.executionId = executionId;
         this.executionScope = Objects.requireNonNullElse(executionScope, ExecutionScope.RUN);
         this.runtimeVariables = Objects.requireNonNull(runtimeVariables, "运行时变量不能为空");
@@ -168,13 +146,10 @@ public final class ChatExecutionContext {
         this.runtimePolicy = Objects.requireNonNullElseGet(runtimePolicy, ApplicationRuntimePolicy::defaults);
         this.contextBudget = Objects.requireNonNullElseGet(contextBudget, ContextBudgetPolicy::defaults);
         this.explicitSkillCodes = List.copyOf(Objects.requireNonNullElseGet(explicitSkillCodes, List::of));
-        this.startedAt = Objects.requireNonNullElseGet(startedAt, Instant::now);
         this.tokenUsageAccumulator = Objects.requireNonNullElseGet(tokenUsageAccumulator, TokenUsageAccumulator::new);
         this.modelCallCounter = Objects.requireNonNullElseGet(modelCallCounter, AtomicInteger::new);
         this.toolCallCounter = Objects.requireNonNullElseGet(toolCallCounter, AtomicInteger::new);
         this.delegationCounter = Objects.requireNonNullElseGet(delegationCounter, AtomicInteger::new);
-        this.lastOutputAt = Objects.requireNonNullElseGet(lastOutputAt, AtomicReference::new);
-        this.timeoutGraceUsed = Objects.requireNonNullElseGet(timeoutGraceUsed, AtomicBoolean::new);
         this.resumeContext = resumeContext;
     }
 
@@ -210,84 +185,12 @@ public final class ChatExecutionContext {
                 .runtimePolicy(runtimePolicy)
                 .contextBudget(contextBudget)
                 .explicitSkillCodes(explicitSkillCodes)
-                .startedAt(startedAt)
                 .tokenUsageAccumulator(tokenUsageAccumulator)
                 .modelCallCounter(modelCallCounter)
                 .toolCallCounter(toolCallCounter)
                 .delegationCounter(delegationCounter)
-                .lastOutputAt(lastOutputAt)
-                .timeoutGraceUsed(timeoutGraceUsed)
                 .resumeContext(resumeContext)
                 .build();
-    }
-
-    /**
-     * 将单次操作超时收敛到Application本轮执行的剩余时间内。
-     *
-     * @param requested 当前能力或模型请求允许的最长时间
-     * @return 不超过本轮剩余时间的实际超时
-     */
-    public Duration remainingTimeout(Duration requested) {
-        if (Objects.isNull(requested) || requested.isZero() || requested.isNegative()) {
-            throw new IllegalArgumentException("请求超时必须大于0");
-        }
-        Instant deadline = startedAt.plusSeconds(runtimePolicy.getTimeoutSeconds());
-        Duration remaining = Duration.between(Instant.now(), deadline);
-        if (remaining.isZero() || remaining.isNegative()) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "Application单轮执行超过总超时");
-        }
-        if (remaining.compareTo(requested) < 0) {
-            return remaining;
-        }
-        return requested;
-    }
-
-    /**
-     * 返回流式回答允许占用的最大剩余时间。
-     *
-     * <p>该值只扩大底层 HTTP 等待上限；是否真正使用宽限仍在硬截止到达时依据
-     * 最近文本活动决定，不能让普通规划或工具调用静默突破硬截止。</p>
-     */
-    public Duration remainingStreamingTimeout(Duration requested) {
-        if (Objects.isNull(requested) || requested.isZero() || requested.isNegative()) {
-            throw new IllegalArgumentException("请求超时必须大于0");
-        }
-        Instant deadline = hardDeadline().plusSeconds(runtimePolicy.effectiveTimeoutGraceSeconds());
-        Duration remaining = Duration.between(Instant.now(), deadline);
-        if (remaining.isZero() || remaining.isNegative()) {
-            throw new ExecutionDeadlineExceededException();
-        }
-        return remaining.compareTo(requested) < 0 ? remaining : requested;
-    }
-
-    /**
-     * 记录真实文本输出活动；空 Usage 分片和工具状态不延长回答时限。
-     */
-    public void markOutputActivity() {
-        lastOutputAt.set(Instant.now());
-    }
-
-    /**
-     * 构造动态硬截止信号：硬截止时仅当最近十五秒仍有文本到达才领取一次宽限。
-     */
-    public Mono<Long> timeoutSignal() {
-        Duration untilHardDeadline = Duration.between(Instant.now(), hardDeadline());
-        if (untilHardDeadline.isZero() || untilHardDeadline.isNegative()) {
-            return Mono.just(0L);
-        }
-        return Mono.delay(untilHardDeadline).flatMap(ignored -> {
-            if (!tryUseActiveOutputGrace()) {
-                return Mono.just(0L);
-            }
-            return Mono.delay(Duration.ofSeconds(runtimePolicy.effectiveTimeoutGraceSeconds()));
-        });
-    }
-
-    /**
-     * 在进入新的规划步骤或模型调用前校验Application总超时。
-     */
-    public void ensureWithinDeadline() {
-        remainingTimeout(Duration.ofSeconds(runtimePolicy.getTimeoutSeconds()));
     }
 
     /**
@@ -316,11 +219,9 @@ public final class ChatExecutionContext {
         reserveCalls(toolCallCounter, calls, runtimePolicy.getMaxToolCalls(), "Application单轮Tool调用次数已达到上限");
     }
 
-    /**
-     * 时间或Token进入软边界后，ReAct循环必须停止继续探索并收口。
-     */
+    /** Token或模型调用进入软边界后，ReAct循环必须停止继续探索并收口。 */
     public boolean shouldFinalize() {
-        return hasReachedSoftDeadline() || hasReachedTokenSoftLimit() || remainingModelCalls() <= 1;
+        return hasReachedTokenSoftLimit() || remainingModelCalls() <= 1;
     }
 
     /**
@@ -348,10 +249,6 @@ public final class ChatExecutionContext {
 
     public int usedToolCalls() {
         return toolCallCounter.get();
-    }
-
-    public long activeElapsedMillis() {
-        return Math.max(0L, Duration.between(startedAt, Instant.now()).toMillis());
     }
 
     private static void reserveCalls(AtomicInteger counter, int calls, int limit, String message) {
@@ -435,34 +332,6 @@ public final class ChatExecutionContext {
 
     private int hardTokenBudget() {
         return runtimePolicy.effectiveTokenHardBudget();
-    }
-
-    /**
-     * 总超时前预留固定收口窗口，进入窗口后不再启动工具、委派和新计划步骤。
-     */
-    public boolean hasReachedSoftDeadline() {
-        return !Instant.now().isBefore(hardDeadline().minusSeconds(
-                runtimePolicy.effectiveFinalizationReserveSeconds()));
-    }
-
-    public boolean isTimeoutGraceUsed() {
-        return timeoutGraceUsed.get();
-    }
-
-    private Instant hardDeadline() {
-        return startedAt.plusSeconds(runtimePolicy.getTimeoutSeconds());
-    }
-
-    private boolean tryUseActiveOutputGrace() {
-        int graceSeconds = runtimePolicy.effectiveTimeoutGraceSeconds();
-        if (graceSeconds < 1 || timeoutGraceUsed.get()) {
-            return false;
-        }
-        Instant outputAt = lastOutputAt.get();
-        if (Objects.isNull(outputAt) || outputAt.isBefore(Instant.now().minus(ACTIVE_OUTPUT_WINDOW))) {
-            return false;
-        }
-        return timeoutGraceUsed.compareAndSet(false, true);
     }
 
     /**

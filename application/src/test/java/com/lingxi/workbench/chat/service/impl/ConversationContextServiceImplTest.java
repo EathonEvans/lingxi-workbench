@@ -13,7 +13,6 @@ import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;
 import com.lingxi.workbench.chat.service.ConversationMemoryService;
 import com.lingxi.workbench.framework.context.LoginUser;
-import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
@@ -29,10 +28,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 
 import java.util.List;
-import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -94,7 +91,7 @@ class ConversationContextServiceImplTest {
                 memoryService, mock(MemoryContextService.class), new RuntimeVariablesInitializer("Lingxi Workbench"),
                 queryRewriter, mock(TokenCountEstimator.class));
         AppRuntimeSnapshot application = application(MemoryConfig.disabled(), ApplicationRuntimePolicy.builder()
-                .maxModelCalls(2).maxToolCalls(0).maxDelegations(0).totalTokenBudget(10).timeoutSeconds(30).build());
+                .maxModelCalls(2).maxToolCalls(0).maxDelegations(0).totalTokenBudget(10).build());
         ChatTurnBO turn = new ChatTurnBO(10L, 11L, 12L, 1);
 
         ConversationContext context = service.prepare(
@@ -104,30 +101,6 @@ class ConversationContextServiceImplTest {
         assertEquals(TokenUsage.of(8, 4, 12), context.getPreparationTokenUsage());
     }
 
-    @Test
-    void shouldRejectContextPreparationAfterApplicationDeadline() {
-        ConversationMemoryService memoryService = mock(ConversationMemoryService.class);
-        when(memoryService.getWindowMemory(any(), any(), any(), anyInt(), anyInt())).thenReturn(List.of());
-        QueryRewriter queryRewriter = mock(QueryRewriter.class);
-        ConversationContextServiceImpl service = new ConversationContextServiceImpl(
-                memoryService, mock(MemoryContextService.class), new RuntimeVariablesInitializer("Lingxi Workbench"),
-                queryRewriter, mock(TokenCountEstimator.class));
-        AppRuntimeSnapshot application = application(MemoryConfig.disabled(), ApplicationRuntimePolicy.builder()
-                .maxModelCalls(1).maxToolCalls(0).maxDelegations(0).totalTokenBudget(1024).timeoutSeconds(1).build());
-        ChatTurnBO turn = new ChatTurnBO(10L, 11L, 12L, 1);
-        ConversationContextPrepareBO input = ConversationContextPrepareBO.builder()
-                .application(application)
-                .query("问题")
-                .loginUser(new LoginUser(7L, "tester", "测试用户", null))
-                .turn(turn)
-                .startedAt(Instant.now().minusSeconds(2))
-                .build();
-
-        BusinessException exception = assertThrows(BusinessException.class, () -> service.prepare(input));
-
-        assertEquals("Application单轮执行超过总超时", exception.getMessage());
-    }
-
     private static ConversationContextPrepareBO prepareInput(AppRuntimeSnapshot application, String query,
                                                              LoginUser loginUser, ChatTurnBO turn) {
         return ConversationContextPrepareBO.builder()
@@ -135,7 +108,6 @@ class ConversationContextServiceImplTest {
                 .query(query)
                 .loginUser(loginUser)
                 .turn(turn)
-                .startedAt(Instant.now())
                 .build();
     }
 

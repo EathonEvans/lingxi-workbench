@@ -13,6 +13,7 @@ import com.lingxi.workbench.workflow.model.config.EndNodeConfig;
 import com.lingxi.workbench.workflow.model.config.IntentClassifierNodeConfig;
 import com.lingxi.workbench.workflow.model.config.StartNodeConfig;
 import com.lingxi.workbench.workflow.model.intent.IntentRoutingPolicy;
+import com.lingxi.workbench.workflow.model.intent.IntentDecisionFailureAction;
 import com.lingxi.workbench.workflow.model.intent.IntentTreeDefinition;
 import org.junit.jupiter.api.Test;
 
@@ -64,18 +65,28 @@ class WorkflowDraftResolverTest {
         when(intentTreeService.findReference(20L))
                 .thenReturn(Optional.of(new IntentTreeService.IntentTreeReference(20L, true, 22L, 1L)));
         when(intentTreeService.findVersion(20L, 22L)).thenReturn(Optional.of(new IntentTreeDefinition(
-                1, 30L, new IntentRoutingPolicy(5, new BigDecimal("0.65"), new BigDecimal("0.08")), List.of())));
+                2, 30L, IntentRoutingPolicy.builder()
+                        .topK(5)
+                        .recallThreshold(new BigDecimal("0.65"))
+                        .chatModelInstanceId(31L)
+                        .decisionPromptVersionId(32L)
+                        .maxOutputTokens(512)
+                        .timeoutSeconds(30)
+                        .maxRepeatAttempts(1)
+                        .decisionFailureAction(IntentDecisionFailureAction.DEFER)
+                        .build(), List.of())));
     }
 
     private static WorkflowDefinition draftDefinition() {
         List<WorkflowNodeDefinition> nodes = List.of(
                 new WorkflowNodeDefinition("start", "开始", WorkflowNodeType.START, new StartNodeConfig()),
                 new WorkflowNodeDefinition("intent", "识别意图", WorkflowNodeType.INTENT_CLASSIFIER,
-                        new IntentClassifierNodeConfig(20L, null, "query", Map.of("status", "intentStatus"))),
+                        new IntentClassifierNodeConfig(20L, null, "query", Map.of(
+                                "status", "intentStatus", "reasonCode", "intentReasonCode"))),
                 new WorkflowNodeDefinition("agent", "售后Agent", WorkflowNodeType.AGENT,
                         new AgentNodeConfig(10L, null, Map.of("query", "query"), Map.of("answer", "answer"))),
                 new WorkflowNodeDefinition("end", "结束", WorkflowNodeType.END, new EndNodeConfig(Map.of("response", "answer"))));
-        return new WorkflowDefinition(1, "after_sales", nodes, List.of(
+        return new WorkflowDefinition(2, "after_sales", nodes, List.of(
                 WorkflowEdgeDefinition.direct("start", "intent"),
                 WorkflowEdgeDefinition.direct("intent", "agent"),
                 WorkflowEdgeDefinition.direct("agent", "end")));

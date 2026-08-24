@@ -36,6 +36,7 @@ import com.lingxi.workbench.workflow.model.WorkflowNodeDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowNodeType;
 import com.lingxi.workbench.workflow.model.config.EndNodeConfig;
 import com.lingxi.workbench.workflow.model.config.StartNodeConfig;
+import com.lingxi.workbench.workflow.service.WorkflowDefinitionValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,7 +55,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class WorkflowServiceImpl implements WorkflowService {
 
-    private static final int SCHEMA_VERSION = 1;
+    private static final int SCHEMA_VERSION = WorkflowDefinitionValidator.SUPPORTED_SCHEMA_VERSION;
     private static final String EXISTING_CODE_MSG = "Workflow编码已存在";
     private static final String NOT_EXIST_MSG = "Workflow不存在";
     private static final String DRAFT_NOT_EXIST_MSG = "草稿不存在，请先保存";

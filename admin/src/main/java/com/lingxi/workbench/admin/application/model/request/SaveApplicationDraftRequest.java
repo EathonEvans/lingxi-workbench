@@ -18,9 +18,9 @@ public class SaveApplicationDraftRequest {
     /** 可选的 Application 级 Supervisor 协作配置。 */
     @Valid
     private AgentCollaborationDefinition collaboration;
-    /** 可选快速路由，只配置需要确定性直达的叶子。 */
+    /** 意图路由，只配置允许确定性直达的叶子。 */
     @Valid
-    private ApplicationIntentBinding optionalFastRoutes;
+    private ApplicationIntentBinding intentRouting;
     /** Application 级长期记忆配置。 */
     @Valid
     private MemoryConfig memory;

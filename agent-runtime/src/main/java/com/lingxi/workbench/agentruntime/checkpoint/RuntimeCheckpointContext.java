@@ -26,5 +26,4 @@ public class RuntimeCheckpointContext {
     private TokenUsage applicationUsageBeforeAgent;
     private Integer applicationModelCallsBeforeAgent;
     private Integer applicationToolCallsBeforeAgent;
-    private Long applicationElapsedBeforeAgentMillis;
 }

@@ -130,8 +130,6 @@ class ExecutionStateTest {
                         .maxToolCalls(maxToolCalls)
                         .maxTotalTokens(maxTotalTokens)
                         .maxFinalizationTokens(maxFinalizationTokens)
-                        .timeout(Duration.ofSeconds(2))
-                        .activeOutputGrace(Duration.ZERO)
                         .build())
                 .eventSink(sink)
                 .toolRuntimeConfig(config)

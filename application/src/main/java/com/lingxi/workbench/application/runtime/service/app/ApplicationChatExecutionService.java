@@ -6,7 +6,7 @@ import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRe
 public interface ApplicationChatExecutionService {
 
     /**
-     * 构建共享上下文并执行快速路由、Planner 或默认 ReAct Agent。
+     * 构建共享上下文并执行意图路由或 fallback Agent。
      */
     ApplicationChatResult execute(ApplicationChatExecutionRequest request);
 }

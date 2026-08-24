@@ -12,8 +12,7 @@ import lombok.RequiredArgsConstructor;
  * 确保澄清过程中资源发布新版本不会导致选项或执行目标漂移。</p>
  *
  * <ul>
- *   <li><b>INTENT_DISAMBIGUATION</b> — 多个候选叶子意图相似度接近
- *       （Top-1 与 Top-2 分差小于 ambiguityMargin），
+ *   <li><b>INTENT_DISAMBIGUATION</b> — 语义决策要求用户在多个候选叶子间确认，
  *       需要用户从候选中明确选择一个。</li>
  *   <li><b>MISSING_SLOT</b> — 目标意图已明确，但缺少必填槽位参数，
  *       需要用户逐项补充。最多 2 轮澄清，超限后进入失败兜底。</li>

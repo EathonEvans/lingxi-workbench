@@ -60,9 +60,15 @@ sa-token:
     exclude-uri:
       - /api/v1/auth/login
       - /internal/v1/conversation-ops/**
+      - /internal/v1/intent-routing/**
       - /error
 
 lingxi:
+  intent-evaluation:
+    enabled: ${LINGXI_INTENT_EVALUATION_ENABLED:false}
+    base-url: ${LINGXI_APPLICATION_BASE_URL:http://127.0.0.1:8080}
+    token: ${LINGXI_INTERNAL_OPS_TOKEN:YU1xZXA1T21TTkRlQVl4TkU2Zm5YSGRHd3dINzhVcjQ}
+    timeout: ${LINGXI_INTENT_EVALUATION_TIMEOUT:60s}
   file:
     url-expire-hours: ${LINGXI_FILE_URL_EXPIRE_HOURS:1}
   storage:
@@ -94,7 +100,7 @@ lingxi:
   security:
     # 敏感配置（MCP Token、模型 API Key）加密主密钥，必须由部署环境提供，
     # 缺失时服务启动失败；生成方式：openssl rand -base64 32
-    secret-master-key: ${LINGXI_SECRET_MASTER_KEY:}
+    secret-master-key: ${LINGXI_SECRET_MASTER_KEY:YU1xZXA1T21TTkRlQVl4TkU2Zm5YSGRHd3dINzhVcjQ=}
     login-protection:
       # 窗口内连续登录失败达到阈值后临时锁定账号，防止口令爆破
       max-failures: ${LINGXI_LOGIN_MAX_FAILURES:5}

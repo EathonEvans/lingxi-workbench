@@ -10,7 +10,7 @@ import java.util.Map;
  * 意图识别节点配置。
  *
  * <p>节点只负责将查询识别为结构化结果，不决定后续执行目标。条件节点根据映射后的
- * status、intentCode、confidence 和 candidateCodes 变量完成确定性分支。</p>
+ * status、intentCode 和 reasonCode 等变量完成确定性分支。</p>
  *
  * @param intentTreeId        意图树主键
  * @param intentTreeVersionId 发布时锁定的不可变意图树版本

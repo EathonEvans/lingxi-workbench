@@ -8,7 +8,7 @@ package com.lingxi.workbench.workflow.common.constants;
  *
  * <p>各常量说明：</p>
  * <ul>
- *   <li>{@code APPLICATION_SCHEMA_VERSION = 11} — 当前 ApplicationDefinition 协议版本号</li>
+ *   <li>{@code APPLICATION_SCHEMA_VERSION = 12} — 当前 ApplicationDefinition 协议版本号</li>
  *   <li>{@code MAX_RESOLVED_CAPABILITIES = 50} — 发布快照最多冻结的能力数量</li>
  *   <li>{@code MIN_DELEGATIONS = 1} / {@code MAX_DELEGATIONS = 10} —
  *       单次请求委派次数范围。10 次上限平衡了复杂任务拆解需求和 Token 开销</li>
@@ -19,7 +19,7 @@ public interface ApplicationCollaborationConstants {
     /**
      * ApplicationDefinition 协议版本号
      */
-    int APPLICATION_SCHEMA_VERSION = 11;
+    int APPLICATION_SCHEMA_VERSION = 12;
 
     /**
      * 发布快照最多冻结的能力数量

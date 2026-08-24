@@ -2,8 +2,10 @@ package com.lingxi.workbench.workflow.engine.langgraph;
 
 import com.lingxi.workbench.workflow.exception.WorkflowDefinitionException;
 import com.lingxi.workbench.workflow.exception.WorkflowExecutionException;
+import com.lingxi.workbench.workflow.exception.IntentClassifierNodeException;
 import com.lingxi.workbench.workflow.model.AgentNodeInvocation;
 import com.lingxi.workbench.workflow.model.IntentClassifierNodeInvocation;
+import com.lingxi.workbench.workflow.model.IntentClassifierNodeResult;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowEdgeDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowExecutionRequest;
@@ -82,7 +84,7 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
      *   │
      *   ├─ [1] 校验阶段
      *   │   ├─ validator.validate(definition)   -- 校验工作流定义的结构合法性
-     *   │   │   ├─ 校验 schemaVersion 是否为支持的版本（当前为 1）
+     *   │   │   ├─ 校验 schemaVersion 是否为支持的版本（当前为 2）
      *   │   │   ├─ 校验 code 非空
      *   │   │   ├─ 校验节点数量：必须有且仅有一个 START 和一个 END
      *   │   │   ├─ 校验每个节点：ID 非空不重复、类型非空、名称非空、配置非空、类型与配置匹配
@@ -318,12 +320,14 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
             inputs = nodeInputs(node, state);
 
             // START / CONDITION / END 节点无业务输出，其他节点调用锁定的运行时能力
-            Map<String, Object> outputs = switch (node.type()) {
-                case START, CONDITION, END -> Map.of();
+            NodeExecutionResult execution = switch (node.type()) {
+                case START, CONDITION, END -> NodeExecutionResult.outputs(Map.of());
                 case INTENT_CLASSIFIER -> executeIntentClassifier(runContext, node, state, inputs);
-                case AGENT -> executeAgent(runContext, node, state, inputs);
+                case AGENT -> NodeExecutionResult.outputs(executeAgent(runContext, node, state, inputs));
             };
-            WorkflowNodeTrace trace = nodeTrace(node, WorkflowNodeStatus.SUCCEEDED, startedAt, inputs, outputs, null);
+            Map<String, Object> outputs = execution.outputs();
+            WorkflowNodeTrace trace = nodeTrace(node, WorkflowNodeStatus.SUCCEEDED, startedAt, inputs, outputs,
+                    null, execution.intentResult());
             runContext.getPorts().runListener().onNodeSucceeded(runContext, node, trace);
 
             // 合并节点输出变量，并通过 appender 通道追加节点追踪
@@ -331,13 +335,19 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
             stateUpdates.put(TRACES_KEY, List.of(trace));
             return stateUpdates;
         } catch (RuntimeException exception) {
-            WorkflowNodeTrace trace = nodeTrace(node, WorkflowNodeStatus.FAILED, startedAt, inputs, Map.of(), rootCause(exception).getMessage());
+            IntentClassifierNodeResult intentResult = exception instanceof IntentClassifierNodeException classifierException
+                    ? classifierException.getResult() : null;
+            WorkflowNodeTrace trace = nodeTrace(node, WorkflowNodeStatus.FAILED, startedAt, inputs, Map.of(),
+                    rootCause(exception).getMessage(), intentResult);
             notifyNodeFailed(runContext, node, trace, exception);
             throw exception;
         }
     }
 
-    private static WorkflowNodeTrace nodeTrace(WorkflowNodeDefinition node, WorkflowNodeStatus status, Instant startedAt, Map<String, Object> inputs, Map<String, Object> outputs, String errorMessage) {
+    private static WorkflowNodeTrace nodeTrace(WorkflowNodeDefinition node, WorkflowNodeStatus status,
+                                               Instant startedAt, Map<String, Object> inputs,
+                                               Map<String, Object> outputs, String errorMessage,
+                                               IntentClassifierNodeResult intentResult) {
         return WorkflowNodeTrace.builder()
                 .nodeId(node.id())
                 .nodeType(node.type())
@@ -347,6 +357,13 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
                 .inputs(inputs)
                 .outputs(outputs)
                 .errorMessage(errorMessage)
+                .decisionStatus(Objects.isNull(intentResult) ? null : intentResult.getStatus())
+                .reasonCode(Objects.isNull(intentResult) ? null : intentResult.getReasonCode())
+                .modelInstanceId(Objects.isNull(intentResult) ? null : intentResult.getModelInstanceId())
+                .promptVersionId(Objects.isNull(intentResult) ? null : intentResult.getPromptVersionId())
+                .tokenUsage(Objects.isNull(intentResult) ? null : intentResult.getTokenUsage())
+                .modelCalls(Objects.isNull(intentResult) ? 0 : intentResult.getModelCalls())
+                .retryCount(Objects.isNull(intentResult) ? 0 : intentResult.getRetryCount())
                 .build();
     }
 
@@ -392,7 +409,8 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
     }
 
     /** 调用锁定的意图树版本并将标准识别结果写入工作流变量。 */
-    private Map<String, Object> executeIntentClassifier(WorkflowRunContext runContext, WorkflowNodeDefinition node, WorkflowGraphState state, Map<String, Object> inputs) {
+    private NodeExecutionResult executeIntentClassifier(WorkflowRunContext runContext, WorkflowNodeDefinition node,
+                                                        WorkflowGraphState state, Map<String, Object> inputs) {
         IntentClassifierNodeConfig config = (IntentClassifierNodeConfig) node.config();
         Object queryValue = inputs.get("query");
         if (!(queryValue instanceof String query) || query.isBlank()) {
@@ -400,13 +418,32 @@ public class LangGraphWorkflowExecutor implements WorkflowExecutor {
         }
         IntentClassifierNodeInvocation invocation = IntentClassifierNodeInvocation.builder()
                 .executionId(state.executionId())
+                .runId(runContext.getRunId())
+                .workflowVersionId(state.workflowVersionId())
                 .nodeId(node.id())
                 .intentTreeId(config.intentTreeId())
                 .intentTreeVersionId(config.intentTreeVersionId())
                 .query(query)
                 .build();
-        Map<String, Object> outputs = runContext.getPorts().intentClassifierNodeInvoker().invoke(invocation);
-        return mapOutputs("意图识别", node.id(), outputs, config.outputMapping());
+        IntentClassifierNodeResult result = runContext.getPorts().intentClassifierNodeInvoker().invoke(invocation);
+        Map<String, Object> outputs = mapOutputs(
+                "意图识别", node.id(), result.standardOutputs(), config.outputMapping());
+        return new NodeExecutionResult(outputs, result);
+    }
+
+    /**
+     * @param outputs      写入 Workflow 状态的节点输出
+     * @param intentResult 意图分类节点的模型事实，其他节点为空
+     */
+    private record NodeExecutionResult(Map<String, Object> outputs, IntentClassifierNodeResult intentResult) {
+
+        private NodeExecutionResult {
+            outputs = Collections.unmodifiableMap(new LinkedHashMap<>(outputs));
+        }
+
+        private static NodeExecutionResult outputs(Map<String, Object> outputs) {
+            return new NodeExecutionResult(outputs, null);
+        }
     }
 
     private Map<String, Object> mapOutputs(String nodeType, String nodeId, Map<String, Object> outputs, Map<String, String> mapping) {

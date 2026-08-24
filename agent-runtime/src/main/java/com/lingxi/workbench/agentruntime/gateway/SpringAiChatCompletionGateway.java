@@ -1,6 +1,7 @@
 package com.lingxi.workbench.agentruntime.gateway;
 
 import com.lingxi.workbench.infra.ai.chat.ChatCompletionGateway;
+import com.lingxi.workbench.infra.ai.chat.SpringAiChatClientFactory;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatCompletionResult;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;

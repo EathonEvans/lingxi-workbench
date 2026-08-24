@@ -3,9 +3,9 @@ package com.lingxi.workbench.agentruntime;
 import com.lingxi.workbench.agentruntime.event.ExecutionEvent;
 import com.lingxi.workbench.agentruntime.event.ExecutionEventType;
 import com.lingxi.workbench.agentruntime.event.RuntimeEventSink;
-import com.lingxi.workbench.agentruntime.gateway.SpringAiChatClientFactory;
 import com.lingxi.workbench.agentruntime.gateway.advisor.RuntimeContextAdvisor;
 import com.lingxi.workbench.agentruntime.gateway.advisor.RuntimeModelAdvisor;
+import com.lingxi.workbench.infra.ai.chat.SpringAiChatClientFactory;
 import com.lingxi.workbench.agentruntime.model.ExecutionPolicy;
 import com.lingxi.workbench.agentruntime.model.ExecutionState;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
@@ -83,8 +83,7 @@ class SkillRouterTest {
     private static ExecutionState state(RecordingSink sink) {
         return ExecutionState.builder().runId("skill-router-run").agentId(10L).agentVersionId(20L)
                 .policy(ExecutionPolicy.builder().maxModelCalls(3).maxToolCalls(0)
-                        .maxTotalTokens(100).maxFinalizationTokens(100)
-                        .timeout(Duration.ofSeconds(3)).activeOutputGrace(Duration.ZERO).build())
+                        .maxTotalTokens(100).maxFinalizationTokens(100).build())
                 .eventSink(sink).authorizedToolCodes(List.of()).build();
     }
 

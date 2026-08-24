@@ -59,6 +59,43 @@ public final class ConversationContext {
         return rewrittenQuery;
     }
 
+    /** 将路由阶段模型消耗并入后续执行共享预算，不改变其余可信上下文。 */
+    public ConversationContext plusPreparationUsage(TokenUsage usage, int modelCalls) {
+        return ConversationContext.builder()
+                .applicationSnapshot(applicationSnapshot)
+                .loginUser(loginUser)
+                .turn(turn)
+                .originalQuery(originalQuery)
+                .rewrittenQuery(rewrittenQuery)
+                .recentMessages(recentMessages)
+                .summary(summary)
+                .longTermMemory(longTermMemory)
+                .budget(budget)
+                .runtimeVariables(runtimeVariables)
+                .preparationTokenUsage(preparationTokenUsage.plus(usage))
+                .preparationModelCalls(preparationModelCalls + Math.max(modelCalls, 0))
+                .build();
+    }
+
+    /** 为 Workflow 分类节点派生查询作用域，保留同一份可信用户、版本和有界记忆。 */
+    public ConversationContext forkForQuery(String query) {
+        String scopedQuery = requireText(query, "Workflow意图分类问题");
+        return ConversationContext.builder()
+                .applicationSnapshot(applicationSnapshot)
+                .loginUser(loginUser)
+                .turn(turn)
+                .originalQuery(scopedQuery)
+                .rewrittenQuery(scopedQuery)
+                .recentMessages(recentMessages)
+                .summary(summary)
+                .longTermMemory(longTermMemory)
+                .budget(budget)
+                .runtimeVariables(runtimeVariables.forkForQuery(scopedQuery))
+                .preparationTokenUsage(preparationTokenUsage)
+                .preparationModelCalls(preparationModelCalls)
+                .build();
+    }
+
     /**
      * 为跨消息Planner澄清恢复新的有效任务，同时保留同一份已准备上下文数据。 澄清补充
      */

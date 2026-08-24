@@ -17,15 +17,15 @@ import lombok.RequiredArgsConstructor;
  *       直接返回预定义文本，不调用模型也不执行 Tool。</li>
  *   <li><b>CLARIFICATION</b> — 需要用户补充信息（歧义消解或补槽位）。
  *       此时 SSE 返回 clarification 事件，前端展示选项或追问。</li>
- *   <li><b>NO_MATCH</b> — 可选快速路由未形成确定结果，交由 Planner 或默认 ReAct Agent。</li>
+ *   <li><b>DEFER_TO_AGENT</b> — 意图路由未形成安全直达结果，交由 fallback Agent。</li>
  * </ul>
  */
 @Getter
 @RequiredArgsConstructor
 public enum IntentRoutingAction {
 
-    /** 当前 Application 未启用快速路由，或正在恢复 Planner 交互。 */
-    SKIPPED("SKIPPED", "跳过快速路由"),
+    /** 当前 Application 未启用意图路由，或正在恢复运行时交互。 */
+    SKIPPED("SKIPPED", "跳过意图路由"),
 
     /** 执行叶子映射锁定的 WorkflowVersion */
     EXECUTE_WORKFLOW("EXECUTE_WORKFLOW", "执行Workflow"),
@@ -40,10 +40,7 @@ public enum IntentRoutingAction {
     CLARIFICATION("CLARIFICATION", "请求用户澄清"),
 
     /** 跨能力歧义或候选未映射，携带安全证据交由fallback Agent判断。 */
-    DEFER_TO_AGENT("DEFER_TO_AGENT", "交由fallback Agent判断"),
-
-    /** 可选快速路由未形成确定性结果，交由Planner或默认ReAct Agent。 */
-    NO_MATCH("NO_MATCH", "交由模型决策");
+    DEFER_TO_AGENT("DEFER_TO_AGENT", "交由fallback Agent判断");
 
     private final String code;
     private final String describe;

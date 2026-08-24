@@ -1,5 +1,6 @@
 package com.lingxi.workbench.workflow.model;
 
+import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -50,6 +51,20 @@ public class WorkflowNodeTrace implements Serializable {
      * 失败时的错误信息，成功时为空。
      */
     private final String errorMessage;
+    /** 意图分类节点的稳定决策状态，其他节点为空。 */
+    private final IntentClassifierNodeStatus decisionStatus;
+    /** 意图分类节点的稳定原因编码，其他节点为空。 */
+    private final String reasonCode;
+    /** 本节点使用的模型实例，未调用模型时为空。 */
+    private final Long modelInstanceId;
+    /** 本节点使用的 PromptVersion，未调用模型时为空。 */
+    private final Long promptVersionId;
+    /** 本节点实际模型 Token 用量。 */
+    private final TokenUsage tokenUsage;
+    /** 本节点实际模型调用次数。 */
+    private final int modelCalls;
+    /** 本节点结构化修复次数。 */
+    private final int retryCount;
 
     @Builder
     private WorkflowNodeTrace(
@@ -60,7 +75,14 @@ public class WorkflowNodeTrace implements Serializable {
             Instant finishedAt,
             Map<String, Object> inputs,
             Map<String, Object> outputs,
-            String errorMessage) {
+            String errorMessage,
+            IntentClassifierNodeStatus decisionStatus,
+            String reasonCode,
+            Long modelInstanceId,
+            Long promptVersionId,
+            TokenUsage tokenUsage,
+            int modelCalls,
+            int retryCount) {
         this.nodeId = nodeId;
         this.nodeType = nodeType;
         this.status = status;
@@ -69,6 +91,13 @@ public class WorkflowNodeTrace implements Serializable {
         this.inputs = immutableCopy(inputs);
         this.outputs = immutableCopy(outputs);
         this.errorMessage = errorMessage;
+        this.decisionStatus = decisionStatus;
+        this.reasonCode = reasonCode;
+        this.modelInstanceId = modelInstanceId;
+        this.promptVersionId = promptVersionId;
+        this.tokenUsage = java.util.Objects.requireNonNullElseGet(tokenUsage, TokenUsage::empty);
+        this.modelCalls = modelCalls;
+        this.retryCount = retryCount;
     }
 
     private static Map<String, Object> immutableCopy(Map<String, Object> source) {

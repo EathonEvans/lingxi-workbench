@@ -12,7 +12,9 @@ import lombok.Getter;
 
 import java.util.List;
 
-/** 与事件类型匹配的安全载荷，不包含 Prompt、思维链、Tool 参数或原始结果。 */
+/**
+ * 与事件类型匹配的安全载荷，不包含 Prompt、思维链、Tool 参数或原始结果。
+ */
 public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run, ExecutionEventPayload.Agent,
         ExecutionEventPayload.Model, ExecutionEventPayload.Skill, ExecutionEventPayload.Tool,
         ExecutionEventPayload.Human, ExecutionEventPayload.Plan, ExecutionEventPayload.Step,
@@ -20,7 +22,9 @@ public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run,
 
     String message();
 
-    /** @param message 可安全展示的Run生命周期说明 */
+    /**
+     * @param message 可安全展示的Run生命周期说明
+     */
     record Run(String message) implements ExecutionEventPayload {
     }
 
@@ -32,7 +36,9 @@ public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run,
     record Agent(Long agentId, Long agentVersionId, String message) implements ExecutionEventPayload {
     }
 
-    /** Planner 事件保留可展示的 typed 决策，不包含 Prompt、模型原文或推理内容。 */
+    /**
+     * Planner 事件保留可展示的 typed 决策，不包含 Prompt、模型原文或推理内容。
+     */
     @Getter
     final class Plan implements ExecutionEventPayload {
 
@@ -52,7 +58,9 @@ public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run,
         }
     }
 
-    /** 计划步骤事件只携带可展示定义和终态，不包含输入与原始结果。 */
+    /**
+     * 计划步骤事件只携带可展示定义和终态，不包含输入与原始结果。
+     */
     @Getter
     final class Step implements ExecutionEventPayload {
 
@@ -62,8 +70,7 @@ public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run,
         private final String errorCode;
         private final String message;
 
-        public Step(int planNo, PlannerStep step, AgentInvocationStatus status, String errorCode,
-                    String message) {
+        public Step(int planNo, PlannerStep step, AgentInvocationStatus status, String errorCode, String message) {
             this.planNo = planNo;
             this.step = java.util.Objects.requireNonNull(step, "计划步骤不能为空");
             this.status = java.util.Objects.requireNonNull(status, "步骤状态不能为空");
@@ -77,7 +84,9 @@ public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run,
         }
     }
 
-    /** 用户澄清事件只携带已校验的展示问题。 */
+    /**
+     * 用户澄清事件只携带已校验的展示问题。
+     */
     @Getter
     final class Clarification implements ExecutionEventPayload {
 
@@ -110,7 +119,9 @@ public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run,
         }
     }
 
-    /** 已激活 Skill 的安全审计事实。 */
+    /**
+     * 已激活 Skill 的安全审计事实。
+     */
     @Getter
     @Builder
     final class Skill implements ExecutionEventPayload {
@@ -159,7 +170,9 @@ public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run,
         }
     }
 
-    /** 人工交互事件只携带安全展示事实，不包含Tool参数。 */
+    /**
+     * 人工交互事件只携带安全展示事实，不包含Tool参数。
+     */
     @Getter
     final class Human implements ExecutionEventPayload {
 

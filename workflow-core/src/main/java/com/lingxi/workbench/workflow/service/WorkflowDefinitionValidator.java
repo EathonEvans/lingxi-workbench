@@ -30,11 +30,12 @@ import java.util.stream.Collectors;
 public class WorkflowDefinitionValidator {
 
     /** 当前支持的协议版本号 */
-    public static final int SUPPORTED_SCHEMA_VERSION = 1;
+    public static final int SUPPORTED_SCHEMA_VERSION = 2;
     /** 系统保留变量的前缀 */
     private static final String RESERVED_VARIABLE_PREFIX = "_";
     /** 意图识别节点允许映射的标准输出。 */
-    private static final Set<String> INTENT_OUTPUTS = Set.of("status", "intentCode", "confidence", "candidateCodes");
+    private static final Set<String> INTENT_OUTPUTS = Set.of(
+            "status", "intentCode", "reasonCode", "similarity", "candidateCodes", "recognizedSlots");
 
     /**
      * 校验发布版本的工作流定义，要求外部资源节点必须锁定版本。
@@ -119,6 +120,8 @@ public class WorkflowDefinitionValidator {
                         "意图识别节点包含未知输出: " + node.id());
                 require(config.outputMapping().containsKey("status"),
                         "意图识别节点必须映射status输出: " + node.id());
+                require(config.outputMapping().containsKey("reasonCode"),
+                        "意图识别节点必须映射reasonCode输出: " + node.id());
             } else if (node.config() instanceof ConditionNodeConfig config) {
                 require(isNotBlank(config.variable()), "条件节点变量不能为空: " + node.id());
                 require(

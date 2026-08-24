@@ -61,6 +61,14 @@ public class PromptTemplateRenderer {
         return renderPrompt(snapshot, variables, PromptRole.SYSTEM, RuntimeVariableChannel.CONTEXTUALIZATION_PROMPT);
     }
 
+    /**
+     * 渲染意图语义决策使用的已发布 SYSTEM Prompt。
+     * 用户问题、会话内容和候选元数据由调用方放入低优先级结构化 UserMessage，不能借此通道提升权限。
+     */
+    public String renderIntentDecisionPrompt(PromptRuntimeSnapshot snapshot, RuntimeVariables variables) {
+        return renderPrompt(snapshot, variables, PromptRole.SYSTEM, RuntimeVariableChannel.INTENT_DECISION_PROMPT);
+    }
+
     private String renderPrompt(PromptRuntimeSnapshot snapshot, RuntimeVariables variables, PromptRole expectedRole, RuntimeVariableChannel variableChannel) {
         if (snapshot.role() != expectedRole) {
             throw invalidSnapshot(snapshot.promptVersionId(), "Prompt角色必须为" + expectedRole.getCode());

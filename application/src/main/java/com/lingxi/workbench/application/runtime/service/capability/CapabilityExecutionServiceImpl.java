@@ -102,12 +102,11 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
      * @return 能力执行结果
      */
     private CapabilityExecutionResult executeCapability(CapabilityExecutionRequest request) {
-        // 取上下文剩余时间与能力配置超时中的较小值，避免突破整体会话预算
-        Duration timeout = request.getContext().remainingTimeout(Duration.ofSeconds(request.getCapability().getTimeoutSeconds()));
+        // Workflow 与 Tool 使用各自发布的能力时限；Agent 流只受模型响应空闲超时和运行预算约束。
+        Duration timeout = Duration.ofSeconds(request.getCapability().getTimeoutSeconds());
 
         // 按能力类型分发：AGENT/WORKFLOW 包一层超时控制，TOOL 自带超时与事件发布
         CapabilityExecutionResult result = switch (request.getCapability().getType()) {
-            // Agent内部按Application动态硬截止处理活跃流式宽限，外层固定timeout会提前取消仍在输出的回答。
             case AGENT -> executeAgent(request);
             case WORKFLOW -> executeWithinTimeout(request, timeout, () -> executeWorkflow(request));
             case TOOL -> executeTool(request, timeout);
@@ -166,7 +165,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
     /**
      * 执行 AGENT 类型能力。
      * <p>前置校验锁定版本存在、预解析 Agent 与能力锁定目标一致、checksum 与发布快照一致；
-     * 主Agent仅允许作为 Application fallback 入口执行，领域专家可由快速路由或计划步骤调用；
+     * 主Agent仅允许作为 Application fallback 入口执行，领域专家可由意图路由或计划步骤调用；
      * 最终按 Agent 角色从执行器注册表取对应执行器执行。
      *
      * @param request 能力执行请求

@@ -18,6 +18,6 @@ class ChatWebConfigurationTest {
         configuration.configureAsyncSupport(configurer);
 
         verify(configurer).setTaskExecutor(executor);
-        verify(configurer).setDefaultTimeout(ChatWebConfiguration.ASYNC_TIMEOUT_MILLIS);
+        verify(configurer).setDefaultTimeout(ChatWebConfiguration.NO_ASYNC_TIMEOUT_MILLIS);
     }
 }

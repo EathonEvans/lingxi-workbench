@@ -1,6 +1,5 @@
 package com.lingxi.workbench.application.runtime.service.app;
 
-import com.lingxi.workbench.agentruntime.model.AgentExecutionDeadlineExceededException;
 import com.lingxi.workbench.agentruntime.model.AgentRunCancelledException;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionRunStatus;
 import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingAction;
@@ -70,13 +69,15 @@ class ApplicationChatExecutionServiceImplTest {
                 (context, response) -> IntentRoutingResult.builder()
                         .action(IntentRoutingAction.FIXED_RESPONSE)
                         .response("固定回答")
+                        .tokenUsage(TokenUsage.of(3, 2, 5))
+                        .modelCalls(1)
                         .build(),
                 plannerDisabled());
 
-        ApplicationChatResult result = service.execute(executionRequest(fastRouteSnapshot(), "固定问题"));
+        ApplicationChatResult result = service.execute(executionRequest(intentRoutingSnapshot(), "固定问题"));
 
         assertEquals("固定回答", result.answer());
-        assertEquals(TokenUsage.empty(), result.tokenUsage());
+        assertEquals(TokenUsage.of(3, 2, 5), result.tokenUsage());
     }
 
     @Test
@@ -97,14 +98,14 @@ class ApplicationChatExecutionServiceImplTest {
                         .build(),
                 plannerDisabled());
 
-        ApplicationChatResult result = service.execute(executionRequest(fastRouteSnapshot(), "办理业务", eventPublisher));
+        ApplicationChatResult result = service.execute(executionRequest(intentRoutingSnapshot(), "办理业务", eventPublisher));
 
         assertEquals("请选择需要办理的业务", result.answer());
         verify(eventPublisher).publishClarification(clarification);
     }
 
     @Test
-    void shouldExecuteWorkflowFastRouteThroughPublishedCapability() {
+    void shouldExecuteWorkflowIntentRoutingThroughPublishedCapability() {
         ApplicationIntentMapping mapping = mapping(
                 IntentExecutionTargetType.WORKFLOW, "refund_workflow", 40L, 50L);
         ApplicationCapabilityDefinition capability = capability(
@@ -122,22 +123,30 @@ class ApplicationChatExecutionServiceImplTest {
             assertEquals(70L, request.getContext().getMemoryConfig().getEmbeddingModelInstanceId());
             assertEquals("测试用户", request.getContext()
                     .getRuntimeVariables().require(RuntimeVariableAccessors.USER_NAME));
+            assertEquals(14, request.getContext().remainingModelCalls());
             request.getContext().recordUsage(TokenUsage.of(5, 1, 6));
             return new CapabilityExecutionResult("退款回答", 99L, List.of());
         };
         ApplicationChatExecutionServiceImpl service = service(
                 capabilityService, conversationContextService(TokenUsage.of(10, 2, 12)),
-                routed(mapping), plannerDisabled());
+                (context, response) -> IntentRoutingResult.builder()
+                        .action(IntentRoutingAction.EXECUTE_WORKFLOW)
+                        .intentCode(mapping.getIntentCode())
+                        .mapping(mapping)
+                        .executionQuery(context.routingQuery())
+                        .tokenUsage(TokenUsage.of(3, 1, 4))
+                        .modelCalls(2)
+                        .build(), plannerDisabled());
 
         ApplicationChatResult result = service.execute(executionRequest(snapshot, "退款问题"));
 
         assertEquals("退款回答", result.answer());
         assertEquals(99L, result.modelInstanceId());
-        assertEquals(TokenUsage.of(15, 3, 18), result.tokenUsage());
+        assertEquals(TokenUsage.of(18, 4, 22), result.tokenUsage());
     }
 
     @Test
-    void shouldExecuteAgentFastRouteThroughPublishedCapability() {
+    void shouldExecuteAgentIntentRoutingThroughPublishedCapability() {
         ApplicationIntentMapping mapping = mapping(
                 IntentExecutionTargetType.AGENT, "consult_agent", 60L, 70L);
         ApplicationCapabilityDefinition capability = capability(
@@ -201,11 +210,10 @@ class ApplicationChatExecutionServiceImplTest {
     }
 
     @Test
-    void shouldExecuteReservedDefaultAgentCapabilityWhenFastRouteIsDisabled() {
+    void shouldExecuteReservedDefaultAgentCapabilityWhenIntentRoutingIsDisabled() {
         AtomicReference<CapabilityExecutionRequest> executed = new AtomicReference<>();
-        IntentRoutingService routingService = (context, response) -> {
-            throw new AssertionError("未启用快速路由时不应调用路由服务");
-        };
+        IntentRoutingService routingService = (context, response) ->
+                IntentRoutingResult.skipped(context.routingQuery());
         ApplicationChatExecutionServiceImpl service = service(
                 request -> {
                     executed.set(request);
@@ -229,7 +237,6 @@ class ApplicationChatExecutionServiceImplTest {
                 .maxDelegations(0)
                 .totalTokenBudget(10)
                 .tokenGracePercent(10)
-                .timeoutSeconds(60)
                 .build());
         ApplicationChatExecutionServiceImpl service = service(
                 unexpectedCapabilityService(),
@@ -243,11 +250,12 @@ class ApplicationChatExecutionServiceImplTest {
     }
 
     @Test
-    void shouldExecuteConfiguredFallbackCapabilityWhenFastRouteDoesNotMatch() {
+    void shouldExecuteConfiguredFallbackCapabilityWhenIntentRoutingDoesNotMatch() {
         ApplicationChatExecutionServiceImpl service = service(
                 request -> new CapabilityExecutionResult("Fallback回答", 81L, List.of()),
                 conversationContextService(),
-                (context, response) -> IntentRoutingResult.noMatch(context.routingQuery()), plannerDisabled());
+                (context, response) -> IntentRoutingResult.deferUnmatched(context.routingQuery(),
+                        com.lingxi.workbench.application.runtime.common.enums.IntentRoutingReason.NO_CANDIDATE), plannerDisabled());
 
         ApplicationIntentMapping mapping = mapping(
                 IntentExecutionTargetType.AGENT, "consult_agent", 61L, 71L);
@@ -263,7 +271,7 @@ class ApplicationChatExecutionServiceImplTest {
     }
 
     @Test
-    void shouldRejectFastRouteWithoutCapabilityCode() {
+    void shouldRejectIntentRoutingWithoutCapabilityCode() {
         ApplicationIntentMapping mapping = mapping(IntentExecutionTargetType.AGENT, null, 60L, 70L);
 
         assertThrows(IllegalArgumentException.class, () -> routedSnapshot(
@@ -301,21 +309,21 @@ class ApplicationChatExecutionServiceImplTest {
     }
 
     @Test
-    void shouldPersistPartialRunStatusAtRuntimeDeadline() {
+    void shouldPersistFailedRunStatusWhenRuntimeFails() {
         ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
         ApplicationChatExecutionServiceImpl service = service(
                 request -> {
-                    throw new AgentExecutionDeadlineExceededException();
+                    throw new IllegalStateException("runtime failed");
                 },
                 conversationContextService(),
                 (context, response) -> IntentRoutingResult.skipped(context.routingQuery()),
                 plannerDisabled(), persistenceService);
 
-        assertThrows(AgentExecutionDeadlineExceededException.class,
+        assertThrows(IllegalStateException.class,
                 () -> service.execute(executionRequest(defaultSnapshot(), "超时问题")));
 
         verify(persistenceService).changeRunStatus(anyString(), eq(ExecutionRunStatus.RUNNING),
-                eq(ExecutionRunStatus.PARTIAL), eq("TERMINAL"));
+                eq(ExecutionRunStatus.FAILED), eq("TERMINAL"));
     }
 
     @Test
@@ -466,7 +474,7 @@ class ApplicationChatExecutionServiceImplTest {
         return new AppRuntimeSnapshot(1L, "support", 30L, definition);
     }
 
-    private static AppRuntimeSnapshot fastRouteSnapshot() {
+    private static AppRuntimeSnapshot intentRoutingSnapshot() {
         ApplicationIntentMapping mapping = mapping(IntentExecutionTargetType.AGENT, "consult_agent", 61L, 71L);
         ApplicationCapabilityDefinition capability = capability(
                 "consult_agent", ApplicationCapabilityType.AGENT, 61L, 71L);
@@ -482,7 +490,7 @@ class ApplicationChatExecutionServiceImplTest {
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder()
                         .capabilities(List.of(fallbackCap(), mappedCapability))
                         .build())
-                .optionalFastRoutes(ApplicationIntentBinding.builder()
+                .intentRouting(ApplicationIntentBinding.builder()
                         .enabled(true)
                         .intentTreeId(2L)
                         .intentTreeVersionId(20L)

@@ -1,6 +1,5 @@
 package com.lingxi.workbench.agentruntime;
 
-import com.lingxi.workbench.agentruntime.gateway.SpringAiChatClientFactory;
 import com.lingxi.workbench.agentruntime.gateway.advisor.RuntimeContextAdvisor;
 import com.lingxi.workbench.agentruntime.gateway.advisor.RuntimeModelAdvisor;
 import com.lingxi.workbench.agentruntime.model.AgentReconciliationPendingException;
@@ -9,6 +8,7 @@ import com.lingxi.workbench.agentruntime.model.ExecutionState;
 import com.lingxi.workbench.agentruntime.plan.AgentInvocationState;
 import com.lingxi.workbench.agentruntime.plan.PlanStepResult;
 import com.lingxi.workbench.agentruntime.plan.RuntimeCapability;
+import com.lingxi.workbench.agentruntime.plan.RuntimeCapabilityExecutionFacts;
 import com.lingxi.workbench.agentruntime.plan.RuntimeCapabilityException;
 import com.lingxi.workbench.agentruntime.plan.RuntimeCapabilityInvocation;
 import com.lingxi.workbench.agentruntime.plan.RuntimeCapabilityResult;
@@ -19,10 +19,12 @@ import com.lingxi.workbench.agentruntime.planner.PlannerClarification;
 import com.lingxi.workbench.agentruntime.planner.PlannerDecision;
 import com.lingxi.workbench.agentruntime.planner.PlannerDecisionAction;
 import com.lingxi.workbench.agentruntime.planner.PlannerDecisionValidationException;
+import com.lingxi.workbench.agentruntime.planner.PlannerDecisionValidationContext;
 import com.lingxi.workbench.agentruntime.planner.PlannerInteractionType;
 import com.lingxi.workbench.agentruntime.planner.PlannerRunRequest;
 import com.lingxi.workbench.agentruntime.planner.PlannerRunResult;
 import com.lingxi.workbench.agentruntime.planner.PlannerStep;
+import com.lingxi.workbench.infra.ai.chat.SpringAiChatClientFactory;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.openai.OpenAiCompatibleChatModelFactory;
@@ -133,7 +135,7 @@ public class SupervisorRuntime {
             return boundary(request, state, completed, planNo, runtimeUsage,
                     "运行预算已到工作边界，未发起新的规划调用");
         }
-        PlannerRunResult planned = plan(request, state, planNo, null);
+        PlannerRunResult planned = plan(request, state, planNo, null, capabilities, capabilityCalls, delegations.get());
         runtimeUsage = runtimeUsage.plus(planned.tokenUsage());
         PlannerDecision decision = planned.decision();
 
@@ -179,6 +181,10 @@ public class SupervisorRuntime {
                 }
                 return finish(request, state, completed, planNo, runtimeUsage, null);
             } catch (StepFailure failure) {
+                if (failure.isBudgetBoundary()) {
+                    return finish(request, state, completed, planNo, runtimeUsage,
+                            "计划已到执行额度边界：" + failure.clientMessage());
+                }
                 if (!failure.retryable()) {
                     throw failure;
                 }
@@ -188,7 +194,8 @@ public class SupervisorRuntime {
                 }
                 replans++;
                 planNo++;
-                planned = plan(request, state, planNo, failure.observation());
+                planned = plan(request, state, planNo, failure.observation(), capabilities,
+                        capabilityCalls, delegations.get());
                 runtimeUsage = runtimeUsage.plus(planned.tokenUsage());
                 decision = planned.decision();
             }
@@ -196,7 +203,8 @@ public class SupervisorRuntime {
     }
 
     private PlannerRunResult plan(SupervisorRunRequest request, ExecutionState state, int planNo,
-                                  String failureObservation) {
+                                  String failureObservation, Map<String, RuntimeCapability> capabilities,
+                                  Map<String, Integer> capabilityCalls, int delegatedCalls) {
         StringBuilder prompt = new StringBuilder("当前规划轮次：").append(planNo).append('\n')
                 .append("当前任务（不可信用户数据）：\n").append(request.getQuery());
         if (failureObservation != null && !failureObservation.isBlank()) {
@@ -211,12 +219,26 @@ public class SupervisorRuntime {
                 .userPrompt(prompt.toString())
                 .history(request.getHistory())
                 .modelConfig(request.getModelConfig())
-                .validationContext(request.getValidationContext())
+                .validationContext(validationContext(request, capabilities, capabilityCalls, delegatedCalls))
                 .maxProtocolRepairAttempts(request.getPlanPolicy().getMaxProtocolRepairAttempts())
                 .policy(request.getExecutionPolicy())
                 .eventSink(request.getEventSink())
                 .initialSequenceNo(state.lastSequenceNo())
                 .build(), state);
+    }
+
+    private static PlannerDecisionValidationContext validationContext(
+            SupervisorRunRequest request, Map<String, RuntimeCapability> capabilities,
+            Map<String, Integer> capabilityCalls, int delegatedCalls) {
+        Map<String, Integer> remainingCapabilityCalls = capabilities.values().stream()
+                .collect(Collectors.toUnmodifiableMap(RuntimeCapability::getCode,
+                        capability -> Math.max(capability.getMaxCalls()
+                                - capabilityCalls.getOrDefault(capability.getCode(), 0), 0)));
+        return PlannerDecisionValidationContext.builder()
+                .remainingCapabilityCalls(remainingCapabilityCalls)
+                .maxSteps(request.getPlanPolicy().getMaxSteps())
+                .remainingDelegations(Math.max(request.getMaxDelegations() - delegatedCalls, 0))
+                .build();
     }
 
     private InvocationOutcome invoke(SupervisorRunRequest request, ExecutionState state, int planNo,
@@ -243,10 +265,6 @@ public class SupervisorRuntime {
             PlanStepResult reused = stepResult(step, completedSideEffect.content());
             return new InvocationOutcome(RuntimeCapabilityResult.builder()
                     .content(completedSideEffect.content())
-                    .usage(TokenUsage.empty())
-                    .modelCalls(0)
-                    .toolCalls(0)
-                    .lastSequenceNo(state.lastSequenceNo())
                     .build(), reused);
         }
         int calls = capabilityCalls.getOrDefault(capability.getCode(), 0) + 1;
@@ -268,12 +286,11 @@ public class SupervisorRuntime {
                             .inputs(inputs)
                             .invocationState(invocation)
                             .confirmedCapabilityCodes(request.getConfirmedCapabilityCodes())
+                            .executionRecorder(facts -> recordDelegatedExecution(state, facts))
                             .build());
             if (result == null) {
                 throw new RuntimeCapabilityException("EMPTY_CAPABILITY_RESULT", "能力执行结果不能为空", false, null);
             }
-            state.recordDelegatedUsage(result.getModelCalls(), result.getToolCalls(), result.getUsage(),
-                    result.getLastSequenceNo());
             if (result.isInterrupted()) {
                 invocation.interrupt();
                 saveInvocation(request, invocation, capability.getRisk().hasSideEffect());
@@ -305,6 +322,10 @@ public class SupervisorRuntime {
             saveInvocation(request, invocation, capability.getRisk().hasSideEffect());
             throw exception;
         }
+    }
+
+    private static void recordDelegatedExecution(ExecutionState state, RuntimeCapabilityExecutionFacts facts) {
+        state.recordDelegatedUsage(facts.modelCalls(), facts.toolCalls(), facts.usage(), facts.lastSequenceNo());
     }
 
     private StepFailure fail(SupervisorRunRequest request, ExecutionState state, int planNo,
@@ -499,7 +520,7 @@ public class SupervisorRuntime {
                 || request.getAgentId() == null || request.getAgentVersionId() == null
                 || request.getPlannerSystemPrompt() == null || request.getSynthesisSystemPrompt() == null
                 || request.getQuery() == null || request.getQuery().isBlank() || request.getModelConfig() == null
-                || request.getValidationContext() == null || request.getPlanPolicy() == null
+                || request.getPlanPolicy() == null
                 || request.getExecutionPolicy() == null || request.getMaxDelegations() < 0
                 || request.getMaxObservationTokens() < 1 || request.getCapabilityInvoker() == null
                 || request.getPlanStore() == null || request.getEventSink() == null) {
@@ -535,6 +556,10 @@ public class SupervisorRuntime {
 
         private String clientMessage() {
             return clientMessage;
+        }
+
+        private boolean isBudgetBoundary() {
+            return "CAPABILITY_CALL_LIMIT".equals(code) || "DELEGATION_LIMIT".equals(code);
         }
 
         private String observation() {

@@ -4,7 +4,6 @@ import com.lingxi.workbench.agentruntime.gateway.SpringAiStreamingChatGateway;
 import com.lingxi.workbench.agentruntime.hook.SkillHook;
 import com.lingxi.workbench.agentruntime.checkpoint.ExecutionStateSnapshot;
 import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpoint;
-import com.lingxi.workbench.agentruntime.model.AgentExecutionDeadlineExceededException;
 import com.lingxi.workbench.agentruntime.model.AgentResumeRequest;
 import com.lingxi.workbench.agentruntime.model.AgentRunCancelledException;
 import com.lingxi.workbench.agentruntime.model.AgentRunRequest;
@@ -16,9 +15,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Lingxi Agent Runtime 唯一运行门面。
@@ -30,7 +27,6 @@ import java.util.concurrent.atomic.AtomicReference;
 public class AgentRuntime {
 
     private static final Duration CANCELLATION_POLL_INTERVAL = Duration.ofMillis(100);
-    private static final Duration BLOCK_GRACE = Duration.ofSeconds(2);
 
     private final SpringAiStreamingChatGateway streamingChatGateway;
     private final SkillHook skillHook;
@@ -77,7 +73,6 @@ public class AgentRuntime {
         AgentRunRequest request = resumeRequest.runRequest();
         RuntimeCheckpoint checkpoint = resumeRequest.checkpoint();
         ExecutionStateSnapshot snapshot = checkpoint.getState();
-        long activeElapsedMillis = Objects.requireNonNullElse(snapshot.getActiveElapsedMillis(), 0L);
         long initialSequenceNo = Math.max(request.getInitialSequenceNo(),
                 Objects.requireNonNullElse(snapshot.getLastSequenceNo(), 0L));
         ExecutionState state = ExecutionState.builder()
@@ -93,7 +88,6 @@ public class AgentRuntime {
                 .initialModelCalls(snapshot.getModelCalls())
                 .initialToolCalls(snapshot.getToolCalls())
                 .initialUsage(snapshot.getTokenUsage())
-                .startedAt(Instant.now().minusMillis(activeElapsedMillis))
                 .checkpointContext(request.getCheckpointContext())
                 .checkpointStore(request.getCheckpointStore())
                 .build();
@@ -106,32 +100,17 @@ public class AgentRuntime {
     private AgentRunResult execute(AgentRunRequest request, ExecutionState state,
                                    Flux<ChatStreamChunk> responseStream) {
 
-        AtomicReference<StopReason> stopReason = new AtomicReference<>();
-        Duration remaining = Duration.between(Instant.now(),
-                state.getStartedAt().plus(request.getPolicy().getTimeout()));
-        Duration timeoutDelay = remaining.isNegative() || remaining.isZero()
-                ? Duration.ofMillis(1) : remaining;
-        Mono<StopReason> timeout = Mono.delay(timeoutDelay)
-                .flatMap(ignored -> state.canUseActiveOutputGrace()
-                        ? Mono.delay(request.getPolicy().getActiveOutputGrace())
-                        .map(graceIgnored -> StopReason.TIMEOUT)
-                        : Mono.just(StopReason.TIMEOUT));
-        Mono<StopReason> cancellation = Flux.interval(CANCELLATION_POLL_INTERVAL)
+        Mono<Long> cancellation = Flux.interval(CANCELLATION_POLL_INTERVAL)
                 .filter(ignored -> state.isCancelled())
-                .next()
-                .map(ignored -> StopReason.CANCELLED);
-        Mono<StopReason> stop = Mono.firstWithSignal(timeout, cancellation)
-                .doOnNext(reason -> stopReason.compareAndSet(null, reason));
+                .next();
 
         try {
             responseStream
                     .doOnNext(chunk -> acceptChunk(state, request, chunk))
-                    .takeUntilOther(stop)
+                    .takeUntilOther(cancellation)
                     .then()
-                    .block(request.getPolicy().getTimeout()
-                            .plus(request.getPolicy().getActiveOutputGrace())
-                            .plus(BLOCK_GRACE));
-            return finish(state, stopReason.get());
+                    .block();
+            return finish(state);
         } catch (RuntimeException exception) {
             if (state.isCancelled()) {
                 state.cancel();
@@ -147,22 +126,14 @@ public class AgentRuntime {
         request.getEventSink().onText(chunk);
     }
 
-    private static AgentRunResult finish(ExecutionState state, StopReason stopReason) {
+    private static AgentRunResult finish(ExecutionState state) {
         if (state.getStatus() == com.lingxi.workbench.agentruntime.model.ExecutionStatus.INTERRUPTED) {
             return new AgentRunResult.Interrupted(state.interruption(), state.tokenUsage(),
                     state.lastSequenceNo());
         }
-        if (stopReason == StopReason.CANCELLED || state.isCancelled()) {
+        if (state.isCancelled()) {
             state.cancel();
             throw new AgentRunCancelledException();
-        }
-        if (stopReason == StopReason.TIMEOUT) {
-            if (state.output().isBlank()) {
-                state.fail(new AgentExecutionDeadlineExceededException());
-                throw new AgentExecutionDeadlineExceededException();
-            }
-            state.completePartial("Agent运行达到时间上限，保留已生成的可用结果");
-            return new AgentRunResult.Partial(state.output(), state.tokenUsage(), state.lastSequenceNo());
         }
         if (state.output().isBlank()) {
             IllegalStateException exception = new IllegalStateException("Agent模型未返回可用文本");
@@ -190,10 +161,5 @@ public class AgentRuntime {
             throw new IllegalArgumentException("Agent恢复请求或Checkpoint版本不合法");
         }
         requireRequest(resumeRequest.runRequest());
-    }
-
-    private enum StopReason {
-        TIMEOUT,
-        CANCELLED
     }
 }

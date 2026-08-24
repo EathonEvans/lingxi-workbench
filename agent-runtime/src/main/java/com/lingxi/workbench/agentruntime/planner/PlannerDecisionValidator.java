@@ -1,7 +1,9 @@
 package com.lingxi.workbench.agentruntime.planner;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -15,7 +17,8 @@ public class PlannerDecisionValidator {
     private static final int MAX_CLARIFICATION_OPTIONS = 5;
 
     public void validate(PlannerDecision decision, PlannerDecisionValidationContext context) {
-        if (decision == null || decision.getAction() == null || context == null || context.getMaxSteps() < 1) {
+        if (decision == null || decision.getAction() == null || context == null || context.getMaxSteps() < 1
+                || context.getRemainingDelegations() < 0) {
             throw invalid("Planner决策或校验上下文不完整");
         }
         switch (decision.getAction()) {
@@ -29,6 +32,7 @@ public class PlannerDecisionValidator {
         requireAbsent(decision.getPlan(), "直接执行决策不能包含plan");
         requireAbsent(decision.getClarification(), "直接执行决策不能包含clarification");
         requireCapability(decision.getCapabilityCode(), context);
+        requireDelegations(1, context);
     }
 
     private static void validatePlan(PlannerDecision decision, PlannerDecisionValidationContext context) {
@@ -43,9 +47,17 @@ public class PlannerDecisionValidator {
         if (steps.isEmpty() || steps.size() > context.getMaxSteps()) {
             throw invalid("计划步骤数量必须在1到" + context.getMaxSteps() + "之间");
         }
+        requireDelegations(steps.size(), context);
         Set<String> completedStepIds = new HashSet<>();
+        Map<String, Integer> plannedCapabilityCalls = new HashMap<>();
         for (PlannerStep step : steps) {
             validateStep(step, completedStepIds, context);
+            int plannedCalls = plannedCapabilityCalls.getOrDefault(step.getCapabilityCode(), 0) + 1;
+            int remainingCalls = context.remainingCapabilityCalls().get(step.getCapabilityCode());
+            if (plannedCalls > remainingCalls) {
+                throw invalid("计划对能力" + step.getCapabilityCode() + "的调用次数超过剩余额度" + remainingCalls);
+            }
+            plannedCapabilityCalls.put(step.getCapabilityCode(), plannedCalls);
             if (!completedStepIds.add(step.getId())) {
                 throw invalid("计划步骤ID重复：" + step.getId());
             }
@@ -95,8 +107,19 @@ public class PlannerDecisionValidator {
 
     private static void requireCapability(String code, PlannerDecisionValidationContext context) {
         requireText(code, 64, "capabilityCode");
-        if (!context.authorizedCapabilityCodes().contains(code)) {
+        Integer remainingCalls = context.remainingCapabilityCalls().get(code);
+        if (remainingCalls == null) {
             throw invalid("Planner选择了未发布能力：" + code);
+        }
+        if (remainingCalls < 1) {
+            throw invalid("能力" + code + "已无剩余调用额度");
+        }
+    }
+
+    private static void requireDelegations(int plannedDelegations, PlannerDecisionValidationContext context) {
+        if (plannedDelegations > context.getRemainingDelegations()) {
+            throw invalid("计划需要" + plannedDelegations + "次能力调用，但当前只剩"
+                    + context.getRemainingDelegations() + "次委派额度");
         }
     }
 

@@ -12,7 +12,7 @@ import lombok.Setter;
 /**
  * Application 发布版本中的完整行为定义。
  *
- * <p>主 Agent 与不可变能力目录构成执行边界，可选快速路由只负责确定性直达。</p>
+ * <p>主 Agent 与不可变能力目录构成执行边界，意图路由负责候选决策与确定性直达。</p>
  */
 @Getter
 @Setter
@@ -26,10 +26,8 @@ public class ApplicationDefinition {
 
     private AgentCollaborationDefinition collaboration;
 
-    /**
-     * 可选快速路由；未命中时进入 fallback Agent。
-     */
-    private ApplicationIntentBinding optionalFastRoutes;
+    /** 意图路由绑定；未选择可执行意图时进入 fallback Agent。 */
+    private ApplicationIntentBinding intentRouting;
 
     private MemoryConfig memoryConf;
 
@@ -50,8 +48,8 @@ public class ApplicationDefinition {
         return collaboration;
     }
 
-    public ApplicationIntentBinding optionalFastRoutes() {
-        return optionalFastRoutes;
+    public ApplicationIntentBinding intentRouting() {
+        return intentRouting;
     }
 
     public MemoryConfig memoryConf() {

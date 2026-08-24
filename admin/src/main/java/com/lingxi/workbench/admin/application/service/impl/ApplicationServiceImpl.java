@@ -192,7 +192,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         draft.setDefinition(ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .collaboration(request.getCollaboration())
-                .optionalFastRoutes(request.getOptionalFastRoutes())
+                .intentRouting(request.getIntentRouting())
                 .memoryConf(Objects.requireNonNullElseGet(request.getMemory(), com.lingxi.workbench.workflow.model.MemoryConfig::disabled))
                 .contextPolicy(Objects.requireNonNullElseGet(request.getContextPolicy(), com.lingxi.workbench.workflow.model.ApplicationContextPolicy::defaults))
                 .capabilityCatalog(Objects.requireNonNullElseGet(request.getCapabilityCatalog(), com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot::empty))

@@ -1,28 +1,77 @@
 package com.lingxi.workbench.workflow.model.intent;
 
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
 import java.math.BigDecimal;
 
-/**
- * 意图树候选召回的默认策略参数。
- *
- * <p>这些参数定义在 IntentTree 级别，Application 绑定意图树时继承该策略。
- * 候选 LLM 复判阶段（M3）可在此基础上追加置信度门控。</p>
- *
- * <p>回顾流程：</p>
- * <ol>
- *   <li>用户输入向量化后与意图树版本内所有叶子向量做余弦相似度计算</li>
- *   <li>按相似度降序取 Top-K 个候选</li>
- *   <li>过滤掉低于召回阈值的候选</li>
- *   <li>如果 Top-1 与 Top-2 的相似度差值小于歧义分差，触发 INTENT_DISAMBIGUATION 澄清</li>
- * </ol>
- *
- * @param topK             候选叶子数量上限
- * @param recallThreshold  最低召回相似度，低于此值的候选被丢弃
- * @param ambiguityMargin  Top-1 与 Top-2 的最小安全分差，低于此值视为歧义，
- *                         需要用户从候选中明确选择
- */
-public record IntentRoutingPolicy(
-        int topK,
-        BigDecimal recallThreshold,
-        BigDecimal ambiguityMargin) {
+/** 意图候选召回与结构化语义决策的不可变发布策略。 */
+@Getter
+@Setter
+@Builder
+@EqualsAndHashCode
+@NoArgsConstructor
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
+public class IntentRoutingPolicy {
+
+    /** 候选叶子数量上限。 */
+    private int topK;
+
+    /** 最低召回相似度。 */
+    private BigDecimal recallThreshold;
+
+    /** 结构化语义决策使用的 Chat 模型实例。 */
+    private Long chatModelInstanceId;
+
+    /** 结构化语义决策使用的已发布 SYSTEM PromptVersion。 */
+    private Long decisionPromptVersionId;
+
+    /** 单次语义决策最大输出 Token。 */
+    private int maxOutputTokens;
+
+    /** 单次语义决策超时秒数。 */
+    private int timeoutSeconds;
+
+    /** 结构化输出校验失败后的修复次数，平台最多一次。 */
+    private int maxRepeatAttempts;
+
+    /** 语义决策最终失败后的显式处理动作。 */
+    private IntentDecisionFailureAction decisionFailureAction;
+
+    public int topK() {
+        return topK;
+    }
+
+    public BigDecimal recallThreshold() {
+        return recallThreshold;
+    }
+
+    public Long chatModelInstanceId() {
+        return chatModelInstanceId;
+    }
+
+    public Long decisionPromptVersionId() {
+        return decisionPromptVersionId;
+    }
+
+    public int maxOutputTokens() {
+        return maxOutputTokens;
+    }
+
+    public int timeoutSeconds() {
+        return timeoutSeconds;
+    }
+
+    public int maxRepeatAttempts() {
+        return maxRepeatAttempts;
+    }
+
+    public IntentDecisionFailureAction decisionFailureAction() {
+        return decisionFailureAction;
+    }
 }

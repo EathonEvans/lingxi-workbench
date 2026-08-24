@@ -52,7 +52,7 @@ class ApplicationRuntimeSnapshotTest {
     }
 
     @Test
-    void shouldAllowFastRouteThatReferencesLockedCapability() {
+    void shouldAllowIntentRoutingThatReferencesLockedCapability() {
         ApplicationDefinition definition = definition(ApplicationIntentMapping.builder()
                 .intentCode("refund")
                 .targetType(IntentExecutionTargetType.WORKFLOW)
@@ -65,7 +65,7 @@ class ApplicationRuntimeSnapshotTest {
     }
 
     @Test
-    void shouldRejectFastRouteOutsideCapabilityCatalog() {
+    void shouldRejectIntentRoutingOutsideCapabilityCatalog() {
         ApplicationDefinition definition = definition(ApplicationIntentMapping.builder()
                 .intentCode("refund")
                 .targetType(IntentExecutionTargetType.WORKFLOW)
@@ -77,11 +77,11 @@ class ApplicationRuntimeSnapshotTest {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                 () -> new AppRuntimeSnapshot(1L, "support", 2L, definition));
 
-        assertEquals("Application快速路由未引用锁定能力目录", error.getMessage());
+        assertEquals("Application意图路由未引用锁定能力目录", error.getMessage());
     }
 
     @Test
-    void shouldRejectFastRouteWithoutCapabilityCode() {
+    void shouldRejectIntentRoutingWithoutCapabilityCode() {
         ApplicationDefinition definition = definition(ApplicationIntentMapping.builder()
                 .intentCode("refund")
                 .targetType(IntentExecutionTargetType.WORKFLOW)
@@ -92,7 +92,7 @@ class ApplicationRuntimeSnapshotTest {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                 () -> new AppRuntimeSnapshot(1L, "support", 2L, definition));
 
-        assertEquals("Application快速路由能力编码不能为空", error.getMessage());
+        assertEquals("Application意图路由能力编码不能为空", error.getMessage());
     }
 
     private static ApplicationDefinition definition(ApplicationIntentMapping mapping) {
@@ -108,7 +108,7 @@ class ApplicationRuntimeSnapshotTest {
                 .targetId(20L)
                 .targetVersionId(21L)
                 .build();
-        ApplicationIntentBinding fastRoutes = ApplicationIntentBinding.builder()
+        ApplicationIntentBinding intentRouting = ApplicationIntentBinding.builder()
                 .enabled(mapping != null)
                 .intentTreeId(30L)
                 .intentTreeVersionId(31L)
@@ -120,7 +120,7 @@ class ApplicationRuntimeSnapshotTest {
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder()
                         .capabilities(List.of(fallbackCap, workflowCapability))
                         .build())
-                .optionalFastRoutes(mapping == null ? null : fastRoutes)
+                .intentRouting(mapping == null ? null : intentRouting)
                 .build();
     }
 }

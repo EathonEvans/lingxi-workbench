@@ -103,13 +103,6 @@ public final class ChatGenerationEventBO {
         return ChatGenerationEventBO.builder().type(ChatGenerationEventType.COMPLETED).build();
     }
 
-    public static ChatGenerationEventBO partial(String code, String message) {
-        return ChatGenerationEventBO.builder()
-                .type(ChatGenerationEventType.PARTIAL)
-                .error(new ChatErrorBO(code, message))
-                .build();
-    }
-
     public static ChatGenerationEventBO failed() {
         return failed("AI_MODEL_ERROR", "模型服务暂时不可用，请稍后重试");
     }

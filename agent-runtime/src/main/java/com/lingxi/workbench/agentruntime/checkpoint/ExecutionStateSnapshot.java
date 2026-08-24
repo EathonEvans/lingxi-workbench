@@ -26,13 +26,10 @@ public class ExecutionStateSnapshot {
     private Integer maxToolCalls;
     private Integer maxTotalTokens;
     private Integer maxFinalizationTokens;
-    private Long timeoutMillis;
-    private Long activeOutputGraceMillis;
     private Integer modelCalls;
     private Integer toolCalls;
     private TokenUsage tokenUsage;
     private Long lastSequenceNo;
-    private Long activeElapsedMillis;
     private Boolean finalizationRequested;
     private String finalizationReason;
     private String output;

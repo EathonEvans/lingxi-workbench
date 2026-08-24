@@ -13,6 +13,10 @@
 
     <dependencies>
         <dependency>
+            <groupId>com.lingxi.ai</groupId>
+            <artifactId>infra-ai</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <scope>provided</scope>

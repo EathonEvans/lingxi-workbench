@@ -51,7 +51,6 @@ public final class ChatGenerationSseEventRouter {
             case STEP_OUTPUT -> stepOutputEvent(event);
             case SNAPSHOT -> snapshotEvent(event.content());
             case COMPLETED -> doneEvent();
-            case PARTIAL -> partialEvent(event);
             case FAILED -> errorEvent(event);
             case CANCELLED -> cancelledEvent();
         };
@@ -227,15 +226,6 @@ public final class ChatGenerationSseEventRouter {
      */
     private static ServerSentEvent<Void> doneEvent() {
         return ServerSentEvent.<Void>builder().event("done").build();
-    }
-
-    /** 构建保留部分结果的降级完成事件。 */
-    private static ServerSentEvent<ChatErrorVO> partialEvent(ChatGenerationEventBO event) {
-        ChatErrorBO error = Objects.requireNonNull(event.error(), "部分完成说明不能为空");
-        return ServerSentEvent.<ChatErrorVO>builder()
-                .event("partial")
-                .data(new ChatErrorVO(error.code(), error.message()))
-                .build();
     }
 
     /**

@@ -75,7 +75,9 @@ public class IntentRoutingSessionRepo {
      * @param session 包含完整信息的实体，主键由数据库自增生成
      */
     public void insert(IntentRoutingSessionEntity session) {
-        mapper.insert(session);
+        if (mapper.insert(session) != 1) {
+            throw new IllegalStateException("意图澄清会话写入失败");
+        }
     }
 
     /**
@@ -85,6 +87,8 @@ public class IntentRoutingSessionRepo {
      * @param session 包含待更新字段和主键的实体
      */
     public void update(IntentRoutingSessionEntity session) {
-        mapper.updateById(session);
+        if (mapper.updateById(session) != 1) {
+            throw new IllegalStateException("意图澄清会话更新失败");
+        }
     }
 }

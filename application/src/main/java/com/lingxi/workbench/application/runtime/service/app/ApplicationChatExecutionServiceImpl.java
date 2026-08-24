@@ -1,6 +1,5 @@
 package com.lingxi.workbench.application.runtime.service.app;
 
-import com.lingxi.workbench.agentruntime.model.AgentExecutionDeadlineExceededException;
 import com.lingxi.workbench.agentruntime.model.AgentReconciliationPendingException;
 import com.lingxi.workbench.agentruntime.model.AgentRunCancelledException;
 import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpoint;
@@ -67,9 +66,9 @@ import java.util.stream.Collectors;
  * <ol>
  *   <li>准备不可变 ConversationContext（窗口记忆、摘要、长期记忆、运行时变量）</li>
  *   <li>解析平台级交互会话（新建或恢复中的澄清/确认）</li>
- *   <li>可选快速路由（交互恢复时跳过）→ 向量召回 + 意图匹配</li>
+ *   <li>意图路由（交互恢复时跳过）→ 候选召回 + 意图决策</li>
  *   <li>FIXED_RESPONSE / CLARIFICATION → 不调模型，直接返回</li>
- *   <li>快速路由未命中或不适合确定性消歧时，进入 Application 锁定的 fallback Agent</li>
+ *   <li>意图路由转交或不适合直达时，进入 Application 锁定的 fallback Agent</li>
  *   <li>全部 AGENT/WORKFLOW 目标统一走 CapabilityExecutionService</li>
  *   <li>持久化终态和结果；Workflow与Agent上下文均通过显式参数传递</li>
  * </ol>
@@ -77,7 +76,7 @@ import java.util.stream.Collectors;
  * <h3>关键设计</h3>
  * <ul>
  *   <li><b>能力目录</b>：ApplicationDefinition.capabilityCatalog 统一管理所有可执行能力，
- *       快速路由和默认入口都从同一目录解析，避免分散的 agentId/versionId 引用不一致</li>
+ *       意图路由和默认入口都从同一目录解析，避免分散的 agentId/versionId 引用不一致</li>
  *   <li><b>CapabilityExecutionService</b>：AGENT 和 WORKFLOW 两种能力类型统一执行入口，
  *       内部根据类型分发到 AgentChat 或 WorkflowExecutor</li>
  * </ul>
@@ -99,7 +98,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
      */
     private final ConversationContextService conversationContextService;
     /**
-     * 快速路由：向量语义匹配 + 确定性分差门控。
+     * 意图路由：候选召回 + 语义决策 + 服务端映射校验。
      */
     private final IntentRoutingService intentRoutingService;
     /**
@@ -120,16 +119,16 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
     private final RuntimeVariablesInitializer runtimeVariablesInitializer;
 
     /**
-     * 先准备共享上下文，再尝试可选快速路由，其他请求统一交给 fallback Agent。
+     * 先准备共享上下文，再尝试意图路由，其他请求统一交给 fallback Agent。
      *
-     * <p>默认入口和快速路由统一通过发布快照中的能力目录执行，共享同一份可信对话上下文，
+     * <p>默认入口和意图路由统一通过发布快照中的能力目录执行，共享同一份可信对话上下文，
      * 并由能力调用显式传递本次执行上下文。</p>
      */
     @Override
     public ApplicationChatResult execute(ApplicationChatExecutionRequest request) {
         // ① 校验服务端组装的可信请求，避免不完整数据进入上下文准备和路由阶段
         requireRequest(request);
-        Instant startedAt = resolveStartedAt(request.getResumeContext());
+        Instant startedAt = Instant.now();
         AppRuntimeSnapshot snapshot = request.getApplication();
 
         // ② 一次性准备窗口记忆、摘要、长期记忆和运行时变量，后续路由与执行共享同一上下文
@@ -140,7 +139,6 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                                 .query(request.getQuery())
                                 .loginUser(request.getLoginUser())
                                 .turn(request.getTurn())
-                                .startedAt(startedAt)
                                 .build()))
                 : restoreConversationContext(request);
 
@@ -155,20 +153,21 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                 .map(resolution -> preparedContext.copyAndAppendClarificationSup(resolution.getOriginalQuery(),resolution.getResponse()))
                 .orElse(preparedContext);
 
-        // ④ 恢复请求跳过 fresh route；其他请求按 Application 配置执行可选快速路由。
+        // ④ 恢复请求跳过新路由；其他请求按 Application 配置执行意图路由。
         IntentRoutingResult routing = aiStageObserver.observe(AiObservationStage.INTENT_ROUTE,  ApplicationChatExecutionServiceImpl::recordRoutingEvidence,
-                () -> fastRoute(request, context,
-                        interaction.isPresent() || request.getResumeContext() != null));
+                () -> routeIntent(request, context, interaction.isPresent() || request.getResumeContext() != null));
+
+        ConversationContext routedContext = context.plusPreparationUsage(routing.getTokenUsage(), routing.getModelCalls());
 
         // ⑤ 调度合并和目标执行统一归入EXECUTION阶段，固定回复与澄清也保留完整链路。
         return aiStageObserver.observe(AiObservationStage.EXECUTION, () -> {
             ChatDispatch dispatch = request.getResumeContext() == null
-                    ? this.dispatch(snapshot, context, interaction, routing)
-                    : resolveHitlDispatch(snapshot, context.routingQuery(), request.getResumeContext());
+                    ? this.dispatch(snapshot, routedContext, interaction, routing)
+                    : resolveHitlDispatch(snapshot, routedContext.routingQuery(), request.getResumeContext());
             return switch (dispatch) {
-                case ChatDispatch.Fixed fixed -> directResult(fixed.response(), context);
-                case ChatDispatch.Clarify clarify -> clarificationResult(request, clarify, context);
-                case ChatDispatch.Executable executable -> executeExecutable(request, context, executable, startedAt);
+                case ChatDispatch.Fixed fixed -> directResult(fixed.response(), routedContext);
+                case ChatDispatch.Clarify clarify -> clarificationResult(request, clarify, routedContext);
+                case ChatDispatch.Executable executable -> executeExecutable(request, routedContext, executable, startedAt);
             };
         });
     }
@@ -219,19 +218,6 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                 .build();
     }
 
-    private static Instant resolveStartedAt(ExecutionResumeContext resume) {
-        if (resume == null || resume.getCheckpoint() == null
-                || resume.getCheckpoint().getContext() == null
-                || resume.getCheckpoint().getState() == null) {
-            return Instant.now();
-        }
-        long beforeAgent = Objects.requireNonNullElse(
-                resume.getCheckpoint().getContext().getApplicationElapsedBeforeAgentMillis(), 0L);
-        long runtimeElapsed = Objects.requireNonNullElse(
-                resume.getCheckpoint().getState().getActiveElapsedMillis(), 0L);
-        return Instant.now().minusMillis(Math.max(0L, beforeAgent + runtimeElapsed));
-    }
-
     private static int initialToolCalls(ApplicationChatExecutionRequest request) {
         ExecutionResumeContext resume = request.getResumeContext();
         if (resume == null) {
@@ -245,7 +231,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         return beforeAgent + Math.max(0, selectedCalls - 1);
     }
 
-    /** HITL 恢复必须回到检查点锁定的 AgentVersion，不重新经过快速路由。 */
+    /** HITL 恢复必须回到检查点锁定的 AgentVersion，不重新经过意图路由。 */
     private ChatDispatch.Executable resolveHitlDispatch(AppRuntimeSnapshot snapshot, String query,
                                                         ExecutionResumeContext resume) {
         RuntimeCheckpoint checkpoint = resume.getCheckpoint();
@@ -268,11 +254,10 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         if (Objects.isNull(evidence)) {
             return;
         }
-        observation.highCardinalityKeyValue("lingxi.intent.reason", evidence.getReason().name());
-        observation.highCardinalityKeyValue("lingxi.intent.action", routing.getAction().name());
-        observation.highCardinalityKeyValue("lingxi.intent.candidates", evidence.candidates().stream()
-                .map(candidate -> candidate.getIntentCode() + ":" + candidate.getConfidence())
-                .collect(Collectors.joining(",")));
+        observation.lowCardinalityKeyValue("lingxi.intent.reason", evidence.getReason().getCode());
+        observation.lowCardinalityKeyValue("lingxi.intent.action", routing.getAction().getCode());
+        observation.lowCardinalityKeyValue(
+                "lingxi.intent.candidate.count", String.valueOf(evidence.candidates().size()));
     }
 
     /**
@@ -288,18 +273,18 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
             case FIXED_RESPONSE -> new ChatDispatch.Fixed(routing.getResponse());
             case CLARIFICATION -> new ChatDispatch.Clarify(routing.getResponse(), routing.getClarification());
             case EXECUTE_AGENT -> capabilityDispatch(executionQuery,
-                    resolveFastRouteCapability(snapshot, routing.getMapping(), ApplicationCapabilityType.AGENT),
+                    resolveIntentRoutingCapability(snapshot, routing.getMapping(), ApplicationCapabilityType.AGENT),
                     null, Set.of());
             case EXECUTE_WORKFLOW -> capabilityDispatch(executionQuery,
-                    resolveFastRouteCapability(snapshot, routing.getMapping(), ApplicationCapabilityType.WORKFLOW),
+                    resolveIntentRoutingCapability(snapshot, routing.getMapping(), ApplicationCapabilityType.WORKFLOW),
                     null, Set.of());
-            case SKIPPED, NO_MATCH, DEFER_TO_AGENT -> resolveFallbackDispatch(
+            case SKIPPED, DEFER_TO_AGENT -> resolveFallbackDispatch(
                     snapshot, executionQuery, routing.getRoutingEvidence(), Set.of());
         };
     }
 
     /**
-     * 快速路由未执行能力时，统一进入 Application 锁定的 fallback Agent 能力。
+     * 意图路由未执行能力时，统一进入 Application 锁定的 fallback Agent 能力。
      */
     private ChatDispatch.Executable resolveFallbackDispatch(AppRuntimeSnapshot snapshot, String query,
                                                             IntentRoutingEvidence evidence,
@@ -378,7 +363,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
 
         // ② 基于最终执行问题派生运行时变量，并构建本轮唯一的可写执行上下文
         ChatExecutionContext executionContext = createExecutionContext(
-                request, conversationContext, executionId, dispatch.query(), startedAt);
+                request, conversationContext, executionId, dispatch.query());
 
         try {
             ApplicationChatResult result = aiStageObserver.observeExecution(executionId, executionMode(dispatch),
@@ -397,11 +382,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                     executionId, ExecutionRunStatus.RUNNING, ExecutionRunStatus.SUCCEEDED, "TERMINAL");
             return result;
         } catch (RuntimeException exception) {
-            if (hasCause(exception, AgentExecutionDeadlineExceededException.class)
-                    || hasCause(exception, com.lingxi.workbench.application.runtime.model.ExecutionDeadlineExceededException.class)) {
-                executionPersistenceService.changeRunStatus(
-                        executionId, ExecutionRunStatus.RUNNING, ExecutionRunStatus.PARTIAL, "TERMINAL");
-            } else if (hasCause(exception, AgentRunCancelledException.class)
+            if (hasCause(exception, AgentRunCancelledException.class)
                     || (hasInterruptedCause(exception) && executionContext.isCancelled())) {
                 executionPersistenceService.changeRunStatus(
                         executionId, ExecutionRunStatus.RUNNING, ExecutionRunStatus.CANCELLED, "TERMINAL");
@@ -410,9 +391,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                         executionId, ExecutionRunStatus.RUNNING, ExecutionRunStatus.FAILED, "TERMINAL");
             }
             boolean expectedTerminal = hasInterruptedCause(exception)
-                    || hasCause(exception, AgentRunCancelledException.class)
-                    || hasCause(exception, AgentExecutionDeadlineExceededException.class)
-                    || hasCause(exception, com.lingxi.workbench.application.runtime.model.ExecutionDeadlineExceededException.class);
+                    || hasCause(exception, AgentRunCancelledException.class);
             if (!expectedTerminal) {
                 log.warn("Application目标执行失败，applicationCode={}，versionId={}，executionId={}，durationMs={}",
                         snapshot.applicationCode(), snapshot.versionId(), executionId,
@@ -461,8 +440,9 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         return false;
     }
 
-    private static ChatExecutionContext createExecutionContext(ApplicationChatExecutionRequest request, ConversationContext conversationContext,
-                                                               String executionId, String executionQuery, Instant startedAt) {
+    private static ChatExecutionContext createExecutionContext(ApplicationChatExecutionRequest request,
+                                                               ConversationContext conversationContext,
+                                                               String executionId, String executionQuery) {
         AppRuntimeSnapshot snapshot = request.getApplication();
         // 每种执行路径都从已准备变量派生独立副本，避免执行期修改污染ConversationContext
         RuntimeVariables runtimeVariables = conversationContext.getRuntimeVariables().forkForQuery(executionQuery);
@@ -476,7 +456,6 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                 .runtimePolicy(snapshot.definition().runtimePolicy())
                 .contextBudget(snapshot.definition().contextPolicy().budget())
                 .explicitSkillCodes(request.getExplicitSkillCodes())
-                .startedAt(startedAt)
                 .tokenUsageAccumulator(initialUsage(conversationContext.getPreparationTokenUsage()))
                 .modelCallCounter(new AtomicInteger(conversationContext.getPreparationModelCalls()))
                 .toolCallCounter(new AtomicInteger(initialToolCalls(request)))
@@ -486,22 +465,14 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
     }
 
     /**
-     * 快速路由解析。
-     * 平台交互恢复中或 Application 未启用快速路由时返回 SKIPPED。
+     * 意图路由解析。
+     * 平台交互恢复中或 Application 未启用意图路由时返回 SKIPPED。
      */
-    private IntentRoutingResult fastRoute(ApplicationChatExecutionRequest request, ConversationContext context, boolean resumed) {
-        if (resumed || !isFastRouteEnabled(request.getApplication())) {
+    private IntentRoutingResult routeIntent(ApplicationChatExecutionRequest request, ConversationContext context, boolean resumed) {
+        if (resumed) {
             return IntentRoutingResult.skipped(context.routingQuery());
         }
         return intentRoutingService.route(context, request.getClarificationResponse());
-    }
-
-    /**
-     * Application 是否启用了快速路由。
-     */
-    private static boolean isFastRouteEnabled(AppRuntimeSnapshot snapshot) {
-        return Objects.nonNull(snapshot.definition().optionalFastRoutes())
-                && snapshot.definition().optionalFastRoutes().isEnabled();
     }
 
     /**
@@ -541,7 +512,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
     }
 
     /**
-     * 无快速路由命中时，解析 ApplicationVersion 唯一锁定的 fallback Agent 能力。
+     * 意图路由未执行目标时，解析 ApplicationVersion 唯一锁定的 fallback Agent 能力。
      */
     private FallbackTarget resolveFallback(AppRuntimeSnapshot snapshot) {
         ApplicationCapabilityDefinition capability = resolveCapability(
@@ -552,23 +523,23 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
     }
 
     /**
-     * 校验快速路由映射与能力目录的一致性，返回已锁定版本的能力。
+     * 校验意图路由映射与能力目录的一致性，返回已锁定版本的能力。
      */
-    private static ApplicationCapabilityDefinition resolveFastRouteCapability(AppRuntimeSnapshot snapshot, ApplicationIntentMapping mapping, ApplicationCapabilityType expectedType) {
+    private static ApplicationCapabilityDefinition resolveIntentRoutingCapability(AppRuntimeSnapshot snapshot, ApplicationIntentMapping mapping, ApplicationCapabilityType expectedType) {
         IntentExecutionTargetType expectedTargetType = switch (expectedType) {
             case AGENT -> IntentExecutionTargetType.AGENT;
             case WORKFLOW -> IntentExecutionTargetType.WORKFLOW;
-            case TOOL -> throw new BusinessException(HttpStatusEnum.CONFLICT, "快速路由不支持直接执行Tool能力");
+            case TOOL -> throw new BusinessException(HttpStatusEnum.CONFLICT, "意图路由不支持直接执行Tool能力");
         };
         if (Objects.isNull(mapping) || mapping.getTargetType() != expectedTargetType
                 || Objects.isNull(mapping.getCapabilityCode()) || mapping.getCapabilityCode().isBlank()) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "Application正式版本中的快速路由映射不完整");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "Application正式版本中的意图路由映射不完整");
         }
         ApplicationCapabilityDefinition capability = resolveCapability(snapshot, mapping.getCapabilityCode(), expectedType);
         // 交叉校验：路由映射中的 targetId/versionId 必须与能力目录一致
         if (!Objects.equals(mapping.getTargetId(), capability.getTargetId())
                 || !Objects.equals(mapping.getTargetVersionId(), capability.getTargetVersionId())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "快速路由映射与能力目录锁定目标不一致");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "意图路由映射与能力目录锁定目标不一致");
         }
         return capability;
     }
@@ -678,7 +649,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
      * 能力分发所需的运行时解析结果。
      *
      * @param agent                   能力目录锁定的 Agent 运行快照
-     * @param routingEvidence         意图快速路由的命中证据
+     * @param routingEvidence         意图路由的命中证据
      * @param confirmedCapabilityCodes 已与用户确认的可执行能力编码集合
      */
     private record CapabilityDispatchHints(
