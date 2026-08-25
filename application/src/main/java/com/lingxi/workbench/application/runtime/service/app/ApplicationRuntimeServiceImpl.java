@@ -84,8 +84,7 @@ public class ApplicationRuntimeServiceImpl implements ApplicationRuntimeService 
     /** 应用选择器只暴露当前运行时能够构造完整快照的正式版本。 */
     private boolean isExecutable(RuntimeApplicationEntity application, RuntimeApplicationVersionEntity version) {
         if (Objects.isNull(version)
-                || !Objects.equals(version.getApplicationId(), application.getId())
-                || Objects.isNull(version.getDefinitionSnapshot())) {
+                || !Objects.equals(version.getApplicationId(), application.getId())) {
             log.warn("Application候选版本缺失或归属不一致，applicationId={}，versionId={}",
                     application.getId(), application.getPublishedVersionId());
             return false;
@@ -103,9 +102,6 @@ public class ApplicationRuntimeServiceImpl implements ApplicationRuntimeService 
     /** 统一校验 ApplicationVersion 定义快照并转换为不可变运行对象。 */
     private AppRuntimeSnapshot toSnapshot(RuntimeApplicationEntity application, RuntimeApplicationVersionEntity version,
                                           String versionLabel) {
-        if (Objects.isNull(version.getDefinitionSnapshot())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, versionLabel + "缺少定义快照");
-        }
         try {
             return new AppRuntimeSnapshot(application.getId(), application.getCode(), version.getId(), version.getDefinitionSnapshot());
         } catch (IllegalArgumentException exception) {

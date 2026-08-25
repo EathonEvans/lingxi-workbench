@@ -26,6 +26,7 @@ public class ToolConverter {
                 .sourceType(entity.getSourceType())
                 .mcpServerId(Optional.ofNullable(entity.getMcpServerId()).map(String::valueOf).orElse(null))
                 .remoteToolName(entity.getRemoteToolName())
+                .reconciliationQueryToolName(entity.getReconciliationQueryToolName())
                 .parameters(parameterSchemaFactory.parse(entity.getParameterSchema()))
                 .riskLevel(entity.getRiskLevel())
                 .approvalRequired(entity.getApprovalRequired())

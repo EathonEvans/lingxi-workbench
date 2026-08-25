@@ -5,6 +5,7 @@ import com.lingxi.workbench.application.runtime.service.agent.AgentExecutorRegis
 import com.lingxi.workbench.application.runtime.service.agent.SpecialistAgentExecutor;
 
 import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.CapabilityExecutionRequest;
@@ -197,6 +198,7 @@ class CapabilityExecutionServiceImplTest {
     private static ChatExecutionContext context() {
         return ChatExecutionContext.builder()
                 .executionId("execution-1")
+                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.defaults()))
                 .runtimeVariables(new RuntimeVariables())
                 .turn(new ChatTurnBO(10L, 11L, 12L, 1))
                 .build();

@@ -3,6 +3,7 @@ package com.lingxi.workbench.application.runtime.service.routing;
 import com.lingxi.workbench.application.runtime.common.enums.IntentDecisionReason;
 import com.lingxi.workbench.application.runtime.common.enums.IntentSemanticAction;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
+import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
 import com.lingxi.workbench.application.runtime.model.IntentCandidate;
 import com.lingxi.workbench.application.runtime.model.IntentCandidateSet;
 import com.lingxi.workbench.application.runtime.model.IntentSemanticDecision;
@@ -45,10 +46,12 @@ class WorkflowIntentClassifierNodeInvokerTest {
         IntentCandidate refund = candidate("refund", 0.92D);
         IntentCandidate exchange = candidate("exchange", 0.86D);
         ChatExecutionContext executionContext = executionContext();
+        ApplicationExecutionBudget executionBudget = mock(ApplicationExecutionBudget.class);
+        when(executionContext.getExecutionBudget()).thenReturn(executionBudget);
         when(intentTreeRuntimeRepo.findVersion(30L, 40L)).thenReturn(Optional.of(version));
         when(candidateRetriever.retrieve(any())).thenReturn(new IntentCandidateSet(
                 List.of(refund, exchange), List.of(refund, exchange)));
-        when(semanticDecisionService.decideForWorkflow(any(), eq(version), any(), eq(executionContext)))
+        when(semanticDecisionService.decideForWorkflow(any(), eq(version), any(), eq(executionBudget)))
                 .thenReturn(IntentSemanticDecisionResult.builder()
                         .decision(IntentSemanticDecision.builder()
                                 .action(IntentSemanticAction.SELECT)

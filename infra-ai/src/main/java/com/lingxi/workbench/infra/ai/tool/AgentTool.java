@@ -3,6 +3,8 @@ package com.lingxi.workbench.infra.ai.tool;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
 import org.springframework.ai.tool.ToolCallback;
 
+import java.util.Optional;
+
 /**
  * 可被 Agent 调用的完整工具。
  *
@@ -28,5 +30,12 @@ public interface AgentTool {
      */
     default boolean shouldFinalizeAfterSuccess() {
         return false;
+    }
+
+    /**
+     * 返回外部副作用结果查询能力；未显式声明时，运行端只能保留待人工对账状态。
+     */
+    default Optional<AgentToolReconciliation> reconciliation() {
+        return Optional.empty();
     }
 }

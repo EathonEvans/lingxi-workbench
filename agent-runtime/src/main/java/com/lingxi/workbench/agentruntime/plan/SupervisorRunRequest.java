@@ -5,6 +5,7 @@ import com.lingxi.workbench.agentruntime.model.ExecutionPolicy;
 import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
+import io.agentscope.core.state.AgentStateStore;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -20,23 +21,24 @@ import java.util.Set;
 public class SupervisorRunRequest {
 
     private final String runId;
+    private final String userId;
     private final Long agentId;
     private final Long agentVersionId;
-    private final String plannerSystemPrompt;
-    private final String synthesisSystemPrompt;
+    private final String systemPrompt;
     private final String query;
     private final List<ChatHistoryMessage> history;
     private final ChatModelRuntimeConfig modelConfig;
     private final PlanPolicy planPolicy;
     private final ExecutionPolicy executionPolicy;
     private final int maxDelegations;
-    private final int maxObservationTokens;
     private final List<RuntimeCapability> capabilities;
     private final Set<String> confirmedCapabilityCodes;
     private final RuntimeCapabilityInvoker capabilityInvoker;
-    private final RuntimePlanStore planStore;
+    private final RuntimeTaskStore taskStore;
     private final RuntimeEventSink eventSink;
     private final long initialSequenceNo;
+    /** AgentScope 的跨实例会话运行态；任务与能力调用审计仍落 PostgreSQL。 */
+    private final AgentStateStore agentStateStore;
 
     public List<ChatHistoryMessage> getHistory() {
         return List.copyOf(history == null ? List.of() : history);

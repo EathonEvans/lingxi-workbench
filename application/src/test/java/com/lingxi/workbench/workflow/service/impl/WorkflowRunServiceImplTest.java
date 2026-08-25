@@ -1,10 +1,6 @@
 package com.lingxi.workbench.workflow.service.impl;
 
-import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
-import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
-import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
-import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
-import com.lingxi.workbench.framework.context.LoginUser;
+import com.lingxi.workbench.application.runtime.model.WorkflowRunStartCommand;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.common.enums.WorkflowRunEventType;
 import com.lingxi.workbench.workflow.common.enums.WorkflowRunStatus;
@@ -51,17 +47,10 @@ class WorkflowRunServiceImplTest {
     @Test
     void shouldPersistRunOwnershipAndLockedVersions() {
         WorkflowRunContext runContext = runContext();
-        ChatExecutionContext executionContext = mock(ChatExecutionContext.class);
-        ConversationContext conversation = mock(ConversationContext.class);
-        AppRuntimeSnapshot app = mock(AppRuntimeSnapshot.class);
-        when(executionContext.getConversationContext()).thenReturn(conversation);
-        when(executionContext.getTurn()).thenReturn(new ChatTurnBO(3L, 4L, 5L, 1));
-        when(conversation.getApplicationSnapshot()).thenReturn(app);
-        when(conversation.getLoginUser()).thenReturn(new LoginUser(6L, "tester", "测试用户", null));
-        when(app.applicationId()).thenReturn(7L);
-        when(app.versionId()).thenReturn(8L);
 
-        service.start(runContext, executionContext);
+        service.start(runContext, WorkflowRunStartCommand.builder()
+                .assistantMessageId(5L).conversationId(3L).userId(6L)
+                .applicationId(7L).applicationVersionId(8L).build());
 
         ArgumentCaptor<WorkflowRunEntity> runCaptor = ArgumentCaptor.forClass(WorkflowRunEntity.class);
         verify(runRepo).insert(runCaptor.capture());

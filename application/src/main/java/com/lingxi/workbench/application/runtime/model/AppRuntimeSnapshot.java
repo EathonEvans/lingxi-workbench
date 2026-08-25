@@ -34,7 +34,9 @@ public record AppRuntimeSnapshot(
     public AppRuntimeSnapshot {
         Objects.requireNonNull(applicationId, "applicationId不能为空");
         Objects.requireNonNull(versionId, "applicationVersionId不能为空");
-        Objects.requireNonNull(definition, "Application运行定义不能为空");
+        if (Objects.isNull(definition)) {
+            throw new IllegalArgumentException("Application运行定义不能为空");
+        }
         if (applicationCode == null || applicationCode.isBlank()) {
             throw new IllegalArgumentException("applicationCode不能为空");
         }
@@ -45,8 +47,8 @@ public record AppRuntimeSnapshot(
         if (fallback == null || fallback.cap() == null || fallback.cap().isBlank()) {
             throw new IllegalArgumentException("Application缺少fallback Agent能力编码");
         }
-        if (Objects.isNull(definition.capabilityCatalog())) {
-            throw new IllegalArgumentException("Application缺少能力目录");
+        if (!definition.hasCompletePublishedDefinition()) {
+            throw new IllegalArgumentException("Application发布快照缺少必填配置");
         }
         long fallbackCount = definition.capabilityCatalog().capabilities().stream()
                 .filter(capability -> fallback.cap().equals(capability.getCode()))

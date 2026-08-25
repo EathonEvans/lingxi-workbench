@@ -44,6 +44,9 @@ public class ToolEntity extends TimeEntity {
     /** MCP Server 暴露的原始工具名称；本地函数为空。 */
     private String remoteToolName;
 
+    /** MCP Server 用于按幂等键查询原副作用结果的只读 Tool 名称。 */
+    private String reconciliationQueryToolName;
+
     /** 符合 OpenAI Function Calling 规范的参数 JSON Schema。 */
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private JSONObject parameterSchema;

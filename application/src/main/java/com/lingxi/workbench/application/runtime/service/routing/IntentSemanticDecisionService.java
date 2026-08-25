@@ -4,7 +4,7 @@ import com.lingxi.workbench.agentruntime.gateway.TokenUsageConverter;
 import com.lingxi.workbench.application.runtime.common.enums.IntentDecisionReason;
 import com.lingxi.workbench.application.runtime.common.enums.IntentSemanticAction;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
-import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
+import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
 import com.lingxi.workbench.application.runtime.model.IntentCandidate;
 import com.lingxi.workbench.application.runtime.model.IntentCandidateSlot;
 import com.lingxi.workbench.application.runtime.model.IntentRecognizedSlot;
@@ -128,38 +128,38 @@ public class IntentSemanticDecisionService {
     public IntentSemanticDecisionResult decideForWorkflow(ConversationContext context,
                                                           RuntimeIntentTreeVersionEntity version,
                                                           List<IntentCandidate> candidates,
-                                                          ChatExecutionContext executionContext) {
+                                                          ApplicationExecutionBudget executionBudget) {
         return decide(context, version, candidates,
-                Objects.requireNonNull(executionContext, "Workflow意图分类缺少执行上下文"));
+                Objects.requireNonNull(executionBudget, "Workflow意图分类缺少预算账本"));
     }
 
     private IntentSemanticDecisionResult decide(ConversationContext context,
                                                 RuntimeIntentTreeVersionEntity version,
                                                 List<IntentCandidate> candidates,
-                                                ChatExecutionContext executionContext) {
+                                                ApplicationExecutionBudget executionBudget) {
         requireRequest(context, version, candidates);
         IntentTreeDefinition definition = version.getDefinitionSnapshot();
         IntentRoutingPolicy policy = Objects.requireNonNull(definition.routingPolicy(), "意图树缺少路由策略");
         // 路由不是最终执行器，必须至少给锁定目标或 fallback Agent 保留一次收口调用。
-        int remainingApplicationCalls = Objects.isNull(executionContext)
+        int remainingApplicationCalls = Objects.isNull(executionBudget)
                 ? Math.max(context.getApplicationSnapshot().definition().runtimePolicy().getMaxModelCalls()
                         - context.getPreparationModelCalls() - 1, 0)
-                : Math.max(executionContext.remainingModelCalls() - 1, 0);
+                : Math.max(executionBudget.remainingModelCalls() - 1, 0);
         if (remainingApplicationCalls == 0
-                || Objects.nonNull(executionContext) && executionContext.hasReachedTokenSoftLimit()) {
+                || Objects.nonNull(executionBudget) && executionBudget.hasReachedTokenSoftLimit()) {
             return budgetExhaustedDecision(policy);
         }
         PromptRuntimeSnapshot promptSnapshot = promptRuntimeService.resolvePublished(policy.decisionPromptVersionId());
         String publishedPrompt = promptRenderer.renderIntentDecisionPrompt(promptSnapshot, context.getRuntimeVariables());
         ChatModelRuntimeConfig baseConfig = modelRuntimeConfigService.getChatModelConfig(policy.chatModelInstanceId());
-        int maxOutputTokens = Objects.isNull(executionContext)
+        int maxOutputTokens = Objects.isNull(executionBudget)
                 ? policy.maxOutputTokens()
-                : Math.min(policy.maxOutputTokens(), executionContext.remainingTokenBudget());
+                : Math.min(policy.maxOutputTokens(), executionBudget.remainingTokenBudget());
         ChatModelRuntimeConfig callConfig = decisionModelConfig(baseConfig, policy, maxOutputTokens);
         List<DecisionCandidate> decisionCandidates = decisionCandidates(
                 context.getApplicationSnapshot(), version, candidates);
         String decisionInput = decisionInputJson(context, decisionCandidates);
-        IntentDecisionAttemptAdvisor attemptAdvisor = new IntentDecisionAttemptAdvisor(executionContext);
+        IntentDecisionAttemptAdvisor attemptAdvisor = new IntentDecisionAttemptAdvisor(executionBudget);
         int maxCalls = Math.min(1 + policy.maxRepeatAttempts(), remainingApplicationCalls);
         long startedAt = System.nanoTime();
         String validationMessage = null;
@@ -576,11 +576,11 @@ public class IntentSemanticDecisionService {
     private static final class IntentDecisionAttemptAdvisor implements CallAdvisor {
 
         private final TokenUsageAccumulator tokenUsage = new TokenUsageAccumulator();
-        private final ChatExecutionContext executionContext;
+        private final ApplicationExecutionBudget executionBudget;
         private int modelCalls;
 
-        private IntentDecisionAttemptAdvisor(ChatExecutionContext executionContext) {
-            this.executionContext = executionContext;
+        private IntentDecisionAttemptAdvisor(ApplicationExecutionBudget executionBudget) {
+            this.executionBudget = executionBudget;
         }
 
         @Override
@@ -595,15 +595,15 @@ public class IntentSemanticDecisionService {
 
         @Override
         public synchronized ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
-            if (Objects.nonNull(executionContext)) {
-                executionContext.reserveModelCall();
+            if (Objects.nonNull(executionBudget)) {
+                executionBudget.reserveModelCall();
             }
             modelCalls++;
             ChatClientResponse response = chain.nextCall(request);
             TokenUsage usage = TokenUsageConverter.convert(response.chatResponse());
             tokenUsage.add(usage);
-            if (Objects.nonNull(executionContext)) {
-                executionContext.recordUsage(usage);
+            if (Objects.nonNull(executionBudget)) {
+                executionBudget.recordUsage(usage);
             }
             return response;
         }

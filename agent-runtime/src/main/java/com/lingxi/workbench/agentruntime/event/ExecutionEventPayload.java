@@ -2,11 +2,11 @@ package com.lingxi.workbench.agentruntime.event;
 
 import com.lingxi.workbench.agentruntime.checkpoint.RuntimeInterruption;
 import com.lingxi.workbench.agentruntime.plan.AgentInvocationStatus;
-import com.lingxi.workbench.agentruntime.planner.PlannerClarification;
-import com.lingxi.workbench.agentruntime.planner.PlannerDecision;
-import com.lingxi.workbench.agentruntime.planner.PlannerStep;
+import com.lingxi.workbench.agentruntime.plan.RuntimeClarification;
+import com.lingxi.workbench.agentruntime.plan.RuntimeTaskStep;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationReason;
+import io.agentscope.core.state.Task;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -36,19 +36,17 @@ public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run,
     record Agent(Long agentId, Long agentVersionId, String message) implements ExecutionEventPayload {
     }
 
-    /**
-     * Planner 事件保留可展示的 typed 决策，不包含 Prompt、模型原文或推理内容。
-     */
+    /** 计划事件只保留可展示的 AgentScope 任务快照。 */
     @Getter
     final class Plan implements ExecutionEventPayload {
 
         private final int planNo;
-        private final PlannerDecision decision;
+        private final List<Task> tasks;
         private final String message;
 
-        public Plan(int planNo, PlannerDecision decision, String message) {
+        public Plan(int planNo, List<Task> tasks, String message) {
             this.planNo = planNo;
-            this.decision = decision;
+            this.tasks = List.copyOf(tasks == null ? List.of() : tasks);
             this.message = message;
         }
 
@@ -58,21 +56,20 @@ public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run,
         }
     }
 
-    /**
-     * 计划步骤事件只携带可展示定义和终态，不包含输入与原始结果。
-     */
+    /** AgentScope 任务委派事件只携带可展示定义和终态，不包含输入与原始结果。 */
     @Getter
     final class Step implements ExecutionEventPayload {
 
-        private final int planNo;
-        private final PlannerStep step;
+        private final int taskRevision;
+        private final RuntimeTaskStep step;
         private final AgentInvocationStatus status;
         private final String errorCode;
         private final String message;
 
-        public Step(int planNo, PlannerStep step, AgentInvocationStatus status, String errorCode, String message) {
-            this.planNo = planNo;
-            this.step = java.util.Objects.requireNonNull(step, "计划步骤不能为空");
+        public Step(int taskRevision, RuntimeTaskStep step, AgentInvocationStatus status, String errorCode,
+                    String message) {
+            this.taskRevision = taskRevision;
+            this.step = java.util.Objects.requireNonNull(step, "任务步骤不能为空");
             this.status = java.util.Objects.requireNonNull(status, "步骤状态不能为空");
             this.errorCode = errorCode;
             this.message = message;
@@ -84,18 +81,16 @@ public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run,
         }
     }
 
-    /**
-     * 用户澄清事件只携带已校验的展示问题。
-     */
+    /** 用户澄清事件只携带已校验的展示问题。 */
     @Getter
     final class Clarification implements ExecutionEventPayload {
 
-        private final int planNo;
-        private final PlannerClarification clarification;
+        private final int taskRevision;
+        private final RuntimeClarification clarification;
         private final String message;
 
-        public Clarification(int planNo, PlannerClarification clarification, String message) {
-            this.planNo = planNo;
+        public Clarification(int taskRevision, RuntimeClarification clarification, String message) {
+            this.taskRevision = taskRevision;
             this.clarification = java.util.Objects.requireNonNull(clarification, "澄清信息不能为空");
             this.message = message;
         }

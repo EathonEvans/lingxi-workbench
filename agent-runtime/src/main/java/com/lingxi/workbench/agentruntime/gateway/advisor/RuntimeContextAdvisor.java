@@ -17,6 +17,7 @@ import reactor.core.publisher.Flux;
 import java.util.ArrayList;
 import java.util.List;
 
+
 /**
  * 将 Lingxi 可信运行身份保留在 Spring AI Advisor Context 中。
  *
@@ -85,28 +86,21 @@ public class RuntimeContextAdvisor implements CallAdvisor, StreamAdvisor {
     }
 
     private static Prompt enrichPrompt(Prompt prompt, ExecutionState state, boolean finalCall) {
-        List<String> additions = new ArrayList<>();
-        if (!state.skillInstructions().isBlank()) {
-            additions.add(state.skillInstructions());
-        }
-        if (state.hasTools() && !finalCall) {
-            additions.add(TOOL_SYSTEM_POLICY.trim());
-        }
-        if (additions.isEmpty()) {
+        if (!state.hasTools() || finalCall) {
             return prompt;
         }
-        String runtimeInstructions = String.join("\n\n", additions);
+        String toolPolicy = TOOL_SYSTEM_POLICY.trim();
         List<Message> messages = new ArrayList<>(prompt.getInstructions());
         for (int index = 0; index < messages.size(); index++) {
             if (messages.get(index) instanceof SystemMessage systemMessage) {
                 String base = systemMessage.getText();
                 messages.set(index, new SystemMessage(base.isBlank()
-                        ? runtimeInstructions
-                        : base.trim() + "\n\n" + runtimeInstructions));
+                        ? toolPolicy
+                        : base.trim() + "\n\n" + toolPolicy));
                 return new Prompt(messages, prompt.getOptions());
             }
         }
-        messages.add(0, new SystemMessage(runtimeInstructions));
+        messages.add(0, new SystemMessage(toolPolicy));
         return new Prompt(messages, prompt.getOptions());
     }
 

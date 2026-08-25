@@ -1,6 +1,6 @@
 package com.lingxi.workbench.workflow.service;
 
-import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
+import com.lingxi.workbench.application.runtime.model.WorkflowRunStartCommand;
 import com.lingxi.workbench.workflow.model.WorkflowNodeDefinition;
 import com.lingxi.workbench.workflow.model.WorkflowNodeTrace;
 import com.lingxi.workbench.workflow.model.WorkflowRunContext;
@@ -13,7 +13,7 @@ import java.util.List;
 /** Workflow 运行、节点尝试和事件的事务边界。 */
 public interface WorkflowRunService {
 
-    void start(WorkflowRunContext context, ChatExecutionContext executionContext);
+    void start(WorkflowRunContext context, WorkflowRunStartCommand command);
 
     void startNode(WorkflowRunContext context, WorkflowNodeDefinition node, Instant startedAt);
 

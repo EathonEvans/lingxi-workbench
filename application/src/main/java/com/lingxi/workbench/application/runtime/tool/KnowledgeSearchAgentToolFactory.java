@@ -30,7 +30,9 @@ import java.util.function.Function;
 
 import static com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionMode.DETERMINISTIC_READ_ONLY;
 
-/** 根据AgentVersion冻结配置创建受限的knowledge.search Tool。 */
+/**
+ * 根据AgentVersion冻结配置创建受限的knowledge.search Tool。
+ */
 @Component
 public class KnowledgeSearchAgentToolFactory {
     public static final String TOOL_CODE = "knowledge_search";
@@ -173,29 +175,11 @@ public class KnowledgeSearchAgentToolFactory {
         }
     }
 
-    /** 将检索证据收敛状态反馈给平台 Agent 循环。 */
-    private static final class KnowledgeSearchAgentTool implements AgentTool {
-
-        private final AgentToolDefinition definition;
-        private final ToolCallback callback;
-        private final KnowledgeSearchEvidenceTracker evidenceTracker;
-
-        private KnowledgeSearchAgentTool(AgentToolDefinition definition, ToolCallback callback,
-                                         KnowledgeSearchEvidenceTracker evidenceTracker) {
-            this.definition = definition;
-            this.callback = callback;
-            this.evidenceTracker = evidenceTracker;
-        }
-
-        @Override
-        public AgentToolDefinition definition() {
-            return definition;
-        }
-
-        @Override
-        public ToolCallback callback() {
-            return callback;
-        }
+    /**
+     * 将检索证据收敛状态反馈给平台 Agent 循环。
+     */
+    private record KnowledgeSearchAgentTool(AgentToolDefinition definition, ToolCallback callback,
+                                            KnowledgeSearchEvidenceTracker evidenceTracker) implements AgentTool {
 
         @Override
         public boolean shouldFinalizeAfterSuccess() {
@@ -235,7 +219,9 @@ public class KnowledgeSearchAgentToolFactory {
     private record KnowledgeSearchProgress(KnowledgeSearchStatus status, int newEvidenceCount) {
     }
 
-    /** 单次 Agent 执行内跟踪已提供给模型的知识证据。 */
+    /**
+     * 单次 Agent 执行内跟踪已提供给模型的知识证据。
+     */
     private static final class KnowledgeSearchEvidenceTracker {
 
         private final Set<Long> seenChunkIds = new HashSet<>();

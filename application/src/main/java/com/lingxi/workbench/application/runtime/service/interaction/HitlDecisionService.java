@@ -60,10 +60,19 @@ public class HitlDecisionService {
     }
 
     @Transactional(readOnly = true)
-    public List<PendingInteractionVO> pending(Long conversationId, Long userId) {
-        return interactionRepo.findPendingOwned(conversationId, userId, InteractionSessionType.ACTION_APPROVAL).stream()
+    public List<PendingInteractionVO> pending(String conversationId, Long userId) {
+        return interactionRepo.findPendingOwned(parseConversationId(conversationId), userId, InteractionSessionType.ACTION_APPROVAL).stream()
                 .map(HitlDecisionService::toPending)
                 .toList();
+    }
+
+    /** 将对外的字符串会话 ID 转换为内部持久化主键。 */
+    private static Long parseConversationId(String conversationId) {
+        try {
+            return Long.valueOf(conversationId);
+        } catch (NumberFormatException exception) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "会话ID格式不正确");
+        }
     }
 
     private static PendingInteractionVO toPending(InteractionSessionEntity interaction) {

@@ -1,13 +1,12 @@
 package com.lingxi.workbench.agentruntime;
 
-import com.lingxi.workbench.agentruntime.checkpoint.ExecutionStateSnapshot;
-import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpoint;
+import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
+import com.lingxi.workbench.agentruntime.context.AgentScopeConversationStateFactory;
 import com.lingxi.workbench.agentruntime.checkpoint.RuntimeInterruption;
 import com.lingxi.workbench.agentruntime.event.ExecutionEvent;
 import com.lingxi.workbench.agentruntime.event.ExecutionEventType;
 import com.lingxi.workbench.agentruntime.event.RuntimeEventSink;
-import com.lingxi.workbench.agentruntime.gateway.SpringAiStreamingChatGateway;
-import com.lingxi.workbench.agentruntime.hook.SkillHook;
+import com.lingxi.workbench.agentruntime.gateway.AgentScopeSpecialistStreamingGateway;
 import com.lingxi.workbench.agentruntime.model.AgentRunCancelledException;
 import com.lingxi.workbench.agentruntime.model.AgentRunRequest;
 import com.lingxi.workbench.agentruntime.model.AgentRunResult;
@@ -20,6 +19,7 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatStreamCommand;
+import io.agentscope.core.agent.RuntimeContext;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
 
@@ -42,7 +42,7 @@ class AgentRuntimeTest {
 
     @Test
     void shouldCompleteWithMonotonicLifecycleAndUsage() {
-        SpringAiStreamingChatGateway gateway = gateway(Flux.just(
+        AgentScopeSpecialistStreamingGateway gateway = gateway(Flux.just(
                 new ChatStreamChunk("你"),
                 new ChatStreamChunk("好"),
                 new ChatStreamChunk("", TokenUsage.of(8, 2, 10))));
@@ -67,7 +67,7 @@ class AgentRuntimeTest {
 
     @Test
     void shouldKeepRunLifecycleOpenForDelegatedInvocation() {
-        SpringAiStreamingChatGateway gateway = gateway(Flux.just(new ChatStreamChunk("子任务完成")));
+        AgentScopeSpecialistStreamingGateway gateway = gateway(Flux.just(new ChatStreamChunk("子任务完成")));
         RecordingSink sink = new RecordingSink();
         AgentRunRequest request = AgentRunRequest.builder()
                 .runId("run-supervisor")
@@ -75,6 +75,8 @@ class AgentRuntimeTest {
                 .agentVersionId(21L)
                 .scope(ExecutionScope.INVOCATION)
                 .modelCommand(command())
+                .runtimeContext(runtimeContext("run-supervisor"))
+                .agentStateStore(mock(io.agentscope.core.state.AgentStateStore.class))
                 .policy(policy(100))
                 .eventSink(sink)
                 .initialUsage(TokenUsage.empty())
@@ -90,7 +92,7 @@ class AgentRuntimeTest {
 
     @Test
     void shouldAllowContinuedModelOutputWithoutWallClockDeadline() {
-        SpringAiStreamingChatGateway gateway = gateway(Flux.just(
+        AgentScopeSpecialistStreamingGateway gateway = gateway(Flux.just(
                 new ChatStreamChunk("持续"), new ChatStreamChunk("输出"))
                 .delayElements(Duration.ofMillis(60)));
         RecordingSink sink = new RecordingSink();
@@ -106,7 +108,7 @@ class AgentRuntimeTest {
 
     @Test
     void shouldFailOnceWhenModelPublisherFails() {
-        SpringAiStreamingChatGateway gateway = gateway(Flux.error(new IllegalStateException("provider unavailable")));
+        AgentScopeSpecialistStreamingGateway gateway = gateway(Flux.error(new IllegalStateException("provider unavailable")));
         RecordingSink sink = new RecordingSink();
 
         assertThrows(IllegalStateException.class,
@@ -119,7 +121,7 @@ class AgentRuntimeTest {
 
     @Test
     void shouldFailWhenModelCompletesWithoutUsefulText() {
-        SpringAiStreamingChatGateway gateway = gateway(Flux.just(
+        AgentScopeSpecialistStreamingGateway gateway = gateway(Flux.just(
                 new ChatStreamChunk("", TokenUsage.of(8, 0, 8))));
         RecordingSink sink = new RecordingSink();
 
@@ -134,8 +136,8 @@ class AgentRuntimeTest {
 
     @Test
     void shouldMarkApplicationFinalizationAsReservedFinalModelCall() {
-        SpringAiStreamingChatGateway gateway = mock(SpringAiStreamingChatGateway.class);
-        when(gateway.stream(any(), any())).thenAnswer(invocation -> Flux.defer(() -> {
+        AgentScopeSpecialistStreamingGateway gateway = mock(AgentScopeSpecialistStreamingGateway.class);
+        when(gateway.stream(any(), any(), any(), any())).thenAnswer(invocation -> Flux.defer(() -> {
             ExecutionState state = invocation.getArgument(1);
             assertTrue(state.isFinalizationRequested());
             int callNo = state.beforeFinalModelCall();
@@ -148,6 +150,8 @@ class AgentRuntimeTest {
                 .agentId(10L)
                 .agentVersionId(20L)
                 .modelCommand(command())
+                .runtimeContext(runtimeContext("run-finalization"))
+                .agentStateStore(mock(io.agentscope.core.state.AgentStateStore.class))
                 .finalizationOnly(true)
                 .policy(policy(100))
                 .eventSink(sink)
@@ -166,8 +170,8 @@ class AgentRuntimeTest {
 
     @Test
     void shouldRejectModelCallWhenTokenBudgetIsAlreadyExhausted() {
-        SpringAiStreamingChatGateway gateway = mock(SpringAiStreamingChatGateway.class);
-        when(gateway.stream(any(), any())).thenAnswer(invocation -> Flux.defer(() -> {
+        AgentScopeSpecialistStreamingGateway gateway = mock(AgentScopeSpecialistStreamingGateway.class);
+        when(gateway.stream(any(), any(), any(), any())).thenAnswer(invocation -> Flux.defer(() -> {
             ExecutionState state = invocation.getArgument(1);
             state.beforeModelCall();
             return Flux.empty();
@@ -178,6 +182,8 @@ class AgentRuntimeTest {
                 .agentId(10L)
                 .agentVersionId(20L)
                 .modelCommand(command())
+                .runtimeContext(runtimeContext("run-budget"))
+                .agentStateStore(mock(io.agentscope.core.state.AgentStateStore.class))
                 .policy(policy(10))
                 .eventSink(sink)
                 .initialUsage(TokenUsage.of(5, 5, 10))
@@ -189,7 +195,7 @@ class AgentRuntimeTest {
 
     @Test
     void shouldCancelWithoutPublishingFailure() {
-        SpringAiStreamingChatGateway gateway = gateway(Flux.never());
+        AgentScopeSpecialistStreamingGateway gateway = gateway(Flux.never());
         RecordingSink sink = new RecordingSink();
         sink.cancelled.set(true);
 
@@ -204,8 +210,8 @@ class AgentRuntimeTest {
 
     @Test
     void shouldReturnTypedInterruptionWithoutPublishingFailure() {
-        SpringAiStreamingChatGateway gateway = mock(SpringAiStreamingChatGateway.class);
-        when(gateway.stream(any(), any())).thenAnswer(invocation -> Flux.defer(() -> {
+        AgentScopeSpecialistStreamingGateway gateway = mock(AgentScopeSpecialistStreamingGateway.class);
+        when(gateway.stream(any(), any(), any(), any())).thenAnswer(invocation -> Flux.defer(() -> {
             ExecutionState state = invocation.getArgument(1);
             state.interrupt(RuntimeInterruption.builder().interactionId(91L).fingerprint("fp").build());
             return Flux.empty();
@@ -223,36 +229,35 @@ class AgentRuntimeTest {
 
     @Test
     void shouldDelegateResumeToCheckpointPathWithoutReplayingInitialModelCall() {
-        SpringAiStreamingChatGateway gateway = mock(SpringAiStreamingChatGateway.class);
-        when(gateway.resume(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(),
+        AgentScopeSpecialistStreamingGateway agentScopeGateway = mock(AgentScopeSpecialistStreamingGateway.class);
+        when(agentScopeGateway.resume(any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyString())).thenReturn(Flux.just(new ChatStreamChunk("恢复完成")));
         RecordingSink sink = new RecordingSink();
         AgentRunRequest request = request(sink, 4L);
-        RuntimeCheckpoint checkpoint = RuntimeCheckpoint.builder()
-                .version(RuntimeCheckpoint.CURRENT_VERSION)
+        AgentScopeCheckpoint checkpoint = AgentScopeCheckpoint.builder()
+                .version(AgentScopeCheckpoint.CURRENT_VERSION)
                 .fingerprint("fp")
-                .state(ExecutionStateSnapshot.builder()
-                        .runId("run-1").agentId(10L).agentVersionId(20L)
-                        .maxModelCalls(1).maxToolCalls(0).maxTotalTokens(100).maxFinalizationTokens(100)
-                        .modelCalls(0).toolCalls(0).tokenUsage(TokenUsage.empty())
-                        .lastSequenceNo(4L)
-                        .finalizationRequested(false).output("")
-                        .toolCallCounts(List.of()).toolLedger(List.of()).skills(List.of())
-                        .authorizedToolCodes(List.of()).build())
+                .runId("run-1").agentId(10L).agentVersionId(20L)
+                .maxModelCalls(1).maxToolCalls(0).maxTotalTokens(100).maxFinalizationTokens(100)
+                .modelCalls(0).toolCalls(0).tokenUsage(TokenUsage.empty())
+                .lastSequenceNo(4L)
+                .finalizationRequested(false).output("")
+                .toolCallCounts(List.of())
+                .authorizedToolCodes(List.of())
                 .build();
 
-        AgentRunResult result = runtime(gateway).resume(
+        AgentRunResult result = runtime(agentScopeGateway).resume(
                 new AgentResumeRequest(request, checkpoint, 91L, "fp"));
 
         assertEquals("恢复完成", result.content());
-        verify(gateway, never()).stream(any(), any());
-        verify(gateway).resume(any(), any(), any(),
+        verify(agentScopeGateway, never()).stream(any(), any(), any(), any());
+        verify(agentScopeGateway).resume(any(), any(), any(), any(), any(),
                 org.mockito.ArgumentMatchers.eq(91L), org.mockito.ArgumentMatchers.eq("fp"));
     }
 
-    private static SpringAiStreamingChatGateway gateway(Flux<ChatStreamChunk> chunks) {
-        SpringAiStreamingChatGateway gateway = mock(SpringAiStreamingChatGateway.class);
-        when(gateway.stream(any(), any())).thenAnswer(invocation -> Flux.defer(() -> {
+    private static AgentScopeSpecialistStreamingGateway gateway(Flux<ChatStreamChunk> chunks) {
+        AgentScopeSpecialistStreamingGateway gateway = mock(AgentScopeSpecialistStreamingGateway.class);
+        when(gateway.stream(any(), any(), any(), any())).thenAnswer(invocation -> Flux.defer(() -> {
             ExecutionState state = invocation.getArgument(1);
             int callNo = state.beforeModelCall();
             return chunks.doOnComplete(() -> state.completeModelCall(callNo, TokenUsage.of(8, 2, 10), false));
@@ -260,10 +265,8 @@ class AgentRuntimeTest {
         return gateway;
     }
 
-    private static AgentRuntime runtime(SpringAiStreamingChatGateway gateway) {
-        SkillRouter skillRouter = mock(SkillRouter.class);
-        when(skillRouter.route(any(), any(), any())).thenReturn(List.of());
-        return new AgentRuntime(gateway, new SkillHook(skillRouter));
+    private static AgentRuntime runtime(AgentScopeSpecialistStreamingGateway gateway) {
+        return new AgentRuntime(gateway);
     }
 
     private static AgentRunRequest request(RecordingSink sink, long initialSequence) {
@@ -272,10 +275,21 @@ class AgentRuntimeTest {
                 .agentId(10L)
                 .agentVersionId(20L)
                 .modelCommand(command())
+                .runtimeContext(runtimeContext("run-1"))
+                .agentStateStore(mock(io.agentscope.core.state.AgentStateStore.class))
                 .policy(policy(100))
                 .eventSink(sink)
                 .initialSequenceNo(initialSequence)
                 .initialUsage(TokenUsage.empty())
+                .build();
+    }
+
+    private static RuntimeContext runtimeContext(String runId) {
+        ChatStreamCommand command = command();
+        return RuntimeContext.builder()
+                .userId("1")
+                .sessionId(runId)
+                .agentState(AgentScopeConversationStateFactory.create(command, "1", runId))
                 .build();
     }
 

@@ -27,22 +27,22 @@ public interface ConversationService {
     /**
      * 分页查询指定会话的消息历史。
      */
-    PageResult<ConversationMessageVO> messagePage(Long userId, Long conversationId, PageQuery query);
+    PageResult<ConversationMessageVO> messagePage(Long userId, String conversationId, PageQuery query);
 
     /**
      * 修改会话标题。
      */
-    void rename(Long userId, Long conversationId, RenameConversationRequest request);
+    void rename(Long userId, String conversationId, RenameConversationRequest request);
 
     /**
      * 归档会话。
      */
-    void archive(Long userId, Long conversationId);
+    void archive(Long userId, String conversationId);
 
     /**
      * 软删除会话。
      */
-    void delete(Long userId, Long conversationId);
+    void delete(Long userId, String conversationId);
 
     /**
      * 在同一事务中创建本轮用户消息和 Assistant 占位消息。
@@ -71,8 +71,10 @@ public interface ConversationService {
 
     /**
      * 记录客户端取消及已经生成的部分回答。
+     *
+     * @return 数据库已确认该消息处于取消终态时返回 true；若已进入其他终态则返回 false
      */
-    void cancelAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage);
+    boolean cancelAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage);
 
     /**
      * 记录服务进程中断造成的未完成回答。

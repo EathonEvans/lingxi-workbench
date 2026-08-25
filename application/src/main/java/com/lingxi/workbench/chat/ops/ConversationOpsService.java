@@ -1,5 +1,7 @@
 package com.lingxi.workbench.chat.ops;
 
+import com.lingxi.workbench.application.runtime.service.execution.RedisLockExecutor;
+import com.lingxi.workbench.chat.event.ConversationEventPublisher;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
 import com.lingxi.workbench.chat.model.message.ConversationCompletedMessage;
 import com.lingxi.workbench.chat.ops.common.enums.ConversationDlqGroup;
@@ -10,7 +12,6 @@ import com.lingxi.workbench.chat.ops.model.vo.ConversationOpsOverviewVO;
 import com.lingxi.workbench.chat.ops.model.vo.ConversationReconcileVO;
 import com.lingxi.workbench.chat.repo.ConversationMessageRepo;
 import com.lingxi.workbench.chat.service.ChatStreamService;
-import com.lingxi.workbench.chat.event.ConversationEventPublisher;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import lombok.RequiredArgsConstructor;
@@ -20,12 +21,13 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /** 会话事务消息健康检查、对账、死信查询与人工重放入口。 */
@@ -35,6 +37,9 @@ import java.util.stream.Collectors;
 public class ConversationOpsService {
 
     private static final String COMPLETED_EVENT_PREFIX = "conversation-completed:";
+    private static final String RECONCILE_LOCK = "lingxi:runtime:job:conversation-reconcile";
+    private static final Duration RECONCILE_LOCK_LEASE = Duration.ofSeconds(30);
+    private static final Duration REPLAY_LOCK_LEASE = Duration.ofSeconds(15);
 
     private final ConversationMessageRepo messageRepo;
     private final ChatStreamService chatStreamService;
@@ -42,7 +47,7 @@ public class ConversationOpsService {
     private final ConversationMqInspector mqInspector;
     private final ConversationOpsMetrics metrics;
     private final ConversationOpsProperties properties;
-    private final AtomicBoolean reconciling = new AtomicBoolean();
+    private final RedisLockExecutor redisLockExecutor;
     /** 不对服务启动前的历史完成消息做记忆重建。 */
     private final OffsetDateTime serviceStartedAt = OffsetDateTime.now();
 
@@ -77,19 +82,28 @@ public class ConversationOpsService {
     }
 
     public void replay(ConversationDlqGroup group, String msgId) {
-        ConversationCompletedMessage event = mqInspector.requireEvent(group, msgId);
-        requireCompletedEvent(event);
-        eventPublisher.replay(event);
-        metrics.recordManualReplay();
-        log.info("人工重放会话记忆事件，group={}，eventId={}，assistantMessageId={}",
-                group.getCode(), event.eventId(), event.assistantMessageId());
+        String lockKey = "lingxi:runtime:dlq-replay:" + group.getCode() + ":" + msgId;
+        boolean replayed = redisLockExecutor.tryExecute(lockKey, Duration.ZERO, REPLAY_LOCK_LEASE, () -> {
+            ConversationCompletedMessage event = mqInspector.requireEvent(group, msgId);
+            requireCompletedEvent(event);
+            eventPublisher.replay(event);
+            metrics.recordManualReplay();
+            log.info("人工重放会话记忆事件，group={}，eventId={}，assistantMessageId={}",
+                    group.getCode(), event.eventId(), event.assistantMessageId());
+            return Boolean.TRUE;
+        }).isPresent();
+        if (!replayed) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "死信事件正在由其他实例重放");
+        }
     }
 
     public ConversationReconcileVO reconcile() {
-        if (!reconciling.compareAndSet(false, true)) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "会话事件对账正在执行");
-        }
-        try {
+        return reconcileWithLock()
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "会话事件对账正在执行"));
+    }
+
+    private Optional<ConversationReconcileVO> reconcileWithLock() {
+        return redisLockExecutor.tryExecute(RECONCILE_LOCK, Duration.ZERO, RECONCILE_LOCK_LEASE, () -> {
             OffsetDateTime now = OffsetDateTime.now();
             int interrupted = chatStreamService.reconcileStaleGenerations(
                     now.minus(properties.getStaleAfter()), properties.getBatchSize());
@@ -97,9 +111,7 @@ public class ConversationOpsService {
             metrics.recordStaleRepaired(interrupted);
             metrics.recordMemoryRepublished(republished);
             return new ConversationReconcileVO(interrupted, republished);
-        } finally {
-            reconciling.set(false);
-        }
+        });
     }
 
     private int reconcileMemoryEvents(OffsetDateTime completedBefore) {
@@ -134,10 +146,14 @@ public class ConversationOpsService {
             return;
         }
         try {
-            ConversationReconcileVO result = reconcile();
-            if (result.interruptedCount() > 0 || result.republishedCount() > 0) {
+            Optional<ConversationReconcileVO> result = reconcileWithLock();
+            if (result.isEmpty()) {
+                log.debug("其他实例正在执行会话事件对账");
+                return;
+            }
+            if (result.get().interruptedCount() > 0 || result.get().republishedCount() > 0) {
                 log.info("会话事件定时对账完成，interrupted={}，republished={}",
-                        result.interruptedCount(), result.republishedCount());
+                        result.get().interruptedCount(), result.get().republishedCount());
             }
         } catch (RuntimeException exception) {
             metrics.recordReconcileFailure();

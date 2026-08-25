@@ -1,7 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.execution;
 
-import com.lingxi.workbench.agentruntime.planner.PlannerStep;
-import com.lingxi.workbench.application.runtime.service.plan.ExecutionDecisionChecksum;
+import com.lingxi.workbench.agentruntime.plan.RuntimeTaskStep;
 
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
@@ -16,10 +15,10 @@ import com.lingxi.workbench.application.runtime.model.entity.ExecutionEventEntit
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionRunEntity;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionRunSkillEntity;
 import com.lingxi.workbench.application.runtime.repo.ExecutionEventRepo;
-import com.lingxi.workbench.application.runtime.repo.ExecutionPlanSnapshotRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionRunRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionRunSkillRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionStepAttemptRepo;
+import com.lingxi.workbench.application.runtime.repo.ExecutionTaskSnapshotRepo;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
@@ -27,6 +26,7 @@ import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
 import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationReason;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import io.agentscope.core.state.Task;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -66,8 +66,8 @@ class ExecutionPersistenceServiceImplTest {
         assertEquals(runId, runCaptor.getValue().getRunId());
         assertEquals(22L, runCaptor.getValue().getAssistantMessageId());
         assertEquals(11L, runCaptor.getValue().getApplicationVersionId());
-        assertEquals(31L, runCaptor.getValue().getPlannerModelInstanceId());
-        assertEquals(32L, runCaptor.getValue().getPlannerPromptVersionId());
+        assertEquals(31L, runCaptor.getValue().getSupervisorModelInstanceId());
+        assertEquals(32L, runCaptor.getValue().getSupervisorPromptVersionId());
         assertEquals(40L, runCaptor.getValue().getOrchestratorAgentId());
         assertEquals(41L, runCaptor.getValue().getOrchestratorAgentVersionId());
 
@@ -92,14 +92,37 @@ class ExecutionPersistenceServiceImplTest {
         ExecutionPersistenceServiceImpl service = service(mock(ExecutionRunRepo.class), mock(ExecutionEventRepo.class));
         ExecutionStepAttemptCommand command = ExecutionStepAttemptCommand.builder()
                 .runId("run-1")
-                .planNo(1)
+                .taskRevision(1)
                 .attemptNo(1)
-                .step(PlannerStep.builder().id("collect").name("收集资料").capabilityCode("agent").build())
+                .step(RuntimeTaskStep.builder().id("collect").name("收集资料").capabilityCode("agent").build())
                 .status(ExecutionStepStatus.RUNNING)
                 .startedAt(OffsetDateTime.now())
                 .build();
 
         assertThrows(BusinessException.class, () -> service.appendStepAttempt(command));
+    }
+
+    @Test
+    void shouldPersistAgentScopeTaskSnapshot() {
+        ExecutionRunRepo runRepo = mock(ExecutionRunRepo.class);
+        ExecutionTaskSnapshotRepo taskRepo = mock(ExecutionTaskSnapshotRepo.class);
+        when(runRepo.lockByRunId("run-task")).thenReturn(Optional.of(new ExecutionRunEntity()));
+        ExecutionPersistenceServiceImpl service = new ExecutionPersistenceServiceImpl(runRepo,
+                taskRepo, mock(ExecutionStepAttemptRepo.class), mock(ExecutionEventRepo.class),
+                mock(ExecutionRunSkillRepo.class), new ExecutionTaskChecksum());
+        Task task = Task.builder().id("task-1").subject("查询资料").description("查询资料")
+                .state(Task.State.IN_PROGRESS).metadata(java.util.Map.of("capabilityCode", "research")).build();
+
+        service.appendTaskSnapshot(new com.lingxi.workbench.application.runtime.model.ExecutionTaskSnapshotCommand(
+                "run-task", 1, List.of(task)));
+
+        ArgumentCaptor<com.lingxi.workbench.application.runtime.model.entity.ExecutionTaskSnapshotEntity> captor =
+                ArgumentCaptor.forClass(com.lingxi.workbench.application.runtime.model.entity.ExecutionTaskSnapshotEntity.class);
+        verify(taskRepo).insert(captor.capture());
+        assertEquals("run-task", captor.getValue().getRunId());
+        assertEquals(1, captor.getValue().getRevision());
+        assertEquals("research", captor.getValue().getTaskSnapshot().getFirst().getMetadata().get("capabilityCode"));
+        assertNotNull(captor.getValue().getSnapshotChecksum());
     }
 
     @Test
@@ -158,8 +181,8 @@ class ExecutionPersistenceServiceImplTest {
         when(runRepo.lockByRunId("run-skill")).thenReturn(Optional.of(new ExecutionRunEntity()));
         when(eventRepo.nextSequence("run-skill")).thenReturn(1L);
         ExecutionPersistenceServiceImpl service = new ExecutionPersistenceServiceImpl(runRepo,
-                mock(ExecutionPlanSnapshotRepo.class), mock(ExecutionStepAttemptRepo.class), eventRepo,
-                skillRepo, new ExecutionDecisionChecksum());
+                mock(ExecutionTaskSnapshotRepo.class), mock(ExecutionStepAttemptRepo.class), eventRepo,
+                skillRepo, new ExecutionTaskChecksum());
 
         service.appendSkillActivationEvent(ExecutionEventCommand.builder()
                         .runId("run-skill").sequenceNo(1L)
@@ -190,8 +213,8 @@ class ExecutionPersistenceServiceImplTest {
         when(eventRepo.findBySequence("run-skill", 2L)).thenReturn(Optional.of(existing));
         when(skillRepo.existsByEvent("run-skill", 2L)).thenReturn(true);
         ExecutionPersistenceServiceImpl service = new ExecutionPersistenceServiceImpl(runRepo,
-                mock(ExecutionPlanSnapshotRepo.class), mock(ExecutionStepAttemptRepo.class), eventRepo,
-                skillRepo, new ExecutionDecisionChecksum());
+                mock(ExecutionTaskSnapshotRepo.class), mock(ExecutionStepAttemptRepo.class), eventRepo,
+                skillRepo, new ExecutionTaskChecksum());
 
         ExecutionEventEntity result = service.appendSkillActivationEvent(ExecutionEventCommand.builder()
                         .runId("run-skill").sequenceNo(2L)
@@ -205,9 +228,9 @@ class ExecutionPersistenceServiceImplTest {
     }
 
     private static ExecutionPersistenceServiceImpl service(ExecutionRunRepo runRepo, ExecutionEventRepo eventRepo) {
-        return new ExecutionPersistenceServiceImpl(runRepo, mock(ExecutionPlanSnapshotRepo.class),
+        return new ExecutionPersistenceServiceImpl(runRepo, mock(ExecutionTaskSnapshotRepo.class),
                 mock(ExecutionStepAttemptRepo.class), eventRepo, mock(ExecutionRunSkillRepo.class),
-                new ExecutionDecisionChecksum());
+                new ExecutionTaskChecksum());
     }
 
     private static AgentRuntimeSnapshot supervisor() {

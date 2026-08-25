@@ -1,10 +1,8 @@
 package com.lingxi.workbench.application.runtime.service.interaction;
 
 import com.alibaba.fastjson2.JSON;
-import com.lingxi.workbench.agentruntime.checkpoint.ExecutionStateSnapshot;
-import com.lingxi.workbench.agentruntime.checkpoint.HumanApprovalRequest;
-import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpoint;
-import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpointContext;
+import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
+import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeInterruptionRequest;
 import com.lingxi.workbench.agentruntime.checkpoint.RuntimeInterruption;
 import com.lingxi.workbench.application.runtime.common.enums.CapabilityInvocationStatus;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionRunStatus;
@@ -15,6 +13,7 @@ import com.lingxi.workbench.application.runtime.repo.CapabilityInvocationRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionCheckpointRepo;
 import com.lingxi.workbench.application.runtime.repo.InteractionSessionRepo;
 import com.lingxi.workbench.application.runtime.service.execution.ExecutionPersistenceService;
+import com.lingxi.workbench.application.runtime.service.execution.RedisLockExecutor;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.tool.common.enums.ToolRiskLevel;
@@ -25,8 +24,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.OffsetDateTime;
+import java.util.Map;
 import java.util.Optional;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -45,17 +46,18 @@ class ApplicationRuntimeCheckpointStoreTest {
     private final ExecutionCheckpointRepo checkpointRepo = mock(ExecutionCheckpointRepo.class);
     private final CapabilityInvocationRepo invocationRepo = mock(CapabilityInvocationRepo.class);
     private final ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
+    private final RedisLockExecutor redisLockExecutor = mock(RedisLockExecutor.class);
     private ApplicationRuntimeCheckpointStore service;
 
     @BeforeEach
     void setUp() {
         service = new ApplicationRuntimeCheckpointStore(interactionRepo, checkpointRepo, invocationRepo,
-                persistenceService);
+                persistenceService, redisLockExecutor);
     }
 
     @Test
-    void shouldPersistVersionTwoRuntimeCheckpointBeforeReturningInterruption() {
-        RuntimeCheckpoint checkpoint = checkpoint();
+    void shouldPersistAgentScopeCheckpointBeforeReturningInterruption() {
+        AgentScopeCheckpoint checkpoint = checkpoint();
         when(interactionRepo.findAnyPending(8L, 7L, 30L)).thenReturn(Optional.empty());
         doAnswer(invocation -> {
             invocation.<ExecutionCheckpointEntity>getArgument(0).setId(30L);
@@ -77,7 +79,7 @@ class ApplicationRuntimeCheckpointStoreTest {
                         .riskLevel(ToolRiskLevel.HIGH).resourceScope("用户邮箱").build())
                 .build();
 
-        RuntimeInterruption interruption = service.interrupt(new HumanApprovalRequest(
+        RuntimeInterruption interruption = service.interrupt(new AgentScopeInterruptionRequest(
                 checkpoint, definition, AgentToolExecutionContext.builder()
                         .executionId("run-1").userId(7L).conversationId(8L).assistantMessageId(9L).build()));
 
@@ -86,17 +88,17 @@ class ApplicationRuntimeCheckpointStoreTest {
         org.mockito.ArgumentCaptor<ExecutionCheckpointEntity> captor =
                 org.mockito.ArgumentCaptor.forClass(ExecutionCheckpointEntity.class);
         verify(checkpointRepo).insert(captor.capture());
-        assertEquals(RuntimeCheckpoint.CURRENT_VERSION, captor.getValue().getCheckpointVersion());
+        assertEquals(AgentScopeCheckpoint.CURRENT_VERSION, captor.getValue().getCheckpointVersion());
         assertEquals(checkpoint, captor.getValue().getPayload());
         verify(persistenceService).changeRunStatus("run-1", ExecutionRunStatus.RUNNING,
                 ExecutionRunStatus.WAITING_HUMAN, "TOOL_APPROVAL");
     }
 
     @Test
-    void shouldRoundTripCompleteRuntimeCheckpointPayload() {
-        RuntimeCheckpoint checkpoint = checkpoint();
+    void shouldRoundTripCompleteAgentScopeCheckpointPayload() {
+        AgentScopeCheckpoint checkpoint = checkpoint();
 
-        RuntimeCheckpoint restored = JSON.parseObject(JSON.toJSONString(checkpoint), RuntimeCheckpoint.class);
+        AgentScopeCheckpoint restored = JSON.parseObject(JSON.toJSONString(checkpoint), AgentScopeCheckpoint.class);
 
         assertEquals(checkpoint, restored);
     }
@@ -128,6 +130,46 @@ class ApplicationRuntimeCheckpointStoreTest {
         verify(interactionRepo, never()).complete(10L);
     }
 
+    @Test
+    void shouldClaimApprovedInvocationInsideRunLockAndDatabaseCas() {
+        AgentScopeCheckpoint checkpoint = checkpoint();
+        InteractionSessionEntity interaction = new InteractionSessionEntity();
+        interaction.setId(10L);
+        interaction.setStatus(com.lingxi.workbench.application.runtime.common.enums.InteractionSessionStatus.RESOLVED);
+        interaction.setCheckpointId(30L);
+        interaction.setRunId("run-1");
+        interaction.setApplicationVersionId(30L);
+        interaction.setAssistantMessageId(9L);
+        interaction.setApprovalFingerprint("fingerprint");
+        interaction.setExpiresAt(OffsetDateTime.now().plusMinutes(5));
+        ExecutionCheckpointEntity stored = new ExecutionCheckpointEntity();
+        stored.setId(30L);
+        stored.setRunId("run-1");
+        stored.setStatus(com.lingxi.workbench.application.runtime.common.enums.ExecutionCheckpointStatus.ACTIVE);
+        stored.setCheckpointVersion(AgentScopeCheckpoint.CURRENT_VERSION);
+        stored.setPayload(checkpoint);
+        stored.setChecksum("fingerprint");
+        stored.setExpiresAt(OffsetDateTime.now().plusMinutes(5));
+        CapabilityInvocationEntity invocation = invocation();
+        invocation.setStatus(CapabilityInvocationStatus.APPROVED);
+        invocation.setApprovalFingerprint("fingerprint");
+        invocation.setToolCode("send_mail");
+        invocation.setToolInput(new com.alibaba.fastjson2.JSONObject(Map.of()));
+        when(interactionRepo.findOwned(10L, 8L, 7L)).thenReturn(Optional.of(interaction));
+        when(checkpointRepo.findById(30L)).thenReturn(Optional.of(stored));
+        when(invocationRepo.findByInteractionId(10L)).thenReturn(Optional.of(invocation));
+        when(invocationRepo.changeStatus(20L, CapabilityInvocationStatus.APPROVED,
+                CapabilityInvocationStatus.RUNNING, "evt-1", null, null)).thenReturn(true);
+        when(redisLockExecutor.tryExecute(eq("lingxi:runtime:run:run-1"), any(), any(), any()))
+                .thenAnswer(invocationCall -> Optional.of(((Supplier<?>) invocationCall.getArgument(3)).get()));
+
+        assertEquals(20L, service.claimApproved(checkpoint, 10L, "fingerprint").invocationId());
+
+        verify(redisLockExecutor).tryExecute(eq("lingxi:runtime:run:run-1"), any(), any(), any());
+        verify(invocationRepo).changeStatus(20L, CapabilityInvocationStatus.APPROVED,
+                CapabilityInvocationStatus.RUNNING, "evt-1", null, null);
+    }
+
     private static CapabilityInvocationEntity invocation() {
         CapabilityInvocationEntity invocation = new CapabilityInvocationEntity();
         invocation.setId(20L);
@@ -138,23 +180,20 @@ class ApplicationRuntimeCheckpointStoreTest {
         return invocation;
     }
 
-    private static RuntimeCheckpoint checkpoint() {
-        return RuntimeCheckpoint.builder()
-                .version(RuntimeCheckpoint.CURRENT_VERSION)
-                .context(RuntimeCheckpointContext.builder()
-                        .query("发送邮件").capabilityCode("mail_agent").applicationVersionId(30L)
-                        .userId(7L).conversationId(8L).assistantMessageId(9L).build())
-                .state(ExecutionStateSnapshot.builder()
-                        .runId("run-1").agentId(11L).agentVersionId(12L)
-                        .maxModelCalls(3).maxToolCalls(2).maxTotalTokens(100)
-                        .maxFinalizationTokens(120)
-                        .modelCalls(1).toolCalls(1).tokenUsage(TokenUsage.empty()).lastSequenceNo(4L)
-                        .finalizationRequested(false).output("")
-                        .toolCallCounts(List.of()).toolLedger(List.of()).skills(List.of())
-                        .authorizedToolCodes(List.of("send_mail")).build())
-                .messages(List.of())
-                .pendingToolCall(RuntimeCheckpoint.ToolCallSnapshot.builder()
-                        .id("call-1").type("function").name("send_mail").arguments("{}").build())
+    private static AgentScopeCheckpoint checkpoint() {
+        return AgentScopeCheckpoint.builder()
+                .version(AgentScopeCheckpoint.CURRENT_VERSION)
+                .query("发送邮件").capabilityCode("mail_agent").applicationVersionId(30L)
+                .userId(7L).conversationId(8L).assistantMessageId(9L)
+                .runId("run-1").agentId(11L).agentVersionId(12L)
+                .maxModelCalls(3).maxToolCalls(2).maxTotalTokens(100)
+                .maxFinalizationTokens(120)
+                .modelCalls(1).toolCalls(1).tokenUsage(TokenUsage.empty()).lastSequenceNo(4L)
+                .finalizationRequested(false).output("")
+                .toolCallCounts(List.of())
+                .authorizedToolCodes(List.of("send_mail"))
+                .agentStateJson("{\"version\":1}")
+                .pendingToolCall(new AgentScopeCheckpoint.ToolCallSnapshot("call-1", "send_mail", Map.of()))
                 .toolConfigurationHash("mail-v1")
                 .resourceScope("用户邮箱")
                 .fingerprint("fingerprint")

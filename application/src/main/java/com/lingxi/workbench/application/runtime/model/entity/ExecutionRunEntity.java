@@ -22,8 +22,8 @@ public class ExecutionRunEntity {
     private Long applicationVersionId;
     private Long orchestratorAgentId;
     private Long orchestratorAgentVersionId;
-    private Long plannerModelInstanceId;
-    private Long plannerPromptVersionId;
+    private Long supervisorModelInstanceId;
+    private Long supervisorPromptVersionId;
     private String capabilityCode;
     private String executionMode;
     private ExecutionRunStatus status;

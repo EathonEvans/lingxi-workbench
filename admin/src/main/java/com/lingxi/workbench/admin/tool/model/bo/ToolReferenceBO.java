@@ -22,6 +22,7 @@ public class ToolReferenceBO {
     private final ToolSourceType sourceType;
     private final Long mcpServerId;
     private final String remoteToolName;
+    private final String reconciliationQueryToolName;
     private final JSONObject parameterSchema;
     private final ToolRiskLevel riskLevel;
     private final Boolean approvalRequired;

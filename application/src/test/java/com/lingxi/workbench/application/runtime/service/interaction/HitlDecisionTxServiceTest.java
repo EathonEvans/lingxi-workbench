@@ -15,6 +15,7 @@ import com.lingxi.workbench.application.runtime.repo.CapabilityInvocationRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionCheckpointRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionRunRepo;
 import com.lingxi.workbench.application.runtime.repo.InteractionSessionRepo;
+import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
 import com.lingxi.workbench.chat.service.ConversationService;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,7 +46,9 @@ class HitlDecisionTxServiceTest {
     @BeforeEach
     void setUp() {
         service = new HitlDecisionTxService(
-                interactionRepo, invocationRepo, checkpointRepo, runRepo, conversationService);
+                interactionRepo, invocationRepo, checkpointRepo, runRepo, conversationService,
+                new HitlApprovalClosureTxService(interactionRepo, invocationRepo, checkpointRepo, runRepo,
+                        conversationService));
     }
 
     @Test
@@ -135,6 +138,30 @@ class HitlDecisionTxServiceTest {
         verify(conversationService).cancelWaiting(40L, "USER_CANCELLED", "你已取消本轮待确认操作");
     }
 
+    @Test
+    void shouldSupersedeOldCheckpointProtocolInsteadOfAcceptingApproval() {
+        InteractionSessionEntity interaction = interaction(InteractionSessionStatus.PENDING);
+        ExecutionCheckpointEntity checkpoint = checkpoint();
+        checkpoint.setCheckpointVersion(AgentScopeCheckpoint.CURRENT_VERSION - 1);
+        when(interactionRepo.findOwned(10L, 7L)).thenReturn(Optional.of(interaction));
+        when(checkpointRepo.findById(30L)).thenReturn(Optional.of(checkpoint));
+        when(interactionRepo.failForCheckpointProtocol(10L, 0)).thenReturn(true);
+        when(invocationRepo.findByInteractionId(10L)).thenReturn(Optional.of(invocation()));
+        when(invocationRepo.changeStatus(20L, CapabilityInvocationStatus.PENDING_APPROVAL,
+                CapabilityInvocationStatus.FAILED, null, null, "CHECKPOINT_PROTOCOL_SUPERSEDED")).thenReturn(true);
+        when(checkpointRepo.supersede(30L)).thenReturn(true);
+        when(runRepo.changeStatus(eq("run-1"), eq(ExecutionRunStatus.WAITING_HUMAN),
+                eq(ExecutionRunStatus.FAILED), eq("CHECKPOINT_PROTOCOL_SUPERSEDED"), any(OffsetDateTime.class)))
+                .thenReturn(true);
+
+        assertThrows(BusinessException.class, () -> service.decide(tx(InteractionDecision.APPROVE)));
+
+        verify(interactionRepo).failForCheckpointProtocol(10L, 0);
+        verify(checkpointRepo).supersede(30L);
+        verify(conversationService).cancelWaiting(40L, "CHECKPOINT_PROTOCOL_SUPERSEDED",
+                "运行检查点协议已升级，本轮待审批任务无法恢复，请重新发起任务");
+    }
+
     private static InteractionSessionEntity interaction(InteractionSessionStatus status) {
         InteractionSessionEntity interaction = new InteractionSessionEntity();
         interaction.setId(10L);
@@ -163,6 +190,7 @@ class HitlDecisionTxServiceTest {
         checkpoint.setRunId("run-1");
         checkpoint.setAssistantMessageId(40L);
         checkpoint.setStatus(ExecutionCheckpointStatus.ACTIVE);
+        checkpoint.setCheckpointVersion(AgentScopeCheckpoint.CURRENT_VERSION);
         checkpoint.setChecksum("fingerprint");
         checkpoint.setExpiresAt(OffsetDateTime.now().plusMinutes(10));
         return checkpoint;

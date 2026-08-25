@@ -20,6 +20,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
 
 class ApplicationIntentPreviewServiceTest {
 
@@ -33,7 +34,7 @@ class ApplicationIntentPreviewServiceTest {
     void shouldResolveUnsavedDraftBeforeCallingApplicationRuntime() {
         AiApplicationEntity application = application();
         PreviewApplicationIntentRequest request = request();
-        ApplicationDefinition resolved = ApplicationDefinition.builder().schemaVersion(12).build();
+        ApplicationDefinition resolved = ApplicationDefinition.builder().schemaVersion(APPLICATION_SCHEMA_VERSION).build();
         ApplicationIntentPreviewVO expected = new ApplicationIntentPreviewVO();
         when(applicationRepo.findById(10L)).thenReturn(Optional.of(application));
         when(draftValidator.resolveForPublish(any(), any())).thenReturn(

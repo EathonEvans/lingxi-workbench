@@ -2,11 +2,12 @@ package com.lingxi.workbench.application.runtime.service.app;
 
 import com.lingxi.workbench.agentruntime.model.AgentReconciliationPendingException;
 import com.lingxi.workbench.agentruntime.model.AgentRunCancelledException;
-import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpoint;
+import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
 import cn.hutool.core.lang.Assert;
 import cn.hutool.core.util.IdUtil;
 import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
@@ -89,33 +90,13 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
     private static final String BUDGET_BOUNDARY_RESPONSE =
             "本轮上下文处理已达到预算边界，请缩小问题范围或开启新对话后继续。";
 
-    /**
-     * 统一能力执行入口，内部按 AGENT / WORKFLOW 类型分发。
-     */
     private final CapabilityExecutionService capabilityExecutionService;
-    /**
-     * 会话上下文准备：窗口记忆 + 摘要 + 长期记忆 + 运行时变量。
-     */
     private final ConversationContextService conversationContextService;
-    /**
-     * 意图路由：候选召回 + 语义决策 + 服务端映射校验。
-     */
     private final IntentRoutingService intentRoutingService;
-    /**
-     * 平台级跨请求交互会话恢复。
-     */
     private final InteractionSessionService interactionSessionService;
-    /**
-     * 预解析 Agent 能力，用于确定执行模式并避免执行层重复查询版本。
-     */
     private final AgentRuntimeService agentRuntimeService;
-    /**
-     * 将主流程稳定阶段写入 OpenTelemetry，内部模型 span 自动继承当前阶段。
-     */
     private final AiStageObserver aiStageObserver;
-    /** 所有执行模式共用的顶级运行状态。 */
     private final ExecutionPersistenceService executionPersistenceService;
-    /** 恢复时只重建可信基础变量，不重新加载记忆、重写问题或路由。 */
     private final RuntimeVariablesInitializer runtimeVariablesInitializer;
 
     /**
@@ -172,36 +153,36 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         });
     }
 
-    /** Checkpoint已经保存模型消息历史，恢复时不得重复读取记忆、改写问题或重新路由。 */
+    /** AgentScope Checkpoint 已保存模型消息历史，恢复时不得重复读取记忆、改写问题或重新路由。 */
     private ConversationContext restoreConversationContext(ApplicationChatExecutionRequest request) {
-        RuntimeCheckpoint checkpoint = request.getResumeContext().getCheckpoint();
+        AgentScopeCheckpoint checkpoint = request.getResumeContext().getCheckpoint();
         if (checkpoint == null || checkpoint.getVersion() == null
-                || checkpoint.getVersion() != RuntimeCheckpoint.CURRENT_VERSION
-                || checkpoint.getContext() == null || checkpoint.getState() == null
-                || !Objects.equals(checkpoint.getContext().getApplicationVersionId(),
+                || checkpoint.getVersion() != AgentScopeCheckpoint.CURRENT_VERSION
+                || checkpoint.getRunId() == null
+                || !Objects.equals(checkpoint.getApplicationVersionId(),
                         request.getApplication().versionId())
-                || !Objects.equals(checkpoint.getContext().getUserId(), request.getLoginUser().id())
-                || !Objects.equals(checkpoint.getContext().getConversationId(),
+                || !Objects.equals(checkpoint.getUserId(), request.getLoginUser().id())
+                || !Objects.equals(checkpoint.getConversationId(),
                         request.getTurn().conversationId())
-                || !Objects.equals(checkpoint.getContext().getAssistantMessageId(),
+                || !Objects.equals(checkpoint.getAssistantMessageId(),
                         request.getTurn().assistantMessageId())
                 || !Objects.equals(List.copyOf(Objects.requireNonNullElseGet(
-                        checkpoint.getContext().getExplicitSkillCodes(), List::of)),
+                        checkpoint.getExplicitSkillCodes(), List::of)),
                         request.getExplicitSkillCodes())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "Runtime Checkpoint与当前恢复请求不一致");
         }
-        String query = checkpoint.getContext().getQuery();
+        String query = checkpoint.getQuery();
         RuntimeVariables variables = runtimeVariablesInitializer.initialize(
                 request.getLoginUser(), query, request.getTurn().conversationId());
         variables.put(com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors.SESSION_HISTORY,
                 List.of());
         TokenUsage usageBeforeAgent = Objects.requireNonNullElseGet(
-                checkpoint.getContext().getApplicationUsageBeforeAgent(), TokenUsage::empty);
+                checkpoint.getApplicationUsageBeforeAgent(), TokenUsage::empty);
         TokenUsage runtimeUsage = Objects.requireNonNullElseGet(
-                checkpoint.getState().getTokenUsage(), TokenUsage::empty);
+                checkpoint.getTokenUsage(), TokenUsage::empty);
         int modelCalls = Objects.requireNonNullElse(
-                checkpoint.getContext().getApplicationModelCallsBeforeAgent(), 0)
-                + Objects.requireNonNullElse(checkpoint.getState().getModelCalls(), 0);
+                checkpoint.getApplicationModelCallsBeforeAgent(), 0)
+                + Objects.requireNonNullElse(checkpoint.getModelCalls(), 0);
         return ConversationContext.builder()
                 .applicationSnapshot(request.getApplication())
                 .loginUser(request.getLoginUser())
@@ -223,22 +204,22 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         if (resume == null) {
             return 0;
         }
-        RuntimeCheckpoint checkpoint = resume.getCheckpoint();
+        AgentScopeCheckpoint checkpoint = resume.getCheckpoint();
         int beforeAgent = Objects.requireNonNullElse(
-                checkpoint.getContext().getApplicationToolCallsBeforeAgent(), 0);
-        int selectedCalls = Objects.requireNonNullElse(checkpoint.getState().getToolCalls(), 0);
-        // 待批准Tool已经占用Agent局部额度，但尚未发布TOOL_STARTED，Application不能提前重复占用。
-        return beforeAgent + Math.max(0, selectedCalls - 1);
+                checkpoint.getApplicationToolCallsBeforeAgent(), 0);
+        int selectedCalls = Objects.requireNonNullElse(checkpoint.getToolCalls(), 0);
+        // AgentScope ASK 尚未进入 Toolkit 实际调用，因此检查点中的次数可直接作为恢复基线。
+        return beforeAgent + selectedCalls;
     }
 
     /** HITL 恢复必须回到检查点锁定的 AgentVersion，不重新经过意图路由。 */
     private ChatDispatch.Executable resolveHitlDispatch(AppRuntimeSnapshot snapshot, String query,
                                                         ExecutionResumeContext resume) {
-        RuntimeCheckpoint checkpoint = resume.getCheckpoint();
+        AgentScopeCheckpoint checkpoint = resume.getCheckpoint();
         ApplicationCapabilityDefinition capability = resolveCapability(
-                snapshot, checkpoint.getContext().getCapabilityCode(), ApplicationCapabilityType.AGENT);
-        if (!Objects.equals(capability.getTargetId(), checkpoint.getState().getAgentId())
-                || !Objects.equals(capability.getTargetVersionId(), checkpoint.getState().getAgentVersionId())) {
+                snapshot, checkpoint.getCapabilityCode(), ApplicationCapabilityType.AGENT);
+        if (!Objects.equals(capability.getTargetId(), checkpoint.getAgentId())
+                || !Objects.equals(capability.getTargetVersionId(), checkpoint.getAgentVersionId())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "HITL恢复目标与ApplicationVersion不一致");
         }
         return capabilityDispatch(query, capability, null, Set.of());
@@ -343,7 +324,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
         // ① 正常执行创建新 runId；HITL 恢复继续使用检查点锁定的原 runId。
         ExecutionResumeContext resume = request.getResumeContext();
         String executionId = resume == null ? IdUtil.getSnowflakeNextIdStr()
-                : resume.getCheckpoint().getState().getRunId();
+                : resume.getCheckpoint().getRunId();
         ChatDispatch.Capability capabilityDispatch = (ChatDispatch.Capability) dispatch;
         validateExplicitSkillTarget(request, capabilityDispatch);
         if (resume == null) {
@@ -367,7 +348,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
 
         try {
             ApplicationChatResult result = aiStageObserver.observeExecution(executionId, executionMode(dispatch),
-                    () -> executionContext.hasFinalizationCapacity()
+                    () -> executionContext.getExecutionBudget().hasFinalizationCapacity()
                             ? executeCapability((ChatDispatch.Capability) dispatch, executionContext)
                             : budgetBoundaryResult(executionContext));
 
@@ -453,13 +434,12 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                 .eventPublisher(request.getEventPublisher())
                 .memoryConfig(snapshot.definition().memoryConf())
                 .conversationContext(conversationContext)
-                .runtimePolicy(snapshot.definition().runtimePolicy())
                 .contextBudget(snapshot.definition().contextPolicy().budget())
                 .explicitSkillCodes(request.getExplicitSkillCodes())
-                .tokenUsageAccumulator(initialUsage(conversationContext.getPreparationTokenUsage()))
-                .modelCallCounter(new AtomicInteger(conversationContext.getPreparationModelCalls()))
-                .toolCallCounter(new AtomicInteger(initialToolCalls(request)))
-                .delegationCounter(new AtomicInteger())
+                .executionBudget(new ApplicationExecutionBudget(snapshot.definition().runtimePolicy(),
+                        initialUsage(conversationContext.getPreparationTokenUsage()),
+                        new AtomicInteger(conversationContext.getPreparationModelCalls()),
+                        new AtomicInteger(initialToolCalls(request)), new AtomicInteger()))
                 .resumeContext(request.getResumeContext())
                 .build();
     }
@@ -559,20 +539,21 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
                         .confirmedCapabilityCodes(dispatch.hints().confirmedCapabilityCodes())
                         .build());
         if (result != null && result.isInterrupted()) {
-            return ApplicationChatResult.interrupted(context.tokenUsage(), result.interruption());
+            return ApplicationChatResult.interrupted(context.getExecutionBudget().tokenUsage(), result.interruption());
         }
         if (Objects.isNull(result) || Objects.isNull(result.content()) || result.content().isBlank()) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "能力必须返回非空结果");
         }
         return ApplicationChatResult.completed(
-                result.content(), context.tokenUsage(), result.traces(), result.modelInstanceId());
+                result.content(), context.getExecutionBudget().tokenUsage(), result.traces(), result.modelInstanceId());
     }
 
     /**
      * 上下文准备已经越过硬边界时保留真实用量，并停止继续产生模型或Tool成本。
      */
     private static ApplicationChatResult budgetBoundaryResult(ChatExecutionContext context) {
-        return ApplicationChatResult.completed(BUDGET_BOUNDARY_RESPONSE, context.tokenUsage(), List.of(), null);
+        return ApplicationChatResult.completed(BUDGET_BOUNDARY_RESPONSE,
+                context.getExecutionBudget().tokenUsage(), List.of(), null);
     }
 
     /**
@@ -668,8 +649,7 @@ public class ApplicationChatExecutionServiceImpl implements ApplicationChatExecu
      * 校验执行请求完整性。
      */
     private static void requireRequest(ApplicationChatExecutionRequest request) {
-        Supplier<BusinessException> invalidRequest =
-                () -> new BusinessException(HttpStatusEnum.BAD_REQUEST, "Application Chat执行请求不完整");
+        Supplier<BusinessException> invalidRequest = () -> new BusinessException(HttpStatusEnum.BAD_REQUEST, "Application Chat执行请求不完整");
         Assert.notNull(request, invalidRequest);
         Object[] requiredFields = {
                 request.getApplication(), request.getQuery(), request.getLoginUser(),

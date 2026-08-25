@@ -7,11 +7,13 @@ import com.lingxi.workbench.application.runtime.repo.McpServerRuntimeRepo;
 import com.lingxi.workbench.application.runtime.repo.ToolRuntimeRepo;
 import com.lingxi.workbench.application.runtime.service.tool.ToolRuntimeService;
 import com.lingxi.workbench.application.runtime.tool.McpRuntimeToolCallback;
+import com.lingxi.workbench.application.runtime.tool.McpToolReconciliation;
 import com.lingxi.workbench.framework.security.SecretCipher;
-import com.lingxi.workbench.infra.ai.mcp.McpSyncClientFactory;
+import com.lingxi.workbench.infra.ai.mcp.AgentScopeMcpClientFactory;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.AgentToolException;
 import com.lingxi.workbench.infra.ai.tool.AgentToolRegistry;
+import com.lingxi.workbench.infra.ai.tool.AgentToolReconciliation;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionMode;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
 import com.lingxi.workbench.infra.ai.tool.model.ToolSecurityPolicy;
@@ -28,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -35,7 +38,8 @@ import java.util.stream.Collectors;
  * Tool 运行时装配服务。
  *
  * <p>数据库定义是模型可见契约的事实来源，Java AgentTool 是执行逻辑的事实来源。
- * 两者仅通过稳定 toolCode 对接，任何一侧缺失都会在调用模型前失败。</p>
+ * 两者仅通过稳定 toolCode 对接，外层 AgentScope Toolkit 由 Agent Runtime 装配；此处保留的
+ * ToolCallback 仅是执行器适配，不参与模型 Tool Calling 循环。</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -44,7 +48,7 @@ public class ToolRuntimeServiceImpl implements ToolRuntimeService {
     private final ToolRuntimeRepo toolRuntimeRepo;
     private final McpServerRuntimeRepo mcpServerRuntimeRepo;
     private final AgentToolRegistry agentToolRegistry;
-    private final McpSyncClientFactory mcpSyncClientFactory;
+    private final AgentScopeMcpClientFactory agentScopeMcpClientFactory;
     private final SecretCipher secretCipher;
 
     /** 读取启用定义并按 Agent 配置顺序装配执行器。 */
@@ -99,8 +103,10 @@ public class ToolRuntimeServiceImpl implements ToolRuntimeService {
             throw new AgentToolException("MCP Tool缺少远端工具名称：" + definition.getCode());
         }
         AgentToolDefinition runtimeDefinition = runtimeDefinition(definition);
-        ToolCallback callback = new McpRuntimeToolCallback(definition, server, mcpSyncClientFactory, secretCipher);
-        return new ManagedAgentTool(runtimeDefinition, callback);
+        ToolCallback callback = new McpRuntimeToolCallback(definition, server, agentScopeMcpClientFactory, secretCipher);
+        AgentToolReconciliation reconciliation = definition.getReconciliationQueryToolName() == null
+                ? null : new McpToolReconciliation(definition, (McpRuntimeToolCallback) callback);
+        return new ManagedAgentTool(runtimeDefinition, callback, reconciliation);
     }
 
     private static RuntimeMcpServerEntity requireMcpServer(Map<Long, RuntimeMcpServerEntity> mcpServers, RuntimeToolEntity definition) {
@@ -122,7 +128,7 @@ public class ToolRuntimeServiceImpl implements ToolRuntimeService {
     private static AgentTool managedTool(RuntimeToolEntity definition, AgentTool executor) {
         AgentToolDefinition runtimeDefinition = runtimeDefinition(definition, executor.definition());
         ToolCallback callback = new ManagedToolCallback(definition, executor.callback());
-        return new ManagedAgentTool(runtimeDefinition, callback);
+        return new ManagedAgentTool(runtimeDefinition, callback, executor.reconciliation().orElse(null));
     }
 
     private static AgentToolDefinition runtimeDefinition(RuntimeToolEntity definition) {
@@ -154,7 +160,7 @@ public class ToolRuntimeServiceImpl implements ToolRuntimeService {
         String contract = definition.getCode() + "|" + definition.getDescription() + "|"
                 + JSON.toJSONString(definition.getParameterSchema()) + "|" + definition.getRiskLevel() + "|"
                 + definition.getApprovalRequired() + "|" + definition.getApprovalTtlSeconds() + "|"
-                + definition.getResourceScope();
+                + definition.getResourceScope() + "|" + definition.getReconciliationQueryToolName();
         return DigestUtil.sha256Hex(contract);
     }
 
@@ -164,7 +170,13 @@ public class ToolRuntimeServiceImpl implements ToolRuntimeService {
      * @param definition 模型可见的工具契约定义
      * @param callback   实际执行回调
      */
-    private record ManagedAgentTool(AgentToolDefinition definition, ToolCallback callback) implements AgentTool {
+    private record ManagedAgentTool(AgentToolDefinition definition, ToolCallback callback,
+                                    AgentToolReconciliation reconciliationHandler) implements AgentTool {
+
+        @Override
+        public Optional<AgentToolReconciliation> reconciliation() {
+            return Optional.ofNullable(reconciliationHandler);
+        }
     }
 
     /**

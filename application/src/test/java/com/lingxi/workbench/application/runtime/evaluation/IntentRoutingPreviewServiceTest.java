@@ -19,9 +19,14 @@ import com.lingxi.workbench.application.runtime.service.routing.IntentSemanticDe
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
+import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
+import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.FallbackAgent;
+import com.lingxi.workbench.workflow.model.MemoryConfig;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
 import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
@@ -43,6 +48,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
 
 class IntentRoutingPreviewServiceTest {
 
@@ -192,11 +198,17 @@ class IntentRoutingPreviewServiceTest {
         ApplicationCapabilityDefinition workflow = capability(
                 "refund-workflow", ApplicationCapabilityType.WORKFLOW, 3L, 4L);
         ApplicationDefinition definition = ApplicationDefinition.builder()
-                .schemaVersion(12)
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .collaboration(new AgentCollaborationDefinition(
+                        new ApplicationAgentReference(1L, 2L, "默认助手", "负责收口"),
+                        List.of(), List.of(), List.of()))
+                .memoryConf(MemoryConfig.disabled())
+                .contextPolicy(ApplicationContextPolicy.defaults())
                 .fallback(new FallbackAgent("fallback-agent"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder()
                         .capabilities(List.of(fallback, workflow))
                         .build())
+                .runtimePolicy(ApplicationRuntimePolicy.defaults())
                 .intentRouting(ApplicationIntentBinding.builder()
                         .enabled(true)
                         .intentTreeId(30L)

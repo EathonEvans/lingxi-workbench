@@ -14,7 +14,6 @@ import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionContext;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolRuntimeConfig;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.tool.ToolCallback;
 
 import java.time.Duration;
@@ -45,17 +44,16 @@ class ExecutionStateTest {
     }
 
     @Test
-    void shouldOnlyApproveTwoCallsForSameToolPerExecution() {
+    void shouldBoundSameToolCallsPerExecution() {
         ExecutionState state = state(new RecordingSink(), 4, 4, 100, 120);
 
-        ExecutionState.ToolCallSelection first = state.selectToolCalls(List.of(toolCall("call-1")));
-        ExecutionState.ToolCallSelection second = state.selectToolCalls(List.of(
-                toolCall("call-2"), toolCall("call-3")));
+        AgentToolDefinition definition = state.requireToolDefinition("test_tool");
+        state.beforeModelCall();
+        state.beforeToolCall(definition);
+        state.beforeToolCall(definition);
 
-        assertEquals(1, first.approvedCalls().size());
-        assertEquals(1, second.approvedCalls().size());
         assertEquals(2, state.toolCalls());
-        assertTrue(second.limited());
+        assertThrows(AgentRuntimeLimitException.class, () -> state.beforeToolCall(definition));
         assertTrue(state.shouldFinalize());
     }
 
@@ -63,49 +61,47 @@ class ExecutionStateTest {
     void shouldRejectUnknownToolWithoutExecutingIt() {
         ExecutionState state = state(new RecordingSink(), 4, 4, 100, 120);
 
-        ExecutionState.ToolCallSelection selection = state.selectToolCalls(List.of(
-                new AssistantMessage.ToolCall("call-1", "function", "unknown_tool", "{}")));
+        AgentToolDefinition unknown = AgentToolDefinition.builder()
+                .code("unknown_tool")
+                .displayName("未知工具")
+                .description("未授权工具")
+                .build();
 
-        assertTrue(selection.approvedCalls().isEmpty());
-        assertTrue(selection.limited());
+        assertThrows(IllegalArgumentException.class, () -> state.beforeToolCall(unknown));
         assertEquals(0, state.toolCalls());
     }
 
     @Test
-    void shouldRejectWorkingModelCallThatConsumesFinalReservation() {
+    void shouldAllowAgentScopeToolLoopToUseTheWholeModelBudget() {
         ExecutionState state = state(new RecordingSink(), 2, 2, 100, 120);
         int first = state.beforeModelCall();
         state.completeModelCall(first, TokenUsage.empty(), false);
 
+        assertEquals(2, state.beforeModelCall());
         assertThrows(AgentRuntimeLimitException.class, state::beforeModelCall);
-        assertEquals(2, state.beforeFinalModelCall());
     }
 
     @Test
-    void shouldRestoreActivatedSkillWithPersistedReasonWithoutRerouting() {
+    void shouldPublishSkillActivationWithoutSavingASecondRuntimeState() {
         AgentSkillBindingSnapshot binding = skillBinding(SkillActivationMode.MODEL_ROUTED);
-        ExecutionState original = state(new RecordingSink(), 4, 4, 100, 120);
-        original.activateSkill(new SkillActivation(binding, SkillActivationReason.MODEL_ROUTED));
-        com.lingxi.workbench.agentruntime.checkpoint.ExecutionStateSnapshot snapshot = original.snapshot();
-        ExecutionState restored = state(new RecordingSink(), 4, 4, 100, 120);
+        RecordingSink sink = new RecordingSink();
+        ExecutionState state = state(sink, 4, 4, 100, 120);
 
-        restored.restore(snapshot, new SkillRuntimeCatalog(List.of(binding), List.of()));
+        state.recordSkillActivation(binding, SkillActivationReason.MODEL_ROUTED);
 
-        assertTrue(restored.skillInstructions().contains("fact_check-instructions"));
-        assertEquals(SkillActivationReason.MODEL_ROUTED, snapshot.getSkills().getFirst().reason());
+        assertEquals(ExecutionEventType.SKILL_ACTIVATED, sink.events.getFirst().getType());
+        assertEquals(SkillActivationReason.MODEL_ROUTED,
+                ((com.lingxi.workbench.agentruntime.event.ExecutionEventPayload.Skill) sink.events.getFirst()
+                        .getPayload()).getReason());
+        assertTrue(state.checkpointToolCallCounts().isEmpty());
     }
 
     @Test
-    void shouldRejectCheckpointReasonThatDoesNotMatchFrozenActivationMode() {
+    void shouldRejectSkillAuditReasonThatDoesNotMatchFrozenActivationMode() {
         AgentSkillBindingSnapshot binding = skillBinding(SkillActivationMode.EXPLICIT_ONLY);
-        ExecutionState original = state(new RecordingSink(), 4, 4, 100, 120);
-        original.activateSkill(new SkillActivation(binding, SkillActivationReason.EXPLICIT));
-        com.lingxi.workbench.agentruntime.checkpoint.ExecutionStateSnapshot snapshot = original.snapshot();
-        snapshot.setSkills(List.of(new com.lingxi.workbench.agentruntime.checkpoint.ExecutionStateSnapshot.SkillState(
-                binding.getSkillVersionId(), binding.getChecksum(), SkillActivationReason.MODEL_ROUTED)));
 
         assertThrows(IllegalArgumentException.class, () -> state(new RecordingSink(), 4, 4, 100, 120)
-                .restore(snapshot, new SkillRuntimeCatalog(List.of(binding), List.of("fact_check"))));
+                .recordSkillActivation(binding, SkillActivationReason.MODEL_ROUTED));
     }
 
     private static ExecutionState state(RecordingSink sink, int maxModelCalls, int maxToolCalls,
@@ -135,10 +131,6 @@ class ExecutionStateTest {
                 .toolRuntimeConfig(config)
                 .authorizedToolCodes(List.of("test_tool"))
                 .build();
-    }
-
-    private static AssistantMessage.ToolCall toolCall(String id) {
-        return new AssistantMessage.ToolCall(id, "function", "test_tool", "{}");
     }
 
     private static AgentTool tool() {

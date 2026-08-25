@@ -87,6 +87,7 @@ public class ToolServiceImpl implements ToolService {
                 .sourceType(entity.getSourceType())
                 .mcpServerId(entity.getMcpServerId())
                 .remoteToolName(entity.getRemoteToolName())
+                .reconciliationQueryToolName(entity.getReconciliationQueryToolName())
                 .parameterSchema(entity.getParameterSchema())
                 .riskLevel(entity.getRiskLevel())
                 .approvalRequired(entity.getApprovalRequired())
@@ -173,6 +174,7 @@ public class ToolServiceImpl implements ToolService {
         }
         applySecurityPolicy(entity, request.getRiskLevel(), request.getApprovalRequired(),
                 request.getApprovalTtlSeconds(), request.getResourceScope());
+        applyReconciliationPolicy(entity, request.getReconciliationQueryToolName());
         entity.setUpdatedBy(operatorId);
         toolRepo.save(entity);
         auditService.record("TOOL", "DEFINITION", id, operatorId, "TOOL_UPDATE", "Tool=" + entity.getCode());
@@ -209,5 +211,19 @@ public class ToolServiceImpl implements ToolService {
         entity.setApprovalRequired(approvalRequired);
         entity.setApprovalTtlSeconds(approvalTtlSeconds);
         entity.setResourceScope(resourceScope.trim());
+    }
+
+    private static void applyReconciliationPolicy(ToolEntity entity, String reconciliationQueryToolName) {
+        if (reconciliationQueryToolName == null || reconciliationQueryToolName.isBlank()) {
+            entity.setReconciliationQueryToolName(null);
+            return;
+        }
+        if (entity.getSourceType() != ToolSourceType.MCP) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "只有MCP Tool可以配置外部结果查询");
+        }
+        if (!Boolean.TRUE.equals(entity.getApprovalRequired())) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "配置外部结果查询的Tool必须启用人工批准");
+        }
+        entity.setReconciliationQueryToolName(reconciliationQueryToolName.trim());
     }
 }

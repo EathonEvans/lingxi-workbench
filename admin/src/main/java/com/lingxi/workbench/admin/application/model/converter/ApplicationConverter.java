@@ -110,6 +110,7 @@ public class ApplicationConverter {
         return Objects.nonNull(version)
                 && Objects.equals(version.getSchemaVersion(), APPLICATION_SCHEMA_VERSION)
                 && Objects.nonNull(version.getDefinitionSnapshot())
-                && version.getDefinitionSnapshot().schemaVersion() == APPLICATION_SCHEMA_VERSION;
+                && version.getDefinitionSnapshot().schemaVersion() == APPLICATION_SCHEMA_VERSION
+                && version.getDefinitionSnapshot().hasCompletePublishedDefinition();
     }
 }

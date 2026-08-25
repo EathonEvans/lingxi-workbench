@@ -3,6 +3,7 @@ package com.lingxi.workbench.application.runtime.service.routing;
 import com.lingxi.workbench.application.runtime.common.enums.IntentDecisionReason;
 import com.lingxi.workbench.application.runtime.common.enums.IntentSemanticAction;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.model.IntentCandidate;
 import com.lingxi.workbench.application.runtime.model.IntentCandidateSlot;
@@ -26,12 +27,16 @@ import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
+import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
+import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
 import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.workflow.model.FallbackAgent;
+import com.lingxi.workbench.workflow.model.MemoryConfig;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
 import com.lingxi.workbench.workflow.model.intent.IntentDecisionFailureAction;
@@ -281,19 +286,19 @@ class IntentSemanticDecisionServiceTest {
                 .runtimeVariables(conversation.getRuntimeVariables())
                 .turn(conversation.getTurn())
                 .conversationContext(conversation)
-                .runtimePolicy(policy)
+                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(policy))
                 .build();
 
         IntentSemanticDecisionResult result = service.decideForWorkflow(
                 conversation, version(1, IntentDecisionFailureAction.DEFER),
-                List.of(candidate("refund", "申请退款", List.of())), executionContext);
+                List.of(candidate("refund", "申请退款", List.of())), executionContext.getExecutionBudget());
 
         assertThat(result.getDecision().getAction()).isEqualTo(IntentSemanticAction.SELECT);
-        assertThat(executionContext.usedModelCalls()).isEqualTo(1);
-        assertThat(executionContext.remainingModelCalls()).isEqualTo(1);
-        assertThat(executionContext.tokenUsage().inputTokens()).isEqualTo(8);
-        assertThat(executionContext.tokenUsage().outputTokens()).isEqualTo(3);
-        assertThat(executionContext.tokenUsage().totalTokens()).isEqualTo(11);
+        assertThat(executionContext.getExecutionBudget().usedModelCalls()).isEqualTo(1);
+        assertThat(executionContext.getExecutionBudget().remainingModelCalls()).isEqualTo(1);
+        assertThat(executionContext.getExecutionBudget().tokenUsage().inputTokens()).isEqualTo(8);
+        assertThat(executionContext.getExecutionBudget().tokenUsage().outputTokens()).isEqualTo(3);
+        assertThat(executionContext.getExecutionBudget().tokenUsage().totalTokens()).isEqualTo(11);
     }
 
     @Test
@@ -313,20 +318,20 @@ class IntentSemanticDecisionServiceTest {
                 .runtimeVariables(conversation.getRuntimeVariables())
                 .turn(conversation.getTurn())
                 .conversationContext(conversation)
-                .runtimePolicy(policy)
+                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(policy))
                 .build();
-        executionContext.recordUsage(new TokenUsage(80, 10, 90));
+        executionContext.getExecutionBudget().recordUsage(new TokenUsage(80, 10, 90));
 
         IntentSemanticDecisionResult result = service.decideForWorkflow(
                 conversation, version(1, IntentDecisionFailureAction.DEFER),
-                List.of(candidate("refund", "申请退款", List.of())), executionContext);
+                List.of(candidate("refund", "申请退款", List.of())), executionContext.getExecutionBudget());
 
         assertThat(result.getDecision().getAction()).isEqualTo(IntentSemanticAction.SELECT);
         ArgumentCaptor<ChatModelRuntimeConfig> configCaptor = ArgumentCaptor.forClass(ChatModelRuntimeConfig.class);
         verify(chatModelFactory).create(configCaptor.capture());
         assertThat(configCaptor.getValue().getMaxTokens()).isEqualTo(10);
-        assertThat(executionContext.remainingModelCalls()).isEqualTo(1);
-        assertThat(executionContext.tokenUsage().totalTokens()).isEqualTo(98);
+        assertThat(executionContext.getExecutionBudget().remainingModelCalls()).isEqualTo(1);
+        assertThat(executionContext.getExecutionBudget().tokenUsage().totalTokens()).isEqualTo(98);
     }
 
     private static String select(String code) {
@@ -423,10 +428,16 @@ class IntentSemanticDecisionServiceTest {
                 .build();
         ApplicationDefinition definition = ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .collaboration(new AgentCollaborationDefinition(
+                        new ApplicationAgentReference(1L, 11L, "主Agent", "负责收口"),
+                        List.of(), List.of(), List.of()))
+                .memoryConf(MemoryConfig.disabled())
+                .contextPolicy(ApplicationContextPolicy.defaults())
                 .fallback(new FallbackAgent("fallback"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder()
                         .capabilities(List.of(fallback, refund))
                         .build())
+                .runtimePolicy(ApplicationRuntimePolicy.defaults())
                 .intentRouting(ApplicationIntentBinding.builder()
                         .enabled(true)
                         .intentTreeId(4L)

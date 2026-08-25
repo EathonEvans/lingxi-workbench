@@ -33,6 +33,9 @@ public class RuntimeToolEntity {
 
     private String remoteToolName;
 
+    /** MCP 对账查询 Tool 名称；为空表示该 Tool 不支持自动查询外部效果。 */
+    private String reconciliationQueryToolName;
+
     @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private JSONObject parameterSchema;
 

@@ -9,11 +9,14 @@ import com.lingxi.workbench.chat.ops.model.vo.ConversationOpsOverviewVO;
 import com.lingxi.workbench.chat.ops.model.vo.ConversationReconcileVO;
 import com.lingxi.workbench.chat.repo.ConversationMessageRepo;
 import com.lingxi.workbench.chat.service.ChatStreamService;
+import com.lingxi.workbench.application.runtime.service.execution.RedisLockExecutor;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -30,8 +33,9 @@ class ConversationOpsServiceTest {
     private final ConversationMqInspector mqInspector = mock(ConversationMqInspector.class);
     private final ConversationOpsMetrics metrics = mock(ConversationOpsMetrics.class);
     private final ConversationOpsProperties properties = new ConversationOpsProperties();
+    private final RedisLockExecutor redisLockExecutor = passThroughLockExecutor();
     private final ConversationOpsService service = new ConversationOpsService(
-            messageRepo, chatStreamService, eventPublisher, mqInspector, metrics, properties);
+            messageRepo, chatStreamService, eventPublisher, mqInspector, metrics, properties, redisLockExecutor);
 
     @Test
     void shouldExposeDatabaseBacklogWhenMqIsUnavailable() {
@@ -71,5 +75,12 @@ class ConversationOpsServiceTest {
                 "conversation-completed:12", 10L, 12L, 30L));
         verify(metrics).recordStaleRepaired(2);
         verify(metrics).recordMemoryRepublished(1);
+    }
+
+    private static RedisLockExecutor passThroughLockExecutor() {
+        RedisLockExecutor executor = mock(RedisLockExecutor.class);
+        when(executor.tryExecute(any(String.class), any(), any(), any())).thenAnswer(invocation ->
+                Optional.of(((Supplier<?>) invocation.getArgument(3)).get()));
+        return executor;
     }
 }

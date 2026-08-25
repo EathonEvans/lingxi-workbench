@@ -57,7 +57,7 @@ public class WorkflowIntentClassifierNodeInvoker {
                 .forkForQuery(invocation.getQuery());
         try {
             IntentSemanticDecisionResult decisionResult = semanticDecisionService.decideForWorkflow(
-                    scopedContext, version, candidateSet.candidates(), executionContext);
+                    scopedContext, version, candidateSet.candidates(), executionContext.getExecutionBudget());
             return toWorkflowResult(candidateSet.candidates(), decisionResult);
         } catch (IntentSemanticDecisionException exception) {
             IntentClassifierNodeResult result = toWorkflowResult(

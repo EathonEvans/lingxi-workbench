@@ -45,6 +45,15 @@ public class InteractionSessionRepo {
         return Optional.ofNullable(mapper.selectById(id));
     }
 
+    /** 只查询仍在等待人工决策的检查点关联会话，避免覆盖已提交的审批结果。 */
+    public Optional<InteractionSessionEntity> findPendingByCheckpointId(Long checkpointId) {
+        return Optional.ofNullable(mapper.selectOne(Wrappers.<InteractionSessionEntity>lambdaQuery()
+                .eq(InteractionSessionEntity::getCheckpointId, checkpointId)
+                .eq(InteractionSessionEntity::getInteractionType, InteractionSessionType.ACTION_APPROVAL)
+                .eq(InteractionSessionEntity::getStatus, InteractionSessionStatus.PENDING)
+                .last("LIMIT 1")));
+    }
+
     public Optional<InteractionSessionEntity> findAnyPending(Long conversationId, Long userId,
                                                              Long applicationVersionId) {
         return Optional.ofNullable(mapper.selectOne(Wrappers.<InteractionSessionEntity>lambdaQuery()
@@ -127,6 +136,17 @@ public class InteractionSessionRepo {
     public boolean expire(Long id, int revision) {
         InteractionSessionEntity update = new InteractionSessionEntity();
         update.setStatus(InteractionSessionStatus.EXPIRED);
+        update.setRevision(revision + 1);
+        return mapper.update(update, Wrappers.<InteractionSessionEntity>lambdaUpdate()
+                .eq(InteractionSessionEntity::getId, id)
+                .eq(InteractionSessionEntity::getStatus, InteractionSessionStatus.PENDING)
+                .eq(InteractionSessionEntity::getRevision, revision)) == 1;
+    }
+
+    /** 检查点协议升级时终止待处理审批，不伪造用户的拒绝或取消决策。 */
+    public boolean failForCheckpointProtocol(Long id, int revision) {
+        InteractionSessionEntity update = new InteractionSessionEntity();
+        update.setStatus(InteractionSessionStatus.FAILED);
         update.setRevision(revision + 1);
         return mapper.update(update, Wrappers.<InteractionSessionEntity>lambdaUpdate()
                 .eq(InteractionSessionEntity::getId, id)

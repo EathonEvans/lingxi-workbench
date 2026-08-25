@@ -3,11 +3,10 @@ package com.lingxi.workbench.application.runtime.service.interaction;
 import com.alibaba.fastjson2.JSONObject;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionStatus;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
-import com.lingxi.workbench.agentruntime.planner.PlannerInteractionType;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.InteractionSessionContext;
 import com.lingxi.workbench.application.runtime.model.InteractionSessionOpenCommand;
-import com.lingxi.workbench.agentruntime.planner.PlannerClarification;
+import com.lingxi.workbench.agentruntime.plan.RuntimeClarification;
 import com.lingxi.workbench.application.runtime.model.InteractionResolution;
 import com.lingxi.workbench.application.runtime.model.entity.InteractionSessionEntity;
 import com.lingxi.workbench.application.runtime.repo.InteractionSessionRepo;
@@ -17,10 +16,15 @@ import com.lingxi.workbench.chat.model.request.ClarificationResponseRequest;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
+import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
+import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.FallbackAgent;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
+import com.lingxi.workbench.workflow.model.MemoryConfig;
 import org.junit.jupiter.api.Test;
 
 import java.time.OffsetDateTime;
@@ -92,11 +96,9 @@ class InteractionSessionServiceImplTest {
     }
 
     private static InteractionSessionOpenCommand openCommand(AppRuntimeSnapshot application, ChatTurnBO turn, Long userId) {
-        PlannerClarification clarification = PlannerClarification.builder()
+        RuntimeClarification clarification = RuntimeClarification.builder()
                 .question("确认执行退款操作吗？")
                 .options(List.of("确认执行", "取消"))
-                .interactionType(PlannerInteractionType.CLARIFICATION)
-                .capabilityCodes(List.of())
                 .build();
         return InteractionSessionOpenCommand.builder()
                 .application(application)
@@ -136,8 +138,14 @@ class InteractionSessionServiceImplTest {
                 .build();
         ApplicationDefinition definition = ApplicationDefinition.builder()
                 .schemaVersion(com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION)
+                .collaboration(new AgentCollaborationDefinition(
+                        new ApplicationAgentReference(1L, 2L, "默认助手", "负责收口"),
+                        List.of(), List.of(), List.of()))
+                .memoryConf(MemoryConfig.disabled())
+                .contextPolicy(ApplicationContextPolicy.defaults())
                 .fallback(new FallbackAgent("default_agent"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(fallbackAgent)).build())
+                .runtimePolicy(ApplicationRuntimePolicy.defaults())
                 .build();
         return new AppRuntimeSnapshot(1L, "risk-app", versionId, definition);
     }

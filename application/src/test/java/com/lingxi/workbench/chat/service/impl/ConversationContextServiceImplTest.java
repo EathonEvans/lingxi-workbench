@@ -14,8 +14,10 @@ import com.lingxi.workbench.chat.model.ccontext.RuntimeVariableAccessors;
 import com.lingxi.workbench.chat.service.ConversationMemoryService;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
+import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
+import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
 import com.lingxi.workbench.workflow.model.FallbackAgent;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
@@ -128,9 +130,13 @@ class ConversationContextServiceImplTest {
                 .build();
         ApplicationDefinition definition = ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .collaboration(new AgentCollaborationDefinition(
+                        new ApplicationAgentReference(40L, 41L, "默认助手", "负责收口"),
+                        List.of(), List.of(), List.of()))
                 .fallback(new FallbackAgent("default_agent"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(capability)).build())
                 .memoryConf(memoryConfig)
+                .contextPolicy(ApplicationContextPolicy.defaults())
                 .runtimePolicy(runtimePolicy)
                 .build();
         return new AppRuntimeSnapshot(1L, "support", 2L, definition);

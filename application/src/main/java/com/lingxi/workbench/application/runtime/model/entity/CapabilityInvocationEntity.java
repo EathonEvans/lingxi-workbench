@@ -26,8 +26,11 @@ public class CapabilityInvocationEntity {
     private String approvalFingerprint;
     private CapabilityInvocationStatus status;
     private String idempotencyKey;
+    private String toolConfigurationHash;
     private String resultDigest;
     private String errorCode;
+    private Integer reconciliationAttempts;
+    private OffsetDateTime nextReconcileAt;
     private OffsetDateTime startedAt;
     private OffsetDateTime finishedAt;
     private OffsetDateTime createdAt;

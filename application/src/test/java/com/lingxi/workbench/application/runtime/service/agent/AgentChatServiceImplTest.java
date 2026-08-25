@@ -1,14 +1,15 @@
 package com.lingxi.workbench.application.runtime.service.agent;
 
 import com.lingxi.workbench.agentruntime.AgentRuntime;
-import com.lingxi.workbench.agentruntime.SkillRouter;
-import com.lingxi.workbench.agentruntime.gateway.SpringAiStreamingChatGateway;
-import com.lingxi.workbench.agentruntime.hook.SkillHook;
+import com.lingxi.workbench.agentruntime.gateway.AgentScopeSpecialistStreamingGateway;
 import com.lingxi.workbench.agentruntime.model.ExecutionState;
+import com.lingxi.workbench.agentruntime.model.ExecutionStatus;
 import com.lingxi.workbench.agentruntime.model.SkillRuntimeCatalog;
+import com.lingxi.workbench.agentruntime.skill.AgentScopePublishedSkillCatalog;
 import com.lingxi.workbench.application.runtime.service.app.RuntimeVariablesInitializer;
 
 import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
@@ -27,7 +28,6 @@ import com.lingxi.workbench.chat.service.impl.ModelRequestFactory;
 import com.lingxi.workbench.chat.service.impl.PromptTemplateRenderer;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.framework.context.LoginUser;
-import com.lingxi.workbench.infra.ai.chat.StreamingChatGateway;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
@@ -44,6 +44,7 @@ import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.ContextBudgetPolicy;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
+import io.agentscope.core.agent.RuntimeContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
@@ -53,6 +54,7 @@ import reactor.core.publisher.Flux;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -71,11 +73,13 @@ class AgentChatServiceImplTest {
         AgentRuntimeDefinition definition = definition();
         ChatExecutionContext execution = ChatExecutionContext.builder()
                 .executionId("run-1")
+                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.defaults()))
                 .runtimeVariables(runtimeVariables())
                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
                 .contextBudget(ContextBudgetPolicy.builder().reservedOutputTokens(2048).build())
                 .build();
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
+        AtomicReference<RuntimeContext> capturedRuntimeContext = new AtomicReference<>();
 
         AgentChatServiceImpl service = service(
                 definition,
@@ -87,7 +91,7 @@ class AgentChatServiceImplTest {
                             new ChatStreamChunk("回答"),
                             new ChatStreamChunk("", TokenUsage.of(12, 4, 16)));
                 },
-                toolCodes -> List.of());
+                toolCodes -> List.of(), capturedRuntimeContext);
 
         String answer = service.chat(10L, 20L, "如何退款", execution).content();
 
@@ -100,8 +104,12 @@ class AgentChatServiceImplTest {
                 captured.get().modelConfig().getExtensionParameters()
                         .getJSONObject("thinking")
                         .getString("type"));
-        assertEquals(16, execution.tokenUsage().totalTokens());
+        assertEquals(16, execution.getExecutionBudget().tokenUsage().totalTokens());
         assertFalse(captured.get().history().isEmpty());
+        assertEquals("7", capturedRuntimeContext.get().getUserId());
+        assertEquals("run-1", capturedRuntimeContext.get().getSessionId());
+        assertEquals(captured.get().history().size() + 1,
+                capturedRuntimeContext.get().getAgentState().getContext().size());
     }
 
     @Test
@@ -122,6 +130,7 @@ class AgentChatServiceImplTest {
                         "如何退款",
                         ChatExecutionContext.builder()
                                 .executionId("run-invalid")
+                                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.defaults()))
                                 .runtimeVariables(runtimeVariables())
                                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
                                 .build()));
@@ -133,6 +142,7 @@ class AgentChatServiceImplTest {
     void shouldRejectNodeQueryThatDoesNotMatchEntryQuery() {
         ChatExecutionContext execution = ChatExecutionContext.builder()
                 .executionId("run-query-mismatch")
+                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.defaults()))
                 .runtimeVariables(runtimeVariables())
                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
                 .build();
@@ -172,12 +182,12 @@ class AgentChatServiceImplTest {
                 .executionId("run-invalid-tool-limit")
                 .runtimeVariables(runtimeVariables())
                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
-                .runtimePolicy(ApplicationRuntimePolicy.builder()
+                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.builder()
                         .maxModelCalls(3)
                         .maxToolCalls(0)
                         .maxDelegations(0)
                         .totalTokenBudget(8000)
-                        .build())
+                        .build()))
                 .build();
 
         String answer = service.chat(10L, 20L, "如何退款", execution).content();
@@ -188,7 +198,7 @@ class AgentChatServiceImplTest {
     }
 
     @Test
-    void shouldLeaveToolPolicyInjectionToAgentRuntimeAdvisor() {
+    void shouldLeaveToolPolicyInjectionToAgentScopeRuntime() {
         AgentRuntimeDefinition definition = definition();
         definition.setToolCodes(List.of("system_current_time"));
         definition.setToolPolicy(new AgentRuntimeDefinition.ToolPolicy(1000));
@@ -203,6 +213,7 @@ class AgentChatServiceImplTest {
                 toolCodes -> List.of(new StubAgentTool()));
         ChatExecutionContext execution = ChatExecutionContext.builder()
                 .executionId("run-with-tool")
+                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.defaults()))
                 .runtimeVariables(runtimeVariables("现在是几点"))
                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
                 .build();
@@ -221,7 +232,7 @@ class AgentChatServiceImplTest {
         definition.setToolPolicy(new AgentRuntimeDefinition.ToolPolicy(1000));
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
         AtomicReference<ExecutionState> capturedState = new AtomicReference<>();
-        StreamingChatGateway gateway = command -> {
+        Function<ChatStreamCommand, Flux<ChatStreamChunk>> gateway = command -> {
             captured.set(command);
             return Flux.just(new ChatStreamChunk("已有答案"));
         };
@@ -234,7 +245,8 @@ class AgentChatServiceImplTest {
                 modelService(),
                 toolCodes -> List.of(new StubAgentTool()),
                 mock(KnowledgeSearchAgentToolFactory.class),
-                mock(com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpointStore.class),
+                mock(com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpointStore.class),
+                mock(io.agentscope.core.state.AgentStateStore.class),
                 emptySkillRuntimeService(),
                 persistenceService,
                 new ApplicationRuntimeEventSinkFactory(persistenceService));
@@ -242,12 +254,12 @@ class AgentChatServiceImplTest {
                 .executionId("run-independent-budgets")
                 .runtimeVariables(runtimeVariables())
                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
-                .runtimePolicy(ApplicationRuntimePolicy.builder()
+                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.builder()
                         .maxModelCalls(2)
                         .maxToolCalls(3)
                         .maxDelegations(0)
                         .totalTokenBudget(8000)
-                        .build())
+                        .build()))
                 .build();
 
         service.chat(10L, 20L, "如何退款", execution);
@@ -272,12 +284,12 @@ class AgentChatServiceImplTest {
                 .executionId("run-timeout")
                 .runtimeVariables(runtimeVariables())
                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
-                .runtimePolicy(ApplicationRuntimePolicy.builder()
+                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.builder()
                         .maxModelCalls(2)
                         .maxToolCalls(0)
                         .maxDelegations(0)
                         .totalTokenBudget(8000)
-                        .build())
+                        .build()))
                 .build();
 
         service.chat(10L, 20L, "如何退款", execution);
@@ -296,12 +308,12 @@ class AgentChatServiceImplTest {
                 .executionId("run-zero-timeout-grace")
                 .runtimeVariables(runtimeVariables())
                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
-                .runtimePolicy(ApplicationRuntimePolicy.builder()
+                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.builder()
                         .maxModelCalls(2)
                         .maxToolCalls(0)
                         .maxDelegations(0)
                         .totalTokenBudget(8000)
-                        .build())
+                        .build()))
                 .build();
 
         assertEquals("无宽限回答", service.chat(10L, 20L, "如何退款", execution).content());
@@ -326,13 +338,15 @@ class AgentChatServiceImplTest {
                 modelService(),
                 toolCodes -> List.of(),
                 toolFactory,
-                mock(com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpointStore.class),
+                mock(com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpointStore.class),
+                mock(io.agentscope.core.state.AgentStateStore.class),
                 emptySkillRuntimeService(),
                 persistenceService,
                 new ApplicationRuntimeEventSinkFactory(persistenceService));
         RuntimeVariables variables = runtimeVariables("退款条件");
         ChatExecutionContext execution = ChatExecutionContext.builder()
                 .executionId("run-react-knowledge")
+                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.defaults()))
                 .runtimeVariables(variables)
                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
                 .build();
@@ -345,7 +359,7 @@ class AgentChatServiceImplTest {
     }
 
     @Test
-    void shouldInjectActivatedSkillAndRecordRuntimeFact() {
+    void shouldPassPublishedSkillCatalogToAgentScopeRuntime() {
         AgentRuntimeDefinition definition = definition();
         SkillVersionSnapshot skill = SkillVersionSnapshot.builder()
                 .schemaVersion(1)
@@ -371,24 +385,27 @@ class AgentChatServiceImplTest {
         ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
         AtomicReference<ExecutionState> capturedState = new AtomicReference<>();
-        StreamingChatGateway streamingChatGateway = command -> {
+        AtomicReference<AgentScopePublishedSkillCatalog> capturedSkillCatalog = new AtomicReference<>();
+        Function<ChatStreamCommand, Flux<ChatStreamChunk>> streamingChatGateway = command -> {
             captured.set(command);
             return Flux.just(new ChatStreamChunk("已核验"));
         };
         AgentChatServiceImpl service = new AgentChatServiceImpl(
                 (agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition),
-                runtime(streamingChatGateway, capturedState),
+                runtime(streamingChatGateway, capturedState, null, capturedSkillCatalog),
                 AgentChatServiceImplTest::promptSnapshotByVersion,
                 modelRequestFactory(),
                 modelService(),
                 toolCodes -> List.of(),
                 mock(KnowledgeSearchAgentToolFactory.class),
-                mock(com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpointStore.class),
+                mock(com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpointStore.class),
+                mock(io.agentscope.core.state.AgentStateStore.class),
                 skillRuntimeService,
                 persistenceService,
                 new ApplicationRuntimeEventSinkFactory(persistenceService));
         ChatExecutionContext execution = ChatExecutionContext.builder()
                 .executionId("run-skill")
+                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.defaults()))
                 .runtimeVariables(runtimeVariables())
                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
                 .contextBudget(ContextBudgetPolicy.defaults())
@@ -396,57 +413,86 @@ class AgentChatServiceImplTest {
 
         assertEquals("已核验", service.chat(10L, 20L, "如何退款", execution).content());
         assertFalse(captured.get().systemPrompt().contains("已激活Skill"));
-        assertTrue(capturedState.get().skillInstructions().contains("事实核验 (fact_check@V1)"));
-        assertTrue(capturedState.get().skillInstructions().contains("回答前核验关键事实。"));
-        verify(persistenceService).appendSkillActivationEvent(
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        assertEquals(ExecutionStatus.SUCCEEDED, capturedState.get().getStatus());
+        assertEquals("回答前核验关键事实。", capturedSkillCatalog.get().repository()
+                .getSkill("fact_check").getMetadataValue("instructions"));
     }
 
-    private static AgentChatServiceImpl service(AgentRuntimeDefinition definition, PromptRuntimeService promptRuntimeService, StreamingChatGateway streamingChatGateway, ToolRuntimeService toolRuntimeService) {
+    private static AgentChatServiceImpl service(AgentRuntimeDefinition definition, PromptRuntimeService promptRuntimeService,
+                                                Function<ChatStreamCommand, Flux<ChatStreamChunk>> streamingChatGateway,
+                                                ToolRuntimeService toolRuntimeService) {
+        return service(definition, promptRuntimeService, streamingChatGateway, toolRuntimeService, null);
+    }
+
+    private static AgentChatServiceImpl service(AgentRuntimeDefinition definition, PromptRuntimeService promptRuntimeService,
+                                                Function<ChatStreamCommand, Flux<ChatStreamChunk>> streamingChatGateway,
+                                                ToolRuntimeService toolRuntimeService,
+                                                AtomicReference<RuntimeContext> capturedRuntimeContext) {
         ModelRuntimeConfigService modelRuntimeConfigService = modelService();
         ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
         return new AgentChatServiceImpl(
                 (agentId, versionId) -> new AgentRuntimeSnapshot(agentId, versionId, definition),
-                runtime(streamingChatGateway),
+                runtime(streamingChatGateway, null, capturedRuntimeContext),
                 promptRuntimeService,
                 modelRequestFactory(),
                 modelRuntimeConfigService,
                 toolRuntimeService,
                 mock(KnowledgeSearchAgentToolFactory.class),
-                mock(com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpointStore.class),
+                mock(com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpointStore.class),
+                mock(io.agentscope.core.state.AgentStateStore.class),
                 emptySkillRuntimeService(),
                 persistenceService,
                 new ApplicationRuntimeEventSinkFactory(persistenceService));
     }
 
-    /** 让 Application 单元测试经过真实 AgentRuntime，同时以既有 Gateway stub 提供模型分片。 */
-    private static AgentRuntime runtime(StreamingChatGateway streamingChatGateway) {
-        return runtime(streamingChatGateway, null);
+    /** 让 Application 单元测试经过真实 AgentRuntime，同时以 AgentScope Gateway stub 提供模型分片。 */
+    private static AgentRuntime runtime(Function<ChatStreamCommand, Flux<ChatStreamChunk>> streamingChatGateway) {
+        return runtime(streamingChatGateway, null, null);
     }
 
-    private static AgentRuntime runtime(StreamingChatGateway streamingChatGateway,
+    private static AgentRuntime runtime(Function<ChatStreamCommand, Flux<ChatStreamChunk>> streamingChatGateway,
                                         AtomicReference<ExecutionState> capturedState) {
-        SpringAiStreamingChatGateway runtimeGateway = mock(SpringAiStreamingChatGateway.class);
-        when(runtimeGateway.stream(any(ChatStreamCommand.class), any(ExecutionState.class)))
-                .thenAnswer(invocation -> Flux.defer(() -> {
-                    ChatStreamCommand command = invocation.getArgument(0);
-                    ExecutionState state = invocation.getArgument(1);
-                    if (capturedState != null) {
-                        capturedState.set(state);
-                    }
-                    int callNo = state.beforeModelCall();
-                    AtomicReference<TokenUsage> usage = new AtomicReference<>(TokenUsage.empty());
-                    return streamingChatGateway.stream(command)
-                            .doOnNext(chunk -> {
-                                if (chunk.hasUsage()) {
-                                    usage.set(chunk.usage());
-                                }
-                            })
-                            .doOnComplete(() -> state.completeModelCall(callNo, usage.get(), false));
-                }));
-        SkillRouter skillRouter = mock(SkillRouter.class);
-        when(skillRouter.route(any(), any(), any())).thenReturn(List.of());
-        return new AgentRuntime(runtimeGateway, new SkillHook(skillRouter));
+        return runtime(streamingChatGateway, capturedState, null);
+    }
+
+    private static AgentRuntime runtime(Function<ChatStreamCommand, Flux<ChatStreamChunk>> streamingChatGateway,
+                                        AtomicReference<ExecutionState> capturedState,
+                                        AtomicReference<RuntimeContext> capturedRuntimeContext) {
+        return runtime(streamingChatGateway, capturedState, capturedRuntimeContext, null);
+    }
+
+    private static AgentRuntime runtime(Function<ChatStreamCommand, Flux<ChatStreamChunk>> streamingChatGateway,
+                                        AtomicReference<ExecutionState> capturedState,
+                                        AtomicReference<RuntimeContext> capturedRuntimeContext,
+                                        AtomicReference<AgentScopePublishedSkillCatalog> capturedSkillCatalog) {
+        AgentScopeSpecialistStreamingGateway agentScopeGateway = mock(AgentScopeSpecialistStreamingGateway.class);
+        org.mockito.stubbing.Answer<Flux<ChatStreamChunk>> answer = invocation -> Flux.defer(() -> {
+            ChatStreamCommand command = invocation.getArgument(0);
+            ExecutionState state = invocation.getArgument(1);
+            RuntimeContext runtimeContext = invocation.getArgument(2);
+            AgentScopePublishedSkillCatalog skillCatalog = invocation.getArgument(3);
+            if (capturedState != null) {
+                capturedState.set(state);
+            }
+            if (capturedRuntimeContext != null) {
+                capturedRuntimeContext.set(runtimeContext);
+            }
+            if (capturedSkillCatalog != null) {
+                capturedSkillCatalog.set(skillCatalog);
+            }
+            int callNo = state.beforeModelCall();
+            AtomicReference<TokenUsage> usage = new AtomicReference<>(TokenUsage.empty());
+            return streamingChatGateway.apply(command)
+                    .doOnNext(chunk -> {
+                        if (chunk.hasUsage()) {
+                            usage.set(chunk.usage());
+                        }
+                    })
+                    .doOnComplete(() -> state.completeModelCall(callNo, usage.get(), false));
+        });
+        when(agentScopeGateway.stream(any(ChatStreamCommand.class), any(ExecutionState.class), any(), any()))
+                .thenAnswer(answer);
+        return new AgentRuntime(agentScopeGateway);
     }
 
     private static SkillRuntimeService emptySkillRuntimeService() {

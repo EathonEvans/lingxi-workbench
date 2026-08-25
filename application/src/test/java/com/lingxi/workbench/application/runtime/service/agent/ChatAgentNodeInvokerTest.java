@@ -2,11 +2,13 @@ package com.lingxi.workbench.application.runtime.service.agent;
 
 import com.lingxi.workbench.application.runtime.service.app.RuntimeVariablesInitializer;
 
+import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.model.AgentNodeInvocation;
+import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -25,6 +27,7 @@ class ChatAgentNodeInvokerTest {
     void shouldOnlyAdaptWorkflowInvocationToAgentChatService() {
         ChatExecutionContext context = ChatExecutionContext.builder()
                 .executionId("run-1")
+                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.defaults()))
                 .runtimeVariables(new RuntimeVariablesInitializer("Lingxi Workbench")
                         .initialize(
                                 new LoginUser(

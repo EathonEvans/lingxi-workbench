@@ -5,6 +5,7 @@ import com.lingxi.workbench.auth.config.interceptor.UserAuthenticationIntercepto
 import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.chat.common.enums.ConversationStatus;
 import com.lingxi.workbench.chat.model.request.ConversationPageQuery;
+import com.lingxi.workbench.chat.model.vo.ConversationMessageVO;
 import com.lingxi.workbench.chat.model.vo.ConversationVO;
 import com.lingxi.workbench.chat.service.ConversationService;
 import com.lingxi.workbench.framework.context.LoginUser;
@@ -108,5 +109,19 @@ class ConversationControllerTest {
         assertEquals(10, queryCaptor.getValue().getSize());
         assertEquals("市场", queryCaptor.getValue().getKeyword());
         assertEquals(ConversationStatus.ARCHIVED, queryCaptor.getValue().getStatus());
+    }
+
+    @Test
+    void shouldPassStringConversationIdToMessageService() throws Exception {
+        when(conversationService.messagePage(eq(1L), eq("2077574496283791361"), any()))
+                .thenReturn(new PageResult<ConversationMessageVO>(List.of(), 1, 10, 0));
+
+        mockMvc.perform(get("/api/v1/conversations/message-list")
+                        .param("conversationId", "2077574496283791361")
+                        .param("current", "1")
+                        .param("size", "10"))
+                .andExpect(status().isOk());
+
+        verify(conversationService).messagePage(eq(1L), eq("2077574496283791361"), any());
     }
 }

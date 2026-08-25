@@ -8,9 +8,14 @@ import com.lingxi.workbench.application.runtime.repo.ApplicationRuntimeRepo;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
+import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
+import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.FallbackAgent;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
+import com.lingxi.workbench.workflow.model.MemoryConfig;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -84,11 +89,23 @@ class ApplicationRuntimeServiceImplTest {
     }
 
     @Test
-    void shouldRejectPublishedApplicationWithoutExecutionEntry() {
+    void shouldRejectPublishedApplicationWithoutFallbackAgent() {
         RuntimeApplicationEntity application = application();
-        RuntimeApplicationVersionEntity version = version(ApplicationDefinition.builder()
-                .schemaVersion(APPLICATION_SCHEMA_VERSION)
-                .build());
+        ApplicationDefinition definition = executableDefinition();
+        definition.setFallback(null);
+        RuntimeApplicationVersionEntity version = version(definition);
+        ApplicationRuntimeServiceImpl service = new ApplicationRuntimeServiceImpl(
+                new StubApplicationRuntimeRepo(application, version));
+
+        assertThrows(BusinessException.class, () -> service.loadRuntimeAppConfig("general_assistant"));
+    }
+
+    @Test
+    void shouldRejectIncompletePublishedDefinitionWithoutRuntimeDefaulting() {
+        RuntimeApplicationEntity application = application();
+        ApplicationDefinition definition = executableDefinition();
+        definition.setMemoryConf(null);
+        RuntimeApplicationVersionEntity version = version(definition);
         ApplicationRuntimeServiceImpl service = new ApplicationRuntimeServiceImpl(
                 new StubApplicationRuntimeRepo(application, version));
 
@@ -122,8 +139,14 @@ class ApplicationRuntimeServiceImplTest {
                 .build();
         return ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .collaboration(new AgentCollaborationDefinition(
+                        new ApplicationAgentReference(40L, 41L, "通用助手", "负责默认收口"),
+                        List.of(), List.of(), List.of()))
+                .memoryConf(MemoryConfig.disabled())
+                .contextPolicy(ApplicationContextPolicy.defaults())
                 .fallback(new FallbackAgent("default_agent"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(capability)).build())
+                .runtimePolicy(ApplicationRuntimePolicy.defaults())
                 .build();
     }
 

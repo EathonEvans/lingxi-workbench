@@ -1,9 +1,7 @@
 package com.lingxi.workbench.workflow.service.impl;
 
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
-import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
-import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
-import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
+import com.lingxi.workbench.application.runtime.model.WorkflowRunStartCommand;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.workflow.common.enums.WorkflowNodeRunStatus;
@@ -45,19 +43,17 @@ public class WorkflowRunServiceImpl implements WorkflowRunService {
 
     @Override
     @Transactional
-    public void start(WorkflowRunContext context, ChatExecutionContext executionContext) {
-        ConversationContext conversation = Objects.requireNonNull(executionContext.getConversationContext(), "Workflow缺少共享对话上下文");
-        AppRuntimeSnapshot app = conversation.getApplicationSnapshot();
-        ChatTurnBO turn = executionContext.getTurn();
+    public void start(WorkflowRunContext context, WorkflowRunStartCommand command) {
+        Objects.requireNonNull(command, "Workflow运行启动命令不能为空");
 
         WorkflowRunEntity run = new WorkflowRunEntity();
         run.setRunId(context.getRunId());
         run.setExecutionId(context.getRequest().executionId());
-        run.setAssistantMessageId(turn.assistantMessageId());
-        run.setConversationId(turn.conversationId());
-        run.setUserId(conversation.getLoginUser().id());
-        run.setApplicationId(app.applicationId());
-        run.setApplicationVersionId(app.versionId());
+        run.setAssistantMessageId(command.getAssistantMessageId());
+        run.setConversationId(command.getConversationId());
+        run.setUserId(command.getUserId());
+        run.setApplicationId(command.getApplicationId());
+        run.setApplicationVersionId(command.getApplicationVersionId());
         run.setWorkflowId(context.getRequest().workflowId());
         run.setWorkflowVersionId(context.getRequest().workflowVersionId());
         run.setStatus(WorkflowRunStatus.RUNNING);

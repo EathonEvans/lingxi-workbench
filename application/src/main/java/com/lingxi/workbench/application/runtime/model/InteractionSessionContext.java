@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.model;
 
-import com.lingxi.workbench.agentruntime.planner.PlannerClarification;
+import com.lingxi.workbench.agentruntime.plan.RuntimeClarification;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -16,7 +16,7 @@ import java.util.List;
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class InteractionSessionContext {
 
-    private PlannerClarification clarification;
+    private RuntimeClarification clarification;
     private List<String> capabilityCodes;
     private String originalQuery;
     private String response;

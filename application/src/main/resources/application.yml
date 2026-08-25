@@ -97,6 +97,18 @@ lingxi:
       memory-delay: ${LINGXI_CHAT_MEMORY_RECONCILE_DELAY:2m}
       reconcile-delay: ${LINGXI_CHAT_RECONCILE_DELAY:1m}
       batch-size: ${LINGXI_CHAT_RECONCILE_BATCH_SIZE:100}
+  runtime:
+    reconciliation:
+      enabled: ${LINGXI_RUNTIME_RECONCILIATION_ENABLED:true}
+      delay: ${LINGXI_RUNTIME_RECONCILIATION_DELAY:1m}
+      retry-delay: ${LINGXI_RUNTIME_RECONCILIATION_RETRY_DELAY:1m}
+      claim-lease: ${LINGXI_RUNTIME_RECONCILIATION_CLAIM_LEASE:30s}
+      max-attempts: ${LINGXI_RUNTIME_RECONCILIATION_MAX_ATTEMPTS:3}
+      batch-size: ${LINGXI_RUNTIME_RECONCILIATION_BATCH_SIZE:50}
+  hitl:
+    expiry-scan-delay-ms: ${LINGXI_HITL_EXPIRY_SCAN_DELAY_MS:60000}
+    checkpoint-protocol-initial-delay-ms: ${LINGXI_HITL_CHECKPOINT_PROTOCOL_INITIAL_DELAY_MS:1000}
+    checkpoint-protocol-scan-delay-ms: ${LINGXI_HITL_CHECKPOINT_PROTOCOL_SCAN_DELAY_MS:60000}
   security:
     # 敏感配置（MCP Token、模型 API Key）加密主密钥，必须由部署环境提供，
     # 缺失时服务启动失败；生成方式：openssl rand -base64 32

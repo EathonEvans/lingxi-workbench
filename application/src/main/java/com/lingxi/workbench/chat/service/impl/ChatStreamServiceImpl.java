@@ -31,13 +31,14 @@ import com.lingxi.workbench.chat.repo.ConversationMessageRepo;
 import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.chat.service.ChatStreamService;
 import com.lingxi.workbench.chat.service.ConversationService;
+import com.lingxi.workbench.chat.service.GenerationTaskRegistry;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.auth.model.bo.UserBO;
 import com.lingxi.workbench.auth.repo.UserRepo;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
-import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpoint;
+import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
 import com.lingxi.workbench.agentruntime.checkpoint.RuntimeInterruption;
 import com.lingxi.workbench.observability.common.enums.AiObservationStage;
 import com.lingxi.workbench.observability.service.AiStageObserver;
@@ -53,11 +54,13 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.time.OffsetDateTime;
 
 /**
@@ -78,6 +81,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     private static final String MODEL_ERROR_CODE = "AI_MODEL_ERROR";
     private static final String TASK_START_ERROR_CODE = "GENERATION_START_ERROR";
     private static final String TASK_START_ERROR_MESSAGE = "模型生成任务启动失败";
+    private static final Duration REMOTE_RESUME_POLL_INTERVAL = Duration.ofMillis(500);
     // 运行中对话任务
     private final Map<Long, RunningGenerationTask> runningTasks = new ConcurrentHashMap<>();
 
@@ -95,6 +99,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     private final ExecutionCheckpointRepo checkpointRepo;
     private final UserRepo userRepo;
     private final HitlDecisionTxService hitlDecisionTxService;
+    private final GenerationTaskRegistry generationTaskRegistry;
 
     /**
      * 创建并启动一次流式模型生成任务。
@@ -114,13 +119,12 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         // 读取当前锁定的应用运行时快照
         AppRuntimeSnapshot applicationSnapshot = applicationRuntimeService.loadRuntimeAppConfig(request.getApplicationCode().trim().toLowerCase());
         // 校验输入token上限
-        validateInputBudget(query, applicationSnapshot);
+        this.validateInputBudget(query, applicationSnapshot);
 
         // 观测执行，消息占位，一轮会话（用户 + 模型回复（占位））
         StartConversationTurnBO turnInput = StartConversationTurnBO.builder()
                 .userId(userId)
-                .conversationId(toConversationId(request.getConversationId()))
-                .clientConversationId(request.getClientConversationId())
+                .conversationId(request.getConversationId())
                 .clientMessageId(request.getClientMessageId())
                 .prompt(query)
                 .applicationId(applicationSnapshot.applicationId())
@@ -146,8 +150,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 .traceRun(traceRun)
                 .build();
         try {
-            // 将当前任务加入运行中任务集合
-            runningTasks.put(turn.assistantMessageId(), task);
+            registerTask(task);
 
             // 构建执行参数
             ApplicationChatExecutionRequest executionRequest = ApplicationChatExecutionRequest.builder()
@@ -159,7 +162,9 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                     .explicitSkillCodes(request.getSkillCodes())
                     .eventPublisher(task)
                     .build();
-            this.startGeneration(executionRequest);
+            if (!task.isTerminal()) {
+                this.startGeneration(executionRequest);
+            }
         } catch (RuntimeException exception) {
             // 发生异常，将任务从 runing 移除并将 assistant 占位消息状态变更为失败
             this.taskRunFailState(exception, turn);
@@ -172,10 +177,11 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      * 将任务置于失败状态
      *
      * @param exception 异常
-     * @param turn 单轮对话
+     * @param turn      单轮对话
      */
     private void taskRunFailState(RuntimeException exception, ChatTurnBO turn) {
         runningTasks.remove(turn.assistantMessageId());
+        generationTaskRegistry.unregister(turn.assistantMessageId());
         try {
             // Assistant 占位消息已经落库，启动失败时必须将其从 GENERATING 推进到 FAILED，避免形成僵尸任务。
             conversationService.failAssistant(turn.assistantMessageId(), "", TASK_START_ERROR_CODE, TASK_START_ERROR_MESSAGE, TokenUsage.empty());
@@ -193,8 +199,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         int actualTokens = tokenCountEstimator.estimate(query);
         int maxTokens = application.definition().contextPolicy().budget().getMaxInputTokens();
         if (actualTokens > maxTokens) {
-            throw new BusinessException(HttpStatusEnum.BAD_REQUEST,
-                    "当前输入约" + actualTokens + " Token，超过应用上限" + maxTokens + " Token，请缩短后重试");
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "当前输入约" + actualTokens + " Token，超过应用上限" + maxTokens + " Token，请缩短后重试");
         }
     }
 
@@ -212,26 +217,32 @@ public class ChatStreamServiceImpl implements ChatStreamService {
 
     @Override
     public Flux<ChatGenerationEventBO> resume(Long assistantMessageId, long afterSequence, Long userId) {
-        requireOwnedAssistantMessage(assistantMessageId, userId);
+        ConversationMessageEntity message = requireOwnedAssistantMessage(assistantMessageId, userId);
         RunningGenerationTask task = runningTasks.get(assistantMessageId);
         if (Objects.nonNull(task)) {
             return task.eventsAfter(afterSequence);
         }
-        // 查询与任务结束可能并发发生，任务已移除时重新读取一次数据库终态。
+        // 非源实例只能从 Redis 增量缓存续接，不能把仍在其他实例运行的任务误标为中断。
         List<ChatGenerationEventBO> cachedEvents = generationEventRepo.findAfter(assistantMessageId, afterSequence);
-        return Flux.fromIterable(cachedEvents).concatWith(restoreTerminalEvents(requireOwnedAssistantMessage(assistantMessageId, userId)));
+        if (message.getStatus() == MessageStatus.GENERATING) {
+            return Flux.fromIterable(cachedEvents)
+                    .concatWith(awaitRemoteGeneration(assistantMessageId, afterSequence, cachedEvents));
+        }
+        return Flux.fromIterable(cachedEvents).concatWith(restoreTerminalEvents(message));
     }
 
     @Override
     public void cancel(Long assistantMessageId, Long userId) {
         ConversationMessageEntity message = requireOwnedAssistantMessage(assistantMessageId, userId);
-        RunningGenerationTask task = runningTasks.get(assistantMessageId);
-        if (Objects.nonNull(task)) {
-            cancelTask(task);
-            return;
-        }
         if (message.getStatus() == MessageStatus.GENERATING) {
-            conversationService.cancelAssistant(assistantMessageId, message.getContent(), TokenUsage.empty());
+            RunningGenerationTask task = runningTasks.get(assistantMessageId);
+            if (Objects.nonNull(task)) {
+                cancelTask(task);
+                return;
+            }
+            if (conversationService.cancelAssistant(assistantMessageId, message.getContent(), TokenUsage.empty())) {
+                generationTaskRegistry.requestCancellation(assistantMessageId);
+            }
         } else if (message.getStatus() == MessageStatus.WAITING_HUMAN) {
             hitlDecisionTxService.cancel(assistantMessageId, userId);
         }
@@ -248,7 +259,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "HITL检查点不存在"));
         if (checkpoint.getStatus() != ExecutionCheckpointStatus.ACTIVE
                 || checkpoint.getCheckpointVersion() == null
-                || checkpoint.getCheckpointVersion() != RuntimeCheckpoint.CURRENT_VERSION
+                || checkpoint.getCheckpointVersion() != AgentScopeCheckpoint.CURRENT_VERSION
                 || checkpoint.getPayload() == null
                 || !Objects.equals(checkpoint.getChecksum(), interaction.getApprovalFingerprint())
                 || !Objects.equals(checkpoint.getPayload().getFingerprint(), interaction.getApprovalFingerprint())) {
@@ -285,14 +296,14 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 .initialUsage(TokenUsage.of(assistant.getInputTokens(), assistant.getOutputTokens(), assistant.getTotalTokens()))
                 .initialSequence(generationEventRepo.lastSequence(assistant.getId()))
                 .build();
-        runningTasks.put(assistant.getId(), task);
-        RuntimeCheckpoint runtimeCheckpoint = checkpoint.getPayload();
+        registerTask(task);
+        AgentScopeCheckpoint runtimeCheckpoint = checkpoint.getPayload();
         ApplicationChatExecutionRequest request = ApplicationChatExecutionRequest.builder()
                 .application(application)
-                .query(runtimeCheckpoint.getContext().getQuery())
+                .query(runtimeCheckpoint.getQuery())
                 .loginUser(loginUser)
                 .turn(turn)
-                .explicitSkillCodes(runtimeCheckpoint.getContext().getExplicitSkillCodes())
+                .explicitSkillCodes(runtimeCheckpoint.getExplicitSkillCodes())
                 .eventPublisher(task)
                 .resumeContext(ExecutionResumeContext.builder()
                         .checkpoint(runtimeCheckpoint)
@@ -300,7 +311,9 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                         .fingerprint(interaction.getApprovalFingerprint())
                         .build())
                 .build();
-        startGeneration(request);
+        if (!task.isTerminal()) {
+            startGeneration(request);
+        }
     }
 
     private static LoginUser toLoginUser(UserBO user) {
@@ -311,7 +324,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     public int reconcileStaleGenerations(OffsetDateTime before, int limit) {
         int repaired = 0;
         for (ConversationMessageEntity message : messageRepo.findStaleGenerating(before, limit)) {
-            if (runningTasks.containsKey(message.getId())) {
+            if (runningTasks.containsKey(message.getId()) || generationTaskRegistry.isActive(message.getId())) {
                 continue;
             }
             conversationService.interruptAssistant(message.getId(), message.getContent(), TokenUsage.empty());
@@ -406,6 +419,13 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 task.traceRun().complete(task.tokenUsage(), modelInstanceId);
                 return;
             }
+            if (isAssistantCancelled(task, exception)) {
+                // 跨实例取消先经数据库 CAS 确认；当前实例不得把已取消消息错误投影成失败。
+                log.info("Assistant已由其他实例取消，忽略完成回执，assistantMessageId={}", task.id());
+                task.publishTerminal(ChatGenerationEventBO.cancelled());
+                task.traceRun().cancel("USER_CANCELLED");
+                return;
+            }
             log.error("模型回答完成后持久化失败，assistantMessageId={}", task.id(), exception);
             try {
                 // 事务消息未提交时收敛占位消息，避免 GENERATING 僵尸任务；已完成消息不会被反向覆盖。
@@ -418,7 +438,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
             task.publishTerminal(ChatGenerationEventBO.failed());
             task.traceRun().fail(exception);
         } finally {
-            runningTasks.remove(task.id(), task);
+            removeTask(task);
         }
     }
 
@@ -435,14 +455,21 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         } catch (RuntimeException persistenceException) {
             log.error("模型调用失败后更新消息状态失败，assistantMessageId={}", task.id(), persistenceException);
         } finally {
-            task.publishTerminal(ChatGenerationEventBO.failed(failure.code(), failure.clientMessage()));
-            runningTasks.remove(task.id(), task);
-            task.traceRun().fail(exception);
-            log.error("模型流式对话调用失败，assistantMessageId={}", task.id(), exception);
+            if (isAssistantCancelled(task, exception)) {
+                task.publishTerminal(ChatGenerationEventBO.cancelled());
+                task.traceRun().cancel("USER_CANCELLED");
+            } else {
+                task.publishTerminal(ChatGenerationEventBO.failed(failure.code(), failure.clientMessage()));
+                task.traceRun().fail(exception);
+                log.error("模型流式对话调用失败，assistantMessageId={}", task.id(), exception);
+            }
+            removeTask(task);
         }
     }
 
-    /** HITL 门禁已持久化检查点后释放模型线程，保留同一 Assistant 消息等待异步恢复。 */
+    /**
+     * HITL 门禁已持久化检查点后释放模型线程，保留同一 Assistant 消息等待异步恢复。
+     */
     private void pauseTaskForHuman(RunningGenerationTask task, RuntimeInterruption interruption) {
         try {
             conversationService.waitForHuman(task.id(), task.answer(), task.tokenUsage());
@@ -454,7 +481,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
             task.traceRun().cancel("WAITING_HUMAN");
             log.info("模型任务等待人工决策，assistantMessageId={}", task.id());
         } finally {
-            runningTasks.remove(task.id(), task);
+            removeTask(task);
         }
     }
 
@@ -472,7 +499,9 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 .build();
     }
 
-    /** 事务消息发送结果不确定时，以PostgreSQL中的Assistant终态作为用户侧结果依据。 */
+    /**
+     * 事务消息发送结果不确定时，以PostgreSQL中的Assistant终态作为用户侧结果依据。
+     */
     private boolean isCompletionPersisted(RunningGenerationTask task, Throwable originalException) {
         try {
             return conversationService.findAssistantCompletionStatus(
@@ -482,6 +511,24 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         } catch (RuntimeException statusException) {
             originalException.addSuppressed(statusException);
             log.warn("Assistant终态复核失败，assistantMessageId={}", task.id(), statusException);
+            return false;
+        }
+    }
+
+    /**
+     * 完成、失败与关闭并发时，以数据库取消终态决定用户侧 SSE 投影。
+     */
+    private boolean isAssistantCancelled(RunningGenerationTask task, Throwable originalException) {
+        try {
+            return conversationService.findAssistantCompletionStatus(
+                            task.turn().conversationId(), task.id(), task.applicationVersionId())
+                    .filter(status -> status == MessageStatus.CANCELLED)
+                    .isPresent();
+        } catch (RuntimeException statusException) {
+            if (originalException != null) {
+                originalException.addSuppressed(statusException);
+            }
+            log.warn("Assistant取消终态复核失败，assistantMessageId={}", task.id(), statusException);
             return false;
         }
     }
@@ -520,20 +567,27 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     }
 
     /**
-     * 用户主动取消：先停止上游模型订阅，再保存部分回答和当前 Token 用量。
+     * 用户主动取消：先由数据库条件更新确认终态，再向持有订阅的实例广播取消信号。
      */
     private void cancelTask(RunningGenerationTask task) {
+        if (!conversationService.cancelAssistant(task.id(), task.answer(), task.tokenUsage())) {
+            return;
+        }
+        generationTaskRegistry.requestCancellation(task.id());
+        finishCancelledTask(task);
+    }
+
+    /**
+     * 数据库取消已确认后，本机或远端实例都只释放本机订阅并发送取消事件。
+     */
+    private void finishCancelledTask(RunningGenerationTask task) {
         if (!task.beginTerminal()) {
             return;
         }
         task.disposeModelSubscription();
-        try {
-            conversationService.cancelAssistant(task.id(), task.answer(), task.tokenUsage());
-        } finally {
-            task.publishTerminal(ChatGenerationEventBO.cancelled());
-            runningTasks.remove(task.id(), task);
-            task.traceRun().cancel("USER_CANCELLED");
-        }
+        task.publishTerminal(ChatGenerationEventBO.cancelled());
+        removeTask(task);
+        task.traceRun().cancel("USER_CANCELLED");
     }
 
     /**
@@ -547,17 +601,68 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         try {
             conversationService.interruptAssistant(task.id(), task.answer(), task.tokenUsage());
         } finally {
-            task.publishTerminal(ChatGenerationEventBO.failed());
-            runningTasks.remove(task.id(), task);
-            task.traceRun().cancel("APPLICATION_SHUTDOWN");
+            if (isAssistantCancelled(task, null)) {
+                task.publishTerminal(ChatGenerationEventBO.cancelled());
+                task.traceRun().cancel("USER_CANCELLED");
+            } else {
+                task.publishTerminal(ChatGenerationEventBO.failed());
+                task.traceRun().cancel("APPLICATION_SHUTDOWN");
+            }
+            removeTask(task);
         }
+    }
+
+    /**
+     * 注册本机任务，跨实例取消到达时只终止本机模型订阅。
+     */
+    private void registerTask(RunningGenerationTask task) {
+        runningTasks.put(task.id(), task);
+        generationTaskRegistry.register(task.id(), () -> finishCancelledTask(task));
+    }
+
+    /**
+     * 仅持有当前任务的实例可以注销取消处理器，防止旧任务清理误删新恢复任务。
+     */
+    private void removeTask(RunningGenerationTask task) {
+        if (runningTasks.remove(task.id(), task)) {
+            generationTaskRegistry.unregister(task.id());
+        }
+    }
+
+    /**
+     * 续接落在其他实例的任务：轮询短期事件缓存和数据库终态，不修改任何业务状态。
+     */
+    private Flux<ChatGenerationEventBO> awaitRemoteGeneration(Long assistantMessageId, long afterSequence,
+                                                              List<ChatGenerationEventBO> initialEvents) {
+        AtomicLong latestSequence = new AtomicLong(Math.max(afterSequence, initialEvents.stream()
+                .mapToLong(ChatGenerationEventBO::sequence)
+                .max()
+                .orElse(afterSequence)));
+        return Flux.interval(REMOTE_RESUME_POLL_INTERVAL)
+                .map(ignored -> pollRemoteGeneration(assistantMessageId, latestSequence))
+                .takeUntil(RemoteGenerationPoll::finished)
+                .concatMap(poll -> {
+                    Flux<ChatGenerationEventBO> incremental = Flux.fromIterable(poll.events());
+                    return poll.finished()
+                            ? incremental.concatWith(restoreTerminalEvents(poll.message()))
+                            : incremental;
+                });
+    }
+
+    private RemoteGenerationPoll pollRemoteGeneration(Long assistantMessageId, AtomicLong latestSequence) {
+        List<ChatGenerationEventBO> events = generationEventRepo.findAfter(assistantMessageId, latestSequence.get());
+        events.stream().mapToLong(ChatGenerationEventBO::sequence).max()
+                .ifPresent(sequence -> latestSequence.accumulateAndGet(sequence, Math::max));
+        ConversationMessageEntity message = messageRepo.findById(assistantMessageId)
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "Assistant消息不存在"));
+        return new RemoteGenerationPoll(events, message, message.getStatus() != MessageStatus.GENERATING);
     }
 
     /**
      * 当进程内任务已不存在时，根据数据库消息恢复一个可直接结束 SSE 的事件流。
      *
      * <p>若数据库保存了部分或完整文本，先发送 SNAPSHOT；随后根据消息状态发送终态事件。
-     * 如果数据库仍为 GENERATING，说明原任务所在进程异常退出，将其修正为 INTERRUPTED。</p>
+     * {@code GENERATING} 只能由陈旧任务对账在确认无活跃实例后修正，SSE 续接不得改写。</p>
      */
     private Flux<ChatGenerationEventBO> restoreTerminalEvents(ConversationMessageEntity message) {
         Flux<ChatGenerationEventBO> snapshot = Flux.empty();
@@ -570,9 +675,8 @@ public class ChatStreamServiceImpl implements ChatStreamService {
             return snapshot;
         }
 
-        // 生成中但当前进程不存在对应任务 → 修正为 INTERRUPTED
         if (message.getStatus() == MessageStatus.GENERATING) {
-            conversationService.interruptAssistant(message.getId(), message.getContent(), TokenUsage.empty());
+            throw new IllegalStateException("生成中的Assistant消息必须继续等待远端终态");
         }
 
         ChatGenerationEventBO terminal = statusToTerminalEvent(message);
@@ -617,6 +721,15 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     }
 
     /**
+     * @param events   本轮读取到的跨实例增量事件
+     * @param message  当前数据库消息快照
+     * @param finished 数据库是否已离开生成态
+     */
+    private record RemoteGenerationPoll(List<ChatGenerationEventBO> events, ConversationMessageEntity message,
+                                        boolean finished) {
+    }
+
+    /**
      * 查询 Assistant 消息并同时校验消息属于当前用户，防止越权续接或取消他人任务。
      */
     private ConversationMessageEntity requireOwnedAssistantMessage(Long assistantMessageId, Long userId) {
@@ -624,8 +737,5 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     }
 
     /** 新会话没有服务端主键，已有会话才执行 Long 转换。 */
-    private static Long toConversationId(String conversationId) {
-        return CharSequenceUtil.isBlank(conversationId) ? null : Long.valueOf(conversationId);
-    }
 
 }

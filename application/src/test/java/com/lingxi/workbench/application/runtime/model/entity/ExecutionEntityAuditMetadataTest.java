@@ -17,7 +17,7 @@ class ExecutionEntityAuditMetadataTest {
     void shouldRegisterAutomaticAuditFillForExecutionEntities() {
         List<Class<?>> appendOnlyEntities = List.of(
                 ExecutionRunEntity.class,
-                ExecutionPlanSnapshotEntity.class,
+                ExecutionTaskSnapshotEntity.class,
                 ExecutionStepAttemptEntity.class,
                 ExecutionEventEntity.class);
 

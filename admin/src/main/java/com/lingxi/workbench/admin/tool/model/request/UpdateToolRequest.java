@@ -49,4 +49,8 @@ public class UpdateToolRequest {
     @NotBlank(message = "请输入资源作用域")
     @Size(max = 255, message = "资源作用域不能超过255个字符")
     private String resourceScope;
+
+    /** MCP Tool 可选的外部结果查询入口，本地函数不允许声明该字段。 */
+    @Size(max = 128, message = "对账查询 Tool 名称不能超过128个字符")
+    private String reconciliationQueryToolName;
 }

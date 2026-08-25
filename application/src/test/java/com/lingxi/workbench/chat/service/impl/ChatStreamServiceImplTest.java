@@ -27,6 +27,7 @@ import com.lingxi.workbench.chat.model.request.ChatRequest;
 import com.lingxi.workbench.chat.repo.ConversationMessageRepo;
 import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.chat.service.ConversationService;
+import com.lingxi.workbench.chat.service.GenerationTaskRegistry;
 import com.lingxi.workbench.auth.repo.UserRepo;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.context.LoginUser;
@@ -42,11 +43,15 @@ import com.lingxi.workbench.observability.service.AiTraceRun;
 import com.lingxi.workbench.observability.service.AiTracingService;
 import io.micrometer.observation.ObservationRegistry;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
+import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
+import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.FallbackAgent;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
+import com.lingxi.workbench.workflow.model.MemoryConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -67,6 +72,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -102,6 +108,7 @@ class ChatStreamServiceImplTest {
     private final ExecutionCheckpointRepo checkpointRepo = mock(ExecutionCheckpointRepo.class);
     private final UserRepo userRepo = mock(UserRepo.class);
     private final HitlDecisionTxService hitlDecisionTxService = mock(HitlDecisionTxService.class);
+    private final GenerationTaskRegistry generationTaskRegistry = mock(GenerationTaskRegistry.class);
 
     private ChatStreamServiceImpl service;
 
@@ -114,8 +121,14 @@ class ChatStreamServiceImplTest {
                 .build();
         return ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .collaboration(new AgentCollaborationDefinition(
+                        new ApplicationAgentReference(40L, 41L, "默认助手", "负责收口"),
+                        List.of(), List.of(), List.of()))
+                .memoryConf(MemoryConfig.disabled())
+                .contextPolicy(ApplicationContextPolicy.defaults())
                 .fallback(new FallbackAgent("default_agent"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(capability)).build())
+                .runtimePolicy(ApplicationRuntimePolicy.defaults())
                 .build();
     }
 
@@ -139,7 +152,7 @@ class ChatStreamServiceImplTest {
         service = new ChatStreamServiceImpl(conversationService, messageRepo, generationEventRepo,
                 applicationRuntimeService, applicationChatExecutionService, conversationEventPublisher, tokenCountEstimator,
                 aiTracingService, aiStageObserver, new ExecutionFailureClassifier(), interactionRepo, checkpointRepo,
-                userRepo, hitlDecisionTxService);
+                userRepo, hitlDecisionTxService, generationTaskRegistry);
     }
 
     @Test
@@ -154,7 +167,7 @@ class ChatStreamServiceImplTest {
         verify(conversationService).startTurn(inputCaptor.capture());
         StartConversationTurnBO input = inputCaptor.getValue();
         assertEquals(7L, input.getUserId());
-        assertEquals(10L, input.getConversationId());
+        assertEquals("10", input.getConversationId());
         assertEquals("client-001", input.getClientMessageId());
         assertEquals(20L, input.getApplicationId());
         assertEquals(30L, input.getApplicationVersionId());
@@ -189,9 +202,8 @@ class ChatStreamServiceImplTest {
     }
 
     @Test
-    void shouldUseClientConversationIdForFirstMessage() {
+    void shouldLeaveConversationIdBlankForFirstMessage() {
         ChatRequest request = ChatRequest.builder()
-                .clientConversationId("conversation-local-001")
                 .clientMessageId("client-001")
                 .query("你好")
                 .applicationCode("support")
@@ -204,7 +216,6 @@ class ChatStreamServiceImplTest {
         ArgumentCaptor<StartConversationTurnBO> inputCaptor = ArgumentCaptor.forClass(StartConversationTurnBO.class);
         verify(conversationService).startTurn(inputCaptor.capture());
         assertEquals(null, inputCaptor.getValue().getConversationId());
-        assertEquals("conversation-local-001", inputCaptor.getValue().getClientConversationId());
         gate.release();
     }
 
@@ -264,6 +275,25 @@ class ChatStreamServiceImplTest {
         assertEquals(List.of(
                 ChatGenerationEventBO.chunk(1, "完整回答"),
                 ChatGenerationEventBO.completed()), events);
+        verify(conversationService, never()).failAssistant(anyLong(), any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldPublishCancelledWhenConcurrentCancellationWinsCompletion() {
+        ApplicationExecutionGate gate = prepareApplicationExecution("完整回答");
+        doThrow(new IllegalStateException("事务回执异常"))
+                .when(conversationEventPublisher)
+                .completeAssistant(any(), any(), any(), any(), any());
+        when(conversationService.findAssistantCompletionStatus(10L, 12L, 30L))
+                .thenReturn(Optional.of(MessageStatus.CANCELLED));
+
+        service.start(createChatRequest(), LOGIN_USER);
+        gate.awaitStarted();
+        CompletableFuture<List<ChatGenerationEventBO>> eventsFuture = service.resume(12L, 0, 7L).collectList().toFuture();
+        gate.release();
+
+        assertEquals(List.of(ChatGenerationEventBO.chunk(1, "完整回答"), ChatGenerationEventBO.cancelled()),
+                eventsFuture.orTimeout(Duration.ofSeconds(2).toMillis(), TimeUnit.MILLISECONDS).join());
         verify(conversationService, never()).failAssistant(anyLong(), any(), any(), any(), any());
     }
 
@@ -395,6 +425,7 @@ class ChatStreamServiceImplTest {
     @Test
     void shouldCancelOnlyOnExplicitRequest() {
         ApplicationExecutionGate gate = prepareApplicationExecution("不会返回");
+        when(conversationService.cancelAssistant(12L, "", TokenUsage.empty())).thenReturn(true);
 
         service.start(createChatRequest(), LOGIN_USER);
         gate.awaitStarted();
@@ -404,6 +435,53 @@ class ChatStreamServiceImplTest {
                 12L,
                 "",
                 TokenUsage.empty());
+        verify(generationTaskRegistry).requestCancellation(12L);
+        gate.release();
+    }
+
+    @Test
+    void shouldStopLocalSubscriptionWhenOtherInstancePublishesCancellation() {
+        ApplicationExecutionGate gate = prepareApplicationExecution("不会返回");
+
+        service.start(createChatRequest(), LOGIN_USER);
+        gate.awaitStarted();
+        ArgumentCaptor<Runnable> cancellationHandler = ArgumentCaptor.forClass(Runnable.class);
+        verify(generationTaskRegistry).register(eq(12L), cancellationHandler.capture());
+
+        CompletableFuture<List<ChatGenerationEventBO>> eventsFuture = service.resume(12L, 0, 7L).collectList().toFuture();
+        cancellationHandler.getValue().run();
+
+        assertEquals(List.of(ChatGenerationEventBO.cancelled()), eventsFuture
+                .orTimeout(Duration.ofSeconds(2).toMillis(), TimeUnit.MILLISECONDS).join());
+        verify(conversationService, never()).cancelAssistant(anyLong(), any(), any());
+        gate.release();
+    }
+
+    @Test
+    void shouldWaitForRemoteInstanceTerminalInsteadOfInterruptingGeneratingMessage() {
+        ConversationMessageEntity completed = assistant(MessageStatus.COMPLETED, "远端完整回答");
+        when(messageRepo.findById(12L)).thenReturn(Optional.of(completed));
+
+        List<ChatGenerationEventBO> events = service.resume(12L, 0, 7L)
+                .collectList()
+                .block(Duration.ofSeconds(2));
+
+        assertEquals(List.of(
+                ChatGenerationEventBO.snapshot("远端完整回答"),
+                ChatGenerationEventBO.completed()), events);
+        verify(conversationService, never()).interruptAssistant(anyLong(), any(), any());
+    }
+
+    @Test
+    void shouldNotInterruptStaleCandidateWhenAnotherInstanceHasActiveLease() {
+        ConversationMessageEntity stale = assistant(MessageStatus.GENERATING, "部分回答");
+        when(messageRepo.findStaleGenerating(any(), anyInt())).thenReturn(List.of(stale));
+        when(generationTaskRegistry.isActive(12L)).thenReturn(true);
+
+        int repaired = service.reconcileStaleGenerations(OffsetDateTime.now(), 10);
+
+        assertEquals(0, repaired);
+        verify(conversationService, never()).interruptAssistant(anyLong(), any(), any());
     }
 
     @Test

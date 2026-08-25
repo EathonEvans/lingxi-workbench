@@ -5,7 +5,7 @@ import com.lingxi.workbench.agentruntime.event.ExecutionEventPayload;
 import com.lingxi.workbench.agentruntime.event.RuntimeEventSink;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
-import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
+import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionSkillActivationCommand;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
@@ -26,18 +26,22 @@ public class ApplicationRuntimeEventSinkFactory {
 
     private final ExecutionPersistenceService persistenceService;
 
-    public RuntimeEventSink create(ChatExecutionContext execution) {
-        return new ApplicationRuntimeEventSink(execution, persistenceService);
+    public RuntimeEventSink create(ApplicationExecutionBudget executionBudget,
+                                   ChatExecutionEventPublisher eventPublisher) {
+        return new ApplicationRuntimeEventSink(executionBudget, eventPublisher, persistenceService);
     }
 
     private static final class ApplicationRuntimeEventSink implements RuntimeEventSink {
 
-        private final ChatExecutionContext execution;
+        private final ApplicationExecutionBudget executionBudget;
+        private final ChatExecutionEventPublisher eventPublisher;
         private final ExecutionPersistenceService persistenceService;
 
-        private ApplicationRuntimeEventSink(ChatExecutionContext execution,
+        private ApplicationRuntimeEventSink(ApplicationExecutionBudget executionBudget,
+                                            ChatExecutionEventPublisher eventPublisher,
                                             ExecutionPersistenceService persistenceService) {
-            this.execution = execution;
+            this.executionBudget = executionBudget;
+            this.eventPublisher = eventPublisher;
             this.persistenceService = persistenceService;
         }
 
@@ -80,14 +84,14 @@ public class ApplicationRuntimeEventSinkFactory {
             if (event.getType() == com.lingxi.workbench.agentruntime.event.ExecutionEventType.MODEL_STARTED
                     && event.getPayload() instanceof ExecutionEventPayload.Model model) {
                 if (model.finalCall()) {
-                    execution.reserveFinalModelCall();
+                    executionBudget.reserveFinalModelCall();
                 } else {
-                    execution.reserveModelCall();
+                    executionBudget.reserveModelCall();
                 }
             }
             if (event.getType() == com.lingxi.workbench.agentruntime.event.ExecutionEventType.TOOL_STARTED
                     || event.getType() == com.lingxi.workbench.agentruntime.event.ExecutionEventType.TOOL_REUSED) {
-                execution.reserveToolCalls(1);
+                executionBudget.reserveToolCalls(1);
             }
         }
 
@@ -103,22 +107,19 @@ public class ApplicationRuntimeEventSinkFactory {
                     .message(message);
             if (event.getPayload() instanceof ExecutionEventPayload.Plan plan) {
                 timeline.planNo(plan.getPlanNo());
-                if (plan.getDecision() != null && plan.getDecision().getPlan() != null) {
-                    timeline.displayName(plan.getDecision().getPlan().getTitle())
-                            .steps(plan.getDecision().getPlan().steps().stream()
-                                    .map(step -> new ChatPlanStepBO(step.getId(), step.getName(),
-                                            step.getCapabilityCode()))
-                                    .toList());
+                if (!plan.getTasks().isEmpty()) {
+                    timeline.steps(plan.getTasks().stream()
+                            .map(task -> new ChatPlanStepBO(task.getId(), task.getSubject(),
+                                    taskCapabilityCode(task)))
+                            .toList());
                 }
             } else if (event.getPayload() instanceof ExecutionEventPayload.Step step) {
-                timeline.planNo(step.getPlanNo())
+                timeline.planNo(step.getTaskRevision())
                         .stepId(step.getStep().getId())
                         .displayName(step.getStep().getName())
                         .stepStatus(ExecutionStepStatus.valueOf(step.getStatus().name()));
-            } else if (event.getPayload() instanceof ExecutionEventPayload.Clarification clarification) {
-                timeline.planNo(clarification.getPlanNo());
             }
-            execution.getEventPublisher().publishExecution(timeline.build());
+            eventPublisher.publishExecution(timeline.build());
             if (event.getPayload() instanceof ExecutionEventPayload.Model model
                     && eventType == ExecutionEventType.MODEL_STARTED) {
                 AgentProgressPhase phase = model.finalCall()
@@ -142,10 +143,9 @@ public class ApplicationRuntimeEventSinkFactory {
                 return plan.getPlanNo();
             }
             if (event.getPayload() instanceof ExecutionEventPayload.Step step) {
-                return step.getPlanNo();
+                return step.getTaskRevision();
             }
-            return event.getPayload() instanceof ExecutionEventPayload.Clarification clarification
-                    ? clarification.getPlanNo() : null;
+            return null;
         }
 
         private static String stepId(ExecutionEvent event) {
@@ -156,6 +156,11 @@ public class ApplicationRuntimeEventSinkFactory {
         private static ExecutionStepStatus stepStatus(ExecutionEvent event) {
             return event.getPayload() instanceof ExecutionEventPayload.Step step
                     ? ExecutionStepStatus.valueOf(step.getStatus().name()) : null;
+        }
+
+        private static String taskCapabilityCode(io.agentscope.core.state.Task task) {
+            Object value = task.getMetadata().get("capabilityCode");
+            return value instanceof String code ? code : null;
         }
 
         private void publishHuman(ExecutionEventType type, ExecutionEventPayload.Human human) {
@@ -176,17 +181,18 @@ public class ApplicationRuntimeEventSinkFactory {
                     .revision(interruption.getRevision())
                     .expiresAt(interruption.getExpiresAt())
                     .build();
-            execution.getEventPublisher().publishInteractionResolved(event);
+            eventPublisher.publishInteractionResolved(event);
         }
 
         private void publishProgress(AgentProgressPhase phase, String message, int roundNo) {
-            int toolCallCount = execution.getRuntimePolicy().getMaxToolCalls() - execution.remainingToolCalls();
-            execution.getEventPublisher().publishProgress(new AgentProgressEvent(
+            int toolCallCount = executionBudget.runtimePolicy().getMaxToolCalls()
+                    - executionBudget.remainingToolCalls();
+            eventPublisher.publishProgress(new AgentProgressEvent(
                     phase, message, roundNo, toolCallCount));
         }
 
         private void publishTool(ExecutionEvent event, ExecutionEventPayload.Tool tool) {
-            execution.getEventPublisher().publishTool(AgentToolExecutionEvent.builder()
+            eventPublisher.publishTool(AgentToolExecutionEvent.builder()
                     .invocationId(event.getInvocationId())
                     .toolCode(tool.toolCode())
                     .displayName(tool.displayName())
@@ -209,13 +215,13 @@ public class ApplicationRuntimeEventSinkFactory {
 
         @Override
         public void onText(ChatStreamChunk chunk) {
-            execution.recordUsage(chunk);
-            execution.getEventPublisher().publishText(chunk);
+            executionBudget.recordUsage(chunk.usage());
+            eventPublisher.publishText(chunk);
         }
 
         @Override
         public boolean isCancelled() {
-            return execution.isCancelled();
+            return eventPublisher.isCancelled();
         }
     }
 }

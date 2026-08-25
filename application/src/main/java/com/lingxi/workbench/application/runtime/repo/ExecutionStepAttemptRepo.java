@@ -22,7 +22,7 @@ public class ExecutionStepAttemptRepo {
     public List<ExecutionStepAttemptEntity> findByRunId(String runId) {
         return mapper.selectList(Wrappers.<ExecutionStepAttemptEntity>lambdaQuery()
                 .eq(ExecutionStepAttemptEntity::getRunId, runId)
-                .orderByAsc(ExecutionStepAttemptEntity::getPlanNo)
+                .orderByAsc(ExecutionStepAttemptEntity::getTaskRevision)
                 .orderByAsc(ExecutionStepAttemptEntity::getId));
     }
 }

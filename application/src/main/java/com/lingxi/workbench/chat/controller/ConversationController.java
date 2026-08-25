@@ -10,7 +10,10 @@ import com.lingxi.workbench.framework.convention.ApiResponse;
 import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -24,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/conversations")
 @RequiredArgsConstructor
+@Validated
 public class ConversationController {
 
     private final ConversationService service;
@@ -41,7 +45,8 @@ public class ConversationController {
      */
     @GetMapping("/message-list")
     public ApiResponse<PageResult<ConversationMessageVO>> messageList(
-            @RequestParam Long conversationId, @Valid PageQuery query) {
+            @RequestParam @NotBlank @Pattern(regexp = "^[1-9]\\d*$", message = "会话ID格式不正确") String conversationId,
+            @Valid PageQuery query) {
         return ApiResponse.success(service.messagePage(UserContext.userId(), conversationId, query));
     }
 
@@ -50,7 +55,7 @@ public class ConversationController {
      */
     @PostMapping("/rename")
     public ApiResponse<Void> rename(
-            @RequestParam Long conversationId,
+            @RequestParam @NotBlank @Pattern(regexp = "^[1-9]\\d*$", message = "会话ID格式不正确") String conversationId,
             @Valid @RequestBody RenameConversationRequest request) {
         service.rename(UserContext.userId(), conversationId, request);
         return ApiResponse.success();
@@ -60,7 +65,7 @@ public class ConversationController {
      * 归档会话。
      */
     @PostMapping("/archive")
-    public ApiResponse<Void> archive(@RequestParam Long conversationId) {
+    public ApiResponse<Void> archive(@RequestParam @NotBlank @Pattern(regexp = "^[1-9]\\d*$", message = "会话ID格式不正确") String conversationId) {
         service.archive(UserContext.userId(), conversationId);
         return ApiResponse.success();
     }
@@ -69,7 +74,7 @@ public class ConversationController {
      * 软删除会话。
      */
     @PostMapping("/delete")
-    public ApiResponse<Void> delete(@RequestParam Long conversationId) {
+    public ApiResponse<Void> delete(@RequestParam @NotBlank @Pattern(regexp = "^[1-9]\\d*$", message = "会话ID格式不正确") String conversationId) {
         service.delete(UserContext.userId(), conversationId);
         return ApiResponse.success();
     }

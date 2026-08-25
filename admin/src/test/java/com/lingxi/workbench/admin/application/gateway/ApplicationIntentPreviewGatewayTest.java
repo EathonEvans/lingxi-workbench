@@ -15,6 +15,7 @@ import java.net.http.HttpResponse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -59,7 +60,7 @@ class ApplicationIntentPreviewGatewayTest {
         ApplicationIntentPreviewGateway gateway = new ApplicationIntentPreviewGateway(properties, httpClient);
 
         ApplicationIntentPreviewVO result = gateway.preview(
-                1L, "app", "query", ApplicationDefinition.builder().schemaVersion(12).build());
+                1L, "app", "query", ApplicationDefinition.builder().schemaVersion(APPLICATION_SCHEMA_VERSION).build());
 
         assertThat(result.getSemanticAction()).isEqualTo("SELECT");
         assertThat(result.getFinalAction()).isEqualTo("EXECUTE_WORKFLOW");
@@ -82,7 +83,7 @@ class ApplicationIntentPreviewGatewayTest {
         ApplicationIntentPreviewGateway gateway = new ApplicationIntentPreviewGateway(properties, httpClient);
 
         assertThatThrownBy(() -> gateway.preview(
-                1L, "app", "query", ApplicationDefinition.builder().schemaVersion(12).build()))
+                1L, "app", "query", ApplicationDefinition.builder().schemaVersion(APPLICATION_SCHEMA_VERSION).build()))
                 .isInstanceOfSatisfying(BusinessException.class, exception -> {
                     assertThat(exception.getHttpStatus()).isEqualTo(HttpStatusEnum.CONFLICT);
                     assertThat(exception.getMessage()).contains("IntentTreeVersion不存在");
@@ -98,7 +99,7 @@ class ApplicationIntentPreviewGatewayTest {
                 properties, mock(HttpClient.class));
 
         assertThatThrownBy(() -> gateway.preview(
-                1L, "app", "query", ApplicationDefinition.builder().schemaVersion(12).build()))
+                1L, "app", "query", ApplicationDefinition.builder().schemaVersion(APPLICATION_SCHEMA_VERSION).build()))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getHttpStatus())
                                 .isEqualTo(HttpStatusEnum.SERVICE_UNAVAILABLE));

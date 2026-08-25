@@ -15,6 +15,7 @@ import com.lingxi.workbench.application.runtime.repo.CapabilityInvocationRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionCheckpointRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionRunRepo;
 import com.lingxi.workbench.application.runtime.repo.InteractionSessionRepo;
+import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
 import com.lingxi.workbench.chat.service.ConversationService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
@@ -36,6 +37,7 @@ public class HitlDecisionTxService {
     private final ExecutionCheckpointRepo checkpointRepo;
     private final ExecutionRunRepo runRepo;
     private final ConversationService conversationService;
+    private final HitlApprovalClosureTxService closureTxService;
 
     @Transactional
     public void decide(HitlDecisionTxBO tx) {
@@ -109,26 +111,15 @@ public class HitlDecisionTxService {
         return Optional.of(isSameCommittedDecision(interaction, event.getEventId()));
     }
 
-    @Transactional
     public void expire(InteractionSessionEntity interaction) {
-        if (!interactionRepo.expire(interaction.getId(), interaction.getRevision())) {
-            return;
-        }
-        CapabilityInvocationEntity invocation = invocationRepo.findByInteractionId(interaction.getId())
-                .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "Tool调用意图不存在"));
-        if (!invocationRepo.changeStatus(invocation.getId(), CapabilityInvocationStatus.PENDING_APPROVAL,
-                CapabilityInvocationStatus.EXPIRED, null, null, "APPROVAL_EXPIRED")) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "Tool调用审批状态已变化");
-        }
-        if (!checkpointRepo.expire(interaction.getCheckpointId())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "HITL检查点状态已变化");
-        }
-        if (!runRepo.changeStatus(interaction.getRunId(), ExecutionRunStatus.WAITING_HUMAN,
-                ExecutionRunStatus.EXPIRED, "HITL_EXPIRED", OffsetDateTime.now())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "执行运行状态已变化");
-        }
-        conversationService.cancelWaiting(interaction.getAssistantMessageId(),
-                "APPROVAL_EXPIRED", "审批已过期，本轮任务已结束");
+        closureTxService.expire(interaction);
+    }
+
+    /**
+     * 新协议不兼容旧检查点时，原子结束整条等待链，避免用户点击审批后卡在无法恢复的状态。
+     */
+    public void supersedeCheckpointProtocol(InteractionSessionEntity interaction) {
+        closureTxService.supersedeCheckpointProtocol(interaction);
     }
 
     private void approve(InteractionSessionEntity interaction, CapabilityInvocationEntity invocation, String eventId) {
@@ -175,6 +166,14 @@ public class HitlDecisionTxService {
     private void requireActiveCheckpoint(InteractionSessionEntity interaction) {
         ExecutionCheckpointEntity checkpoint = checkpointRepo.findById(interaction.getCheckpointId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "HITL检查点不存在"));
+        if (checkpoint.getCheckpointVersion() == null
+                || checkpoint.getCheckpointVersion() < AgentScopeCheckpoint.CURRENT_VERSION) {
+            supersedeCheckpointProtocol(interaction);
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "审批检查点协议已升级，请重新发起任务");
+        }
+        if (checkpoint.getCheckpointVersion() > AgentScopeCheckpoint.CURRENT_VERSION) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "审批检查点协议高于当前服务版本，请稍后重试");
+        }
         if (checkpoint.getStatus() != ExecutionCheckpointStatus.ACTIVE
                 || checkpoint.getExpiresAt().isBefore(OffsetDateTime.now())
                 || !Objects.equals(checkpoint.getChecksum(), interaction.getApprovalFingerprint())

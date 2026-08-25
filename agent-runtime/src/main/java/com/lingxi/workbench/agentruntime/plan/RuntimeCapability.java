@@ -13,6 +13,7 @@ public class RuntimeCapability {
 
     private final String code;
     private final String name;
+    private final String description;
     private final RuntimeCapabilityType type;
     private final RuntimeCapabilityRisk risk;
     private final int maxCalls;

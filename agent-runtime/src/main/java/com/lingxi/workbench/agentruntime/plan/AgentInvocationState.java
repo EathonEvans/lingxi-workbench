@@ -1,20 +1,19 @@
 package com.lingxi.workbench.agentruntime.plan;
 
-import com.lingxi.workbench.agentruntime.planner.PlannerStep;
 import lombok.Getter;
 
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
 
-/** 每个计划步骤独享的调用状态，不与其他子 Agent 共享消息或局部结果。 */
+/** 每个 AgentScope 任务委派独享的调用状态，不与其他子 Agent 共享消息或局部结果。 */
 @Getter
 public final class AgentInvocationState {
 
     private final String runId;
-    private final int planNo;
+    private final int taskRevision;
     private final int attemptNo;
-    private final PlannerStep step;
+    private final RuntimeTaskStep step;
     private final RuntimeCapability capability;
     private final Map<String, String> inputs;
     private final String inputFingerprint;
@@ -23,13 +22,13 @@ public final class AgentInvocationState {
     private String result;
     private String errorCode;
 
-    public AgentInvocationState(String runId, int planNo, int attemptNo, PlannerStep step,
+    public AgentInvocationState(String runId, int taskRevision, int attemptNo, RuntimeTaskStep step,
                                 RuntimeCapability capability, Map<String, String> inputs,
                                 String inputFingerprint) {
         this.runId = Objects.requireNonNull(runId, "runId不能为空");
-        this.planNo = planNo;
+        this.taskRevision = taskRevision;
         this.attemptNo = attemptNo;
-        this.step = Objects.requireNonNull(step, "计划步骤不能为空");
+        this.step = Objects.requireNonNull(step, "任务步骤不能为空");
         this.capability = Objects.requireNonNull(capability, "运行能力不能为空");
         this.inputs = Map.copyOf(Objects.requireNonNull(inputs, "能力输入不能为空"));
         this.inputFingerprint = Objects.requireNonNull(inputFingerprint, "能力输入指纹不能为空");
@@ -58,7 +57,7 @@ public final class AgentInvocationState {
 
     private void finish(AgentInvocationStatus target, String content, String code) {
         if (status != AgentInvocationStatus.RUNNING) {
-            throw new IllegalStateException("计划步骤已经进入终态");
+            throw new IllegalStateException("任务步骤已经进入终态");
         }
         status = target;
         result = content;

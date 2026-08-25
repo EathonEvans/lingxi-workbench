@@ -1,7 +1,6 @@
 package com.lingxi.workbench.agentruntime.plan;
 
 import com.lingxi.workbench.agentruntime.checkpoint.RuntimeInterruption;
-import com.lingxi.workbench.agentruntime.planner.PlannerClarification;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -18,7 +17,7 @@ public class SupervisorRunResult {
 
     private final SupervisorRunOutcome outcome;
     private final String content;
-    private final PlannerClarification clarification;
+    private final RuntimeClarification clarification;
     private final RuntimeInterruption interruption;
     private final TokenUsage runtimeUsage;
     private final long lastSequenceNo;

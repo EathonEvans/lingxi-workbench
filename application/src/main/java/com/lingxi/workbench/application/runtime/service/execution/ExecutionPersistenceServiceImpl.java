@@ -1,27 +1,25 @@
 package com.lingxi.workbench.application.runtime.service.execution;
 
-import com.lingxi.workbench.application.runtime.service.plan.ExecutionDecisionChecksum;
-
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionRunStatus;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
-import com.lingxi.workbench.application.runtime.model.ExecutionPlanSnapshotCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionRunStartCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionStepAttemptCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionSkillActivationCommand;
+import com.lingxi.workbench.application.runtime.model.ExecutionTaskSnapshotCommand;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionEventEntity;
-import com.lingxi.workbench.application.runtime.model.entity.ExecutionPlanSnapshotEntity;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionRunEntity;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionRunSkillEntity;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionStepAttemptEntity;
+import com.lingxi.workbench.application.runtime.model.entity.ExecutionTaskSnapshotEntity;
 import com.lingxi.workbench.application.runtime.repo.ExecutionEventRepo;
-import com.lingxi.workbench.application.runtime.repo.ExecutionPlanSnapshotRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionRunRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionRunSkillRepo;
 import com.lingxi.workbench.application.runtime.repo.ExecutionStepAttemptRepo;
+import com.lingxi.workbench.application.runtime.repo.ExecutionTaskSnapshotRepo;
 import com.lingxi.workbench.application.runtime.service.execution.ExecutionPersistenceService;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
@@ -35,17 +33,17 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-/** Application 顶级运行与 Plan 明细的事务实现。 */
+/** Application 顶级运行、AgentScope任务快照与委派明细的事务实现。 */
 @Service
 @RequiredArgsConstructor
 public class ExecutionPersistenceServiceImpl implements ExecutionPersistenceService {
 
     private final ExecutionRunRepo runRepo;
-    private final ExecutionPlanSnapshotRepo planRepo;
+    private final ExecutionTaskSnapshotRepo taskSnapshotRepo;
     private final ExecutionStepAttemptRepo stepAttemptRepo;
     private final ExecutionEventRepo eventRepo;
     private final ExecutionRunSkillRepo runSkillRepo;
-    private final ExecutionDecisionChecksum checksum;
+    private final ExecutionTaskChecksum taskChecksum;
 
     @Override
     @Transactional
@@ -64,8 +62,8 @@ public class ExecutionPersistenceServiceImpl implements ExecutionPersistenceServ
         if (orchestrator != null) {
             run.setOrchestratorAgentId(orchestrator.agentId());
             run.setOrchestratorAgentVersionId(orchestrator.agentVersionId());
-            run.setPlannerModelInstanceId(orchestrator.definition().getChatModelInstanceId());
-            run.setPlannerPromptVersionId(orchestrator.definition().getSystemPromptVersionId());
+            run.setSupervisorModelInstanceId(orchestrator.definition().getChatModelInstanceId());
+            run.setSupervisorPromptVersionId(orchestrator.definition().getSystemPromptVersionId());
         }
         run.setCapabilityCode(command.getCapabilityCode());
         run.setExecutionMode(command.getExecutionMode());
@@ -90,19 +88,18 @@ public class ExecutionPersistenceServiceImpl implements ExecutionPersistenceServ
 
     @Override
     @Transactional
-    public void appendPlan(ExecutionPlanSnapshotCommand command) {
-        if (command == null || command.decision() == null || command.planNo() == null || command.planNo() < 1) {
-            throw invalid("Planner决策快照参数不完整");
+    public void appendTaskSnapshot(ExecutionTaskSnapshotCommand command) {
+        if (command == null || command.revision() == null || command.revision() < 1
+                || command.tasks() == null || command.tasks().isEmpty()) {
+            throw invalid("AgentScope任务快照参数不完整");
         }
         lockRun(command.runId());
-        ExecutionPlanSnapshotEntity snapshot = new ExecutionPlanSnapshotEntity();
+        ExecutionTaskSnapshotEntity snapshot = new ExecutionTaskSnapshotEntity();
         snapshot.setRunId(command.runId());
-        snapshot.setPlanNo(command.planNo());
-        snapshot.setDecisionAction(command.decision().getAction().name());
-        snapshot.setCapabilityCode(command.decision().getCapabilityCode());
-        snapshot.setDecisionSnapshot(command.decision());
-        snapshot.setSnapshotChecksum(checksum.calculate(command.decision()));
-        planRepo.insert(snapshot);
+        snapshot.setRevision(command.revision());
+        snapshot.setTaskSnapshot(command.tasks());
+        snapshot.setSnapshotChecksum(taskChecksum.calculate(command.tasks()));
+        taskSnapshotRepo.insert(snapshot);
     }
 
     @Override
@@ -112,7 +109,7 @@ public class ExecutionPersistenceServiceImpl implements ExecutionPersistenceServ
         lockRun(command.getRunId());
         ExecutionStepAttemptEntity attempt = new ExecutionStepAttemptEntity();
         attempt.setRunId(command.getRunId());
-        attempt.setPlanNo(command.getPlanNo());
+        attempt.setTaskRevision(command.getTaskRevision());
         attempt.setStepId(command.getStep().getId());
         attempt.setAttemptNo(command.getAttemptNo());
         attempt.setCapabilityCode(command.getStep().getCapabilityCode());
@@ -198,13 +195,6 @@ public class ExecutionPersistenceServiceImpl implements ExecutionPersistenceServ
 
     @Override
     @Transactional(readOnly = true)
-    public List<ExecutionPlanSnapshotEntity> findPlans(String runId) {
-        requireRun(runId);
-        return List.copyOf(planRepo.findByRunId(runId));
-    }
-
-    @Override
-    @Transactional(readOnly = true)
     public List<ExecutionStepAttemptEntity> findStepAttempts(String runId) {
         requireRun(runId);
         return List.copyOf(stepAttemptRepo.findByRunId(runId));
@@ -230,7 +220,7 @@ public class ExecutionPersistenceServiceImpl implements ExecutionPersistenceServ
     }
 
     private static void requireStepAttempt(ExecutionStepAttemptCommand command) {
-        if (command == null || command.getPlanNo() == null || command.getPlanNo() < 1
+        if (command == null || command.getTaskRevision() == null || command.getTaskRevision() < 1
                 || command.getAttemptNo() == null || command.getAttemptNo() < 1
                 || command.getStep() == null || command.getStatus() == null || command.getStartedAt() == null) {
             throw invalid("步骤尝试参数不完整");

@@ -1,20 +1,16 @@
 package com.lingxi.workbench.agentruntime.model;
 
-import com.lingxi.workbench.agentruntime.checkpoint.ExecutionStateSnapshot;
-import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpoint;
-import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpointContext;
-import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpointStore;
+import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
+import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpointStore;
 import com.lingxi.workbench.agentruntime.checkpoint.RuntimeInterruption;
 import com.lingxi.workbench.agentruntime.event.ExecutionEvent;
 import com.lingxi.workbench.agentruntime.event.ExecutionEventPayload;
 import com.lingxi.workbench.agentruntime.event.ExecutionEventType;
 import com.lingxi.workbench.agentruntime.event.ExecutionStage;
 import com.lingxi.workbench.agentruntime.event.RuntimeEventSink;
-import com.lingxi.workbench.agentruntime.loop.AgentToolExecutionLedger;
 import com.lingxi.workbench.agentruntime.plan.AgentInvocationState;
 import com.lingxi.workbench.agentruntime.plan.AgentInvocationStatus;
-import com.lingxi.workbench.agentruntime.planner.PlannerDecision;
-import com.lingxi.workbench.agentruntime.planner.PlannerClarification;
+import com.lingxi.workbench.agentruntime.plan.RuntimeClarification;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
 import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationMode;
@@ -23,12 +19,11 @@ import com.lingxi.workbench.infra.ai.skill.model.AgentSkillBindingSnapshot;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolRuntimeConfig;
+import io.agentscope.core.state.Task;
 import lombok.Builder;
 import lombok.Getter;
-import org.springframework.ai.chat.messages.AssistantMessage;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,7 +35,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/** 一次 Agent Runtime 调用唯一的可变执行事实。 */
+/**
+ * 一次 Agent Runtime 调用唯一的可变执行事实。
+ */
 public final class ExecutionState {
 
     @Getter
@@ -54,23 +51,21 @@ public final class ExecutionState {
     private final ExecutionPolicy policy;
     private final RuntimeEventSink eventSink;
     private final AgentToolRuntimeConfig toolRuntimeConfig;
-    private final RuntimeCheckpointContext checkpointContext;
-    private final RuntimeCheckpointStore checkpointStore;
+    private final AgentScopeCheckpoint checkpointSeed;
+    private final AgentScopeCheckpointStore checkpointStore;
     private final Set<String> authorizedToolCodes;
     private final Map<String, AgentToolDefinition> toolDefinitions;
     private final Map<String, Integer> toolCallCounts = new HashMap<>();
-    private final AgentToolExecutionLedger toolLedger = new AgentToolExecutionLedger();
-    private final List<SkillActivation> skillActivations = new ArrayList<>();
     private final AtomicLong eventSequence;
     private final AtomicInteger modelCalls;
     private final AtomicInteger toolCalls;
+    private final AtomicInteger toolCallsInCurrentModelRound = new AtomicInteger();
     private final TokenUsageAccumulator tokenUsage;
     private final boolean finalModelCallReserved;
     private final StringBuilder output = new StringBuilder();
     private boolean finalizationRequested;
     private String finalizationReason;
     private RuntimeInterruption interruption;
-    private ApprovedInvocation approvedInvocation;
     @Getter
     private volatile ExecutionStatus status = ExecutionStatus.RUNNING;
 
@@ -80,7 +75,7 @@ public final class ExecutionState {
                            RuntimeEventSink eventSink, AgentToolRuntimeConfig toolRuntimeConfig,
                            List<String> authorizedToolCodes, Long initialSequenceNo,
                            Integer initialModelCalls, Integer initialToolCalls, TokenUsage initialUsage,
-                           RuntimeCheckpointContext checkpointContext, RuntimeCheckpointStore checkpointStore,
+                           AgentScopeCheckpoint checkpointSeed, AgentScopeCheckpointStore checkpointStore,
                            Boolean finalModelCallReserved) {
         if (Objects.isNull(runId) || runId.isBlank() || Objects.isNull(agentId)
                 || Objects.isNull(agentVersionId)) {
@@ -93,7 +88,7 @@ public final class ExecutionState {
         this.policy = Objects.requireNonNull(policy, "Agent执行策略不能为空");
         this.eventSink = Objects.requireNonNull(eventSink, "Runtime事件接收器不能为空");
         this.toolRuntimeConfig = toolRuntimeConfig;
-        this.checkpointContext = checkpointContext;
+        this.checkpointSeed = checkpointSeed;
         this.checkpointStore = checkpointStore;
         this.authorizedToolCodes = Set.copyOf(
                 Objects.requireNonNullElseGet(authorizedToolCodes, List::of));
@@ -110,31 +105,36 @@ public final class ExecutionState {
         this.finalModelCallReserved = Boolean.TRUE.equals(finalModelCallReserved);
     }
 
-    /** 从持久Checkpoint恢复运行事实，并校验当前加载的冻结版本没有漂移。 */
-    public synchronized void restore(ExecutionStateSnapshot snapshot, SkillRuntimeCatalog currentSkills) {
-        Objects.requireNonNull(snapshot, "ExecutionState检查点不能为空");
-        validateSnapshotIdentity(snapshot);
-        validateSnapshotPolicy(snapshot);
-        List<SkillActivation> restoredSkills = validateSnapshotSkills(snapshot, currentSkills);
-        List<ExecutionStateSnapshot.ToolCallCount> counts = snapshot.getToolCallCounts() == null
-                ? List.of() : snapshot.getToolCallCounts();
+    /**
+     * 从持久 Checkpoint 恢复运行事实；发布 SkillVersion 在 Application 入口重新校验。
+     */
+    public synchronized void restore(AgentScopeCheckpoint checkpoint) {
+        Objects.requireNonNull(checkpoint, "AgentScope检查点不能为空");
+        validateCheckpointIdentity(checkpoint);
+        validateCheckpointPolicy(checkpoint);
+        List<AgentScopeCheckpoint.ToolCallCount> counts = checkpoint.getToolCallCounts() == null
+                ? List.of() : checkpoint.getToolCallCounts();
         toolCallCounts.clear();
-        for (ExecutionStateSnapshot.ToolCallCount count : counts) {
+        for (AgentScopeCheckpoint.ToolCallCount count : counts) {
             if (!toolDefinitions.containsKey(count.toolCode()) || count.calls() < 0) {
                 throw new IllegalArgumentException("Checkpoint Tool调用计数不合法");
             }
             toolCallCounts.put(count.toolCode(), count.calls());
         }
-        toolLedger.restore(snapshot.getToolLedger());
-        skillActivations.clear();
-        skillActivations.addAll(restoredSkills);
-        finalizationRequested = Boolean.TRUE.equals(snapshot.getFinalizationRequested());
-        finalizationReason = snapshot.getFinalizationReason();
+        Integer restoredRoundCalls = Objects.requireNonNullElse(checkpoint.getToolCallsInCurrentModelRound(), 0);
+        if (restoredRoundCalls < 0) {
+            throw new IllegalArgumentException("Checkpoint当前模型轮次Tool调用计数不合法");
+        }
+        toolCallsInCurrentModelRound.set(restoredRoundCalls);
+        finalizationRequested = Boolean.TRUE.equals(checkpoint.getFinalizationRequested());
+        finalizationReason = checkpoint.getFinalizationReason();
         output.setLength(0);
-        output.append(Objects.requireNonNullElse(snapshot.getOutput(), ""));
+        output.append(Objects.requireNonNullElse(checkpoint.getOutput(), ""));
     }
 
-    /** 根调用发布 Run 开始；每个隔离调用只发布自身 Agent 开始。 */
+    /**
+     * 根调用发布 Run 开始；每个隔离调用只发布自身 Agent 开始。
+     */
     public void start() {
         if (scope.isRun()) {
             publish(ExecutionEventType.RUN_STARTED, ExecutionStage.RUNTIME,
@@ -144,36 +144,41 @@ public final class ExecutionState {
                 new ExecutionEventPayload.Agent(agentId, agentVersionId, "Agent调用已开始"));
     }
 
-    /** Planner 每轮进入模型决策前发布统一规划事件。 */
+    /**
+     * AgentScope 每轮进入任务协调前发布统一规划事件。
+     */
     public void planning(int planNo) {
         ensureRunning();
         ExecutionEventType type = planNo == 1 ? ExecutionEventType.PLANNING : ExecutionEventType.REPLANNING;
         String message = planNo == 1 ? "正在规划任务" : "正在重新规划任务";
-        publish(type, ExecutionStage.PLAN, new ExecutionEventPayload.Plan(planNo, null, message));
+        publish(type, ExecutionStage.PLAN,
+                new ExecutionEventPayload.Plan(planNo, List.of(), message));
     }
 
-    /** Planner typed 决策通过业务校验后发布统一决策事件。 */
-    public void planCreated(int planNo, PlannerDecision decision) {
+    /**
+     * AgentScope 任务清单变更后追加可展示的任务快照。
+     */
+    public void tasksCreated(int revision, List<Task> tasks) {
         ensureRunning();
-        publish(ExecutionEventType.PLAN_CREATED, ExecutionStage.PLAN,
-                new ExecutionEventPayload.Plan(planNo, Objects.requireNonNull(decision, "Planner决策不能为空"),
-                        "规划决策已生成"));
-    }
-
-    /** 记录并发布一个已经过版本、安全、权限和预算校验的 Skill 激活事实。 */
-    public synchronized void activateSkill(SkillActivation activation) {
-        ensureRunning();
-        AgentSkillBindingSnapshot binding = requireSkillActivation(activation);
-        if (skillActivations.stream().anyMatch(existing -> Objects.equals(
-                existing.binding().getSkillVersionId(), binding.getSkillVersionId()))) {
-            throw new IllegalArgumentException("同一Agent调用不能重复激活SkillVersion");
+        List<Task> taskSnapshot = List.copyOf(Objects.requireNonNullElse(tasks, List.of()));
+        if (taskSnapshot.isEmpty()) {
+            throw new IllegalArgumentException("AgentScope任务快照不能为空");
         }
+        publish(ExecutionEventType.PLAN_CREATED, ExecutionStage.PLAN,
+                new ExecutionEventPayload.Plan(revision, taskSnapshot, "任务计划已更新"));
+    }
+
+    /**
+     * 将 AgentScope 已发生的 Skill 使用投影为 Lingxi 审计事件，不保存第二套激活状态。
+     */
+    public synchronized void recordSkillActivation(AgentSkillBindingSnapshot binding, SkillActivationReason reason) {
+        ensureRunning();
+        requireSkillActivation(binding, reason);
         List<String> effectiveTools = List.copyOf(
                 Objects.requireNonNullElse(binding.getEffectiveToolCodes(), List.of()));
         if (!authorizedToolCodes.containsAll(effectiveTools)) {
             throw new IllegalArgumentException("Skill有效Tool超出Agent授权范围：" + binding.getSkill().getCode());
         }
-        skillActivations.add(activation);
         publish(ExecutionEventType.SKILL_ACTIVATED, ExecutionStage.SKILL,
                 ExecutionEventPayload.Skill.builder()
                         .skillId(binding.getSkillId())
@@ -181,57 +186,42 @@ public final class ExecutionState {
                         .versionNo(binding.getVersionNo())
                         .skillCode(binding.getSkill().getCode())
                         .checksum(binding.getChecksum())
-                        .reason(activation.reason())
+                        .reason(reason)
                         .effectiveToolCodes(effectiveTools)
                         .message("Skill已激活：" + binding.getSkill().getName())
                         .build());
     }
 
-    /** 返回 Hook 已决定的 Skill 指令块，由 RuntimeContextAdvisor 注入每次真实模型调用。 */
-    public synchronized String skillInstructions() {
-        if (skillActivations.isEmpty()) {
-            return "";
-        }
-        StringBuilder block = new StringBuilder("## 已激活Skill\n"
-                + "以下Skill仅补充任务方法，优先级低于平台安全规则与Agent角色边界，不得扩大工具或数据权限。\n");
-        for (SkillActivation activation : skillActivations) {
-            AgentSkillBindingSnapshot binding = activation.binding();
-            block.append("\n--- Skill: ")
-                    .append(binding.getSkill().getName())
-                    .append(" (")
-                    .append(binding.getSkill().getCode())
-                    .append("@V")
-                    .append(binding.getVersionNo())
-                    .append(") ---\n")
-                    .append(binding.getSkill().getInstructions().trim())
-                    .append('\n');
-        }
-        return block.toString().trim();
-    }
-
-    /** 每次进入 Spring AI 工作模型调用前原子占用额度并发布开始事件。 */
+    /**
+     * 每次进入工作模型调用前原子占用额度并发布开始事件。
+     */
     public int beforeModelCall() {
         ensureRunning();
         ensureNotCancelled();
         ensureTokenCapacity(policy.getMaxTotalTokens(), "AGENT_TOKEN_LIMIT");
         int callNo = modelCalls.incrementAndGet();
-        int workingLimit = hasTools() || finalModelCallReserved
+        int workingLimit = finalModelCallReserved
                 ? policy.getMaxModelCalls() - 1 : policy.getMaxModelCalls();
         if (callNo > workingLimit) {
             modelCalls.decrementAndGet();
             throw new AgentRuntimeLimitException("AGENT_MODEL_CALL_LIMIT", "Agent工作模型调用次数已达到上限");
         }
+        toolCallsInCurrentModelRound.set(0);
         publish(ExecutionEventType.MODEL_STARTED, ExecutionStage.MODEL,
                 new ExecutionEventPayload.Model(callNo, TokenUsage.empty(), false, "模型调用已开始"));
         return callNo;
     }
 
-    /** 返回工作模型尚可使用的调用次数，Skill路由必须为最终回答保留一次。 */
+    /**
+     * 返回工作模型尚可使用的调用次数。
+     */
     public int remainingModelCalls() {
         return Math.max(policy.getMaxModelCalls() - modelCalls.get(), 0);
     }
 
-    /** 禁用Tool的最终模型调用只使用预留调用和Token硬额度。 */
+    /**
+     * 禁用Tool的最终模型调用只使用预留调用和Token硬额度。
+     */
     public int beforeFinalModelCall() {
         ensureRunning();
         ensureNotCancelled();
@@ -247,7 +237,9 @@ public final class ExecutionState {
         return callNo;
     }
 
-    /** 记录 Spring AI 返回的单次实际用量，并发布模型完成事件。 */
+    /**
+     * 记录模型返回的单次实际用量，并发布模型完成事件。
+     */
     public synchronized void completeModelCall(int callNo, TokenUsage usage, boolean finalCall) {
         if (status != ExecutionStatus.RUNNING) {
             return;
@@ -257,7 +249,9 @@ public final class ExecutionState {
                 new ExecutionEventPayload.Model(callNo, usage, finalCall, "模型调用已完成"));
     }
 
-    /** 合并隔离能力调用的实际消耗，并把事件序号推进到子调用之后。 */
+    /**
+     * 合并隔离能力调用的实际消耗，并把事件序号推进到子调用之后。
+     */
     public synchronized void recordDelegatedUsage(int delegatedModelCalls, int delegatedToolCalls,
                                                   TokenUsage usage, long delegatedLastSequenceNo) {
         ensureRunning();
@@ -270,7 +264,9 @@ public final class ExecutionState {
         eventSequence.accumulateAndGet(delegatedLastSequenceNo, Math::max);
     }
 
-    /** Runtime 主循环在启动新步骤前检查取消状态。 */
+    /**
+     * Runtime 主循环在启动新步骤前检查取消状态。
+     */
     public void ensureActive() {
         ensureRunning();
         ensureNotCancelled();
@@ -288,83 +284,66 @@ public final class ExecutionState {
                 && Objects.requireNonNullElse(usedTokens, 0) < policy.getMaxFinalizationTokens();
     }
 
-    public void stepStarted(int planNo, AgentInvocationState invocation) {
-        publishStep(ExecutionEventType.STEP_STARTED, planNo, invocation, AgentInvocationStatus.RUNNING,
+    public void stepStarted(int taskRevision, AgentInvocationState invocation) {
+        publishStep(ExecutionEventType.STEP_STARTED, taskRevision, invocation, AgentInvocationStatus.RUNNING,
                 null, "步骤已开始");
     }
 
-    public void stepReused(int planNo, AgentInvocationState invocation) {
-        publishStep(ExecutionEventType.STEP_REUSED, planNo, invocation, AgentInvocationStatus.REUSED,
+    public void stepReused(int taskRevision, AgentInvocationState invocation) {
+        publishStep(ExecutionEventType.STEP_REUSED, taskRevision, invocation, AgentInvocationStatus.REUSED,
                 null, "已复用相同副作用步骤结果");
     }
 
-    public void stepCompleted(int planNo, AgentInvocationState invocation) {
-        publishStep(ExecutionEventType.STEP_COMPLETED, planNo, invocation, AgentInvocationStatus.COMPLETED,
+    public void stepCompleted(int taskRevision, AgentInvocationState invocation) {
+        publishStep(ExecutionEventType.STEP_COMPLETED, taskRevision, invocation, AgentInvocationStatus.COMPLETED,
                 null, "步骤已完成");
     }
 
-    public void stepFailed(int planNo, AgentInvocationState invocation, String errorCode, String message) {
-        publishStep(ExecutionEventType.STEP_FAILED, planNo, invocation, AgentInvocationStatus.FAILED,
+    public void stepFailed(int taskRevision, AgentInvocationState invocation, String errorCode, String message) {
+        publishStep(ExecutionEventType.STEP_FAILED, taskRevision, invocation, AgentInvocationStatus.FAILED,
                 errorCode, message);
     }
 
-    public void clarificationRequired(int planNo, PlannerClarification clarification) {
+    /**
+     * AgentScope 请求用户补充信息时投影安全展示事件。
+     */
+    public void clarificationRequired(int taskRevision, RuntimeClarification clarification) {
         publish(ExecutionEventType.CLARIFICATION_REQUIRED, ExecutionStage.HUMAN,
-                new ExecutionEventPayload.Clarification(planNo, clarification, clarification.getQuestion()));
+                new ExecutionEventPayload.Clarification(taskRevision, clarification, clarification.getQuestion()));
     }
 
-    /** 按全局、单轮和单Tool上限筛选模型请求的调用，未知Tool永不执行。 */
-    public synchronized ToolCallSelection selectToolCalls(List<AssistantMessage.ToolCall> requestedCalls) {
+    /**
+     * AgentScope Toolkit 在实际调用前占用 Lingxi 的全局与单 Tool 预算。
+     */
+    public synchronized void beforeToolCall(AgentToolDefinition definition) {
         ensureRunning();
         ensureNotCancelled();
-        List<AssistantMessage.ToolCall> calls = List.copyOf(
-                Objects.requireNonNull(requestedCalls, "模型工具调用列表不能为空"));
-        List<AssistantMessage.ToolCall> candidates = calls.stream()
-                .filter(call -> {
-                    AgentToolDefinition definition = toolDefinitions.get(call.name());
-                    return definition != null && definition.getSecurityPolicy().isApprovalRequired();
-                })
-                .findFirst()
-                .map(List::of)
-                .orElse(calls);
-        List<AssistantMessage.ToolCall> approved = new ArrayList<>();
-        Map<String, Integer> roundCounts = new HashMap<>();
-        String limitReason = null;
-        for (AssistantMessage.ToolCall call : candidates) {
-            AgentToolDefinition definition = toolDefinitions.get(call.name());
-            if (Objects.isNull(definition)) {
-                limitReason = "模型请求了未授权工具";
-                continue;
-            }
-            int roundCount = roundCounts.getOrDefault(call.name(), 0);
-            int executionCount = toolCallCounts.getOrDefault(call.name(), 0);
-            boolean totalLimited = toolCalls.get() + approved.size() >= policy.getMaxToolCalls();
-            boolean roundLimited = roundCount >= definition.effectiveMaxCallsPerRound();
-            boolean executionLimited = executionCount >= definition.effectiveMaxCallsPerExecution();
-            if (totalLimited || roundLimited || executionLimited) {
-                limitReason = "工具调用已达到平台收敛边界";
-                continue;
-            }
-            approved.add(call);
-            roundCounts.merge(call.name(), 1, Integer::sum);
-            toolCallCounts.merge(call.name(), 1, Integer::sum);
+        AgentToolDefinition authorized = requireToolDefinition(definition.getCode());
+        if (!Objects.equals(authorized, definition)) {
+            throw new IllegalArgumentException("AgentScope请求了未授权Tool定义：" + definition.getCode());
         }
-        toolCalls.addAndGet(approved.size());
-        boolean totalLimited = policy.getMaxToolCalls() > 0 && toolCalls.get() >= policy.getMaxToolCalls();
-        boolean limited = approved.size() < candidates.size() || totalLimited
-                || hasReachedToolExecutionLimit(approved);
-        if (limited) {
-            requestFinalization(Objects.requireNonNullElse(limitReason, "工具已达到单次执行上限"));
+        int usedByTool = toolCallCounts.getOrDefault(definition.getCode(), 0);
+        if (toolCalls.get() >= policy.getMaxToolCalls()
+                || usedByTool >= definition.effectiveMaxCallsPerExecution()
+                || toolCallsInCurrentModelRound.get() >= definition.effectiveMaxCallsPerRound()) {
+            requestFinalization("工具调用已达到平台收敛边界");
+            throw new AgentRuntimeLimitException("AGENT_TOOL_CALL_LIMIT", "Agent工具调用次数已达到上限");
         }
-        return new ToolCallSelection(List.copyOf(approved), limited, finalizationReason());
+        toolCalls.incrementAndGet();
+        toolCallsInCurrentModelRound.incrementAndGet();
+        toolCallCounts.merge(definition.getCode(), 1, Integer::sum);
     }
 
-    /** Token软上限或既有收口决定命中后不再执行模型刚请求的新Tool。 */
+    /**
+     * Token软上限或既有收口决定命中后不再执行模型刚请求的新Tool。
+     */
     public boolean shouldFinalizeBeforeToolExecution() {
         return finalizationRequested || hasReached(tokenUsage.snapshot().totalTokens(), policy.getMaxTotalTokens());
     }
 
-    /** Tool执行后判断是否必须进入禁用Tool的最终回答。 */
+    /**
+     * Tool执行后判断是否必须进入禁用Tool的最终回答。
+     */
     public boolean shouldFinalize() {
         return finalizationRequested || modelCalls.get() >= policy.getMaxModelCalls() - 1
                 || hasReached(tokenUsage.snapshot().totalTokens(), policy.getMaxTotalTokens());
@@ -374,7 +353,9 @@ public final class ExecutionState {
         return finalizationRequested;
     }
 
-    /** 只记录首个收口原因，并发布一次 FINALIZING。 */
+    /**
+     * 只记录首个收口原因，并发布一次 FINALIZING。
+     */
     public synchronized void requestFinalization(String reason) {
         if (finalizationRequested) {
             return;
@@ -391,24 +372,8 @@ public final class ExecutionState {
                 .orElse("运行预算已到边界或工具结果已经收敛");
     }
 
-    public Optional<String> findReusableToolResult(AgentToolDefinition definition, String input) {
-        return toolLedger.findReusableResult(definition, input);
-    }
-
-    public void recordSuccessfulToolResult(AgentToolDefinition definition, String input, String result) {
-        toolLedger.recordSuccessfulResult(definition, input, result);
-    }
-
-    public String toolReuseResponse() {
-        return toolLedger.reuseResponse();
-    }
-
     public void toolStarted(String invocationId, AgentToolDefinition definition) {
         publishTool(ExecutionEventType.TOOL_STARTED, invocationId, definition, null, null);
-    }
-
-    public void toolReused(String invocationId, AgentToolDefinition definition) {
-        publishTool(ExecutionEventType.TOOL_REUSED, invocationId, definition, 0L, null);
     }
 
     public void toolCompleted(String invocationId, AgentToolDefinition definition, long durationMillis) {
@@ -420,7 +385,41 @@ public final class ExecutionState {
         publishTool(ExecutionEventType.TOOL_FAILED, invocationId, definition, durationMillis, errorCode);
     }
 
-    /** 记录最终回答文本事实；Token 用量由模型 Advisor 统一记账。 */
+    /**
+     * Supervisor 调用已发布 Capability 前占用全局 Tool 预算并投影统一审计事件。
+     */
+    public synchronized void capabilityDelegationStarted(String invocationId, String capabilityCode,
+                                                         String displayName) {
+        ensureRunning();
+        ensureNotCancelled();
+        if (capabilityCode == null || capabilityCode.isBlank() || displayName == null || displayName.isBlank()) {
+            throw new IllegalArgumentException("发布能力Tool定义不完整");
+        }
+        if (toolCalls.get() >= policy.getMaxToolCalls()) {
+            requestFinalization("发布能力调用已达到平台收敛边界");
+            throw new AgentRuntimeLimitException("AGENT_TOOL_CALL_LIMIT", "Agent工具调用次数已达到上限");
+        }
+        toolCalls.incrementAndGet();
+        toolCallsInCurrentModelRound.incrementAndGet();
+        publishCapabilityTool(ExecutionEventType.TOOL_STARTED, invocationId, capabilityCode, displayName,
+                null, null);
+    }
+
+    public void capabilityDelegationCompleted(String invocationId, String capabilityCode, String displayName,
+                                              long durationMillis) {
+        publishCapabilityTool(ExecutionEventType.TOOL_COMPLETED, invocationId, capabilityCode, displayName,
+                durationMillis, null);
+    }
+
+    public void capabilityDelegationFailed(String invocationId, String capabilityCode, String displayName,
+                                           long durationMillis, String errorCode) {
+        publishCapabilityTool(ExecutionEventType.TOOL_FAILED, invocationId, capabilityCode, displayName,
+                durationMillis, errorCode);
+    }
+
+    /**
+     * 记录最终回答文本事实；Token 用量由模型 Advisor 统一记账。
+     */
     public synchronized void appendOutput(String content) {
         if (Objects.nonNull(content) && !content.isEmpty()) {
             output.append(content);
@@ -516,15 +515,17 @@ public final class ExecutionState {
         return toolRuntimeConfig;
     }
 
-    public RuntimeCheckpointContext checkpointContext() {
-        return checkpointContext;
+    public AgentScopeCheckpoint checkpointSeed() {
+        return checkpointSeed;
     }
 
-    public RuntimeCheckpointStore checkpointStore() {
+    public AgentScopeCheckpointStore checkpointStore() {
         return checkpointStore;
     }
 
-    /** 领取批准调用前再次校验运行与取消状态。 */
+    /**
+     * 领取批准调用前再次校验运行与取消状态。
+     */
     public void ensureResumable() {
         ensureRunning();
         ensureNotCancelled();
@@ -538,36 +539,18 @@ public final class ExecutionState {
         return definition;
     }
 
-    /** 生成不包含框架对象和敏感Tool参数的执行状态快照。 */
-    public synchronized ExecutionStateSnapshot snapshot() {
-        List<ExecutionStateSnapshot.ToolCallCount> counts = toolCallCounts.entrySet().stream()
-                .map(entry -> new ExecutionStateSnapshot.ToolCallCount(entry.getKey(), entry.getValue()))
+    public synchronized List<AgentScopeCheckpoint.ToolCallCount> checkpointToolCallCounts() {
+        return toolCallCounts.entrySet().stream()
+                .map(entry -> new AgentScopeCheckpoint.ToolCallCount(entry.getKey(), entry.getValue()))
                 .toList();
-        List<ExecutionStateSnapshot.SkillState> skills = skillActivations.stream()
-                .map(activation -> new ExecutionStateSnapshot.SkillState(
-                        activation.binding().getSkillVersionId(), activation.binding().getChecksum(),
-                        activation.reason()))
-                .toList();
-        return ExecutionStateSnapshot.builder()
-                .runId(runId)
-                .agentId(agentId)
-                .agentVersionId(agentVersionId)
-                .maxModelCalls(policy.getMaxModelCalls())
-                .maxToolCalls(policy.getMaxToolCalls())
-                .maxTotalTokens(policy.getMaxTotalTokens())
-                .maxFinalizationTokens(policy.getMaxFinalizationTokens())
-                .modelCalls(modelCalls.get())
-                .toolCalls(toolCalls.get())
-                .tokenUsage(tokenUsage.snapshot())
-                .lastSequenceNo(eventSequence.get())
-                .finalizationRequested(finalizationRequested)
-                .finalizationReason(finalizationReason)
-                .output(output.toString())
-                .toolCallCounts(counts)
-                .toolLedger(toolLedger.snapshot())
-                .skills(skills)
-                .authorizedToolCodes(authorizedToolCodes.stream().sorted().toList())
-                .build();
+    }
+
+    public List<String> checkpointAuthorizedToolCodes() {
+        return authorizedToolCodes.stream().sorted().toList();
+    }
+
+    public int toolCallsInCurrentModelRound() {
+        return toolCallsInCurrentModelRound.get();
     }
 
     public synchronized void interrupt(RuntimeInterruption value) {
@@ -582,41 +565,10 @@ public final class ExecutionState {
         return interruption;
     }
 
-    /** 恢复时登记已被数据库CAS领取的原始Tool调用。 */
-    public synchronized void prepareApprovedInvocation(Long invocationId,
-                                                       RuntimeCheckpoint.ToolCallSnapshot call) {
-        ensureRunning();
-        approvedInvocation = new ApprovedInvocation(
-                Objects.requireNonNull(invocationId, "审批调用主键不能为空"),
-                Objects.requireNonNull(call, "审批ToolCall不能为空"));
-    }
-
     public synchronized void humanResolved(RuntimeInterruption value) {
         ensureRunning();
         publish(ExecutionEventType.HUMAN_RESOLVED, ExecutionStage.HUMAN,
                 new ExecutionEventPayload.Human(value, "人工确认已生效，Agent继续运行"));
-    }
-
-    /** RuntimeToolCallback只消费一次已领取调用，普通Tool返回空。 */
-    public synchronized Optional<Long> consumeApprovedInvocation(AgentToolDefinition definition, String input) {
-        if (approvedInvocation == null) {
-            return Optional.empty();
-        }
-        RuntimeCheckpoint.ToolCallSnapshot call = approvedInvocation.call();
-        if (!Objects.equals(call.getName(), definition.getCode()) || !Objects.equals(call.getArguments(), input)) {
-            throw new IllegalStateException("恢复的ToolCall与已批准参数不一致");
-        }
-        Long invocationId = approvedInvocation.invocationId();
-        approvedInvocation = null;
-        return Optional.of(invocationId);
-    }
-
-    public void completeApprovedInvocation(Long invocationId, String result) {
-        requireCheckpointStore().complete(invocationId, result);
-    }
-
-    public void failApprovedInvocation(Long invocationId, RuntimeException exception) {
-        requireCheckpointStore().fail(invocationId, exception);
     }
 
     public synchronized void reconciliationPending(Long invocationId, RuntimeException exception) {
@@ -630,61 +582,26 @@ public final class ExecutionState {
         return eventSequence.get();
     }
 
-    private RuntimeCheckpointStore requireCheckpointStore() {
+    private AgentScopeCheckpointStore requireCheckpointStore() {
         return Objects.requireNonNull(checkpointStore, "Checkpoint存储器不能为空");
     }
 
-    private void validateSnapshotIdentity(ExecutionStateSnapshot snapshot) {
-        if (!Objects.equals(runId, snapshot.getRunId()) || !Objects.equals(agentId, snapshot.getAgentId())
-                || !Objects.equals(agentVersionId, snapshot.getAgentVersionId())
-                || !authorizedToolCodes.equals(Set.copyOf(snapshot.getAuthorizedToolCodes() == null
-                        ? List.of() : snapshot.getAuthorizedToolCodes()))) {
+    private void validateCheckpointIdentity(AgentScopeCheckpoint checkpoint) {
+        if (!Objects.equals(runId, checkpoint.getRunId()) || !Objects.equals(agentId, checkpoint.getAgentId())
+                || !Objects.equals(agentVersionId, checkpoint.getAgentVersionId())
+                || !authorizedToolCodes.equals(Set.copyOf(checkpoint.getAuthorizedToolCodes() == null
+                ? List.of() : checkpoint.getAuthorizedToolCodes()))) {
             throw new IllegalArgumentException("Checkpoint运行身份或Tool授权已经漂移");
         }
     }
 
-    private void validateSnapshotPolicy(ExecutionStateSnapshot snapshot) {
-        if (!Objects.equals(snapshot.getMaxModelCalls(), policy.getMaxModelCalls())
-                || !Objects.equals(snapshot.getMaxToolCalls(), policy.getMaxToolCalls())
-                || !Objects.equals(snapshot.getMaxTotalTokens(), policy.getMaxTotalTokens())
-                || !Objects.equals(snapshot.getMaxFinalizationTokens(), policy.getMaxFinalizationTokens())) {
+    private void validateCheckpointPolicy(AgentScopeCheckpoint checkpoint) {
+        if (!Objects.equals(checkpoint.getMaxModelCalls(), policy.getMaxModelCalls())
+                || !Objects.equals(checkpoint.getMaxToolCalls(), policy.getMaxToolCalls())
+                || !Objects.equals(checkpoint.getMaxTotalTokens(), policy.getMaxTotalTokens())
+                || !Objects.equals(checkpoint.getMaxFinalizationTokens(), policy.getMaxFinalizationTokens())) {
             throw new IllegalArgumentException("Checkpoint执行策略已经漂移");
         }
-    }
-
-    private static List<SkillActivation> validateSnapshotSkills(ExecutionStateSnapshot snapshot,
-                                                                SkillRuntimeCatalog currentSkills) {
-        List<ExecutionStateSnapshot.SkillState> persisted = snapshot.getSkills() == null
-                ? List.of() : snapshot.getSkills();
-        SkillRuntimeCatalog catalog = Objects.requireNonNullElseGet(currentSkills, SkillRuntimeCatalog::empty);
-        Map<Long, AgentSkillBindingSnapshot> bindings = catalog.bindings().stream()
-                .collect(Collectors.toUnmodifiableMap(AgentSkillBindingSnapshot::getSkillVersionId,
-                        Function.identity()));
-        Set<String> explicitCodes = Set.copyOf(catalog.explicitSkillCodes());
-        Set<Long> required = catalog.bindings().stream()
-                .filter(binding -> binding.getSkill().getActivationMode() == SkillActivationMode.ALWAYS_ON
-                        || binding.getSkill().getActivationMode() == SkillActivationMode.EXPLICIT_ONLY
-                        && explicitCodes.contains(binding.getSkill().getCode()))
-                .map(AgentSkillBindingSnapshot::getSkillVersionId)
-                .collect(Collectors.toUnmodifiableSet());
-        if (persisted.stream().map(ExecutionStateSnapshot.SkillState::skillVersionId).distinct().count()
-                != persisted.size()) {
-            throw new IllegalArgumentException("Checkpoint SkillVersion已经漂移");
-        }
-        List<SkillActivation> restored = persisted.stream().map(skill -> {
-            AgentSkillBindingSnapshot binding = bindings.get(skill.skillVersionId());
-            if (binding == null || !Objects.equals(binding.getChecksum(), skill.checksum())
-                    || !isReasonAllowed(binding.getSkill().getActivationMode(), skill.reason())) {
-                throw new IllegalArgumentException("Checkpoint SkillVersion已经漂移");
-            }
-            return new SkillActivation(binding, skill.reason());
-        }).toList();
-        Set<Long> restoredIds = restored.stream().map(activation -> activation.binding().getSkillVersionId())
-                .collect(Collectors.toUnmodifiableSet());
-        if (!restoredIds.containsAll(required)) {
-            throw new IllegalArgumentException("Checkpoint缺少本轮必须激活的SkillVersion");
-        }
-        return restored;
     }
 
     private static Map<String, AgentToolDefinition> resolveToolDefinitions(AgentToolRuntimeConfig config) {
@@ -695,13 +612,11 @@ public final class ExecutionState {
                 .collect(Collectors.toUnmodifiableMap(AgentToolDefinition::getCode, Function.identity()));
     }
 
-    private AgentSkillBindingSnapshot requireSkillActivation(SkillActivation activation) {
-        if (Objects.isNull(activation) || Objects.isNull(activation.binding())
-                || Objects.isNull(activation.binding().getSkill()) || Objects.isNull(activation.reason())
-                || !isReasonAllowed(activation.binding().getSkill().getActivationMode(), activation.reason())) {
+    private static void requireSkillActivation(AgentSkillBindingSnapshot binding, SkillActivationReason reason) {
+        if (Objects.isNull(binding) || Objects.isNull(binding.getSkill()) || Objects.isNull(reason)
+                || !isReasonAllowed(binding.getSkill().getActivationMode(), reason)) {
             throw new IllegalArgumentException("Runtime只接受激活模式与原因一致的完整Skill事实");
         }
-        return activation.binding();
     }
 
     private static boolean isReasonAllowed(SkillActivationMode mode, SkillActivationReason reason) {
@@ -710,24 +625,21 @@ public final class ExecutionState {
                 || mode == SkillActivationMode.MODEL_ROUTED && reason == SkillActivationReason.MODEL_ROUTED;
     }
 
-    private boolean hasReachedToolExecutionLimit(List<AssistantMessage.ToolCall> approved) {
-        return approved.stream().map(AssistantMessage.ToolCall::name).distinct().anyMatch(toolCode -> {
-            AgentToolDefinition definition = toolDefinitions.get(toolCode);
-            int limit = definition.effectiveMaxCallsPerExecution();
-            return limit < Integer.MAX_VALUE && toolCallCounts.getOrDefault(toolCode, 0) >= limit;
-        });
-    }
-
     private void publishTool(ExecutionEventType type, String invocationId, AgentToolDefinition definition,
                              Long durationMillis, String errorCode) {
-        publish(type, ExecutionStage.TOOL, invocationId,
-                new ExecutionEventPayload.Tool(definition.getCode(), definition.getDisplayName(),
-                        durationMillis, errorCode));
+        publishCapabilityTool(type, invocationId, definition.getCode(), definition.getDisplayName(), durationMillis,
+                errorCode);
     }
 
-    private void publishStep(ExecutionEventType type, int planNo, AgentInvocationState invocation,
+    private void publishCapabilityTool(ExecutionEventType type, String invocationId, String toolCode,
+                                       String displayName, Long durationMillis, String errorCode) {
+        publish(type, ExecutionStage.TOOL, invocationId,
+                new ExecutionEventPayload.Tool(toolCode, displayName, durationMillis, errorCode));
+    }
+
+    private void publishStep(ExecutionEventType type, int taskRevision, AgentInvocationState invocation,
                              AgentInvocationStatus status, String errorCode, String message) {
-        publish(type, ExecutionStage.PLAN, new ExecutionEventPayload.Step(planNo, invocation.getStep(), status,
+        publish(type, ExecutionStage.PLAN, new ExecutionEventPayload.Step(taskRevision, invocation.getStep(), status,
                 errorCode, message));
     }
 
@@ -774,15 +686,4 @@ public final class ExecutionState {
                 .build());
     }
 
-    /**
-     * @param approvedCalls 本轮获准执行的Tool调用
-     * @param limited       是否因平台边界截断或命中上限
-     * @param reason        进入最终回答时的安全原因
-     */
-    public record ToolCallSelection(List<AssistantMessage.ToolCall> approvedCalls, boolean limited,
-                                    String reason) {
-    }
-
-    private record ApprovedInvocation(Long invocationId, RuntimeCheckpoint.ToolCallSnapshot call) {
-    }
 }

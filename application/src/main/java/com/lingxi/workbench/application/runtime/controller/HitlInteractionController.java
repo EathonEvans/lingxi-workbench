@@ -7,8 +7,11 @@ import com.lingxi.workbench.application.runtime.service.interaction.HitlDecision
 import com.lingxi.workbench.framework.convention.ApiResponse;
 import com.lingxi.workbench.framework.context.UserContext;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,6 +27,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/interactions")
 @RequiredArgsConstructor
+@Validated
 public class HitlInteractionController {
 
     private final HitlDecisionService service;
@@ -37,7 +41,8 @@ public class HitlInteractionController {
     }
 
     @GetMapping("/pending")
-    public ApiResponse<List<PendingInteractionVO>> pending(@RequestParam @Positive Long conversationId) {
+    public ApiResponse<List<PendingInteractionVO>> pending(
+            @RequestParam @NotBlank @Pattern(regexp = "^[1-9]\\d*$", message = "会话ID格式不正确") String conversationId) {
         return ApiResponse.success(service.pending(conversationId, UserContext.userId()));
     }
 }

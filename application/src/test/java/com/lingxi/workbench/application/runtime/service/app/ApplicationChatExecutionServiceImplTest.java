@@ -29,6 +29,9 @@ import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
+import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
+import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
 import com.lingxi.workbench.workflow.model.FallbackAgent;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
@@ -123,8 +126,8 @@ class ApplicationChatExecutionServiceImplTest {
             assertEquals(70L, request.getContext().getMemoryConfig().getEmbeddingModelInstanceId());
             assertEquals("测试用户", request.getContext()
                     .getRuntimeVariables().require(RuntimeVariableAccessors.USER_NAME));
-            assertEquals(14, request.getContext().remainingModelCalls());
-            request.getContext().recordUsage(TokenUsage.of(5, 1, 6));
+            assertEquals(14, request.getContext().getExecutionBudget().remainingModelCalls());
+            request.getContext().getExecutionBudget().recordUsage(TokenUsage.of(5, 1, 6));
             return new CapabilityExecutionResult("退款回答", 99L, List.of());
         };
         ApplicationChatExecutionServiceImpl service = service(
@@ -361,15 +364,15 @@ class ApplicationChatExecutionServiceImplTest {
     private static ApplicationChatExecutionServiceImpl service(CapabilityExecutionService capabilityService,
                                                                ConversationContextService contextService,
                                                                IntentRoutingService routingService,
-                                                               Object ignoredPlannerRuntime) {
+                                                               Object ignoredSupervisorRuntime) {
         return service(capabilityService, contextService, routingService,
-                ignoredPlannerRuntime, mock(ExecutionPersistenceService.class));
+                ignoredSupervisorRuntime, mock(ExecutionPersistenceService.class));
     }
 
     private static ApplicationChatExecutionServiceImpl service(CapabilityExecutionService capabilityService,
                                                                 ConversationContextService contextService,
                                                                 IntentRoutingService routingService,
-                                                                Object ignoredPlannerRuntime,
+                                                                Object ignoredSupervisorRuntime,
                                                                 ExecutionPersistenceService persistenceService) {
         InteractionSessionService interactionSessionService = mock(InteractionSessionService.class);
         when(interactionSessionService.resolve(
@@ -466,10 +469,14 @@ class ApplicationChatExecutionServiceImplTest {
     private static AppRuntimeSnapshot defaultSnapshot() {
         ApplicationDefinition definition = ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .collaboration(collaboration())
+                .memoryConf(MemoryConfig.disabled())
+                .contextPolicy(ApplicationContextPolicy.defaults())
                 .fallback(new FallbackAgent("default_agent"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder()
                         .capabilities(List.of(fallbackCap()))
                         .build())
+                .runtimePolicy(ApplicationRuntimePolicy.defaults())
                 .build();
         return new AppRuntimeSnapshot(1L, "support", 30L, definition);
     }
@@ -486,6 +493,8 @@ class ApplicationChatExecutionServiceImplTest {
                                                      MemoryConfig memory, boolean plannerEnabled) {
         ApplicationDefinition definition = ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .collaboration(collaboration())
+                .contextPolicy(ApplicationContextPolicy.defaults())
                 .fallback(new FallbackAgent("default_agent"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder()
                         .capabilities(List.of(fallbackCap(), mappedCapability))
@@ -497,8 +506,15 @@ class ApplicationChatExecutionServiceImplTest {
                         .mappings(List.of(mapping))
                         .build())
                 .memoryConf(memory)
+                .runtimePolicy(ApplicationRuntimePolicy.defaults())
                 .build();
         return new AppRuntimeSnapshot(1L, "support", 30L, definition);
+    }
+
+    private static AgentCollaborationDefinition collaboration() {
+        return new AgentCollaborationDefinition(
+                new ApplicationAgentReference(60L, 70L, "默认助手", "负责收口"),
+                List.of(), List.of(), List.of());
     }
 
     private static ApplicationCapabilityDefinition fallbackCap() {

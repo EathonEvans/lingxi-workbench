@@ -1,5 +1,6 @@
 package com.lingxi.workbench.chat.service.impl;
 
+import cn.hutool.core.text.CharSequenceUtil;
 import com.lingxi.workbench.chat.common.enums.ConversationStatus;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
@@ -61,9 +62,10 @@ public class ConversationServiceImpl implements ConversationService {
      */
     @Override
     @Transactional(readOnly = true)
-    public PageResult<ConversationMessageVO> messagePage(Long userId, Long conversationId, PageQuery query) {
-        requireConversation(conversationId, userId);
-        return messageRepo.findPage(conversationId, query).map(converter::toMessageVO);
+    public PageResult<ConversationMessageVO> messagePage(Long userId, String conversationId, PageQuery query) {
+        Long persistedConversationId = parseConversationId(conversationId);
+        requireConversation(persistedConversationId, userId);
+        return messageRepo.findPage(persistedConversationId, query).map(converter::toMessageVO);
     }
 
     /**
@@ -71,8 +73,8 @@ public class ConversationServiceImpl implements ConversationService {
      */
     @Override
     @Transactional
-    public void rename(Long userId, Long conversationId, RenameConversationRequest request) {
-        ConversationEntity entity = requireConversation(conversationId, userId);
+    public void rename(Long userId, String conversationId, RenameConversationRequest request) {
+        ConversationEntity entity = requireConversation(parseConversationId(conversationId), userId);
         entity.setTitle(request.title().trim());
         conversationRepo.save(entity);
     }
@@ -82,9 +84,10 @@ public class ConversationServiceImpl implements ConversationService {
      */
     @Override
     @Transactional
-    public void archive(Long userId, Long conversationId) {
-        ConversationEntity entity = requireConversation(conversationId, userId);
-        requireNoGeneratingMessage(conversationId);
+    public void archive(Long userId, String conversationId) {
+        Long persistedConversationId = parseConversationId(conversationId);
+        ConversationEntity entity = requireConversation(persistedConversationId, userId);
+        requireNoGeneratingMessage(persistedConversationId);
         entity.setStatus(ConversationStatus.ARCHIVED);
         conversationRepo.save(entity);
     }
@@ -94,9 +97,10 @@ public class ConversationServiceImpl implements ConversationService {
      */
     @Override
     @Transactional
-    public void delete(Long userId, Long conversationId) {
-        ConversationEntity entity = requireConversation(conversationId, userId);
-        requireNoGeneratingMessage(conversationId);
+    public void delete(Long userId, String conversationId) {
+        Long persistedConversationId = parseConversationId(conversationId);
+        ConversationEntity entity = requireConversation(persistedConversationId, userId);
+        requireNoGeneratingMessage(persistedConversationId);
         OffsetDateTime now = OffsetDateTime.now();
         entity.setDeletedAt(now);
         conversationRepo.save(entity);
@@ -115,7 +119,7 @@ public class ConversationServiceImpl implements ConversationService {
         // 新会话在首次发送事务内幂等创建；已有会话继续使用主键锁串行化消息序号。
         ConversationEntity conversation = resolveConversation(input);
         if (conversation.getStatus() != ConversationStatus.ACTIVE) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "已归档会话不能继续发送消息");
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "该会话已归档");
         }
 
         // clientMessageId 由前端为一次发送动作生成，网络重试时仍携带同一值，从而避免重复落库和重复扣费。
@@ -201,8 +205,10 @@ public class ConversationServiceImpl implements ConversationService {
      */
     @Override
     @Transactional
-    public void cancelAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage) {
-        messageRepo.finish(assistantMessageId, MessageStatus.CANCELLED, content, "CLIENT_CANCELLED", "客户端中断了本次回答", tokenUsage, null, OffsetDateTime.now());
+    public boolean cancelAssistant(Long assistantMessageId, String content, TokenUsage tokenUsage) {
+        boolean cancelled = messageRepo.finish(assistantMessageId, MessageStatus.CANCELLED, content,
+                "CLIENT_CANCELLED", "客户端中断了本次回答", tokenUsage, null, OffsetDateTime.now());
+        return cancelled || findCurrentStatus(assistantMessageId) == MessageStatus.CANCELLED;
     }
 
     /**
@@ -248,24 +254,34 @@ public class ConversationServiceImpl implements ConversationService {
         return conversationRepo.findOwnedById(conversationId, userId).orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "会话不存在"));
     }
 
-    /** 根据服务端会话主键或前端幂等标识解析并锁定本轮所属会话。 */
+    /**
+     * 根据服务端会话主键解析并锁定本轮所属会话；未传主键则创建新会话。
+     */
     private ConversationEntity resolveConversation(StartConversationTurnBO input) {
-        if (Objects.nonNull(input.getConversationId())) {
-            return conversationRepo.lockOwnedById(input.getConversationId(), input.getUserId())
+        if (CharSequenceUtil.isNotBlank(input.getConversationId())) {
+            return conversationRepo.lockOwnedById(parseConversationId(input.getConversationId()), input.getUserId())
                     .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "会话不存在"));
         }
-        if (Objects.isNull(input.getClientConversationId()) || input.getClientConversationId().isBlank()) {
-            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "客户端会话ID不能为空");
-        }
-        ConversationCreateResult result = conversationRepo.createAndLock(
-                input.getUserId(), input.getClientConversationId(), DEFAULT_TITLE);
+        ConversationCreateResult result = conversationRepo.createAndLockForFirstMessage(
+                input.getUserId(), input.getClientMessageId(), DEFAULT_TITLE);
         if (!result.created()) {
             opsMetrics.recordLazyCreateConflict();
         }
         return result.conversation();
     }
 
-    /** 命中相同客户端消息标识时返回原轮次，并校验重试请求没有篡改业务输入。 */
+    /** 将对外的字符串会话 ID 转换为持久化主键。 */
+    private static Long parseConversationId(String conversationId) {
+        try {
+            return Long.valueOf(conversationId);
+        } catch (NumberFormatException exception) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "会话ID格式不正确");
+        }
+    }
+
+    /**
+     * 命中相同客户端消息标识时返回原轮次，并校验重试请求没有篡改业务输入。
+     */
     private Optional<ChatTurnBO> findExistingTurn(ConversationEntity conversation, StartConversationTurnBO input, String prompt) {
         Optional<ConversationMessageEntity> optionalUserMessage = messageRepo.findUserMessage(conversation.getId(), input.getClientMessageId());
         if (optionalUserMessage.isEmpty()) {
@@ -278,14 +294,15 @@ public class ConversationServiceImpl implements ConversationService {
         ConversationMessageEntity assistantMessage = messageRepo.findBySequence(conversation.getId(), userMessage.getSequenceNo() + 1)
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "客户端消息ID对应的Assistant消息不存在"));
         if (assistantMessage.getRole() != MessageRole.ASSISTANT
-                || !Objects.equals(assistantMessage.getApplicationId(), input.getApplicationId())
-                || !Objects.equals(assistantMessage.getApplicationVersionId(), input.getApplicationVersionId())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "客户端消息ID对应的Application运行版本不一致");
+                || !Objects.equals(assistantMessage.getApplicationId(), input.getApplicationId())) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "客户端消息ID对应的Application归属不一致");
         }
         return Optional.of(new ChatTurnBO(conversation.getId(), userMessage.getId(), assistantMessage.getId(), userMessage.getSequenceNo()));
     }
 
-    /** 读取 Assistant 当前状态，供幂等终态写入区分重复完成与并发覆盖。 */
+    /**
+     * 读取 Assistant 当前状态，供幂等终态写入区分重复完成与并发覆盖。
+     */
     private MessageStatus findCurrentStatus(Long assistantMessageId) {
         return messageRepo.findById(assistantMessageId)
                 .map(ConversationMessageEntity::getStatus)

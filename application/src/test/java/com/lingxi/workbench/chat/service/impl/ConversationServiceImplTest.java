@@ -8,6 +8,7 @@ import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.bo.ConversationTurnStartBO;
 import com.lingxi.workbench.chat.model.bo.ConversationCreateResult;
 import com.lingxi.workbench.chat.model.bo.StartConversationTurnBO;
+import com.lingxi.workbench.chat.ops.ConversationOpsMetrics;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.chat.model.entity.ConversationEntity;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
@@ -24,9 +25,11 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -36,6 +39,7 @@ class ConversationServiceImplTest {
     @Mock private ConversationRepo conversationRepo;
     @Mock private ConversationMessageRepo messageRepo;
     @Mock private ConversationConverter converter;
+    @Mock private ConversationOpsMetrics opsMetrics;
 
     @InjectMocks private ConversationServiceImpl service;
 
@@ -57,7 +61,7 @@ class ConversationServiceImplTest {
 
         ConversationTurnStartBO result = service.startTurn(StartConversationTurnBO.builder()
                 .userId(7L)
-                .conversationId(10L)
+                .conversationId("10")
                 .clientMessageId("client-001")
                 .prompt("  这是一个用于生成会话标题的测试问题  ")
                 .modelInstanceId(20L)
@@ -105,9 +109,40 @@ class ConversationServiceImplTest {
     }
 
     @Test
+    void shouldConfirmCancellationOnlyWhenDatabaseHasCancelledTerminal() {
+        ConversationMessageEntity cancelled = new ConversationMessageEntity();
+        cancelled.setStatus(MessageStatus.CANCELLED);
+        when(messageRepo.findById(12L)).thenReturn(Optional.of(cancelled));
+
+        boolean result = service.cancelAssistant(12L, "部分回答", TokenUsage.empty());
+
+        assertTrue(result);
+        verify(messageRepo).finish(
+                org.mockito.ArgumentMatchers.eq(12L),
+                org.mockito.ArgumentMatchers.eq(MessageStatus.CANCELLED),
+                org.mockito.ArgumentMatchers.eq("部分回答"),
+                org.mockito.ArgumentMatchers.eq("CLIENT_CANCELLED"),
+                org.mockito.ArgumentMatchers.eq("客户端中断了本次回答"),
+                org.mockito.ArgumentMatchers.eq(TokenUsage.empty()),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void shouldRejectCancellationSignalWhenAnotherTerminalAlreadyWon() {
+        ConversationMessageEntity completed = new ConversationMessageEntity();
+        completed.setStatus(MessageStatus.COMPLETED);
+        when(messageRepo.findById(12L)).thenReturn(Optional.of(completed));
+
+        boolean result = service.cancelAssistant(12L, "部分回答", TokenUsage.empty());
+
+        assertFalse(result);
+    }
+
+    @Test
     void shouldCreateConversationOnlyWhenFirstMessageIsSent() {
         ConversationEntity conversation = activeConversation();
-        when(conversationRepo.createAndLock(7L, "conversation-local-001", "新会话"))
+        when(conversationRepo.createAndLockForFirstMessage(7L, "message-local-001", "新会话"))
                 .thenReturn(new ConversationCreateResult(conversation, true));
         when(messageRepo.nextSequence(10L)).thenReturn(1);
         doAnswer(invocation -> {
@@ -118,14 +153,13 @@ class ConversationServiceImplTest {
 
         ConversationTurnStartBO result = service.startTurn(StartConversationTurnBO.builder()
                 .userId(7L)
-                .clientConversationId("conversation-local-001")
                 .clientMessageId("message-local-001")
                 .prompt("首次发送")
                 .applicationId(21L)
                 .applicationVersionId(30L)
                 .build());
 
-        verify(conversationRepo).createAndLock(7L, "conversation-local-001", "新会话");
+        verify(conversationRepo).createAndLockForFirstMessage(7L, "message-local-001", "新会话");
         assertEquals(10L, result.turn().conversationId());
         assertEquals(true, result.isCreated());
     }
@@ -150,7 +184,7 @@ class ConversationServiceImplTest {
 
         ConversationTurnStartBO result = service.startTurn(StartConversationTurnBO.builder()
                 .userId(7L)
-                .conversationId(10L)
+                .conversationId("10")
                 .clientMessageId("message-local-001")
                 .prompt("重复发送")
                 .applicationId(21L)
@@ -159,6 +193,71 @@ class ConversationServiceImplTest {
 
         assertFalse(result.isCreated());
         assertEquals(new ChatTurnBO(10L, 11L, 12L, 1), result.turn());
+        verify(messageRepo, never()).save(any());
+    }
+
+    @Test
+    void shouldReuseOriginalApplicationVersionWhenPublishedVersionChangesBeforeRetry() {
+        ConversationEntity conversation = activeConversation();
+        ConversationMessageEntity userMessage = new ConversationMessageEntity();
+        userMessage.setId(11L);
+        userMessage.setSequenceNo(1);
+        userMessage.setRole(MessageRole.USER);
+        userMessage.setContent("重复发送");
+        ConversationMessageEntity assistantMessage = new ConversationMessageEntity();
+        assistantMessage.setId(12L);
+        assistantMessage.setSequenceNo(2);
+        assistantMessage.setRole(MessageRole.ASSISTANT);
+        assistantMessage.setApplicationId(21L);
+        assistantMessage.setApplicationVersionId(30L);
+        when(conversationRepo.lockOwnedById(10L, 7L)).thenReturn(Optional.of(conversation));
+        when(messageRepo.findUserMessage(10L, "message-local-001")).thenReturn(Optional.of(userMessage));
+        when(messageRepo.findBySequence(10L, 2)).thenReturn(Optional.of(assistantMessage));
+
+        ConversationTurnStartBO result = service.startTurn(StartConversationTurnBO.builder()
+                .userId(7L)
+                .conversationId("10")
+                .clientMessageId("message-local-001")
+                .prompt("重复发送")
+                .applicationId(21L)
+                .applicationVersionId(31L)
+                .build());
+
+        assertFalse(result.isCreated());
+        assertEquals(new ChatTurnBO(10L, 11L, 12L, 1), result.turn());
+        verify(messageRepo, never()).save(any());
+    }
+
+    @Test
+    void shouldReuseInitialConversationWhenFirstResponseWasLost() {
+        ConversationEntity conversation = activeConversation();
+        ConversationMessageEntity userMessage = new ConversationMessageEntity();
+        userMessage.setId(11L);
+        userMessage.setSequenceNo(1);
+        userMessage.setRole(MessageRole.USER);
+        userMessage.setContent("首次发送");
+        ConversationMessageEntity assistantMessage = new ConversationMessageEntity();
+        assistantMessage.setId(12L);
+        assistantMessage.setSequenceNo(2);
+        assistantMessage.setRole(MessageRole.ASSISTANT);
+        assistantMessage.setApplicationId(21L);
+        assistantMessage.setApplicationVersionId(30L);
+        when(conversationRepo.createAndLockForFirstMessage(7L, "message-local-001", "新会话"))
+                .thenReturn(new ConversationCreateResult(conversation, false));
+        when(messageRepo.findUserMessage(10L, "message-local-001")).thenReturn(Optional.of(userMessage));
+        when(messageRepo.findBySequence(10L, 2)).thenReturn(Optional.of(assistantMessage));
+
+        ConversationTurnStartBO result = service.startTurn(StartConversationTurnBO.builder()
+                .userId(7L)
+                .clientMessageId("message-local-001")
+                .prompt("首次发送")
+                .applicationId(21L)
+                .applicationVersionId(30L)
+                .build());
+
+        assertFalse(result.isCreated());
+        assertEquals(new ChatTurnBO(10L, 11L, 12L, 1), result.turn());
+        verify(opsMetrics, times(1)).recordLazyCreateConflict();
         verify(messageRepo, never()).save(any());
     }
 

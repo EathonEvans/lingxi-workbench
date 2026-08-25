@@ -262,6 +262,7 @@ class ApplicationDraftValidatorTest {
 
         assertThat(result.valid()).isTrue();
         assertThat(result.definition().schemaVersion()).isEqualTo(APPLICATION_SCHEMA_VERSION);
+        assertThat(result.definition().hasCompletePublishedDefinition()).isTrue();
         assertThat(result.definition().intentRouting()).isNull();
         assertThat(result.definition().fallback().cap()).isEqualTo("default_agent");
         assertThat(result.definition().runtimePolicy().getMaxDelegations()).isEqualTo(4);

@@ -24,6 +24,11 @@
                     <groupId>com.lingxi.ai</groupId>
                     <artifactId>framework</artifactId>
                 </exclusion>
+                <!-- MCP Server 仅保留 Spring AI Server SDK，禁止随 infra-ai 带入 AgentScope MCP Client SDK。 -->
+                <exclusion>
+                    <groupId>io.agentscope</groupId>
+                    <artifactId>agentscope-core</artifactId>
+                </exclusion>
             </exclusions>
         </dependency>
         <dependency>

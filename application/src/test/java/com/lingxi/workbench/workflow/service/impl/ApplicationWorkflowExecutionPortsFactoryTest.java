@@ -6,7 +6,11 @@ import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.service.agent.ChatAgentNodeInvoker;
 import com.lingxi.workbench.application.runtime.service.routing.WorkflowIntentClassifierNodeInvoker;
 import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionEventPublisher;
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
+import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
+import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
+import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.AgentNodeInvocation;
 import com.lingxi.workbench.workflow.model.IntentClassifierNodeInvocation;
@@ -65,7 +69,7 @@ class ApplicationWorkflowExecutionPortsFactoryTest {
         when(intentClassifierNodeInvoker.invoke(intentInvocation, executionContext)).thenReturn(intentResult);
 
         WorkflowExecutionPorts ports = new ApplicationWorkflowExecutionPortsFactory(
-                runService, agentNodeInvoker, intentClassifierNodeInvoker).create(executionContext);
+                runService, agentNodeInvoker, intentClassifierNodeInvoker).create(configureOwnership(executionContext));
 
         assertThat(ports.agentNodeInvoker().invoke(invocation)).containsEntry("answer", "回答");
         assertSame(intentResult, ports.intentClassifierNodeInvoker().invoke(intentInvocation));
@@ -81,7 +85,7 @@ class ApplicationWorkflowExecutionPortsFactoryTest {
         when(executionContext.getEventPublisher()).thenReturn(publisher);
         WorkflowRunListener listener = new ApplicationWorkflowExecutionPortsFactory(
                 runService, mock(ChatAgentNodeInvoker.class), mock(WorkflowIntentClassifierNodeInvoker.class))
-                .create(executionContext).runListener();
+                .create(configureOwnership(executionContext)).runListener();
         WorkflowRunContext context = runContext();
         WorkflowNodeDefinition node = startNode();
         Instant startedAt = Instant.parse("2026-08-09T06:00:00Z");
@@ -100,6 +104,29 @@ class ApplicationWorkflowExecutionPortsFactoryTest {
     }
 
     @Test
+    void shouldPersistWorkflowStartWithExplicitOwnershipCommand() {
+        WorkflowRunService runService = mock(WorkflowRunService.class);
+        ChatExecutionContext executionContext = configureOwnership(mock(ChatExecutionContext.class));
+        WorkflowRunListener listener = new ApplicationWorkflowExecutionPortsFactory(
+                runService, mock(ChatAgentNodeInvoker.class), mock(WorkflowIntentClassifierNodeInvoker.class))
+                .create(executionContext).runListener();
+
+        WorkflowRunContext context = runContext();
+        listener.onRunStarted(context);
+
+        ArgumentCaptor<com.lingxi.workbench.application.runtime.model.WorkflowRunStartCommand> commandCaptor =
+                ArgumentCaptor.forClass(com.lingxi.workbench.application.runtime.model.WorkflowRunStartCommand.class);
+        verify(runService).start(org.mockito.ArgumentMatchers.eq(context), commandCaptor.capture());
+        assertThat(commandCaptor.getValue()).satisfies(command -> {
+            assertThat(command.getAssistantMessageId()).isEqualTo(4L);
+            assertThat(command.getConversationId()).isEqualTo(2L);
+            assertThat(command.getUserId()).isEqualTo(5L);
+            assertThat(command.getApplicationId()).isEqualTo(6L);
+            assertThat(command.getApplicationVersionId()).isEqualTo(7L);
+        });
+    }
+
+    @Test
     void shouldKeepPersistedNodeStateWhenTimelinePublishingFails() {
         WorkflowRunService runService = mock(WorkflowRunService.class);
         ChatExecutionContext executionContext = mock(ChatExecutionContext.class);
@@ -108,7 +135,7 @@ class ApplicationWorkflowExecutionPortsFactoryTest {
         doThrow(new IllegalStateException("SSE连接已关闭")).when(publisher).publishExecution(any(ChatExecutionTimelineEventBO.class));
         WorkflowRunListener listener = new ApplicationWorkflowExecutionPortsFactory(
                 runService, mock(ChatAgentNodeInvoker.class), mock(WorkflowIntentClassifierNodeInvoker.class))
-                .create(executionContext).runListener();
+                .create(configureOwnership(executionContext)).runListener();
         WorkflowRunContext context = runContext();
         WorkflowNodeDefinition node = startNode();
         Instant startedAt = Instant.parse("2026-08-09T06:00:00Z");
@@ -131,5 +158,17 @@ class ApplicationWorkflowExecutionPortsFactoryTest {
 
     private static WorkflowNodeDefinition startNode() {
         return new WorkflowNodeDefinition("start", "开始", WorkflowNodeType.START, new StartNodeConfig());
+    }
+
+    private static ChatExecutionContext configureOwnership(ChatExecutionContext executionContext) {
+        ConversationContext conversation = mock(ConversationContext.class);
+        AppRuntimeSnapshot application = mock(AppRuntimeSnapshot.class);
+        when(executionContext.getConversationContext()).thenReturn(conversation);
+        when(executionContext.getTurn()).thenReturn(new ChatTurnBO(2L, 3L, 4L, 1));
+        when(conversation.getLoginUser()).thenReturn(new LoginUser(5L, "tester", "测试用户", null));
+        when(conversation.getApplicationSnapshot()).thenReturn(application);
+        when(application.applicationId()).thenReturn(6L);
+        when(application.versionId()).thenReturn(7L);
+        return executionContext;
     }
 }

@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime;
 
-import com.lingxi.workbench.agentruntime.checkpoint.RuntimeCheckpoint;
+import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
 import com.lingxi.workbench.agentruntime.model.SkillRuntimeCatalog;
 import com.lingxi.workbench.application.runtime.service.agent.AgentChatServiceImpl;
 import com.lingxi.workbench.application.runtime.service.app.ApplicationChatExecutionServiceImpl;
@@ -48,7 +48,12 @@ class ApplicationRuntimeBoundaryTest {
                 "com.lingxi.workbench.application.runtime.service.execution.ChatExecutionContextRegistry",
                 "com.lingxi.workbench.application.runtime.service.plan.PlannerRuntimeCoordinator",
                 "com.lingxi.workbench.application.runtime.service.plan.PlanExecutionService",
-                "com.lingxi.workbench.application.runtime.service.plan.FinalSynthesisService");
+                "com.lingxi.workbench.application.runtime.service.plan.FinalSynthesisService",
+                "com.lingxi.workbench.agentruntime.PlannerRuntime",
+                "com.lingxi.workbench.agentruntime.SupervisorRuntime",
+                "com.lingxi.workbench.agentruntime.plan.RuntimePlanStore",
+                "com.lingxi.workbench.agentruntime.planner.PlannerDecision",
+                "com.lingxi.workbench.application.runtime.service.execution.ApplicationRuntimePlanStore");
 
         for (String removedType : removedTypes) {
             assertThrows(ClassNotFoundException.class, () -> Class.forName(removedType));
@@ -72,6 +77,6 @@ class ApplicationRuntimeBoundaryTest {
                 () -> SkillRuntimeService.class.getMethod("resolveAlwaysOn",
                         com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition.class,
                         com.lingxi.workbench.workflow.model.ContextBudgetPolicy.class));
-        assertEquals(3, RuntimeCheckpoint.CURRENT_VERSION);
+        assertEquals(3, AgentScopeCheckpoint.CURRENT_VERSION);
     }
 }

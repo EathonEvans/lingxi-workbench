@@ -23,7 +23,5 @@ public interface McpServerConstants {
 
     int MAX_TIMEOUT_SECONDS = 60;
 
-    int MAX_DISCOVERY_PAGE_COUNT = 20;
-
     int MAX_DISCOVERED_TOOL_COUNT = 200;
 }

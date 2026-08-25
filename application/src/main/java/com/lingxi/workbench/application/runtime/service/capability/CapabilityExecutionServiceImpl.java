@@ -260,7 +260,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
         requireChecksum(capability, checksum.calculate(toolConfiguration(toolDefinition)));
         AgentTool tool = toolRuntimeService.resolveActiveTool(capability.getTargetId());
         // 预留工具调用配额，防止会话内工具调用次数超限
-        request.getContext().reserveToolCalls(1);
+        request.getContext().getExecutionBudget().reserveToolCalls(1);
         String invocationId = UUID.randomUUID().toString();
         long startedAt = System.nanoTime();
         // 发布 RUNNING 事件，开始工具调用
@@ -323,6 +323,7 @@ public class CapabilityExecutionServiceImpl implements CapabilityExecutionServic
         configuration.put("sourceType", tool.getSourceType());
         configuration.put("mcpServerId", tool.getMcpServerId());
         configuration.put("remoteToolName", tool.getRemoteToolName());
+        configuration.put("reconciliationQueryToolName", tool.getReconciliationQueryToolName());
         configuration.put("inputSchema", tool.getParameterSchema());
         return configuration;
     }

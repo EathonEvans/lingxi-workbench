@@ -64,16 +64,16 @@ public class ConversationRepo {
     }
 
     /** 幂等创建并锁定首次发送对应的会话。 */
-    public ConversationCreateResult createAndLock(Long userId, String clientConversationId, String title) {
+    public ConversationCreateResult createAndLockForFirstMessage(Long userId, String clientMessageId, String title) {
         ConversationEntity entity = new ConversationEntity();
         entity.setUserId(userId);
-        entity.setClientConversationId(clientConversationId);
+        entity.setInitialClientMessageId(clientMessageId);
         entity.setTitle(title);
         entity.setStatus(ConversationStatus.ACTIVE);
         entity.setMessageCount(0);
         boolean created = mapper.insertIfAbsent(entity) == 1;
         ConversationEntity conversation = Optional.ofNullable(
-                        mapper.selectOwnedByClientIdForUpdate(userId, clientConversationId))
+                        mapper.selectOwnedByInitialMessageIdForUpdate(userId, clientMessageId))
                 .orElseThrow(() -> new IllegalStateException("首次发送对应的会话创建失败"));
         return new ConversationCreateResult(conversation, created);
     }

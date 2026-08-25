@@ -24,26 +24,26 @@ public interface ConversationMapper extends BaseMapper<ConversationEntity> {
     ConversationEntity selectOwnedForUpdate(
             @Param("id") Long id, @Param("userId") Long userId);
 
-    /** 按客户端会话标识锁定用户所属会话。 */
+    /** 按首轮客户端消息标识锁定用户所属会话。 */
     @Select("""
             SELECT *
             FROM lingxi_core.ai_conversation
             WHERE user_id = #{userId}
-              AND client_conversation_id = #{clientConversationId}
+              AND initial_client_message_id = #{clientMessageId}
               AND deleted_at IS NULL
             FOR UPDATE
             """)
-    ConversationEntity selectOwnedByClientIdForUpdate(@Param("userId") Long userId,
-                                                       @Param("clientConversationId") String clientConversationId);
+    ConversationEntity selectOwnedByInitialMessageIdForUpdate(@Param("userId") Long userId,
+                                                               @Param("clientMessageId") String clientMessageId);
 
     /** 幂等创建首次发送对应的会话；并发冲突时由调用方重新锁定既有记录。 */
     @Insert("""
             INSERT INTO lingxi_core.ai_conversation
-                (user_id, client_conversation_id, title, status, message_count)
+                (user_id, initial_client_message_id, title, status, message_count)
             VALUES
-                (#{userId}, #{clientConversationId}, #{title}, #{status}, #{messageCount})
-            ON CONFLICT (user_id, client_conversation_id)
-                WHERE client_conversation_id IS NOT NULL
+                (#{userId}, #{initialClientMessageId}, #{title}, #{status}, #{messageCount})
+            ON CONFLICT (user_id, initial_client_message_id)
+                WHERE initial_client_message_id IS NOT NULL
             DO NOTHING
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id")

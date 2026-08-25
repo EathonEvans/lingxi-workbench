@@ -1,10 +1,15 @@
 package com.lingxi.workbench.application.runtime.model;
 
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
+import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
+import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.FallbackAgent;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
+import com.lingxi.workbench.workflow.model.MemoryConfig;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
 import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
@@ -33,11 +38,22 @@ class ApplicationRuntimeSnapshotTest {
 
     @Test
     void shouldRejectDefinitionWithoutAnyExecutionEntry() {
+        ApplicationDefinition definition = definition(null);
+        definition.setFallback(null);
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> new AppRuntimeSnapshot(1L, "support", 2L,
-                        ApplicationDefinition.builder().schemaVersion(APPLICATION_SCHEMA_VERSION).build()));
+                () -> new AppRuntimeSnapshot(1L, "support", 2L, definition));
 
         assertEquals("Application缺少fallback Agent能力编码", error.getMessage());
+    }
+
+    @Test
+    void shouldRejectIncompletePublishedDefinition() {
+        ApplicationDefinition definition = definition(null);
+        definition.setMemoryConf(null);
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> new AppRuntimeSnapshot(1L, "support", 2L, definition));
+
+        assertEquals("Application发布快照缺少必填配置", error.getMessage());
     }
 
     @Test
@@ -116,10 +132,16 @@ class ApplicationRuntimeSnapshotTest {
                 .build();
         return ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .collaboration(new AgentCollaborationDefinition(
+                        new ApplicationAgentReference(10L, 11L, "默认助手", "负责收口"),
+                        List.of(), List.of(), List.of()))
+                .memoryConf(MemoryConfig.disabled())
+                .contextPolicy(ApplicationContextPolicy.defaults())
                 .fallback(new FallbackAgent("default_agent"))
                 .capabilityCatalog(CapabilityCatalogSnapshot.builder()
                         .capabilities(List.of(fallbackCap, workflowCapability))
                         .build())
+                .runtimePolicy(ApplicationRuntimePolicy.defaults())
                 .intentRouting(mapping == null ? null : intentRouting)
                 .build();
     }

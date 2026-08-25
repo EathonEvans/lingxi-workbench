@@ -3,9 +3,11 @@ package com.lingxi.workbench.workflow.service.impl;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
 import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
+import com.lingxi.workbench.application.runtime.model.WorkflowRunStartCommand;
 import com.lingxi.workbench.application.runtime.service.agent.ChatAgentNodeInvoker;
 import com.lingxi.workbench.application.runtime.service.routing.WorkflowIntentClassifierNodeInvoker;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
+import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.workflow.model.WorkflowExecutionResult;
 import com.lingxi.workbench.workflow.model.WorkflowExecutionPorts;
 import com.lingxi.workbench.workflow.model.WorkflowNodeDefinition;
@@ -31,7 +33,8 @@ public class ApplicationWorkflowExecutionPortsFactory {
     private final WorkflowIntentClassifierNodeInvoker intentClassifierNodeInvoker;
 
     public WorkflowExecutionPorts create(ChatExecutionContext executionContext) {
-        WorkflowRunListener runListener = new BoundWorkflowRunListener(runService, executionContext);
+        WorkflowRunListener runListener = new BoundWorkflowRunListener(runService, executionContext,
+                startCommand(executionContext));
         return new WorkflowExecutionPorts(
                 invocation -> agentNodeInvoker.invoke(invocation, executionContext),
                 invocation -> intentClassifierNodeInvoker.invoke(invocation, executionContext),
@@ -39,16 +42,18 @@ public class ApplicationWorkflowExecutionPortsFactory {
     }
 
     private record BoundWorkflowRunListener(WorkflowRunService runService,
-                                            ChatExecutionContext executionContext) implements WorkflowRunListener {
+                                            ChatExecutionContext executionContext,
+                                            WorkflowRunStartCommand startCommand) implements WorkflowRunListener {
 
         private BoundWorkflowRunListener {
             java.util.Objects.requireNonNull(runService, "Workflow运行服务不能为空");
             java.util.Objects.requireNonNull(executionContext, "Chat执行上下文不能为空");
+            java.util.Objects.requireNonNull(startCommand, "Workflow运行启动命令不能为空");
         }
 
         @Override
         public void onRunStarted(WorkflowRunContext context) {
-            runService.start(context, executionContext);
+            runService.start(context, startCommand);
         }
 
         @Override
@@ -94,5 +99,17 @@ public class ApplicationWorkflowExecutionPortsFactory {
                 log.warn("Workflow节点事件发布失败, runId={}, nodeId={}, eventType={}", context.getRunId(), node.id(), eventType, exception);
             }
         }
+    }
+
+    private static WorkflowRunStartCommand startCommand(ChatExecutionContext executionContext) {
+        ConversationContext conversation = java.util.Objects.requireNonNull(executionContext.getConversationContext(),
+                "Workflow缺少共享对话上下文");
+        return WorkflowRunStartCommand.builder()
+                .assistantMessageId(executionContext.getTurn().assistantMessageId())
+                .conversationId(executionContext.getTurn().conversationId())
+                .userId(conversation.getLoginUser().id())
+                .applicationId(conversation.getApplicationSnapshot().applicationId())
+                .applicationVersionId(conversation.getApplicationSnapshot().versionId())
+                .build();
     }
 }

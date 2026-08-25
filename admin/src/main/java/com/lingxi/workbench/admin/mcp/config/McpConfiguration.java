@@ -1,7 +1,7 @@
 package com.lingxi.workbench.admin.mcp.config;
 
 import com.lingxi.workbench.infra.ai.mcp.McpServerAddressPolicy;
-import com.lingxi.workbench.infra.ai.mcp.McpSyncClientFactory;
+import com.lingxi.workbench.infra.ai.mcp.AgentScopeMcpClientFactory;
 import com.lingxi.workbench.infra.ai.mcp.config.McpClientSecurityProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -20,7 +20,7 @@ public class McpConfiguration {
     }
 
     @Bean
-    public McpSyncClientFactory mcpSyncClientFactory(McpServerAddressPolicy addressPolicy) {
-        return new McpSyncClientFactory(addressPolicy);
+    public AgentScopeMcpClientFactory agentScopeMcpClientFactory(McpServerAddressPolicy addressPolicy) {
+        return new AgentScopeMcpClientFactory(addressPolicy);
     }
 }

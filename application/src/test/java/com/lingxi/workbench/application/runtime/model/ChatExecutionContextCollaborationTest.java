@@ -23,17 +23,31 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ChatExecutionContextCollaborationTest {
 
     @Test
-    void shouldIsolatePlanStepTextAndShareTokenAccumulator() {
+    void shouldRejectMissingExecutionBudget() {
+        assertThrows(NullPointerException.class, () -> ChatExecutionContext.builder()
+                .executionId("execution-1")
+                .runtimeVariables(new RuntimeVariables())
+                .turn(new ChatTurnBO(10L, 11L, 12L, 1))
+                .build());
+    }
+
+    @Test
+    void shouldRejectMissingRuntimePolicyWhenCreatingExecutionBudget() {
+        assertThrows(NullPointerException.class, () -> ApplicationExecutionBudget.fromRuntimePolicy(null));
+    }
+
+    @Test
+    void shouldIsolateTaskTextAndShareTokenAccumulator() {
         AtomicInteger publishedTexts = new AtomicInteger();
         ChatExecutionContext parent = context(publishedTexts, 2);
 
-        ChatExecutionContext child = parent.forkForPlanStep("核对退款规则", "run-1", 1, "step-1");
+        ChatExecutionContext child = parent.forkForTask("核对退款规则", "run-1", 1, "step-1");
         child.getEventPublisher().publishText(new ChatStreamChunk("专家草稿"));
-        child.recordUsage(TokenUsage.of(10, 5, 15));
+        child.getExecutionBudget().recordUsage(TokenUsage.of(10, 5, 15));
 
         assertEquals(0, publishedTexts.get());
         assertEquals("核对退款规则", child.getRuntimeVariables().require(RuntimeVariableAccessors.USER_QUERY));
-        assertEquals(15, parent.tokenUsage().totalTokens());
+        assertEquals(15, parent.getExecutionBudget().tokenUsage().totalTokens());
         assertEquals(ExecutionScope.RUN, parent.getExecutionScope());
         assertEquals(ExecutionScope.INVOCATION, child.getExecutionScope());
     }
@@ -43,10 +57,10 @@ class ChatExecutionContextCollaborationTest {
         ChatExecutionContext parent = context(new AtomicInteger(), 1);
 
         ChatExecutionContext child = parent.forkForQuery("子任务");
-        parent.reserveDelegation();
+        parent.getExecutionBudget().reserveDelegation();
 
-        assertEquals(0, child.remainingDelegations());
-        assertThrows(BusinessException.class, child::reserveDelegation);
+        assertEquals(0, child.getExecutionBudget().remainingDelegations());
+        assertThrows(BusinessException.class, child.getExecutionBudget()::reserveDelegation);
     }
 
     @Test
@@ -55,22 +69,23 @@ class ChatExecutionContextCollaborationTest {
                 .executionId("execution-1")
                 .runtimeVariables(new RuntimeVariables())
                 .turn(new ChatTurnBO(8L, 9L, 10L, 1))
-                .runtimePolicy(ApplicationRuntimePolicy.builder().totalTokenBudget(20).build())
+                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(
+                        ApplicationRuntimePolicy.builder().totalTokenBudget(20).build()))
                 .build();
         ChatExecutionContext child = parent.forkForQuery("子任务");
 
-        child.recordUsage(TokenUsage.of(8, 7, 15));
+        child.getExecutionBudget().recordUsage(TokenUsage.of(8, 7, 15));
 
-        assertEquals(5, parent.remainingTokenBudget());
-        assertEquals(5, child.remainingTokenBudget());
-        parent.recordUsage(TokenUsage.of(3, 3, 6));
-        assertEquals(1, parent.remainingFinalizationTokenBudget());
-        parent.recordUsage(TokenUsage.of(1, 1, 2));
+        assertEquals(5, parent.getExecutionBudget().remainingTokenBudget());
+        assertEquals(5, child.getExecutionBudget().remainingTokenBudget());
+        parent.getExecutionBudget().recordUsage(TokenUsage.of(3, 3, 6));
+        assertEquals(1, parent.getExecutionBudget().remainingFinalizationTokenBudget());
+        parent.getExecutionBudget().recordUsage(TokenUsage.of(1, 1, 2));
 
-        assertEquals(23, parent.tokenUsage().totalTokens());
-        assertTrue(parent.shouldFinalize());
-        assertFalse(parent.hasFinalizationCapacity());
-        assertThrows(BusinessException.class, parent::remainingFinalizationTokenBudget);
+        assertEquals(23, parent.getExecutionBudget().tokenUsage().totalTokens());
+        assertTrue(parent.getExecutionBudget().shouldFinalize());
+        assertFalse(parent.getExecutionBudget().hasFinalizationCapacity());
+        assertThrows(BusinessException.class, parent.getExecutionBudget()::remainingFinalizationTokenBudget);
     }
 
     @Test
@@ -79,20 +94,20 @@ class ChatExecutionContextCollaborationTest {
                 .executionId("execution-1")
                 .runtimeVariables(new RuntimeVariables())
                 .turn(new ChatTurnBO(8L, 9L, 10L, 1))
-                .runtimePolicy(ApplicationRuntimePolicy.builder()
-                        .maxModelCalls(2).maxToolCalls(3).totalTokenBudget(100).build())
+                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.builder()
+                        .maxModelCalls(2).maxToolCalls(3).totalTokenBudget(100).build()))
                 .build();
         ChatExecutionContext child = parent.forkForQuery("子任务");
 
-        parent.reserveModelCall();
-        child.reserveFinalModelCall();
-        child.reserveToolCalls(2);
-        parent.reserveToolCalls(1);
+        parent.getExecutionBudget().reserveModelCall();
+        child.getExecutionBudget().reserveFinalModelCall();
+        child.getExecutionBudget().reserveToolCalls(2);
+        parent.getExecutionBudget().reserveToolCalls(1);
 
-        assertEquals(0, parent.remainingModelCalls());
-        assertEquals(0, child.remainingToolCalls());
-        assertThrows(BusinessException.class, parent::reserveModelCall);
-        assertThrows(BusinessException.class, () -> child.reserveToolCalls(1));
+        assertEquals(0, parent.getExecutionBudget().remainingModelCalls());
+        assertEquals(0, child.getExecutionBudget().remainingToolCalls());
+        assertThrows(BusinessException.class, parent.getExecutionBudget()::reserveModelCall);
+        assertThrows(BusinessException.class, () -> child.getExecutionBudget().reserveToolCalls(1));
     }
 
     private static ChatExecutionContext context(AtomicInteger publishedTexts, int maxDelegations) {
@@ -105,12 +120,12 @@ class ChatExecutionContextCollaborationTest {
                 .executionId("execution-1")
                 .runtimeVariables(variables)
                 .turn(new ChatTurnBO(8L, 9L, 10L, 1))
-                .runtimePolicy(ApplicationRuntimePolicy.builder()
+                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.builder()
                         .maxModelCalls(4)
                         .maxToolCalls(4)
                         .maxDelegations(maxDelegations)
                         .totalTokenBudget(100)
-                        .build())
+                        .build()))
                 .eventPublisher(new ChatExecutionEventPublisher() {
                     @Override
                     public void publishText(ChatStreamChunk chunk) {

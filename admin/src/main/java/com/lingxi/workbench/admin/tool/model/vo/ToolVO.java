@@ -31,6 +31,8 @@ public class ToolVO {
 
     private String remoteToolName;
 
+    private String reconciliationQueryToolName;
+
     private List<ToolParameterDefinition> parameters;
 
     private ToolRiskLevel riskLevel;
