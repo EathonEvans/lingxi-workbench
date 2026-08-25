@@ -162,7 +162,6 @@ export type ChatErrorPayload = {
 
 export type StreamChatOptions = {
   applicationCode: string;
-  clientConversationId?: string;
   clientMessageId: string;
   clarificationResponse?: ClarificationResponse;
   conversationId?: string;
@@ -188,7 +187,6 @@ type ResumeChatOptions = Omit<
   StreamChatOptions,
   | "applicationCode"
   | "clarificationResponse"
-  | "clientConversationId"
   | "clientMessageId"
   | "conversationId"
   | "onStart"
@@ -519,7 +517,6 @@ async function initiateChat(options: StreamChatOptions): Promise<ChatStart> {
   const response = await fetch(`${API_BASE_URL}/v1/ai/chat/start`, {
     body: JSON.stringify({
       applicationCode: options.applicationCode,
-      clientConversationId: options.clientConversationId,
       clientMessageId: options.clientMessageId,
       clarificationResponse: options.clarificationResponse,
       conversationId: options.conversationId,

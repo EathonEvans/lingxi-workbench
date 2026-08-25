@@ -40,10 +40,11 @@ export type ChatMessage = {
   tools?: ChatToolEvent[];
 };
 
-type PendingGeneration = {
+export type PendingGeneration = {
   answer: string;
+  applicationCode: string;
   assistantMessageId: string;
-  clientConversationId?: string;
+  clarificationResponse?: ClarificationResponse;
   conversationId?: string;
   lastSequence: number;
   prompt: string;
@@ -106,12 +107,20 @@ type UseChatStreamReturn = {
 const PENDING_GENERATION_KEY = "lingxi-pending-generation";
 const MAX_STEP_OUTPUT_CHARACTERS = 12000;
 
-function readPendingGeneration(): PendingGeneration | undefined {
+export function readPendingGeneration(): PendingGeneration | undefined {
   try {
     const value = sessionStorage.getItem(PENDING_GENERATION_KEY);
     if (!value) return undefined;
     const pending = JSON.parse(value) as PendingGeneration;
-    if (!isServerMessageId(pending.assistantMessageId) || !pending.conversationId) {
+    const hasRequiredRequest = Boolean(
+      pending.applicationCode
+      && pending.assistantMessageId
+      && pending.prompt
+      && pending.userMessageId,
+    );
+    const serverTaskWithoutConversation = isServerMessageId(pending.assistantMessageId)
+      && !pending.conversationId;
+    if (!hasRequiredRequest || serverTaskWithoutConversation) {
       clearPendingGeneration();
       return undefined;
     }
@@ -129,7 +138,7 @@ function readPendingGeneration(): PendingGeneration | undefined {
   }
 }
 
-function savePendingGeneration(pending: PendingGeneration) {
+export function savePendingGeneration(pending: PendingGeneration) {
   sessionStorage.setItem(PENDING_GENERATION_KEY, JSON.stringify(pending));
 }
 
@@ -298,7 +307,6 @@ export function useChatStream({
         const temporaryUserId = pending.userMessageId;
         pending.assistantMessageId = start.assistantMessageId;
         pending.conversationId = start.conversationId;
-        pending.clientConversationId = undefined;
         pending.userMessageId = start.userMessageId;
         conversationIdRef.current = start.conversationId;
         savePendingGeneration(pending);
@@ -400,9 +408,44 @@ export function useChatStream({
     [createHandlers, finishGeneration, handleGenerationError, session],
   );
 
+  const startGeneration = useCallback(
+    async (pending: PendingGeneration, clarificationResponse?: ClarificationResponse) => {
+      if (!session) return;
+      if (clarificationResponse) pending.clarificationResponse = clarificationResponse;
+      pendingGenerationRef.current = pending;
+      // /start 返回前也必须保存 clientMessageId；刷新后用同一请求重试才能命中服务端幂等记录。
+      savePendingGeneration(pending);
+      setStreaming(true);
+      setStreamError(undefined);
+      setResumeAvailable(false);
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      const handlers = createHandlers(pending);
+      try {
+        await streamChat({
+          applicationCode: pending.applicationCode,
+          clarificationResponse: pending.clarificationResponse,
+          clientMessageId: pending.userMessageId,
+          conversationId: pending.conversationId,
+          ...handlers,
+          query: pending.prompt,
+          session,
+          signal: controller.signal,
+        });
+        finishGeneration(pending);
+      } catch (error) {
+        handleGenerationError(pending, error, "生成失败，请稍后重试");
+      } finally {
+        if (abortControllerRef.current === controller) abortControllerRef.current = null;
+        setStreaming(false);
+      }
+    },
+    [createHandlers, finishGeneration, handleGenerationError, session],
+  );
+
   useEffect(() => {
-    if (!session || pendingGenerationRef.current) return;
-    const pending = readPendingGeneration();
+    if (!session) return;
+    const pending = pendingGenerationRef.current ?? readPendingGeneration();
     if (!pending) return;
     pendingGenerationRef.current = pending;
     let active = true;
@@ -428,46 +471,18 @@ export function useChatStream({
         ];
       });
       if (pending.conversationId) onConversationCreated?.(pending.conversationId);
-      if (!pending.interaction) resumeGeneration(pending, () => active);
+      if (pending.interaction) return;
+      if (isServerMessageId(pending.assistantMessageId)) {
+        resumeGeneration(pending, () => active);
+      } else {
+        void startGeneration(pending);
+      }
     });
     return () => {
       active = false;
       abortControllerRef.current?.abort();
     };
-  }, [onConversationCreated, resumeGeneration, session]);
-
-  const startGeneration = useCallback(
-    async (pending: PendingGeneration, clarificationResponse?: ClarificationResponse) => {
-      if (!session || !selectedApplicationCode) return;
-      pendingGenerationRef.current = pending;
-      setStreaming(true);
-      setStreamError(undefined);
-      setResumeAvailable(false);
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-      const handlers = createHandlers(pending);
-      try {
-        await streamChat({
-          applicationCode: selectedApplicationCode,
-          clarificationResponse,
-          clientConversationId: pending.clientConversationId,
-          clientMessageId: pending.userMessageId,
-          conversationId: pending.conversationId,
-          ...handlers,
-          query: pending.prompt,
-          session,
-          signal: controller.signal,
-        });
-        finishGeneration(pending);
-      } catch (error) {
-        handleGenerationError(pending, error, "生成失败，请稍后重试");
-      } finally {
-        if (abortControllerRef.current === controller) abortControllerRef.current = null;
-        setStreaming(false);
-      }
-    },
-    [createHandlers, finishGeneration, handleGenerationError, selectedApplicationCode, session],
-  );
+  }, [onConversationCreated, resumeGeneration, session, startGeneration]);
 
   const sendPrompt = useCallback(
     async (text: string) => {
@@ -484,8 +499,8 @@ export function useChatStream({
         const prompt = text.trim();
         const pending: PendingGeneration = {
           answer: "",
+          applicationCode: selectedApplicationCode,
           assistantMessageId: generateMessageId(),
-          clientConversationId: conversationId ? undefined : generateMessageId(),
           conversationId,
           lastSequence: 0,
           prompt,
@@ -593,6 +608,7 @@ export function useChatStream({
       if (!previous?.conversationId || !session || !selectedApplicationCode || streaming) return;
       const pending: PendingGeneration = {
         answer: "",
+        applicationCode: selectedApplicationCode,
         assistantMessageId: generateMessageId(),
         conversationId: previous.conversationId,
         lastSequence: 0,
@@ -655,7 +671,7 @@ export function useChatStream({
 
   const restorePendingInteraction = useCallback(
     async (conversationId: string, restoredMessages: ChatMessage[]) => {
-      if (!session) return;
+      if (!session || !selectedApplicationCode) return;
       const interactions = await listPendingInteractions(conversationId, session);
       const interaction = interactions[0];
       if (!interaction) {
@@ -674,6 +690,7 @@ export function useChatStream({
       const event: ChatInteractionEvent = { ...interaction, sequence: 0 };
       const pending: PendingGeneration = {
         answer: assistant.content,
+        applicationCode: selectedApplicationCode,
         assistantMessageId: assistant.id,
         conversationId,
         interaction: event,
@@ -693,7 +710,7 @@ export function useChatStream({
         message.id === assistant.id ? { ...message, status: "waiting" } : message,
       ));
     },
-    [session],
+    [selectedApplicationCode, session],
   );
 
   const clearError = useCallback(() => setStreamError(undefined), []);

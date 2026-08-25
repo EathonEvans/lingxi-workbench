@@ -257,7 +257,6 @@ describe("streamChat", () => {
     try {
       await streamChat({
         ...options(),
-        clientConversationId: "conversation-local-001",
         conversationId: undefined,
         onStart,
         skillCodes: ["fact_check"],
@@ -267,7 +266,6 @@ describe("streamChat", () => {
       const requestBody = JSON.parse(String(startRequest?.body)) as Record<string, unknown>;
       expect(requestBody).toMatchObject({
         applicationCode: "support",
-        clientConversationId: "conversation-local-001",
         clientMessageId: "msg-1",
         query: "你好",
         skillCodes: ["fact_check"],
