@@ -7,6 +7,5 @@ target/
 *.log
 .env
 .env.*
-!.env.example
 .learnings/
 docs
