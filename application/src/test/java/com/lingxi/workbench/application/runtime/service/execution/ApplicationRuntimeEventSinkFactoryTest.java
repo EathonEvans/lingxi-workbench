@@ -19,11 +19,15 @@ import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import io.agentscope.core.state.Task;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationHandler;
+import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -32,11 +36,12 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class ApplicationRuntimeEventSinkFactoryTest {
 
     @Test
-    void shouldPersistSkillEventAndAuditBeforeTimelineProjection() {
+    void shouldPersistSkillEventAndProjectUserFacingMessage() {
         ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
         ChatExecutionEventPublisher publisher = mock(ChatExecutionEventPublisher.class);
         RuntimeEventSink sink = sink(persistenceService,
@@ -57,6 +62,10 @@ class ApplicationRuntimeEventSinkFactoryTest {
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         order.verify(publisher).publishExecution(org.mockito.ArgumentMatchers.any());
         verify(persistenceService, never()).appendEvent(org.mockito.ArgumentMatchers.any());
+        ArgumentCaptor<ChatExecutionTimelineEventBO> timelineCaptor =
+                ArgumentCaptor.forClass(ChatExecutionTimelineEventBO.class);
+        verify(publisher).publishExecution(timelineCaptor.capture());
+        assertEquals("已准备相关专业能力", timelineCaptor.getValue().getMessage());
     }
 
     @Test
@@ -87,6 +96,7 @@ class ApplicationRuntimeEventSinkFactoryTest {
         assertEquals(1L, persistedSequence);
         assertEquals(occurredAt, commandCaptor.getValue().getOccurredAt());
         assertEquals(ExecutionEventType.MODEL_STARTED, commandCaptor.getValue().getEventType());
+        assertEquals("正在分析问题", commandCaptor.getValue().getMessage());
         assertEquals(15, budget.remainingModelCalls());
     }
 
@@ -197,6 +207,7 @@ class ApplicationRuntimeEventSinkFactoryTest {
         assertEquals(2, timelineCaptor.getValue().getPlanNo());
         assertEquals("任务计划已更新", timelineCaptor.getValue().getMessage());
         assertEquals("research", timelineCaptor.getValue().steps().getFirst().stepId());
+        assertEquals(ExecutionStepStatus.PENDING, timelineCaptor.getValue().steps().getFirst().status());
     }
 
     @Test
@@ -232,15 +243,92 @@ class ApplicationRuntimeEventSinkFactoryTest {
         assertEquals("收集资料", timelineCaptor.getValue().getDisplayName());
     }
 
+    @Test
+    void shouldPersistCoordinationWithoutExposingInternalEventToChat() {
+        ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
+        ChatExecutionEventPublisher publisher = mock(ChatExecutionEventPublisher.class);
+        ApplicationExecutionBudget budget = ApplicationExecutionBudget.fromRuntimePolicy(
+                ApplicationRuntimePolicy.defaults());
+        RuntimeEventSink sink = sink(persistenceService, budget, publisher);
+
+        sink.onEvent(ExecutionEvent.builder()
+                .runId("run-1").sequenceNo(11L).occurredAt(Instant.parse("2026-08-17T14:00:04Z"))
+                .type(com.lingxi.workbench.agentruntime.event.ExecutionEventType.COORDINATION_STARTED)
+                .stage(ExecutionStage.COORDINATION).agentId(10L).agentVersionId(20L)
+                .invocationId("coordination-1")
+                .payload(new ExecutionEventPayload.Coordination("wait_async_results", "结果等待", null, null))
+                .build());
+
+        ArgumentCaptor<ExecutionEventCommand> commandCaptor = ArgumentCaptor.forClass(ExecutionEventCommand.class);
+        verify(persistenceService).appendEvent(commandCaptor.capture());
+        assertEquals(ExecutionEventType.COORDINATION_STARTED, commandCaptor.getValue().getEventType());
+        assertEquals(16, budget.remainingModelCalls());
+        assertEquals(20, budget.remainingToolCalls());
+        verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void shouldPairCoordinationEventsIntoRuntimeObservation() {
+        ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
+        ChatExecutionEventPublisher publisher = mock(ChatExecutionEventPublisher.class);
+        ObservationRegistry observationRegistry = ObservationRegistry.create();
+        List<Observation.Context> stopped = new ArrayList<>();
+        observationRegistry.observationConfig().observationHandler(new ObservationHandler<Observation.Context>() {
+            @Override
+            public void onStop(Observation.Context context) {
+                stopped.add(context);
+            }
+
+            @Override
+            public boolean supportsContext(Observation.Context context) {
+                return "lingxi.ai.runtime.phase".equals(context.getName());
+            }
+        });
+        RuntimeEventSink sink = sink(persistenceService,
+                ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.defaults()), publisher,
+                observationRegistry);
+
+        sink.onEvent(coordinationEvent(
+                com.lingxi.workbench.agentruntime.event.ExecutionEventType.COORDINATION_STARTED, null));
+        sink.onEvent(coordinationEvent(
+                com.lingxi.workbench.agentruntime.event.ExecutionEventType.COORDINATION_COMPLETED, 12L));
+
+        assertEquals(1, stopped.size());
+        Observation.Context context = stopped.getFirst();
+        assertEquals("COORDINATION", context.getLowCardinalityKeyValue("lingxi.runtime.phase").getValue());
+        assertEquals("wait_async_results",
+                context.getLowCardinalityKeyValue("lingxi.runtime.operation").getValue());
+        assertNull(context.getError());
+    }
+
     private static RuntimeEventSink sink(ExecutionPersistenceService persistenceService,
                                          ApplicationExecutionBudget budget,
                                          ChatExecutionEventPublisher publisher) {
+        return sink(persistenceService, budget, publisher, ObservationRegistry.NOOP);
+    }
+
+    private static RuntimeEventSink sink(ExecutionPersistenceService persistenceService,
+                                         ApplicationExecutionBudget budget,
+                                         ChatExecutionEventPublisher publisher,
+                                         ObservationRegistry observationRegistry) {
         org.mockito.Mockito.when(persistenceService.appendEvent(org.mockito.ArgumentMatchers.any()))
                 .thenAnswer(invocation -> persisted(invocation.getArgument(0)));
         org.mockito.Mockito.when(persistenceService.appendSkillActivationEvent(
                         org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                 .thenAnswer(invocation -> persisted(invocation.getArgument(0)));
-        return new ApplicationRuntimeEventSinkFactory(persistenceService).create(budget, publisher);
+        return new ApplicationRuntimeEventSinkFactory(persistenceService, observationRegistry)
+                .create(budget, publisher);
+    }
+
+    private static ExecutionEvent coordinationEvent(
+            com.lingxi.workbench.agentruntime.event.ExecutionEventType eventType, Long durationMillis) {
+        return ExecutionEvent.builder()
+                .runId("run-observation-1").sequenceNo(12L).occurredAt(Instant.parse("2026-08-17T14:00:05Z"))
+                .type(eventType).stage(ExecutionStage.COORDINATION).agentId(10L).agentVersionId(20L)
+                .invocationId("coordination-observation-1")
+                .payload(new ExecutionEventPayload.Coordination(
+                        "wait_async_results", "结果等待", durationMillis, null))
+                .build();
     }
 
     private static ExecutionEventEntity persisted(ExecutionEventCommand command) {

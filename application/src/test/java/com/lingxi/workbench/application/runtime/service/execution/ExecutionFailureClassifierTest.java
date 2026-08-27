@@ -26,7 +26,7 @@ class ExecutionFailureClassifierTest {
         ExecutionFailure failure = classifier.classify(new IllegalStateException("provider failed"));
 
         assertEquals("CAPABILITY_EXECUTION_FAILED", failure.code());
-        assertEquals("能力执行失败", failure.clientMessage());
+        assertEquals("本次处理未完成，请稍后重试", failure.clientMessage());
         assertFalse(failure.retryable());
     }
 
@@ -36,6 +36,17 @@ class ExecutionFailureClassifierTest {
                 new AgentRuntimeLimitException("AGENT_MODEL_CALL_LIMIT", "Agent工作模型调用次数已达到上限"));
 
         assertEquals("AGENT_MODEL_CALL_LIMIT", failure.code());
+        assertEquals("本轮处理步骤已达到上限，请缩小问题范围后重试", failure.clientMessage());
+        assertFalse(failure.retryable());
+    }
+
+    @Test
+    void shouldHideInternalTokenLimitWording() {
+        ExecutionFailure failure = classifier.classify(
+                new AgentRuntimeLimitException("AGENT_TOKEN_LIMIT", "Agent Token额度已达到上限"));
+
+        assertEquals("AGENT_TOKEN_LIMIT", failure.code());
+        assertEquals("本轮可用额度已用完，请缩小问题范围后重试", failure.clientMessage());
         assertFalse(failure.retryable());
     }
 }

@@ -13,6 +13,7 @@ public enum AiObservationEventType {
     RUN_FAILED("RUN_FAILED", "运行失败"),
     MODEL_CALL("MODEL_CALL", "模型调用"),
     TOOL_CALL("TOOL_CALL", "工具调用"),
+    RUNTIME_PHASE("RUNTIME_PHASE", "运行阶段"),
     STAGE_COMPLETED("STAGE_COMPLETED", "阶段完成"),
     EXECUTION_COMPLETED("EXECUTION_COMPLETED", "目标执行完成");
 

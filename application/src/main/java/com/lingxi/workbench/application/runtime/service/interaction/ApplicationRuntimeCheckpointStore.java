@@ -89,7 +89,7 @@ public class ApplicationRuntimeCheckpointStore implements AgentScopeCheckpointSt
         InteractionSessionContext interactionContext = InteractionSessionContext.builder()
                 .originalQuery(checkpoint.getQuery())
                 .title("确认执行“" + definition.getDisplayName() + "”")
-                .summary("该操作需要你的明确批准，批准前不会调用外部工具。")
+                .summary("该操作需要你的明确批准，确认前不会执行。")
                 .riskLevel(definition.getSecurityPolicy().getRiskLevel().name())
                 .resourceScope(checkpoint.getResourceScope())
                 .toolCode(definition.getCode())

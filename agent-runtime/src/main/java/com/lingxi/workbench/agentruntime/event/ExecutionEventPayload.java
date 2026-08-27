@@ -17,6 +17,7 @@ import java.util.List;
  */
 public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run, ExecutionEventPayload.Agent,
         ExecutionEventPayload.Model, ExecutionEventPayload.Skill, ExecutionEventPayload.Tool,
+        ExecutionEventPayload.Coordination,
         ExecutionEventPayload.Human, ExecutionEventPayload.Plan, ExecutionEventPayload.Step,
         ExecutionEventPayload.Clarification, ExecutionEventPayload.Failure {
 
@@ -111,6 +112,23 @@ public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run,
             implements ExecutionEventPayload {
         public Model {
             usage = java.util.Objects.requireNonNullElseGet(usage, TokenUsage::empty);
+        }
+    }
+
+    /**
+     * AgentScope 原生协作工具的安全观测事实，不包含任务标识、参数或结果。
+     *
+     * @param operation      稳定操作编码
+     * @param displayName    管理端可读名称
+     * @param durationMillis 操作耗时
+     * @param errorCode      稳定失败编码
+     */
+    record Coordination(String operation, String displayName, Long durationMillis, String errorCode)
+            implements ExecutionEventPayload {
+
+        @Override
+        public String message() {
+            return displayName;
         }
     }
 

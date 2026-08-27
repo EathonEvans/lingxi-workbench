@@ -148,6 +148,8 @@ class ChatStreamServiceImplTest {
                 .thenReturn(Optional.of(assistant(MessageStatus.GENERATING, "")));
         when(generationEventRepo.findAfter(any(), anyLong())).thenReturn(List.of());
         when(aiTracingService.start(any(), any(), any())).thenReturn(traceRun);
+        when(generationTaskRegistry.register(anyLong(), any(Runnable.class), any(Runnable.class)))
+                .thenReturn(GenerationTaskRegistry.RegistrationResult.ACQUIRED);
         doAnswer(invocation -> ((Supplier<?>) invocation.getArgument(0)).get())
                 .when(traceRun).scoped(org.mockito.ArgumentMatchers.<Supplier<?>>any());
         doAnswer(invocation -> {
@@ -324,9 +326,9 @@ class ChatStreamServiceImplTest {
                 .join();
 
         assertEquals(List.of(ChatGenerationEventBO.failed(
-                "AGENT_TOOL_CALL_LIMIT", "工具调用次数已达到上限，现有信息不足以继续处理")), events);
+                "AGENT_TOOL_CALL_LIMIT", "本轮处理步骤已达到上限，请缩小问题范围后重试")), events);
         verify(conversationService).failAssistant(12L, "", "AGENT_TOOL_CALL_LIMIT",
-                "工具调用次数已达到上限，现有信息不足以继续处理", TokenUsage.empty());
+                "本轮处理步骤已达到上限，请缩小问题范围后重试", TokenUsage.empty());
     }
 
     @Test
@@ -347,9 +349,9 @@ class ChatStreamServiceImplTest {
                 .orTimeout(Duration.ofSeconds(2).toMillis(), TimeUnit.MILLISECONDS)
                 .join();
 
-        assertEquals(List.of(ChatGenerationEventBO.failed("AI_MODEL_TIMEOUT", "模型响应超时，请重试")), events);
+        assertEquals(List.of(ChatGenerationEventBO.failed("AI_MODEL_TIMEOUT", "本次处理等待时间过长，请重试")), events);
         verify(conversationService).failAssistant(
-                12L, "", "AI_MODEL_TIMEOUT", "模型响应超时，请重试", TokenUsage.empty());
+                12L, "", "AI_MODEL_TIMEOUT", "本次处理等待时间过长，请重试", TokenUsage.empty());
     }
 
     @Test
@@ -411,9 +413,9 @@ class ChatStreamServiceImplTest {
 
         assertEquals(List.of(
                 ChatGenerationEventBO.chunk(1, "已经整理出的可用内容"),
-                ChatGenerationEventBO.failed("AI_MODEL_TIMEOUT", "模型响应超时，请重试")), events);
+                ChatGenerationEventBO.failed("AI_MODEL_TIMEOUT", "本次处理等待时间过长，请重试")), events);
         verify(conversationService).failAssistant(
-                12L, "已经整理出的可用内容", "AI_MODEL_TIMEOUT", "模型响应超时，请重试", TokenUsage.empty());
+                12L, "已经整理出的可用内容", "AI_MODEL_TIMEOUT", "本次处理等待时间过长，请重试", TokenUsage.empty());
     }
 
     @Test
@@ -453,7 +455,7 @@ class ChatStreamServiceImplTest {
         service.start(createChatRequest(), LOGIN_USER);
         gate.awaitStarted();
         ArgumentCaptor<Runnable> cancellationHandler = ArgumentCaptor.forClass(Runnable.class);
-        verify(generationTaskRegistry).register(eq(12L), cancellationHandler.capture());
+        verify(generationTaskRegistry).register(eq(12L), cancellationHandler.capture(), any(Runnable.class));
 
         CompletableFuture<List<ChatGenerationEventBO>> eventsFuture = service.resume(12L, 0, 7L).collectList().toFuture();
         cancellationHandler.getValue().run();
@@ -462,6 +464,40 @@ class ChatStreamServiceImplTest {
                 .orTimeout(Duration.ofSeconds(2).toMillis(), TimeUnit.MILLISECONDS).join());
         verify(conversationService, never()).cancelAssistant(anyLong(), any(), any());
         gate.release();
+    }
+
+    @Test
+    void shouldDetachWithoutChangingDatabaseWhenRedisOwnershipIsLost() {
+        ApplicationExecutionGate gate = prepareApplicationExecution("不会返回");
+
+        service.start(createChatRequest(), LOGIN_USER);
+        gate.awaitStarted();
+        ArgumentCaptor<Runnable> ownershipLostHandler = ArgumentCaptor.forClass(Runnable.class);
+        verify(generationTaskRegistry).register(eq(12L), any(Runnable.class), ownershipLostHandler.capture());
+        CompletableFuture<List<ChatGenerationEventBO>> eventsFuture = service.resume(12L, 0, 7L)
+                .collectList().toFuture();
+
+        ownershipLostHandler.getValue().run();
+
+        assertEquals(List.of(), eventsFuture.orTimeout(Duration.ofSeconds(2).toMillis(), TimeUnit.MILLISECONDS).join());
+        verify(conversationService, never()).cancelAssistant(anyLong(), any(), any());
+        verify(conversationService, never()).interruptAssistant(anyLong(), any(), any());
+        verify(conversationService, never()).failAssistant(anyLong(), any(), any(), any(), any());
+        verify(traceRun).cancel("TASK_OWNERSHIP_LOST");
+        gate.release();
+    }
+
+    @Test
+    void shouldNotStartDuplicateExecutionWhenAnotherInstanceOwnsTask() {
+        when(generationTaskRegistry.register(anyLong(), any(Runnable.class), any(Runnable.class)))
+                .thenReturn(GenerationTaskRegistry.RegistrationResult.ACTIVE_ELSEWHERE);
+
+        ChatStartVO result = service.start(createChatRequest(), LOGIN_USER);
+
+        assertEquals("12", result.assistantMessageId());
+        verify(appRuntime, never()).execute(any(ApplicationChatExecutionRequest.class));
+        verify(conversationService, never()).failAssistant(anyLong(), any(), any(), any(), any());
+        verify(traceRun).cancel("TASK_OWNED_BY_ANOTHER_INSTANCE");
     }
 
     @Test
@@ -589,7 +625,7 @@ class ChatStreamServiceImplTest {
     private static InteractionSessionEntity pendingApproval() {
         InteractionSessionContext context = InteractionSessionContext.builder()
                 .title("确认执行“发送邮件”")
-                .summary("该操作需要你的明确批准，批准前不会调用外部工具。")
+                .summary("该操作需要你的明确批准，确认前不会执行。")
                 .riskLevel("HIGH")
                 .resourceScope("外部邮箱")
                 .toolCode("send_mail")

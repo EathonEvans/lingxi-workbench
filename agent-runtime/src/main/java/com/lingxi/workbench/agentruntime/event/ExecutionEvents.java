@@ -146,6 +146,23 @@ public final class ExecutionEvents {
         publishCapability(ExecutionEventType.TOOL_FAILED, invocationId, invocation, durationMillis, code);
     }
 
+    public void coordinationStarted(String invocationId, String operation, String displayName) {
+        publish(ExecutionEventType.COORDINATION_STARTED, ExecutionStage.COORDINATION, invocationId,
+                new ExecutionEventPayload.Coordination(operation, displayName, null, null));
+    }
+
+    public void coordinationCompleted(String invocationId, String operation, String displayName,
+                                      long durationMillis) {
+        publish(ExecutionEventType.COORDINATION_COMPLETED, ExecutionStage.COORDINATION, invocationId,
+                new ExecutionEventPayload.Coordination(operation, displayName, durationMillis, null));
+    }
+
+    public void coordinationFailed(String invocationId, String operation, String displayName,
+                                   long durationMillis, String code) {
+        publish(ExecutionEventType.COORDINATION_FAILED, ExecutionStage.COORDINATION, invocationId,
+                new ExecutionEventPayload.Coordination(operation, displayName, durationMillis, code));
+    }
+
     public void humanRequired(RuntimeInterruption interruption) {
         publish(ExecutionEventType.HUMAN_REQUIRED, ExecutionStage.HUMAN,
                 new ExecutionEventPayload.Human(interruption, "Agent等待人工确认"));

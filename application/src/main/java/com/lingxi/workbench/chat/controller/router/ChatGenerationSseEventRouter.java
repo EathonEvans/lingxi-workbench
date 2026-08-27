@@ -85,7 +85,7 @@ public final class ChatGenerationSseEventRouter {
                 .message(execution.getMessage())
                 .steps(execution.steps().stream()
                         .map(step -> new ChatExecutionTimelineVO.PlanStepVO(
-                                step.stepId(), step.name(), step.capabilityCode()))
+                                step.stepId(), step.name(), step.capabilityCode(), step.status().getCode()))
                         .toList())
                 .build();
         return ServerSentEvent.<ChatExecutionTimelineVO>builder()

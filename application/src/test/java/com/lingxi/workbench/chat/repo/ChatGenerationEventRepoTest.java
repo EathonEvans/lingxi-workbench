@@ -81,7 +81,8 @@ class ChatGenerationEventRepoTest {
                 .stepId("collect")
                 .displayName("收集资料")
                 .stepStatus(ExecutionStepStatus.RUNNING)
-                .steps(List.of(new ChatPlanStepBO("collect", "收集资料", "support_agent")))
+                .steps(List.of(new ChatPlanStepBO("collect", "收集资料", "support_agent",
+                        ExecutionStepStatus.PENDING)))
                 .build();
         ChatGenerationEventBO source = ChatGenerationEventBO.execution(
                 3, com.lingxi.workbench.chat.common.enums.ChatGenerationEventType.STEP, timeline);

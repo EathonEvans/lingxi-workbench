@@ -340,6 +340,14 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
     }
 
     /**
+     * 当前实例失去分布式任务所有权时结束本机观察流，不伪造业务终态。
+     * 客户端会按传输中断恢复，并从真正持有任务的实例继续接收事件。
+     */
+    public synchronized void detachObservers() {
+        eventSink.emitComplete(Sinks.EmitFailureHandler.FAIL_FAST);
+    }
+
+    /**
      * 发布唯一终态事件并关闭事件流，使 SSE 连接能够正常结束。
      */
     public void publishTerminal(ChatGenerationEventBO event) {

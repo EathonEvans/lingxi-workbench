@@ -112,7 +112,8 @@ class ChatGenerationSseEventRouterTest {
                 .planNo(1)
                 .displayName("退款处理计划")
                 .stepStatus(ExecutionStepStatus.RUNNING)
-                .steps(List.of(new ChatPlanStepBO("collect", "收集退款资料", "refund_agent")))
+                .steps(List.of(new ChatPlanStepBO("collect", "收集退款资料", "refund_agent",
+                        ExecutionStepStatus.COMPLETED)))
                 .build();
 
         ServerSentEvent<?> routed = ChatGenerationSseEventRouter.rout(
@@ -124,6 +125,7 @@ class ChatGenerationSseEventRouterTest {
         assertEquals("run-1", payload.getRunId());
         assertEquals("PLAN_CREATED", payload.getEventType());
         assertEquals("refund_agent", payload.getSteps().getFirst().capabilityCode());
+        assertEquals("COMPLETED", payload.getSteps().getFirst().status());
     }
 
     @Test

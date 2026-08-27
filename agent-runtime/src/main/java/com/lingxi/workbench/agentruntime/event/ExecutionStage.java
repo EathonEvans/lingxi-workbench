@@ -8,6 +8,7 @@ public enum ExecutionStage {
     MODEL,
     SKILL,
     TOOL,
+    COORDINATION,
     HUMAN,
     TERMINAL
 }

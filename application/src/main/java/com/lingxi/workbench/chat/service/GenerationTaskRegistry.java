@@ -6,11 +6,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RBucket;
 import org.redisson.api.RTopic;
 import org.redisson.api.RedissonClient;
+import org.redisson.api.bucket.CompareAndDeleteArgs;
+import org.redisson.api.bucket.CompareAndSetArgs;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -30,12 +34,11 @@ public class GenerationTaskRegistry {
     private static final String ACTIVE_KEY_PREFIX = "lingxi:runtime:generation:active:";
     private static final String CANCEL_TOPIC = "lingxi:runtime:generation:cancel";
     private static final String CANCELLED_VALUE = "CANCELLED";
-    private static final String ACTIVE_VALUE = "ACTIVE";
     private static final Duration CANCEL_SIGNAL_TTL = Duration.ofHours(24);
     private static final Duration ACTIVE_TTL = Duration.ofMinutes(2);
 
     private final RedissonClient redissonClient;
-    private final ConcurrentMap<Long, Runnable> localHandlers = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Long, LocalRegistration> localRegistrations = new ConcurrentHashMap<>();
 
     private RTopic cancellationTopic;
     private Integer listenerId;
@@ -43,23 +46,46 @@ public class GenerationTaskRegistry {
     /**
      * 注册当前实例持有的模型任务。注册完成后会立刻检查已写入的取消标记，避免遗漏先到的跨实例取消。
      */
-    public void register(Long assistantMessageId, Runnable cancellationHandler) {
+    public RegistrationResult register(Long assistantMessageId, Runnable cancellationHandler,
+                                       Runnable ownershipLostHandler) {
         requireAssistantMessageId(assistantMessageId);
         Objects.requireNonNull(cancellationHandler, "生成取消处理器不能为空");
+        Objects.requireNonNull(ownershipLostHandler, "生成所有权丢失处理器不能为空");
         subscribeIfNecessary();
-        if (localHandlers.putIfAbsent(assistantMessageId, cancellationHandler) != null) {
-            throw new IllegalStateException("当前实例已经持有该Assistant生成任务");
+        LocalRegistration registration = new LocalRegistration(
+                UUID.randomUUID().toString(), cancellationHandler, ownershipLostHandler);
+        if (localRegistrations.putIfAbsent(assistantMessageId, registration) != null) {
+            return RegistrationResult.ACTIVE_ELSEWHERE;
         }
-        refreshActive(assistantMessageId);
-        if (isCancellationRequested(assistantMessageId)) {
-            trigger(assistantMessageId, cancellationHandler);
+        try {
+            RBucket<String> activeBucket = redissonClient.getBucket(activeKey(assistantMessageId));
+            if (!activeBucket.setIfAbsent(registration.ownerToken, ACTIVE_TTL)) {
+                localRegistrations.remove(assistantMessageId, registration);
+                return RegistrationResult.ACTIVE_ELSEWHERE;
+            }
+            registration.owned = true;
+            if (isCancellationRequested(assistantMessageId)) {
+                handleSignal(assistantMessageId, registration.cancellationHandler);
+            }
+            return RegistrationResult.ACQUIRED;
+        } catch (RuntimeException exception) {
+            try {
+                unregister(assistantMessageId);
+            } catch (RuntimeException cleanupException) {
+                exception.addSuppressed(cleanupException);
+            }
+            throw exception;
         }
     }
 
     /** 当前实例任务结束后注销本机处理器和存活租约，不删除跨实例取消标记。 */
     public void unregister(Long assistantMessageId) {
-        localHandlers.remove(assistantMessageId);
-        redissonClient.getBucket(activeKey(assistantMessageId)).delete();
+        LocalRegistration registration = localRegistrations.remove(assistantMessageId);
+        if (registration == null || !registration.owned) {
+            return;
+        }
+        redissonClient.<String>getBucket(activeKey(assistantMessageId)).compareAndDelete(
+                CompareAndDeleteArgs.expected(registration.ownerToken));
     }
 
     /**
@@ -76,19 +102,44 @@ public class GenerationTaskRegistry {
     public boolean isActive(Long assistantMessageId) {
         requireAssistantMessageId(assistantMessageId);
         String value = redissonClient.<String>getBucket(activeKey(assistantMessageId)).get();
-        return ACTIVE_VALUE.equals(value);
+        return value != null && !value.isBlank();
     }
 
     /** 本机仍持有的任务定期续租，避免其他实例把长时间 Agent/Tool 执行误判为进程已退出。 */
     @Scheduled(fixedDelay = 30_000L)
     void refreshActiveTasks() {
-        for (Long assistantMessageId : localHandlers.keySet()) {
-            refreshActive(assistantMessageId);
+        for (Map.Entry<Long, LocalRegistration> entry : localRegistrations.entrySet()) {
+            try {
+                refreshActive(entry.getKey(), entry.getValue());
+            } catch (RuntimeException exception) {
+                log.warn("生成任务Redis所有权续租失败，assistantMessageId={}", entry.getKey(), exception);
+            }
         }
     }
 
-    private void refreshActive(Long assistantMessageId) {
-        redissonClient.<String>getBucket(activeKey(assistantMessageId)).set(ACTIVE_VALUE, ACTIVE_TTL);
+    private void refreshActive(Long assistantMessageId, LocalRegistration registration) {
+        if (!registration.owned || localRegistrations.get(assistantMessageId) != registration) {
+            return;
+        }
+        RBucket<String> activeBucket = redissonClient.getBucket(activeKey(assistantMessageId));
+        boolean refreshed = activeBucket.compareAndSet(CompareAndSetArgs
+                .expected(registration.ownerToken)
+                .set(registration.ownerToken)
+                .timeToLive(ACTIVE_TTL));
+        if (!refreshed && localRegistrations.get(assistantMessageId) == registration) {
+            refreshed = activeBucket.setIfAbsent(registration.ownerToken, ACTIVE_TTL);
+        }
+        if (localRegistrations.get(assistantMessageId) != registration) {
+            if (refreshed) {
+                activeBucket.compareAndDelete(CompareAndDeleteArgs.expected(registration.ownerToken));
+            }
+            return;
+        }
+        if (!refreshed && localRegistrations.remove(assistantMessageId, registration)) {
+            registration.owned = false;
+            log.error("生成任务Redis所有权已被其他实例接管，停止本机重复执行，assistantMessageId={}", assistantMessageId);
+            handleSignal(assistantMessageId, registration.ownershipLostHandler);
+        }
     }
 
     private synchronized void subscribeIfNecessary() {
@@ -99,9 +150,9 @@ public class GenerationTaskRegistry {
         listenerId = cancellationTopic.addListener(String.class, (channel, payload) -> {
             try {
                 Long assistantMessageId = Long.valueOf(payload);
-                Runnable handler = localHandlers.get(assistantMessageId);
-                if (handler != null) {
-                    trigger(assistantMessageId, handler);
+                LocalRegistration registration = localRegistrations.get(assistantMessageId);
+                if (registration != null) {
+                    handleSignal(assistantMessageId, registration.cancellationHandler);
                 }
             } catch (NumberFormatException exception) {
                 log.warn("忽略格式非法的生成取消信号");
@@ -114,11 +165,11 @@ public class GenerationTaskRegistry {
         return CANCELLED_VALUE.equals(value);
     }
 
-    private static void trigger(Long assistantMessageId, Runnable handler) {
+    private static void handleSignal(Long assistantMessageId, Runnable handler) {
         try {
             handler.run();
         } catch (RuntimeException exception) {
-            log.error("处理跨实例取消信号失败，assistantMessageId={}", assistantMessageId, exception);
+            log.error("处理生成任务跨实例信号失败，assistantMessageId={}", assistantMessageId, exception);
         }
     }
 
@@ -127,14 +178,19 @@ public class GenerationTaskRegistry {
         if (cancellationTopic != null && listenerId != null) {
             cancellationTopic.removeListener(listenerId);
         }
-        for (Long assistantMessageId : localHandlers.keySet()) {
+        for (Map.Entry<Long, LocalRegistration> entry : localRegistrations.entrySet()) {
             try {
-                redissonClient.getBucket(activeKey(assistantMessageId)).delete();
+                Long assistantMessageId = entry.getKey();
+                LocalRegistration registration = entry.getValue();
+                if (registration.owned) {
+                    redissonClient.<String>getBucket(activeKey(assistantMessageId)).compareAndDelete(
+                            CompareAndDeleteArgs.expected(registration.ownerToken));
+                }
             } catch (RuntimeException exception) {
-                log.warn("清理生成任务存活租约失败，assistantMessageId={}", assistantMessageId, exception);
+                log.warn("清理生成任务存活租约失败，assistantMessageId={}", entry.getKey(), exception);
             }
         }
-        localHandlers.clear();
+        localRegistrations.clear();
     }
 
     private static void requireAssistantMessageId(Long assistantMessageId) {
@@ -149,5 +205,19 @@ public class GenerationTaskRegistry {
 
     private static String activeKey(Long assistantMessageId) {
         return ACTIVE_KEY_PREFIX + assistantMessageId;
+    }
+
+    public enum RegistrationResult {
+        ACQUIRED,
+        ACTIVE_ELSEWHERE
+    }
+
+    @RequiredArgsConstructor
+    private static final class LocalRegistration {
+
+        private final String ownerToken;
+        private final Runnable cancellationHandler;
+        private final Runnable ownershipLostHandler;
+        private volatile boolean owned;
     }
 }

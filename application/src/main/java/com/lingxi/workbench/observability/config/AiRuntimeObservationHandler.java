@@ -28,9 +28,11 @@ public class AiRuntimeObservationHandler implements ObservationHandler<Observati
     private static final String STAGE_OBSERVATION_NAME = "lingxi.ai.stage";
     private static final String EXECUTION_OBSERVATION_NAME = "lingxi.ai.execution";
     private static final String TOOL_OBSERVATION_NAME = "spring.ai.tool";
+    private static final String RUNTIME_PHASE_OBSERVATION_NAME = "lingxi.ai.runtime.phase";
     private static final String STARTED_AT_KEY = AiRuntimeObservationHandler.class.getName() + ".startedAt";
     private static final Set<String> SUPPORTED_NAMES = Set.of(
-            STAGE_OBSERVATION_NAME, EXECUTION_OBSERVATION_NAME, TOOL_OBSERVATION_NAME);
+            STAGE_OBSERVATION_NAME, EXECUTION_OBSERVATION_NAME, TOOL_OBSERVATION_NAME,
+            RUNTIME_PHASE_OBSERVATION_NAME);
 
     private final AiObservationEventWriter eventWriter;
 
@@ -71,6 +73,7 @@ public class AiRuntimeObservationHandler implements ObservationHandler<Observati
             case STAGE_OBSERVATION_NAME -> AiObservationEventType.STAGE_COMPLETED;
             case EXECUTION_OBSERVATION_NAME -> AiObservationEventType.EXECUTION_COMPLETED;
             case TOOL_OBSERVATION_NAME -> AiObservationEventType.TOOL_CALL;
+            case RUNTIME_PHASE_OBSERVATION_NAME -> AiObservationEventType.RUNTIME_PHASE;
             default -> throw new IllegalArgumentException("不支持的观测类型：" + observationName);
         };
     }
@@ -86,6 +89,14 @@ public class AiRuntimeObservationHandler implements ObservationHandler<Observati
         putIfPresent(metadata, "executionMode", value(context, "lingxi.execution.mode"));
         putIfPresent(metadata, "toolName", value(context, "spring.ai.tool.definition.name"));
         putIfPresent(metadata, "toolType", value(context, "spring.ai.tool.type"));
+        putIfPresent(metadata, "runtimePhase", value(context, "lingxi.runtime.phase"));
+        putIfPresent(metadata, "runtimeOperation", value(context, "lingxi.runtime.operation"));
+        putIfPresent(metadata, "runtimeOperationName", value(context, "lingxi.runtime.operation.name"));
+        putIfPresent(metadata, "agentId", value(context, "lingxi.agent.id"));
+        putIfPresent(metadata, "agentVersionId", value(context, "lingxi.agent.version.id"));
+        putIfPresent(metadata, "invocationId", value(context, "lingxi.runtime.invocation.id"));
+        putIfPresent(metadata, "modelCallNo", value(context, "lingxi.runtime.model.call_no"));
+        putIfPresent(metadata, "runtimeErrorCode", value(context, "lingxi.runtime.error.code"));
         if (Objects.nonNull(context.getError())) {
             metadata.put("errorType", context.getError().getClass().getSimpleName());
         }

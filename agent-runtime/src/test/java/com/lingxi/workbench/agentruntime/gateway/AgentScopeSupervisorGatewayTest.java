@@ -64,7 +64,8 @@ class AgentScopeSupervisorGatewayTest {
     void shouldPersistAgentScopeTasksAndExecutePublishedCapability() {
         ChatModelRuntimeConfig config = ChatModelRuntimeConfig.builder().build();
         StubChatModel model = StubChatModel.sequence(List.of(
-                List.of(new ToolUseBlock("todo-1", "todo_write", Map.of("todos", List.of(
+                List.of(TextBlock.builder().text("I will delegate this task to a sub-agent.").build(),
+                        new ToolUseBlock("todo-1", "todo_write", Map.of("todos", List.of(
                         Map.of("content", "查询已发布资料", "status", "in_progress", "priority", "high"))),
                         "{\"todos\":[{\"content\":\"查询已发布资料\",\"status\":\"in_progress\",\"priority\":\"high\"}]}", null)),
                 List.of(new ToolUseBlock("delegate-1", "agent_spawn",
@@ -110,6 +111,7 @@ class AgentScopeSupervisorGatewayTest {
 
         assertInstanceOf(AgentRunResult.Completed.class, result);
         assertEquals("资料查询完成", result.content());
+        assertEquals(List.of("资料查询完成"), sink.chunks);
         assertEquals(2, store.tasks.size());
         assertEquals("查询已发布资料", store.tasks.getLast().getFirst().getSubject());
         assertEquals(Task.State.COMPLETED, store.tasks.getLast().getFirst().getState());
@@ -128,7 +130,18 @@ class AgentScopeSupervisorGatewayTest {
         assertTrue(sink.types().containsAll(List.of(ExecutionEventType.PLANNING,
                 ExecutionEventType.PLAN_CREATED, ExecutionEventType.STEP_STARTED,
                 ExecutionEventType.TOOL_STARTED, ExecutionEventType.TOOL_COMPLETED,
-                ExecutionEventType.STEP_COMPLETED, ExecutionEventType.RUN_COMPLETED)));
+                ExecutionEventType.STEP_COMPLETED, ExecutionEventType.COORDINATION_STARTED,
+                ExecutionEventType.COORDINATION_COMPLETED, ExecutionEventType.RUN_COMPLETED)));
+        List<ExecutionEventPayload.Coordination> coordination = sink.events.stream()
+                .filter(event -> event.getType() == ExecutionEventType.COORDINATION_COMPLETED)
+                .map(ExecutionEvent::getPayload)
+                .map(ExecutionEventPayload.Coordination.class::cast)
+                .toList();
+        assertEquals(List.of("agent_spawn", "wait_async_results"),
+                coordination.stream().map(ExecutionEventPayload.Coordination::operation).toList());
+        assertEquals(List.of("任务提交", "结果等待"),
+                coordination.stream().map(ExecutionEventPayload.Coordination::displayName).toList());
+        assertTrue(coordination.stream().allMatch(item -> item.durationMillis() >= 0));
     }
 
     @Test
@@ -412,6 +425,7 @@ class AgentScopeSupervisorGatewayTest {
     private static final class RecordingSink implements RuntimeEventSink {
 
         private final List<ExecutionEvent> events = new ArrayList<>();
+        private final List<String> chunks = new ArrayList<>();
 
         @Override
         public long onEvent(ExecutionEvent event) {
@@ -421,6 +435,7 @@ class AgentScopeSupervisorGatewayTest {
 
         @Override
         public void onText(ChatStreamChunk chunk) {
+            chunks.add(chunk.content());
         }
 
         @Override

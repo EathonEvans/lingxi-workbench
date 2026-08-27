@@ -67,6 +67,35 @@ class AiRuntimeObservationHandlerTest {
         assertThat(captor.getValue().getMetadata().getString("executionMode")).isEqualTo("PLAN_EXECUTE");
     }
 
+    @Test
+    void shouldPersistSanitizedRuntimePhase() {
+        AiObservationEventWriter writer = mock(AiObservationEventWriter.class);
+        AiRuntimeObservationHandler handler = new AiRuntimeObservationHandler(writer);
+        Observation.Context context = tracedContext("lingxi.ai.runtime.phase");
+        context.addHighCardinalityKeyValue(KeyValue.of("lingxi.run.id", "run-1"));
+        context.addLowCardinalityKeyValue(KeyValue.of("lingxi.runtime.phase", "COORDINATION"));
+        context.addLowCardinalityKeyValue(KeyValue.of("lingxi.runtime.operation", "wait_async_results"));
+        context.addHighCardinalityKeyValue(KeyValue.of("lingxi.runtime.operation.name", "结果等待"));
+        context.addHighCardinalityKeyValue(KeyValue.of("lingxi.runtime.invocation.id", "invocation-1"));
+        context.addHighCardinalityKeyValue(KeyValue.of("lingxi.runtime.error.code", "AGENTSCOPE_COORDINATION_ERROR"));
+        context.addHighCardinalityKeyValue(KeyValue.of("agentscope.tool.arguments", "private"));
+        context.setError(new IllegalStateException("internal"));
+
+        handler.onStart(context);
+        handler.onStop(context);
+
+        ArgumentCaptor<AiObservationEventEntity> captor = ArgumentCaptor.forClass(AiObservationEventEntity.class);
+        verify(writer).append(captor.capture());
+        AiObservationEventEntity event = captor.getValue();
+        assertThat(event.getEventType()).isEqualTo(AiObservationEventType.RUNTIME_PHASE);
+        assertThat(event.getRunId()).isEqualTo("run-1");
+        assertThat(event.getMetadata().getString("runtimePhase")).isEqualTo("COORDINATION");
+        assertThat(event.getMetadata().getString("runtimeOperation")).isEqualTo("wait_async_results");
+        assertThat(event.getMetadata().getString("runtimeOperationName")).isEqualTo("结果等待");
+        assertThat(event.getMetadata().getString("runtimeErrorCode")).isEqualTo("AGENTSCOPE_COORDINATION_ERROR");
+        assertThat(event.getMetadata()).doesNotContainKeys("arguments", "result");
+    }
+
     private static Observation.Context tracedContext(String name) {
         Observation.Context context = new Observation.Context();
         context.setName(name);

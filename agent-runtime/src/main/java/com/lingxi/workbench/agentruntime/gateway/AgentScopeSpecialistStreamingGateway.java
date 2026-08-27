@@ -23,8 +23,8 @@ import com.lingxi.workbench.infra.ai.chat.openai.AgentScopeOpenAiChatModelFactor
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.ConfirmResult;
+import io.agentscope.core.event.AgentResultEvent;
 import io.agentscope.core.event.RequireUserConfirmEvent;
-import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.message.ToolUseBlock;
@@ -131,9 +131,10 @@ public class AgentScopeSpecialistStreamingGateway {
                     handleHumanConfirmation(event, request, context,
                             agent.getDelegate().getAgentState(context));
                 })
-                .ofType(TextBlockDeltaEvent.class)
-                .map(TextBlockDeltaEvent::getDelta)
-                .filter(delta -> !delta.isEmpty())
+                .filter(event -> Objects.isNull(event.getSource()))
+                .ofType(AgentResultEvent.class)
+                .map(event -> event.getResult().getTextContent())
+                .filter(content -> content != null && !content.isBlank())
                 .map(ChatStreamChunk::new)
                 .doOnCancel(agent::interrupt)
                 .doFinally(ignored -> close(agent, modelResource));

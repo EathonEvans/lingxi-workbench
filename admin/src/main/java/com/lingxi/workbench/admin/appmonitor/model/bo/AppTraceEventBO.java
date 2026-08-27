@@ -15,5 +15,6 @@ public class AppTraceEventBO {
     private Long latencyMs;
     private String modelCode;
     private String toolName;
+    private String errorCode;
     private OffsetDateTime createdAt;
 }

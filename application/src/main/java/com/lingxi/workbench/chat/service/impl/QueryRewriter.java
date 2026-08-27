@@ -25,6 +25,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
+import static com.lingxi.workbench.infra.ai.prompt.common.constants.PromptSupplementConstants.QUERY_REWRITE_REQUEST;
+
 /**
  * 问题重写组件：在共享上下文准备阶段，把依赖会话历史的追问重写为可独立路由的问题。
  *
@@ -40,7 +42,6 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class QueryRewriter {
 
-    private static final String REWRITE_REQUEST = "请严格执行系统中的问题重写任务。";
     private static final int MIN_REASONABLE_REWRITE_CHARACTERS = 128;
     private static final int MAX_REWRITE_EXPANSION_MULTIPLIER = 4;
     private static final Pattern SOCIAL_TURN_PATTERN = Pattern.compile(
@@ -86,7 +87,7 @@ public class QueryRewriter {
             modelConfig.setMaxTokens(policy.effectiveMaxOutputTokens());
 
             // 当前问题和历史已由发布 Prompt 变量注入，禁止再按消息角色重复发送同一份上下文。
-            ChatCompletionCommand command = new ChatCompletionCommand(REWRITE_REQUEST, systemPrompt, List.of(), modelConfig);
+            ChatCompletionCommand command = new ChatCompletionCommand(QUERY_REWRITE_REQUEST, systemPrompt, List.of(), modelConfig);
             modelCalls = 1;
             ChatCompletionResult<String> result = Objects.requireNonNull(
                     completionGateway.complete(command).block(Duration.ofSeconds(policy.effectiveTimeoutSeconds())),

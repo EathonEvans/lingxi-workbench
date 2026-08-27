@@ -18,13 +18,13 @@ public class ExecutionFailureClassifier {
         while (Objects.nonNull(current)) {
             if (current instanceof AgentReconciliationPendingException) {
                 return new ExecutionFailure("TOOL_RECONCILIATION_PENDING",
-                        "外部操作可能已完成，系统正在核对结果，请勿重复提交", false);
+                        "操作结果尚在确认中，请勿重复提交", false);
             }
             if (current instanceof AgentRuntimeException runtime) {
-                return new ExecutionFailure(runtime.getCode(), runtime.getClientMessage(), runtime.isRetryable());
+                return runtimeFailure(runtime);
             }
             if (current instanceof TimeoutException) {
-                return new ExecutionFailure("AI_MODEL_TIMEOUT", "模型响应超时，请重试", true);
+                return new ExecutionFailure("AI_MODEL_TIMEOUT", "本次处理等待时间过长，请重试", true);
             }
             if (current instanceof BusinessException business) {
                 String message = Objects.requireNonNullElse(business.getMessage(), "业务规则校验失败");
@@ -34,6 +34,23 @@ public class ExecutionFailureClassifier {
             }
             current = current.getCause();
         }
-        return new ExecutionFailure("CAPABILITY_EXECUTION_FAILED", "能力执行失败", false);
+        return new ExecutionFailure("CAPABILITY_EXECUTION_FAILED", "本次处理未完成，请稍后重试", false);
+    }
+
+    /** 内部错误码保留给审计，用户只接收可理解、可行动的业务提示。 */
+    private static ExecutionFailure runtimeFailure(AgentRuntimeException exception) {
+        String message = switch (exception.getCode()) {
+            case "AGENT_TOKEN_LIMIT", "AGENT_TOKEN_HARD_LIMIT" ->
+                    "本轮可用额度已用完，请缩小问题范围后重试";
+            case "AGENT_MODEL_CALL_LIMIT", "AGENT_TOOL_CALL_LIMIT", "CAPABILITY_CALL_LIMIT", "DELEGATION_LIMIT" ->
+                    "本轮处理步骤已达到上限，请缩小问题范围后重试";
+            case "PLAN_INCOMPLETE" -> "任务未能在本轮完成，请缩小问题范围后重试";
+            case "CAPABILITY_INPUT_INVALID", "TASK_NOT_ACTIVE" -> "当前任务信息不完整，请补充后重试";
+            case "SUPERVISOR_EMPTY_RESPONSE", "EMPTY_CAPABILITY_RESULT", "CAPABILITY_RESULT_LIMIT" ->
+                    "未能生成可用结果，请重试";
+            case "SIDE_EFFECT_ALREADY_COMPLETED" -> "该操作已完成，请勿重复提交";
+            default -> "本次处理未完成，请稍后重试";
+        };
+        return new ExecutionFailure(exception.getCode(), message, exception.isRetryable());
     }
 }

@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 @Getter
 @RequiredArgsConstructor
 public enum ExecutionStepStatus {
+    PENDING("PENDING", "等待中"),
     RUNNING("RUNNING", "执行中"),
     COMPLETED("COMPLETED", "已完成"),
     FAILED("FAILED", "失败"),

@@ -157,7 +157,10 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 .traceRun(traceRun)
                 .build();
         try {
-            registerTask(task);
+            if (!registerTask(task)) {
+                task.traceRun().cancel("TASK_OWNED_BY_ANOTHER_INSTANCE");
+                return toStartVO(turn, assistantIdentity);
+            }
 
             // 构建执行参数
             ApplicationChatExecutionRequest executionRequest = ApplicationChatExecutionRequest.builder()
@@ -307,7 +310,10 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 .initialUsage(TokenUsage.of(assistant.getInputTokens(), assistant.getOutputTokens(), assistant.getTotalTokens()))
                 .initialSequence(generationEventRepo.lastSequence(assistant.getId()))
                 .build();
-        registerTask(task);
+        if (!registerTask(task)) {
+            task.traceRun().cancel("TASK_OWNED_BY_ANOTHER_INSTANCE");
+            return;
+        }
         AgentScopeCheckpoint runtimeCheckpoint = checkpoint.getPayload();
         ApplicationChatExecutionRequest request = ApplicationChatExecutionRequest.builder()
                 .application(application)
@@ -626,9 +632,33 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     /**
      * 注册本机任务，跨实例取消到达时只终止本机模型订阅。
      */
-    private void registerTask(RunningGenerationTask task) {
-        runningTasks.put(task.id(), task);
-        generationTaskRegistry.register(task.id(), () -> finishCancelledTask(task));
+    private boolean registerTask(RunningGenerationTask task) {
+        if (runningTasks.putIfAbsent(task.id(), task) != null) {
+            return false;
+        }
+        try {
+            GenerationTaskRegistry.RegistrationResult registration = generationTaskRegistry.register(
+                    task.id(), () -> finishCancelledTask(task), () -> detachTask(task));
+            if (registration == GenerationTaskRegistry.RegistrationResult.ACQUIRED) {
+                return true;
+            }
+        } catch (RuntimeException exception) {
+            runningTasks.remove(task.id(), task);
+            throw exception;
+        }
+        runningTasks.remove(task.id(), task);
+        return false;
+    }
+
+    /** Redis租约被其他实例抢占时停止本机重复执行，数据库状态由新所有者继续推进。 */
+    private void detachTask(RunningGenerationTask task) {
+        if (!task.beginTerminal()) {
+            return;
+        }
+        runningTasks.remove(task.id(), task);
+        task.disposeModelSubscription();
+        task.detachObservers();
+        task.traceRun().cancel("TASK_OWNERSHIP_LOST");
     }
 
     /**

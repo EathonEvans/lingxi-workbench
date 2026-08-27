@@ -90,7 +90,7 @@ public interface AppMonitorMapper {
     List<AppTrendPointBO> trend(@Param("applicationId") Long applicationId, @Param("from") OffsetDateTime from);
 
     @Select("""
-            SELECT COALESCE(metadata ->> 'errorType', 'UnknownError') AS error_type,
+            SELECT COALESCE(metadata ->> 'runtimeErrorCode', metadata ->> 'errorType', 'UnknownError') AS error_type,
                    COALESCE(stage, 'EXECUTION') AS stage,
                    COUNT(*) AS count,
                    MAX(created_at) AS latest_at
@@ -118,8 +118,10 @@ public interface AppMonitorMapper {
                 ORDER BY trace_id, created_at DESC
             ), counts AS (
                 SELECT trace_id,
-                       COUNT(*) FILTER (WHERE event_type = 'MODEL_CALL') AS model_calls,
-                       COUNT(*) FILTER (WHERE event_type = 'TOOL_CALL') AS tool_calls,
+                       COUNT(*) FILTER (WHERE event_type = 'MODEL_CALL'
+                           OR (event_type = 'RUNTIME_PHASE' AND metadata ->> 'runtimePhase' = 'MODEL')) AS model_calls,
+                       COUNT(*) FILTER (WHERE event_type = 'TOOL_CALL'
+                           OR (event_type = 'RUNTIME_PHASE' AND metadata ->> 'runtimePhase' = 'TOOL')) AS tool_calls,
                        MAX(metadata -&gt;&gt; 'executionMode') FILTER (WHERE event_type = 'EXECUTION_COMPLETED') AS execution_mode,
                        MIN(created_at) AS started_at
                 FROM lingxi_core.ai_observability_event
@@ -148,7 +150,8 @@ public interface AppMonitorMapper {
               <if test="query.errorType != null and query.errorType != ''">
                 AND EXISTS (SELECT 1 FROM lingxi_core.ai_observability_event filter_event
                             WHERE filter_event.trace_id = terminal.trace_id
-                              AND filter_event.metadata -&gt;&gt; 'errorType' = #{query.errorType})
+                              AND COALESCE(filter_event.metadata -&gt;&gt; 'runtimeErrorCode',
+                                           filter_event.metadata -&gt;&gt; 'errorType') = #{query.errorType})
               </if>
             </where>
             ORDER BY terminal.created_at DESC
@@ -190,7 +193,8 @@ public interface AppMonitorMapper {
               <if test="query.errorType != null and query.errorType != ''">
                 AND EXISTS (SELECT 1 FROM lingxi_core.ai_observability_event filter_event
                             WHERE filter_event.trace_id = terminal.trace_id
-                              AND filter_event.metadata -&gt;&gt; 'errorType' = #{query.errorType})
+                              AND COALESCE(filter_event.metadata -&gt;&gt; 'runtimeErrorCode',
+                                           filter_event.metadata -&gt;&gt; 'errorType') = #{query.errorType})
               </if>
             </where>
             </script>
@@ -209,8 +213,10 @@ public interface AppMonitorMapper {
                 ORDER BY event.trace_id, event.created_at DESC
             ), counts AS (
                 SELECT trace_id,
-                       COUNT(*) FILTER (WHERE event_type = 'MODEL_CALL') AS model_calls,
-                       COUNT(*) FILTER (WHERE event_type = 'TOOL_CALL') AS tool_calls,
+                       COUNT(*) FILTER (WHERE event_type = 'MODEL_CALL'
+                           OR (event_type = 'RUNTIME_PHASE' AND metadata ->> 'runtimePhase' = 'MODEL')) AS model_calls,
+                       COUNT(*) FILTER (WHERE event_type = 'TOOL_CALL'
+                           OR (event_type = 'RUNTIME_PHASE' AND metadata ->> 'runtimePhase' = 'TOOL')) AS tool_calls,
                        MAX(metadata ->> 'executionMode') FILTER (WHERE event_type = 'EXECUTION_COMPLETED') AS execution_mode,
                        MIN(created_at) AS started_at
                 FROM lingxi_core.ai_observability_event
@@ -231,7 +237,8 @@ public interface AppMonitorMapper {
 
     @Select("""
             SELECT span_id, parent_span_id, event_type, stage, status, latency_ms, model_code,
-                   metadata ->> 'toolName' AS tool_name, created_at
+                   COALESCE(metadata ->> 'runtimeOperationName', metadata ->> 'toolName') AS tool_name,
+                   COALESCE(metadata ->> 'runtimeErrorCode', metadata ->> 'errorType') AS error_code, created_at
             FROM lingxi_core.ai_observability_event
             WHERE trace_id = #{traceId}
             ORDER BY created_at, id

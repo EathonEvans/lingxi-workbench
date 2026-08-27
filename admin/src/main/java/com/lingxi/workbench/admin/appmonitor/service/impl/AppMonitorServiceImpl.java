@@ -238,6 +238,7 @@ public class AppMonitorServiceImpl implements AppMonitorService {
                 .latencyMs(Objects.requireNonNullElse(event.getLatencyMs(), 0L))
                 .modelCode(event.getModelCode())
                 .toolName(event.getToolName())
+                .errorCode(event.getErrorCode())
                 .createdAt(event.getCreatedAt())
                 .build();
     }
