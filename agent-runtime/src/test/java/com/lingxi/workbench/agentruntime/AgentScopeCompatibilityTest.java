@@ -14,20 +14,52 @@ import io.agentscope.core.model.ChatResponse;
 import io.agentscope.core.model.ChatUsage;
 import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.model.ToolSchema;
+import io.agentscope.core.state.InMemoryAgentStateStore;
 import io.agentscope.extensions.model.openai.OpenAIChatModel;
+import io.agentscope.harness.agent.HarnessAgent;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** AgentScope 进入生产依赖前的版本与关键扩展点兼容门禁。 */
 class AgentScopeCompatibilityTest {
+
+    @Test
+    void shouldNotDeclareDirectSpringAiDependencies() throws IOException {
+        String pom = Files.readString(Path.of("pom.xml"));
+
+        Pattern directDependency = Pattern.compile(
+                "<dependency>\\s*<groupId>org\\.springframework\\.ai</groupId>");
+        assertFalse(directDependency.matcher(pom).find(),
+                "Agent Runtime 不得直接声明 Spring AI 依赖");
+    }
+
+    @Test
+    void shouldKeepSpringAiImportsOutsideAgentRuntimeProductionSources() throws IOException {
+        Path sourceRoot = Path.of("src/main/java");
+        List<String> violations;
+        try (java.util.stream.Stream<Path> sources = Files.walk(sourceRoot)) {
+            violations = sources.filter(path -> path.toString().endsWith(".java"))
+                    .flatMap(path -> imports(path).stream())
+                    .filter(line -> line.startsWith("import org.springframework.ai"))
+                    .toList();
+        }
+
+        assertEquals(List.of(), violations,
+                "Agent Runtime 必须通过 AgentScope 或 infra-ai 稳定契约调用 AI 能力");
+    }
 
     @Test
     void shouldStreamTypedEventsAndExposeTypedRuntimeContextToMiddleware() {
@@ -81,6 +113,44 @@ class AgentScopeCompatibilityTest {
         assertEquals("compatibility-model", model.getModelName());
     }
 
+    @Test
+    void shouldBuildAndRunOfficialHarnessOnSharedClasspath() {
+        try (HarnessAgent agent = HarnessAgent.builder()
+                .name("lingxi-harness-compatibility")
+                .sysPrompt("Return a concise answer.")
+                .model(new StubChatModel())
+                .maxIters(2)
+                .disableFilesystemTools()
+                .disableShellTool()
+                .disableMemoryTools()
+                .disableMemoryHooks()
+                .disableSessionPersistence()
+                .disableWorkspaceContext()
+                .disableAtPathExpansion()
+                .disableSubagents()
+                .disableDynamicSkills()
+                .disableDefaultWorkspaceSkills()
+                .disableDynamicSubagents()
+                .disableToolsConfig()
+                .disableCompaction()
+                .disableToolResultEviction()
+                .stateStore(new InMemoryAgentStateStore())
+                .build()) {
+            RuntimeContext context = RuntimeContext.builder()
+                    .userId("user-1")
+                    .sessionId("harness-session-1")
+                    .build();
+
+            List<AgentEventType> eventTypes = agent.streamEvents("hello", context)
+                    .map(AgentEvent::getType)
+                    .collectList()
+                    .block();
+
+            assertTrue(eventTypes.contains(AgentEventType.AGENT_RESULT));
+            assertEquals("lingxi-harness-compatibility", agent.getName());
+        }
+    }
+
     private static final class StubChatModel extends ChatModelBase {
 
         @Override
@@ -98,6 +168,14 @@ class AgentScopeCompatibilityTest {
                     .usage(usage)
                     .finishReason("stop")
                     .build());
+        }
+    }
+
+    private static List<String> imports(Path path) {
+        try {
+            return Files.readAllLines(path).stream().map(String::trim).toList();
+        } catch (IOException exception) {
+            throw new java.io.UncheckedIOException(exception);
         }
     }
 

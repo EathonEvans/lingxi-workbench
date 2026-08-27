@@ -14,7 +14,7 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
-import com.lingxi.workbench.observability.service.AiTraceRun;
+import com.lingxi.workbench.observability.service.TraceRun;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
 import lombok.Builder;
 import reactor.core.Disposable;
@@ -55,7 +55,7 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
     /**
      * 后台生成任务拥有的根 Trace 生命周期。
      */
-    private final AiTraceRun traceRun;
+    private final TraceRun traceRun;
     /**
      * 按到达顺序累积模型文本增量，终态时一次性保存完整或部分回答。
      */
@@ -84,7 +84,7 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
 
     @Builder
     private RunningGenerationTask(ChatTurnBO turn, Long userId, Long applicationVersionId, MemoryConfig memoryConfig,
-                                  ChatGenerationEventRepo eventRepo, AiTraceRun traceRun, String initialAnswer,
+                                  ChatGenerationEventRepo eventRepo, TraceRun traceRun, String initialAnswer,
                                   TokenUsage initialUsage, Long initialSequence) {
         this.turn = Objects.requireNonNull(turn, "对话轮次不能为空");
         this.userId = userId;
@@ -119,7 +119,7 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
         return memoryConfig;
     }
 
-    public AiTraceRun traceRun() {
+    public TraceRun traceRun() {
         return traceRun;
     }
 

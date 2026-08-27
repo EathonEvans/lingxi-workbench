@@ -15,9 +15,9 @@ import java.util.List;
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class CapabilityCatalogSnapshot {
 
-    private List<ApplicationCapabilityDefinition> capabilities;
+    private List<CapabilityDefinition> capabilities;
 
-    public List<ApplicationCapabilityDefinition> capabilities() {
+    public List<CapabilityDefinition> capabilities() {
         return capabilities == null ? List.of() : List.copyOf(capabilities);
     }
 

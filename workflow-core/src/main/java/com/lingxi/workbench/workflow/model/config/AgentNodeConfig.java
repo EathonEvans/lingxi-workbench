@@ -1,8 +1,8 @@
 package com.lingxi.workbench.workflow.model.config;
 
-import com.alibaba.fastjson2.JSONWriter;
-import com.alibaba.fastjson2.annotation.JSONField;
-import com.alibaba.fastjson2.annotation.JSONType;
+import com.lingxi.workbench.framework.json.JSONWriter;
+import com.lingxi.workbench.framework.json.annotation.JSONField;
+import com.lingxi.workbench.framework.json.annotation.JSONType;
 
 import java.util.Map;
 
@@ -11,7 +11,7 @@ import java.util.Map;
  *
  * <p>领域模型中的 ID 使用 {@link Long}，执行链路不再承担字符串解析职责。
  * JSON 边界仍将 Long 写成字符串，避免管理端 JavaScript 读取雪花 ID 时发生精度丢失；
- * Fastjson2 反序列化时会将历史字符串 ID 还原为 Long。</p>
+ * Gson 反序列化时会将历史字符串 ID 还原为 Long。</p>
  *
  * @param agentId         Agent 主键
  * @param agentVersionId  发布时锁定的不可变 Agent 版本

@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.skill.model.config.SkillScanReport;
-import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
+import com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler;
 import com.lingxi.workbench.infra.ai.skill.model.SkillVersionSnapshot;
 import lombok.Data;
 import org.apache.ibatis.type.JdbcType;
@@ -21,10 +21,10 @@ public class SkillVersionEntity {
     private Integer versionNo;
     private String versionName;
     private Integer schemaVersion;
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private SkillVersionSnapshot snapshot;
     private String snapshotChecksum;
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private SkillScanReport scanReport;
     private String changeNote;
     private Long publishedBy;

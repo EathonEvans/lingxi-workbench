@@ -1,8 +1,11 @@
 package com.lingxi.workbench.application.runtime.tool;
 
+import com.lingxi.workbench.framework.json.JSON;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
 import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionContext;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolRequest;
 import com.lingxi.workbench.knowledge.model.vo.KnowledgeSearchResultVO;
 import com.lingxi.workbench.knowledge.service.KnowledgeSearchService;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
@@ -46,9 +49,9 @@ class KnowledgeSearchAgentToolFactoryTest {
                 .thenReturn(List.of(result("支持七天退款")));
 
         AgentTool tool = factory.create(capability);
-        String output = tool.callback().call("{\"query\":\"退款条件\"}");
+        String output = execute(tool, "{\"query\":\"退款条件\"}");
 
-        assertThat(tool.callback().getToolDefinition().inputSchema())
+        assertThat(JSON.toJSONString(tool.inputSchema()))
                 .contains("query")
                 .doesNotContain("knowledgeBaseId", "knowledgeIndexVersionId", "embeddingModelInstanceId");
         assertThat(tool.definition().getExecutionMode()).isEqualTo(DETERMINISTIC_READ_ONLY);
@@ -64,8 +67,8 @@ class KnowledgeSearchAgentToolFactoryTest {
         capability.setMaxQueryCharacters(4);
         AgentTool tool = factory.create(capability);
 
-        assertThatThrownBy(() -> tool.callback().call("{\"query\":\"12345\"}"))
-                .hasRootCauseMessage("knowledge.search查询超过字符上限");
+        assertThatThrownBy(() -> execute(tool, "{\"query\":\"12345\"}"))
+                .hasMessage("knowledge.search查询超过字符上限");
     }
 
     @Test
@@ -77,7 +80,7 @@ class KnowledgeSearchAgentToolFactoryTest {
         when(knowledgeSearchService.searchVersion("query", 1L, 81L, embeddingConfig(), 5, 0.65D))
                 .thenReturn(List.of(result("abcdef"), result("second")));
 
-        String output = factory.create(capability).callback().call("{\"query\":\"query\"}");
+        String output = execute(factory.create(capability), "{\"query\":\"query\"}");
 
         assertThat(output).contains("\"content\":\"abc\"", "\"truncated\":true");
         assertThat(output).doesNotContain("abcdef", "second");
@@ -93,9 +96,9 @@ class KnowledgeSearchAgentToolFactoryTest {
                 .thenReturn(List.of(result("同一条知识")));
 
         AgentTool tool = factory.create(capability());
-        String first = tool.callback().call("{\"query\":\"退款条件\"}");
+        String first = execute(tool, "{\"query\":\"退款条件\"}");
         assertThat(tool.shouldFinalizeAfterSuccess()).isFalse();
-        String second = tool.callback().call("{\"query\":\"退款政策\"}");
+        String second = execute(tool, "{\"query\":\"退款政策\"}");
 
         assertThat(first).contains("\"status\":\"FOUND\"", "\"newEvidenceCount\":1");
         assertThat(second).contains("\"status\":\"SATURATED\"", "\"newEvidenceCount\":0", "停止调用知识搜索");
@@ -111,8 +114,8 @@ class KnowledgeSearchAgentToolFactoryTest {
                 .thenReturn(List.of());
 
         AgentTool tool = factory.create(capability());
-        String first = tool.callback().call("{\"query\":\"不存在的信息\"}");
-        String second = tool.callback().call("{\"query\":\"换一种说法\"}");
+        String first = execute(tool, "{\"query\":\"不存在的信息\"}");
+        String second = execute(tool, "{\"query\":\"换一种说法\"}");
 
         assertThat(first).contains("\"status\":\"EMPTY\"");
         assertThat(second).contains("\"status\":\"SATURATED\"", "停止调用知识搜索");
@@ -121,6 +124,11 @@ class KnowledgeSearchAgentToolFactoryTest {
 
     private void prepareTokenEstimator() {
         when(tokenCountEstimator.estimate(anyString())).thenAnswer(invocation -> invocation.<String>getArgument(0).length());
+    }
+
+    private static String execute(AgentTool tool, String input) {
+        return tool.execute(new AgentToolRequest(input,
+                AgentToolExecutionContext.builder().executionId("test").build(), null));
     }
 
     private static AgentRuntimeDefinition.KnowledgeSearchCapability capability() {

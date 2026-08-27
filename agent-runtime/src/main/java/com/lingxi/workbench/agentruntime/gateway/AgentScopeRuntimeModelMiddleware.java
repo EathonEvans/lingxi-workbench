@@ -1,6 +1,8 @@
 package com.lingxi.workbench.agentruntime.gateway;
 
-import com.lingxi.workbench.agentruntime.model.ExecutionState;
+import com.lingxi.workbench.agentruntime.event.ExecutionEvents;
+import com.lingxi.workbench.agentruntime.model.ExecutionBudget;
+import com.lingxi.workbench.agentruntime.model.ExecutionTools;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import io.agentscope.core.agent.Agent;
 import io.agentscope.core.agent.RuntimeContext;
@@ -22,23 +24,32 @@ final class AgentScopeRuntimeModelMiddleware implements MiddlewareBase {
     @Override
     public Flux<AgentEvent> onModelCall(Agent agent, RuntimeContext context, ModelCallInput input,
                                         Function<ModelCallInput, Flux<AgentEvent>> next) {
-        ExecutionState state = context.get(ExecutionState.class);
-        if (state == null) {
-            return Flux.error(new IllegalStateException("AgentScope调用缺少可信ExecutionState"));
+        ExecutionBudget budget = context.get(ExecutionBudget.class);
+        ExecutionTools tools = context.get(ExecutionTools.class);
+        ExecutionEvents events = context.get(ExecutionEvents.class);
+        if (budget == null || tools == null || events == null) {
+            return Flux.error(new IllegalStateException("AgentScope调用缺少可信预算、Tool或事件上下文"));
         }
         return Flux.defer(() -> {
-            boolean finalCall = state.isFinalizationRequested();
-            int callNo = finalCall ? state.beforeFinalModelCall() : state.beforeModelCall();
+            if (events.isCancelled()) {
+                return Flux.error(new com.lingxi.workbench.agentruntime.model.AgentRunCancelledException());
+            }
+            boolean finalCall = budget.isFinalizationRequested();
+            int callNo = finalCall ? budget.reserveFinalModelCall() : budget.reserveModelCall();
+            tools.startModelRound();
+            events.modelStarted(callNo, finalCall);
             AtomicBoolean completed = new AtomicBoolean();
             return next.apply(input)
-                    .doOnNext(event -> completeModelCall(state, callNo, finalCall, completed, event));
+                    .doOnNext(event -> completeModelCall(budget, events, callNo, finalCall, completed, event));
         });
     }
 
-    private static void completeModelCall(ExecutionState state, int callNo, boolean finalCall,
+    private static void completeModelCall(ExecutionBudget budget, ExecutionEvents events, int callNo, boolean finalCall,
                                           AtomicBoolean completed, AgentEvent event) {
         if (event instanceof ModelCallEndEvent modelCallEnd && completed.compareAndSet(false, true)) {
-            state.completeModelCall(callNo, convertUsage(modelCallEnd.getUsage()), finalCall);
+            TokenUsage usage = convertUsage(modelCallEnd.getUsage());
+            budget.completeModelCall(usage);
+            events.modelCompleted(callNo, usage, finalCall);
         }
     }
 

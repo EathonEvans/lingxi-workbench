@@ -1,7 +1,7 @@
 package com.lingxi.workbench.application.runtime.evaluation;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSON;
+import com.lingxi.workbench.framework.json.JSONObject;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -54,7 +54,7 @@ class IntentEvaluationCommandTest {
         assertThat(dataset.getApplicationVersionId()).isEqualTo(applicationVersionId);
         assertThat(outputJson)
                 .contains("\n")
-                .contains("\"applicationVersionId\":\"" + applicationVersionId + "\"");
+                .contains("\n  \"applicationVersionId\": \"" + applicationVersionId + "\"");
     }
 
     @Test

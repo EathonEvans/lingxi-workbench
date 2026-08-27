@@ -21,7 +21,7 @@ import cn.dev33.satoken.context.SaHolder;
 import cn.dev33.satoken.filter.SaServletFilter;
 import cn.dev33.satoken.router.SaHttpMethod;
 import cn.dev33.satoken.router.SaRouter;
-import com.alibaba.fastjson2.JSON;
+import com.lingxi.workbench.framework.json.JSON;
 import com.lingxi.workbench.admin.config.interceptor.SysAuthenticationInterceptor;
 import com.lingxi.workbench.framework.auth.StpLogicDefinition;
 import com.lingxi.workbench.framework.auth.config.SaTokenExtendConfig;

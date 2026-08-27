@@ -1,8 +1,9 @@
 package com.lingxi.workbench.infra.ai.tool;
 
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
-import org.springframework.ai.tool.ToolCallback;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolRequest;
 
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -19,9 +20,12 @@ public interface AgentTool {
     AgentToolDefinition definition();
 
     /**
-     * 返回交给 Spring AI 执行的工具回调。
+     * 返回提供给 AgentScope Toolkit 的 JSON Schema。
      */
-    ToolCallback callback();
+    Map<String, Object> inputSchema();
+
+    /** 执行一次已经权限和预算校验的 Tool 调用。 */
+    String execute(AgentToolRequest request);
 
     /**
      * 工具成功后是否应强制进入最终回答。

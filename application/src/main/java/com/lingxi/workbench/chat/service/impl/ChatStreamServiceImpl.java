@@ -5,6 +5,7 @@ import com.lingxi.workbench.application.runtime.common.enums.ExecutionCheckpoint
 import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.vo.ApplicationAssistantIdentityVO;
 import com.lingxi.workbench.application.runtime.model.ExecutionResumeContext;
 import com.lingxi.workbench.application.runtime.model.ExecutionFailure;
 import com.lingxi.workbench.application.runtime.model.entity.ExecutionCheckpointEntity;
@@ -12,8 +13,8 @@ import com.lingxi.workbench.application.runtime.model.entity.InteractionSessionE
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionStatus;
 import com.lingxi.workbench.application.runtime.repo.ExecutionCheckpointRepo;
 import com.lingxi.workbench.application.runtime.repo.InteractionSessionRepo;
-import com.lingxi.workbench.application.runtime.service.app.ApplicationRuntimeService;
-import com.lingxi.workbench.application.runtime.service.app.ApplicationChatExecutionService;
+import com.lingxi.workbench.application.runtime.service.app.ApplicationVersionService;
+import com.lingxi.workbench.application.runtime.service.app.AppRuntime;
 import com.lingxi.workbench.application.runtime.service.execution.ExecutionFailureClassifier;
 import com.lingxi.workbench.application.runtime.service.interaction.HitlDecisionTxService;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
@@ -41,9 +42,9 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
 import com.lingxi.workbench.agentruntime.checkpoint.RuntimeInterruption;
 import com.lingxi.workbench.observability.common.enums.AiObservationStage;
-import com.lingxi.workbench.observability.service.AiStageObserver;
-import com.lingxi.workbench.observability.service.AiTraceRun;
-import com.lingxi.workbench.observability.service.AiTracingService;
+import com.lingxi.workbench.observability.service.StageObserver;
+import com.lingxi.workbench.observability.service.TraceRun;
+import com.lingxi.workbench.observability.service.TracingService;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -88,12 +89,12 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     private final ConversationService conversationService;
     private final ConversationMessageRepo messageRepo;
     private final ChatGenerationEventRepo generationEventRepo;
-    private final ApplicationRuntimeService applicationRuntimeService;
-    private final ApplicationChatExecutionService applicationChatExecutionService;
+    private final ApplicationVersionService applicationVersionService;
+    private final AppRuntime appRuntime;
     private final ConversationEventPublisher conversationEventPublisher;
     private final TokenCountEstimator tokenCountEstimator;
-    private final AiTracingService aiTracingService;
-    private final AiStageObserver aiStageObserver;
+    private final TracingService aiTracingService;
+    private final StageObserver aiStageObserver;
     private final ExecutionFailureClassifier failureClassifier;
     private final InteractionSessionRepo interactionRepo;
     private final ExecutionCheckpointRepo checkpointRepo;
@@ -117,7 +118,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         Long userId = loginUser.id();
 
         // 读取当前锁定的应用运行时快照
-        AppRuntimeSnapshot applicationSnapshot = applicationRuntimeService.loadRuntimeAppConfig(request.getApplicationCode().trim().toLowerCase());
+        AppRuntimeSnapshot applicationSnapshot = applicationVersionService.loadRuntimeAppConfig(request.getApplicationCode().trim().toLowerCase());
         // 校验输入token上限
         this.validateInputBudget(query, applicationSnapshot);
 
@@ -130,17 +131,23 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 .applicationId(applicationSnapshot.applicationId())
                 .applicationVersionId(applicationSnapshot.versionId())
                 .build();
-        ConversationTurnStartBO turnStart = aiStageObserver.observe(
-                AiObservationStage.MESSAGE_PERSIST, () -> conversationService.startTurn(turnInput));
+        // 消息落库
+        ConversationTurnStartBO turnStart = aiStageObserver.observe(AiObservationStage.MESSAGE_PERSIST, () -> conversationService.startTurn(turnInput));
 
         ChatTurnBO turn = turnStart.turn();
+        ApplicationAssistantIdentityVO assistantIdentity = applicationVersionService.resolveAssistantIdentity(
+                applicationSnapshot.applicationId(), applicationSnapshot.versionId());
         // 相同 clientMessageId 的网络重试只返回原任务标识，不得重复启动模型和重复扣费。
         if (!turnStart.isCreated()) {
-            return toStartVO(turn);
+            ConversationMessageEntity assistantMessage = messageRepo.findById(turn.assistantMessageId())
+                    .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "Assistant消息不存在"));
+            assistantIdentity = applicationVersionService.resolveAssistantIdentity(
+                    assistantMessage.getApplicationId(), assistantMessage.getApplicationVersionId());
+            return toStartVO(turn, assistantIdentity);
         }
 
         // Assistant 消息主键同时作为生成任务主键，便于 SSE 续接、取消和数据库终态恢复使用同一标识。
-        AiTraceRun traceRun = aiTracingService.start(applicationSnapshot, turn, userId);
+        TraceRun traceRun = aiTracingService.start(applicationSnapshot, turn, userId);
         RunningGenerationTask task = RunningGenerationTask.builder()
                 .turn(turn)
                 .userId(userId)
@@ -170,7 +177,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
             this.taskRunFailState(exception, turn);
         }
         // Long 主键转为字符串返回前端，避免 JavaScript Number 对大整数产生精度损失。
-        return toStartVO(turn);
+        return toStartVO(turn, assistantIdentity);
     }
 
     /**
@@ -211,8 +218,12 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      * @param turn 已落库的对话轮次（包含会话、用户消息和 Assistant 消息主键）
      * @return 前端用于订阅 SSE 的启动响应
      */
-    private ChatStartVO toStartVO(ChatTurnBO turn) {
-        return new ChatStartVO(String.valueOf(turn.conversationId()), String.valueOf(turn.userMessageId()), String.valueOf(turn.assistantMessageId()));
+    private ChatStartVO toStartVO(ChatTurnBO turn, ApplicationAssistantIdentityVO assistantIdentity) {
+        return new ChatStartVO(
+                String.valueOf(turn.conversationId()),
+                String.valueOf(turn.userMessageId()),
+                String.valueOf(turn.assistantMessageId()),
+                assistantIdentity);
     }
 
     @Override
@@ -281,7 +292,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "HITL原始用户消息不存在"));
         ChatTurnBO turn = new ChatTurnBO(assistant.getConversationId(), userMessage.getId(),
                 assistant.getId(), userMessage.getSequenceNo());
-        AppRuntimeSnapshot application = applicationRuntimeService.loadRuntimeAppVersion(
+        AppRuntimeSnapshot application = applicationVersionService.loadRuntimeAppVersion(
                 assistant.getApplicationId(), assistant.getApplicationVersionId());
         LoginUser loginUser = toLoginUser(userRepo.findById(interaction.getUserId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "HITL用户不存在")));
@@ -369,7 +380,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      */
     private ApplicationChatResult executeApplication(RunningGenerationTask task, ApplicationChatExecutionRequest executionRequest) {
         try {
-            return task.traceRun().scoped(() -> applicationChatExecutionService.execute(executionRequest));
+            return task.traceRun().scoped(() -> appRuntime.execute(executionRequest));
         } catch (RuntimeException exception) {
             if (task.isTerminal() && hasCause(exception, InterruptedException.class)) {
                 return null;

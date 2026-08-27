@@ -2,7 +2,7 @@ package com.lingxi.workbench.admin.knowledge.model.entity;
 
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
+import com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler;
 import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -36,7 +36,7 @@ public class KnowledgeChunkEntity extends TimeEntity {
     /** Token 数量。 */
     private Integer tokenCount;
     /** 检索上下文元数据，使用 JSONB 存储。 */
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private KnowledgeChunkMetadata metadata;
     /** 是否启用，用于检索过滤。 */
     private Boolean enabled;

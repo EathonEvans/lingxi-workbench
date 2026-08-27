@@ -1,7 +1,7 @@
 package com.lingxi.workbench.application.runtime.controller;
 
 import com.lingxi.workbench.application.runtime.model.vo.AvailableApplicationVO;
-import com.lingxi.workbench.application.runtime.service.app.ApplicationRuntimeService;
+import com.lingxi.workbench.application.runtime.service.app.ApplicationVersionService;
 import com.lingxi.workbench.framework.convention.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,7 +18,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ApplicationRuntimeController {
 
-    private final ApplicationRuntimeService service;
+    private final ApplicationVersionService service;
 
     /**
      * 查询当前用户端可选择的已发布应用。

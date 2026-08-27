@@ -30,6 +30,7 @@ import java.util.UUID;
 public enum FileBasePath {
 
     AVATAR("avatar", "用户头像", "avatars/{userId}/{uuid}.{ext}"),
+    APPLICATION_AVATAR("application-avatar", "应用助手头像", "application-avatars/{userId}/{uuid}.{ext}"),
     LOGO("logo", "业务Logo", "logos/{uuid}.{ext}"),
     COMMON("common", "通用文件", "public/{yyyyMM}/{uuid}.{ext}");
 
@@ -68,10 +69,20 @@ public enum FileBasePath {
      * 校验对象是否属于指定用户的头像路径，防止用户绑定其他账号或其他业务的文件。
      */
     public boolean hasAvatar(String objectKey, Long userId) {
-        if (this != AVATAR || CharSequenceUtil.isBlank(objectKey) || userId == null) {
+        return hasUserOwnedImage(AVATAR, "avatars", objectKey, userId);
+    }
+
+    /** 校验对象是否属于当前操作人上传的应用助手头像。 */
+    public boolean hasApplicationAvatar(String objectKey, Long userId) {
+        return hasUserOwnedImage(APPLICATION_AVATAR, "application-avatars", objectKey, userId);
+    }
+
+    private boolean hasUserOwnedImage(
+            FileBasePath expectedType, String directory, String objectKey, Long userId) {
+        if (this != expectedType || CharSequenceUtil.isBlank(objectKey) || userId == null) {
             return false;
         }
-        String prefix = "avatars/" + userId + "/";
+        String prefix = directory + "/" + userId + "/";
         if (!objectKey.startsWith(prefix)) {
             return false;
         }

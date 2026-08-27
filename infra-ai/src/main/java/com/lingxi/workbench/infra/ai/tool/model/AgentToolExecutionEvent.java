@@ -38,4 +38,8 @@ public class AgentToolExecutionEvent {
      * 失败时的稳定错误码，成功和执行中为空。
      */
     private final String errorCode;
+    /** 所属计划修订号；根 Agent Tool 为空。 */
+    private final Integer planNo;
+    /** 所属计划步骤；根 Agent Tool 为空。 */
+    private final String stepId;
 }

@@ -1,6 +1,6 @@
 package com.lingxi.workbench.chat.model.ccontext;
 
-import com.alibaba.fastjson2.JSON;
+import com.lingxi.workbench.framework.json.JSON;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;

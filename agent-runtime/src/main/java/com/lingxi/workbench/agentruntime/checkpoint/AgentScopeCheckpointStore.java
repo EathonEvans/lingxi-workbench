@@ -1,6 +1,8 @@
 package com.lingxi.workbench.agentruntime.checkpoint;
 
-/** AgentScope 状态恢复之外仍由 Lingxi 持有的审批、调用意图和对账持久化边界。 */
+/**
+ * AgentScope 状态恢复之外仍由 Lingxi 持有的审批、调用意图和对账持久化边界。
+ */
 public interface AgentScopeCheckpointStore {
 
     RuntimeInterruption interrupt(AgentScopeInterruptionRequest request);

@@ -1,5 +1,6 @@
 package com.lingxi.workbench.chat.model.vo;
 
+import com.lingxi.workbench.application.runtime.model.vo.ApplicationAssistantIdentityVO;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import lombok.AllArgsConstructor;
@@ -31,6 +32,8 @@ public class ConversationMessageVO {
     private MessageStatus status;
     /** 使用的模型实例主键。 */
     private String modelInstanceId;
+    /** Assistant 消息对应冻结的应用助手身份；用户消息为空。 */
+    private ApplicationAssistantIdentityVO assistant;
     /** 错误码。 */
     private String errorCode;
     /** 错误消息。 */

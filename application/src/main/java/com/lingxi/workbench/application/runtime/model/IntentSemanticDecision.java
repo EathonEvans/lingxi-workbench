@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
-/** Spring AI typed structured output 直接绑定的候选限定意图决策。 */
+/** 由平台稳定 JSON Schema 约束并经严格解析得到的候选限定意图决策。 */
 @Data
 @Builder
 @NoArgsConstructor

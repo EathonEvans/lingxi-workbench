@@ -1,7 +1,7 @@
 package com.lingxi.workbench.workflow.model.config;
 
-import com.alibaba.fastjson2.annotation.JSONType;
-import com.alibaba.fastjson2.annotation.JSONField;
+import com.lingxi.workbench.framework.json.annotation.JSONType;
+import com.lingxi.workbench.framework.json.annotation.JSONField;
 
 /**
  * 工作流节点配置标记接口。
@@ -21,7 +21,7 @@ public sealed interface WorkflowNodeConfig
         permits StartNodeConfig, IntentClassifierNodeConfig, AgentNodeConfig, ConditionNodeConfig, EndNodeConfig {
 
     /**
-     * 显式写入配置类型，确保 JSONB 不依赖 Fastjson2 的全局 WriteClassName。
+     * 显式写入配置类型，确保 JSONB 不依赖 Gson 的全局 WriteClassName。
      */
     @JSONField(name = "configType")
     default String getConfigType() {

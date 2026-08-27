@@ -8,6 +8,8 @@ import com.lingxi.workbench.admin.application.model.vo.ApplicationDraftVO;
 import com.lingxi.workbench.admin.application.model.vo.ApplicationVO;
 import com.lingxi.workbench.admin.application.model.vo.ApplicationVersionDetailVO;
 import com.lingxi.workbench.admin.application.model.vo.ApplicationVersionVO;
+import com.lingxi.workbench.admin.file.service.AvatarUrlService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
@@ -16,7 +18,10 @@ import static com.lingxi.workbench.workflow.common.constants.ApplicationCollabor
 
 /** Application 实体、快照和管理端响应之间的显式转换器。 */
 @Component
+@RequiredArgsConstructor
 public class ApplicationConverter {
+
+    private final AvatarUrlService avatarUrlService;
 
     /** 组装 Application 列表 VO，含生效版本号与草稿版本号。 */
     public ApplicationVO toListVO(
@@ -28,6 +33,8 @@ public class ApplicationConverter {
                 .name(application.getName())
                 .code(application.getCode())
                 .description(application.getDescription())
+                .avatar(application.getAvatar())
+                .avatarUrl(avatarUrlService.resolve(application.getAvatar()).url())
                 .domainId(stringId(application.getDomainId()))
                 .status(application.getStatus())
                 .publishedVersionId(stringId(application.getPublishedVersionId()))
@@ -48,6 +55,8 @@ public class ApplicationConverter {
                 .name(application.getName())
                 .code(application.getCode())
                 .description(application.getDescription())
+                .avatar(application.getAvatar())
+                .avatarUrl(avatarUrlService.resolve(application.getAvatar()).url())
                 .domainId(stringId(application.getDomainId()))
                 .status(application.getStatus())
                 .publishedVersionId(stringId(application.getPublishedVersionId()))
@@ -93,6 +102,8 @@ public class ApplicationConverter {
                 .versionNo(version.getVersionNo())
                 .versionName(version.getVersionName())
                 .schemaVersion(version.getSchemaVersion())
+                .name(version.getName())
+                .avatarUrl(avatarUrlService.resolve(version.getAvatar()).url())
                 .definition(version.getDefinitionSnapshot())
                 .snapshotChecksum(version.getSnapshotChecksum())
                 .changeNote(version.getChangeNote())

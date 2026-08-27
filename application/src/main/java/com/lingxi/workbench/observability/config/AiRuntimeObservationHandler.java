@@ -1,6 +1,6 @@
 package com.lingxi.workbench.observability.config;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.observability.common.enums.AiObservationEventType;
 import com.lingxi.workbench.observability.common.enums.AiObservationStage;
 import com.lingxi.workbench.observability.common.enums.AiObservationStatus;

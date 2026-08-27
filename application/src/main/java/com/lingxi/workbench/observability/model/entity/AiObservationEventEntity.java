@@ -1,12 +1,12 @@
 package com.lingxi.workbench.observability.model.entity;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
+import com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler;
 import com.lingxi.workbench.observability.common.enums.AiObservationEventType;
 import com.lingxi.workbench.observability.common.enums.AiObservationStage;
 import com.lingxi.workbench.observability.common.enums.AiObservationStatus;
@@ -43,7 +43,7 @@ public class AiObservationEventEntity {
     private Integer completionTokens;
     private Long latencyMs;
     private AiObservationStatus status;
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private JSONObject metadata;
     @TableField(fill = FieldFill.INSERT)
     private OffsetDateTime createdAt;

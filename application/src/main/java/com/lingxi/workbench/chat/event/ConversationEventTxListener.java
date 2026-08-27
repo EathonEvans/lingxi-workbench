@@ -1,15 +1,15 @@
 package com.lingxi.workbench.chat.event;
 
-import com.alibaba.fastjson2.JSON;
-import com.lingxi.workbench.chat.common.enums.MessageStatus;
-import com.lingxi.workbench.chat.model.bo.AssistantCompletionTxBO;
-import com.lingxi.workbench.chat.model.message.ConversationCompletedMessage;
-import com.lingxi.workbench.chat.service.ConversationService;
-import com.lingxi.workbench.chat.ops.ConversationOpsMetrics;
 import com.lingxi.workbench.application.runtime.model.HitlDecisionTxBO;
 import com.lingxi.workbench.application.runtime.model.message.HitlResumeMessage;
 import com.lingxi.workbench.application.runtime.service.interaction.HitlDecisionTxService;
+import com.lingxi.workbench.chat.common.enums.MessageStatus;
+import com.lingxi.workbench.chat.model.bo.AssistantCompletionTxBO;
+import com.lingxi.workbench.chat.model.message.ConversationCompletedMessage;
+import com.lingxi.workbench.chat.ops.ConversationOpsMetrics;
+import com.lingxi.workbench.chat.service.ConversationService;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.framework.json.JSON;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.annotation.RocketMQTransactionListener;
@@ -22,7 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.Optional;
 
-/** 会话完成事务的本地事务执行器和 PostgreSQL 状态回查器。 */
+/** 会话完成与 HITL 事务的本地执行器和 PostgreSQL 状态回查器。 */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -77,7 +77,7 @@ public class ConversationEventTxListener implements RocketMQLocalTransactionList
             }
             return resolveState(decode(message));
         } catch (RuntimeException exception) {
-            log.warn("会话完成事务状态回查异常", exception);
+            log.warn("会话事务状态回查异常", exception);
             return RocketMQLocalTransactionState.UNKNOWN;
         }
     }
@@ -158,8 +158,7 @@ public class ConversationEventTxListener implements RocketMQLocalTransactionList
         if (payload instanceof String text) {
             return requireEvent(JSON.parseObject(text, ConversationCompletedMessage.class));
         }
-        return requireEvent(JSON.parseObject(
-                JSON.toJSONString(payload).getBytes(StandardCharsets.UTF_8), ConversationCompletedMessage.class));
+        return requireEvent(JSON.parseObject(JSON.toJSONString(payload), ConversationCompletedMessage.class));
     }
 
     private static HitlResumeMessage decodeHitl(Message message) {

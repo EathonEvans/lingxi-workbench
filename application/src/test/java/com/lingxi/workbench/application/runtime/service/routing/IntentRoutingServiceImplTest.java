@@ -37,7 +37,7 @@ import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.FallbackAgent;
-import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
+import com.lingxi.workbench.workflow.model.CapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
@@ -481,7 +481,7 @@ class IntentRoutingServiceImplTest {
         when(vectorRepo.search(any(), any(), any(), any(Integer.class))).thenReturn(List.of(
                 new IntentVectorRuntimeRepo.IntentCandidateRow("refund-node", "refund", 0.91),
                 new IntentVectorRuntimeRepo.IntentCandidateRow("exchange-node", "exchange", 0.87)));
-        ApplicationCapabilityDefinition exchangeCapability = ApplicationCapabilityDefinition.builder()
+        CapabilityDefinition exchangeCapability = CapabilityDefinition.builder()
                 .code("exchange_workflow")
                 .type(ApplicationCapabilityType.WORKFLOW)
                 .targetId(41L)
@@ -609,7 +609,7 @@ class IntentRoutingServiceImplTest {
 
     private static AppRuntimeSnapshot optionalSnapshot(
             List<ApplicationIntentMapping> mappings,
-            List<ApplicationCapabilityDefinition> capabilities) {
+            List<CapabilityDefinition> capabilities) {
         ApplicationIntentBinding intentRouting = ApplicationIntentBinding.builder()
                 .enabled(true)
                 .intentTreeId(2L)
@@ -632,8 +632,8 @@ class IntentRoutingServiceImplTest {
                 .build());
     }
 
-    private static ApplicationCapabilityDefinition fallbackCap() {
-        return ApplicationCapabilityDefinition.builder()
+    private static CapabilityDefinition fallbackCap() {
+        return CapabilityDefinition.builder()
                 .code("default_agent")
                 .type(ApplicationCapabilityType.AGENT)
                 .targetId(60L)
@@ -641,8 +641,8 @@ class IntentRoutingServiceImplTest {
                 .build();
     }
 
-    private static ApplicationCapabilityDefinition refundCapability() {
-        return ApplicationCapabilityDefinition.builder()
+    private static CapabilityDefinition refundCapability() {
+        return CapabilityDefinition.builder()
                 .code("refund_workflow")
                 .type(ApplicationCapabilityType.WORKFLOW)
                 .targetId(40L)

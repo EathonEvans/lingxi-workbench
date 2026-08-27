@@ -1,7 +1,7 @@
 package com.lingxi.workbench.admin.prompt.service.impl;
 
 import cn.hutool.core.collection.CollUtil;
-import com.alibaba.fastjson2.JSON;
+import com.lingxi.workbench.framework.json.JSON;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVariableType;
 import com.lingxi.workbench.admin.prompt.model.request.PreviewPromptRequest;
 import com.lingxi.workbench.admin.prompt.model.request.PromptVariableRequest;

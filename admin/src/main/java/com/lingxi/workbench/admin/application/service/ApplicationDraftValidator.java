@@ -1,7 +1,7 @@
 package com.lingxi.workbench.admin.application.service;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSON;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.admin.agent.service.AgentReferenceService;
 import com.lingxi.workbench.admin.application.model.vo.ApplicationValidationIssueVO;
@@ -18,7 +18,7 @@ import com.lingxi.workbench.infra.ai.variable.RuntimeVariableCatalog;
 import com.lingxi.workbench.infra.ai.variable.common.enums.BuiltInRuntimeVariable;
 import com.lingxi.workbench.infra.ai.variable.common.enums.RuntimeVariableChannel;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
-import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
+import com.lingxi.workbench.workflow.model.CapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
@@ -141,17 +141,17 @@ public class ApplicationDraftValidator {
     /** 解析并锁定能力目录中的全部执行目标。 */
     private CapabilityCatalogSnapshot resolveCapabilityCatalog(CapabilityCatalogSnapshot draft, int readOnlyMaxCalls,
                                                                List<ApplicationValidationIssueVO> issues) {
-        List<ApplicationCapabilityDefinition> resolved = new ArrayList<>();
+        List<CapabilityDefinition> resolved = new ArrayList<>();
         Set<String> codes = new HashSet<>();
-        List<ApplicationCapabilityDefinition> capabilities = Objects.isNull(draft) ? List.of() : draft.capabilities();
+        List<CapabilityDefinition> capabilities = Objects.isNull(draft) ? List.of() : draft.capabilities();
         if (capabilities.size() > MAX_RESOLVED_CAPABILITIES) {
             issues.add(issue("CAPABILITY_COUNT_INVALID", "definition.capabilityCatalog.capabilities", "能力目录最多配置50项能力"));
             return CapabilityCatalogSnapshot.builder().capabilities(resolved).build();
         }
         for (int index = 0; index < capabilities.size(); index++) {
-            ApplicationCapabilityDefinition capability = capabilities.get(index);
+            CapabilityDefinition capability = capabilities.get(index);
             String field = "definition.capabilityCatalog.capabilities[" + index + "]";
-            ApplicationCapabilityDefinition item = resolveCapability(
+            CapabilityDefinition item = resolveCapability(
                     capability, field, codes, readOnlyMaxCalls, issues);
             if (Objects.nonNull(item)) {
                 resolved.add(item);
@@ -166,7 +166,7 @@ public class ApplicationDraftValidator {
             CapabilityCatalogSnapshot explicitCapabilities,
             int readOnlyMaxCalls,
             List<ApplicationValidationIssueVO> issues) {
-        List<ApplicationCapabilityDefinition> capabilities = new ArrayList<>();
+        List<CapabilityDefinition> capabilities = new ArrayList<>();
         Set<String> codes = new HashSet<>();
         if (Objects.nonNull(collaboration)) {
             addAgentCapability(DEFAULT_AGENT_CAPABILITY_CODE, collaboration.supervisor(), capabilities, codes,
@@ -176,7 +176,7 @@ public class ApplicationDraftValidator {
                         readOnlyMaxCalls, issues);
             }
         }
-        for (ApplicationCapabilityDefinition capability : explicitCapabilities.capabilities()) {
+        for (CapabilityDefinition capability : explicitCapabilities.capabilities()) {
             if (!codes.add(capability.getCode())) {
                 issues.add(issue("CAPABILITY_CODE_DUPLICATED", "definition.capabilityCatalog.capabilities",
                         "Workflow能力编码与系统生成的Agent能力编码冲突：" + capability.getCode()));
@@ -194,7 +194,7 @@ public class ApplicationDraftValidator {
     private static void addAgentCapability(
             String code,
             ApplicationAgentReference reference,
-            List<ApplicationCapabilityDefinition> capabilities,
+            List<CapabilityDefinition> capabilities,
             Set<String> codes,
             int readOnlyMaxCalls,
             List<ApplicationValidationIssueVO> issues) {
@@ -204,7 +204,7 @@ public class ApplicationDraftValidator {
             return;
         }
         String description = isBlank(reference.description()) ? reference.name() : reference.description().trim();
-        capabilities.add(ApplicationCapabilityDefinition.builder()
+        capabilities.add(CapabilityDefinition.builder()
                 .code(code)
                 .type(ApplicationCapabilityType.AGENT)
                 .name(reference.name())
@@ -222,9 +222,9 @@ public class ApplicationDraftValidator {
                 .build());
     }
 
-    private ApplicationCapabilityDefinition resolveCapability(ApplicationCapabilityDefinition draft, String field,
-                                                              Set<String> codes, int readOnlyMaxCalls,
-                                                              List<ApplicationValidationIssueVO> issues) {
+    private CapabilityDefinition resolveCapability(CapabilityDefinition draft, String field,
+                                                   Set<String> codes, int readOnlyMaxCalls,
+                                                   List<ApplicationValidationIssueVO> issues) {
         if (Objects.isNull(draft) || isBlank(draft.getCode()) || !CAPABILITY_CODE_PATTERN.matcher(draft.getCode()).matches()) {
             issues.add(issue("CAPABILITY_CODE_INVALID", field + ".code", "能力编码需使用2到64位小写字母、数字或下划线"));
             return null;
@@ -246,7 +246,7 @@ public class ApplicationDraftValidator {
         return resolveWorkflowCapability(draft, field, readOnlyMaxCalls, issues);
     }
 
-    private static void validateCapabilityPolicy(ApplicationCapabilityDefinition capability, String field,
+    private static void validateCapabilityPolicy(CapabilityDefinition capability, String field,
                                                  List<ApplicationValidationIssueVO> issues) {
         if (Objects.nonNull(capability.getDescription()) && capability.getDescription().trim().length() > 500) {
             issues.add(issue("CAPABILITY_DESCRIPTION_TOO_LONG", field + ".description", "能力描述不能超过500个字符"));
@@ -264,9 +264,9 @@ public class ApplicationDraftValidator {
                 field + ".resultTokenBudget", "能力结果Token预算", issues);
     }
 
-    private ApplicationCapabilityDefinition resolveWorkflowCapability(ApplicationCapabilityDefinition draft, String field,
-                                                                      int readOnlyMaxCalls,
-                                                                      List<ApplicationValidationIssueVO> issues) {
+    private CapabilityDefinition resolveWorkflowCapability(CapabilityDefinition draft, String field,
+                                                           int readOnlyMaxCalls,
+                                                           List<ApplicationValidationIssueVO> issues) {
         WorkflowService.WorkflowReference workflow = workflowService.findReference(draft.getTargetId()).orElse(null);
         if (Objects.isNull(workflow) || !workflow.active()) {
             issues.add(issue("CAPABILITY_WORKFLOW_UNAVAILABLE", field + ".targetId", "目标Workflow不存在或已停用"));
@@ -284,13 +284,13 @@ public class ApplicationDraftValidator {
                 "WORKFLOW_VERSION", checksum(definition), readOnlyMaxCalls);
     }
 
-    private static ApplicationCapabilityDefinition baseCapability(ApplicationCapabilityDefinition draft, String name, String description,
-                                                                  Long versionId, JSONObject inputSchema, JSONObject outputSchema,
-                                                                  String implementationType, String configurationChecksum,
-                                                                  int readOnlyMaxCalls) {
+    private static CapabilityDefinition baseCapability(CapabilityDefinition draft, String name, String description,
+                                                       Long versionId, JSONObject inputSchema, JSONObject outputSchema,
+                                                       String implementationType, String configurationChecksum,
+                                                       int readOnlyMaxCalls) {
         CapabilityRiskLevel riskLevel = Objects.requireNonNullElse(
                 draft.getRiskLevel(), CapabilityRiskLevel.READ_ONLY);
-        return ApplicationCapabilityDefinition.builder()
+        return CapabilityDefinition.builder()
                 .code(draft.getCode())
                 .type(draft.getType())
                 .name(name)
@@ -308,7 +308,7 @@ public class ApplicationDraftValidator {
                 .build();
     }
 
-    private static String normalizedDescription(ApplicationCapabilityDefinition draft, String fallback) {
+    private static String normalizedDescription(CapabilityDefinition draft, String fallback) {
         return isBlank(draft.getDescription()) ? fallback : draft.getDescription();
     }
 
@@ -354,7 +354,7 @@ public class ApplicationDraftValidator {
                     "当前问题重写与Agent执行至少需要" + minimumModelCalls + "次模型调用额度"));
         }
         for (int index = 0; index < catalog.capabilities().size(); index++) {
-            ApplicationCapabilityDefinition capability = catalog.capabilities().get(index);
+            CapabilityDefinition capability = catalog.capabilities().get(index);
             String field = "definition.capabilityCatalog.capabilities[" + index + "]";
             if (capability.getResultTokenBudget() > runtimePolicy.getTotalTokenBudget()) {
                 issues.add(issue("CAPABILITY_RESULT_BUDGET_EXCEEDS_RUNTIME", field + ".resultTokenBudget",
@@ -502,7 +502,7 @@ public class ApplicationDraftValidator {
         ApplicationCapabilityType expectedType = mapping.getTargetType() == IntentExecutionTargetType.WORKFLOW
                 ? ApplicationCapabilityType.WORKFLOW
                 : ApplicationCapabilityType.AGENT;
-        ApplicationCapabilityDefinition capability = findIntentRoutingCapability(mapping, expectedType, capabilityCatalog);
+        CapabilityDefinition capability = findIntentRoutingCapability(mapping, expectedType, capabilityCatalog);
         if (Objects.isNull(capability)) {
             issues.add(issue("INTENT_ROUTING_CAPABILITY_UNAVAILABLE", field + ".capabilityCode", "请选择能力目录中唯一可用的执行能力"));
             return null;
@@ -523,9 +523,9 @@ public class ApplicationDraftValidator {
                 .build();
     }
 
-    private static ApplicationCapabilityDefinition findIntentRoutingCapability(ApplicationIntentMapping mapping, ApplicationCapabilityType expectedType,
-                                                                               CapabilityCatalogSnapshot catalog) {
-        List<ApplicationCapabilityDefinition> matches = catalog.capabilities().stream()
+    private static CapabilityDefinition findIntentRoutingCapability(ApplicationIntentMapping mapping, ApplicationCapabilityType expectedType,
+                                                                    CapabilityCatalogSnapshot catalog) {
+        List<CapabilityDefinition> matches = catalog.capabilities().stream()
                 .filter(capability -> capability.getType() == expectedType)
                 .filter(capability -> isBlank(mapping.getCapabilityCode())
                         ? Objects.equals(capability.getTargetId(), mapping.getTargetId())

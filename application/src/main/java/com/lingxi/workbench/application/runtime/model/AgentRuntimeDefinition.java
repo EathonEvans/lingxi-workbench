@@ -17,7 +17,7 @@ import java.util.Objects;
 /**
  * AgentVersion JSONB 快照在运行端的只读业务契约。
  *
- * <p>管理端负责创建和校验快照，应用端通过 Fastjson2 将已发布快照反序列化为该对象。
+ * <p>管理端负责创建和校验快照，应用端通过 Gson 将已发布快照反序列化为该对象。
  * 因此保留无参构造和 Setter 供 JSON 框架赋值；业务测试和手工构造统一使用 Builder，
  * 避免长位置参数发生错位。</p>
  *

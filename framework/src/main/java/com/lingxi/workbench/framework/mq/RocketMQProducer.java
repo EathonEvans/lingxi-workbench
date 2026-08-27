@@ -12,10 +12,9 @@ import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
 
 /**
- * 基于 RocketMQTemplate 的统一消息生产者实现。
+ * 基于 RocketMQ Spring Remoting 客户端的统一消息生产者实现。
  *
- * <p>消息体通过 Fastjson2 自动序列化为 JSON 字符串，消费者端自动反序列化。
- * 路由标识（key）保证同一业务标识的消息固定路由到同一队列，用于顺序消费场景。</p>
+ * <p>消息转换由 RocketMQ 组件管理，Lingxi 业务代码不直接依赖其内部 JSON 实现。</p>
  *
  * @param <T> 消息体类型
  */

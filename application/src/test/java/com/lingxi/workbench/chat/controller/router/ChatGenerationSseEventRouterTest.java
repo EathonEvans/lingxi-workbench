@@ -34,6 +34,8 @@ class ChatGenerationSseEventRouterTest {
                 .toolCode("delegate_agent_30")
                 .displayName("委派给售后专家")
                 .status(AgentToolExecutionStatus.RUNNING)
+                .planNo(2)
+                .stepId("resolve-refund")
                 .build());
 
         ServerSentEvent<?> routed = ChatGenerationSseEventRouter.rout(event);
@@ -45,6 +47,8 @@ class ChatGenerationSseEventRouterTest {
         assertEquals("30", payload.getAgentId());
         assertEquals("售后专家", payload.getAgentName());
         assertEquals("RUNNING", payload.getStatus());
+        assertEquals(2, payload.getPlanNo());
+        assertEquals("resolve-refund", payload.getStepId());
     }
 
     @Test

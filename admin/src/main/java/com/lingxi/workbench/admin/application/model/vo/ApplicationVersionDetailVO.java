@@ -19,6 +19,8 @@ public class ApplicationVersionDetailVO {
     private final Integer versionNo;
     private final String versionName;
     private final Integer schemaVersion;
+    private final String name;
+    private final String avatarUrl;
     private final ApplicationDefinition definition;
     private final String snapshotChecksum;
     private final String changeNote;

@@ -1,6 +1,6 @@
 package com.lingxi.workbench.chat.service.impl;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.PromptRuntimeVariableDefinition;
 import com.lingxi.workbench.application.runtime.service.prompt.PromptRuntimeService;

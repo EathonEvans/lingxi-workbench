@@ -1,11 +1,13 @@
 package com.lingxi.workbench.application.runtime.tool;
 
+import com.lingxi.workbench.framework.json.JSON;
 import com.lingxi.workbench.application.runtime.common.enums.KnowledgeSearchStatus;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
 import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.AgentToolException;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolRequest;
 import com.lingxi.workbench.knowledge.model.vo.KnowledgeSearchResultVO;
 import com.lingxi.workbench.knowledge.service.KnowledgeSearchService;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
@@ -16,17 +18,14 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.ai.tool.function.FunctionToolCallback;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Function;
 
 import static com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionMode.DETERMINISTIC_READ_ONLY;
 
@@ -57,12 +56,7 @@ public class KnowledgeSearchAgentToolFactory {
                 .executionMode(DETERMINISTIC_READ_ONLY)
                 .build();
         KnowledgeSearchEvidenceTracker evidenceTracker = new KnowledgeSearchEvidenceTracker();
-        Function<KnowledgeSearchInput, KnowledgeSearchOutput> executor = input -> execute(capability, input, evidenceTracker);
-        ToolCallback callback = FunctionToolCallback.builder(TOOL_CODE, executor)
-                .description(definition.getDescription())
-                .inputType(KnowledgeSearchInput.class)
-                .build();
-        return new KnowledgeSearchAgentTool(definition, callback, evidenceTracker);
+        return new KnowledgeSearchAgentTool(definition, capability, evidenceTracker, this);
     }
 
     private KnowledgeSearchOutput execute(AgentRuntimeDefinition.KnowledgeSearchCapability capability, KnowledgeSearchInput input,
@@ -178,8 +172,26 @@ public class KnowledgeSearchAgentToolFactory {
     /**
      * 将检索证据收敛状态反馈给平台 Agent 循环。
      */
-    private record KnowledgeSearchAgentTool(AgentToolDefinition definition, ToolCallback callback,
-                                            KnowledgeSearchEvidenceTracker evidenceTracker) implements AgentTool {
+    private record KnowledgeSearchAgentTool(AgentToolDefinition definition,
+                                            AgentRuntimeDefinition.KnowledgeSearchCapability capability,
+                                            KnowledgeSearchEvidenceTracker evidenceTracker,
+                                            KnowledgeSearchAgentToolFactory factory) implements AgentTool {
+
+        @Override
+        public Map<String, Object> inputSchema() {
+            return Map.of(
+                    "type", "object",
+                    "properties", Map.of("query", Map.of("type", "string",
+                            "description", "面向知识库的独立检索查询")),
+                    "required", List.of("query"),
+                    "additionalProperties", false);
+        }
+
+        @Override
+        public String execute(AgentToolRequest request) {
+            KnowledgeSearchInput input = JSON.parseObject(request.input(), KnowledgeSearchInput.class);
+            return JSON.toJSONString(factory.execute(capability, input, evidenceTracker));
+        }
 
         @Override
         public boolean shouldFinalizeAfterSuccess() {
@@ -191,7 +203,6 @@ public class KnowledgeSearchAgentToolFactory {
     @Setter
     @NoArgsConstructor
     public static class KnowledgeSearchInput {
-        @ToolParam(description = "面向知识库的独立检索查询，不包含知识库ID或版本ID", required = true)
         private String query;
     }
 

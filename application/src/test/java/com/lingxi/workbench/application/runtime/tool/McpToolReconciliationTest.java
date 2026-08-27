@@ -1,8 +1,8 @@
 package com.lingxi.workbench.application.runtime.tool;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSON;
+import com.lingxi.workbench.framework.json.JSONArray;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.infra.ai.tool.AgentToolException;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolReconciliationResult;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolReconciliationStatus;

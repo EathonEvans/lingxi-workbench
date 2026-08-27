@@ -1,14 +1,14 @@
 package com.lingxi.workbench.chat.event;
 
+import com.lingxi.workbench.application.runtime.model.HitlDecisionTxBO;
+import com.lingxi.workbench.application.runtime.model.message.HitlResumeMessage;
+import com.lingxi.workbench.application.runtime.service.interaction.HitlDecisionTxService;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import com.lingxi.workbench.chat.model.bo.AssistantCompletionMetaBO;
 import com.lingxi.workbench.chat.model.bo.AssistantCompletionTxBO;
 import com.lingxi.workbench.chat.model.message.ConversationCompletedMessage;
 import com.lingxi.workbench.chat.ops.ConversationOpsMetrics;
 import com.lingxi.workbench.chat.service.ConversationService;
-import com.lingxi.workbench.application.runtime.service.interaction.HitlDecisionTxService;
-import com.lingxi.workbench.application.runtime.model.HitlDecisionTxBO;
-import com.lingxi.workbench.application.runtime.model.message.HitlResumeMessage;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
@@ -20,9 +20,9 @@ import org.springframework.messaging.support.MessageBuilder;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 class ConversationEventTxListenerTest {

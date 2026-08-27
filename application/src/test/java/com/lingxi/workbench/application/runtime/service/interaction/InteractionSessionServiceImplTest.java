@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.interaction;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionStatus;
 import com.lingxi.workbench.application.runtime.common.enums.InteractionSessionType;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
@@ -14,7 +14,7 @@ import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.request.ClarificationResponseRequest;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
-import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
+import com.lingxi.workbench.workflow.model.CapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
@@ -123,7 +123,7 @@ class InteractionSessionServiceImplTest {
     }
 
     private static AppRuntimeSnapshot application(Long versionId) {
-        ApplicationCapabilityDefinition fallbackAgent = ApplicationCapabilityDefinition.builder()
+        CapabilityDefinition fallbackAgent = CapabilityDefinition.builder()
                 .code("default_agent")
                 .name("默认助手")
                 .type(ApplicationCapabilityType.AGENT)

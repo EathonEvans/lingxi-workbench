@@ -39,7 +39,7 @@ class PromptTemplateProcessorTest {
     }
 
     @Test
-    void shouldSerializeObjectWithFastjson2() {
+    void shouldSerializeObjectWithGson() {
         PromptVariableRequest product = variable(
                 "input.product", PromptVariableType.OBJECT, true);
 

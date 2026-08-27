@@ -14,6 +14,7 @@ import com.lingxi.workbench.chat.model.entity.ConversationEntity;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
 import com.lingxi.workbench.chat.repo.ConversationMessageRepo;
 import com.lingxi.workbench.chat.repo.ConversationRepo;
+import com.lingxi.workbench.application.runtime.service.app.ApplicationVersionService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -40,6 +41,7 @@ class ConversationServiceImplTest {
     @Mock private ConversationMessageRepo messageRepo;
     @Mock private ConversationConverter converter;
     @Mock private ConversationOpsMetrics opsMetrics;
+    @Mock private ApplicationVersionService applicationVersionService;
 
     @InjectMocks private ConversationServiceImpl service;
 

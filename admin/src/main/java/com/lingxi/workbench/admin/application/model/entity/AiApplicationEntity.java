@@ -7,7 +7,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 /** AI Application 稳定身份。
- *  <p>核心字段：id, name, code, description, status, publishedVersionId。</p>
+ *  <p>核心字段：id, name, code, description, avatar, status, publishedVersionId。</p>
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -17,6 +17,8 @@ public class AiApplicationEntity extends TimeEntity {
     private String name;
     private String code;
     private String description;
+    /** 当前应用头像，发布时冻结至 ApplicationVersion。 */
+    private String avatar;
     private Long domainId;
     private EnableStatus status;
     private Long publishedVersionId;

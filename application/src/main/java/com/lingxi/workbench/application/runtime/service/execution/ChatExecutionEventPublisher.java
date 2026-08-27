@@ -140,12 +140,21 @@ public interface ChatExecutionEventPublisher {
 
             @Override
             public void publishTool(AgentToolExecutionEvent event) {
-                target.publishTool(event);
+                target.publishTool(AgentToolExecutionEvent.builder()
+                        .invocationId(event.getInvocationId())
+                        .toolCode(event.getToolCode())
+                        .displayName(event.getDisplayName())
+                        .status(event.getStatus())
+                        .durationMillis(event.getDurationMillis())
+                        .errorCode(event.getErrorCode())
+                        .planNo(planNo)
+                        .stepId(stepId)
+                        .build());
             }
 
             @Override
             public void publishProgress(AgentProgressEvent event) {
-                target.publishProgress(event);
+                // 子 Agent 的 Runtime Timeline 已在 publishExecution 中绑定当前步骤，避免再投影为根进度。
             }
 
             @Override
@@ -165,7 +174,16 @@ public interface ChatExecutionEventPublisher {
 
             @Override
             public void publishExecution(ChatExecutionTimelineEventBO event) {
-                target.publishExecution(event);
+                target.publishExecution(ChatExecutionTimelineEventBO.builder()
+                        .runId(runId)
+                        .eventType(event.getEventType())
+                        .planNo(planNo)
+                        .stepId(stepId)
+                        .displayName(event.getDisplayName())
+                        .stepStatus(event.getStepStatus())
+                        .message(event.getMessage())
+                        .steps(event.steps())
+                        .build());
             }
 
             @Override

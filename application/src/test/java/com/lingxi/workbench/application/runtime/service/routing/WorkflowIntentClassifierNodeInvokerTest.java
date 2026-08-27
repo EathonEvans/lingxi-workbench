@@ -2,7 +2,7 @@ package com.lingxi.workbench.application.runtime.service.routing;
 
 import com.lingxi.workbench.application.runtime.common.enums.IntentDecisionReason;
 import com.lingxi.workbench.application.runtime.common.enums.IntentSemanticAction;
-import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
+import com.lingxi.workbench.application.runtime.model.ApplicationRun;
 import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
 import com.lingxi.workbench.application.runtime.model.IntentCandidate;
 import com.lingxi.workbench.application.runtime.model.IntentCandidateSet;
@@ -45,9 +45,9 @@ class WorkflowIntentClassifierNodeInvokerTest {
         RuntimeIntentTreeVersionEntity version = version();
         IntentCandidate refund = candidate("refund", 0.92D);
         IntentCandidate exchange = candidate("exchange", 0.86D);
-        ChatExecutionContext executionContext = executionContext();
+        ApplicationRun run = run();
         ApplicationExecutionBudget executionBudget = mock(ApplicationExecutionBudget.class);
-        when(executionContext.getExecutionBudget()).thenReturn(executionBudget);
+        when(run.budget()).thenReturn(executionBudget);
         when(intentTreeRuntimeRepo.findVersion(30L, 40L)).thenReturn(Optional.of(version));
         when(candidateRetriever.retrieve(any())).thenReturn(new IntentCandidateSet(
                 List.of(refund, exchange), List.of(refund, exchange)));
@@ -66,7 +66,7 @@ class WorkflowIntentClassifierNodeInvokerTest {
                         .durationMillis(15L)
                         .build());
 
-        IntentClassifierNodeResult result = invoker.invoke(invocation(), executionContext);
+        IntentClassifierNodeResult result = invoker.invoke(invocation(), run);
 
         assertThat(result.getStatus()).isEqualTo(IntentClassifierNodeStatus.SELECTED);
         assertThat(result.getIntentCode()).isEqualTo("refund");
@@ -83,7 +83,7 @@ class WorkflowIntentClassifierNodeInvokerTest {
         when(intentTreeRuntimeRepo.findVersion(30L, 40L)).thenReturn(Optional.of(version()));
         when(candidateRetriever.retrieve(any())).thenReturn(new IntentCandidateSet(List.of(), List.of()));
 
-        IntentClassifierNodeResult result = invoker.invoke(invocation(), executionContext());
+        IntentClassifierNodeResult result = invoker.invoke(invocation(), run());
 
         assertThat(result.getStatus()).isEqualTo(IntentClassifierNodeStatus.DEFERRED);
         assertThat(result.getReasonCode()).isEqualTo("NO_SUITABLE_CANDIDATE");
@@ -94,12 +94,12 @@ class WorkflowIntentClassifierNodeInvokerTest {
         verify(semanticDecisionService, never()).decideForWorkflow(any(), any(), any(), any());
     }
 
-    private static ChatExecutionContext executionContext() {
-        ChatExecutionContext executionContext = mock(ChatExecutionContext.class);
+    private static ApplicationRun run() {
+        ApplicationRun run = mock(ApplicationRun.class);
         ConversationContext conversationContext = mock(ConversationContext.class);
-        when(executionContext.getConversationContext()).thenReturn(conversationContext);
+        when(run.conversation()).thenReturn(conversationContext);
         when(conversationContext.forkForQuery("我要退款")).thenReturn(conversationContext);
-        return executionContext;
+        return run;
     }
 
     private static RuntimeIntentTreeVersionEntity version() {

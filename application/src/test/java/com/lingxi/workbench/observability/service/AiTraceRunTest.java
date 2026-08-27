@@ -19,7 +19,7 @@ class AiTraceRunTest {
     void shouldPersistOnlyOneTerminalEventWhenCompletionRacesWithFailureAndCancellation() {
         AiObservationEventWriter eventWriter = mock(AiObservationEventWriter.class);
         ObservationRegistry observationRegistry = ObservationRegistry.create();
-        AiTraceRun traceRun = AiTraceRun.builder()
+        TraceRun traceRun = TraceRun.builder()
                 .root(Observation.start("test-trace", observationRegistry))
                 .observationRegistry(observationRegistry)
                 .eventWriter(eventWriter)

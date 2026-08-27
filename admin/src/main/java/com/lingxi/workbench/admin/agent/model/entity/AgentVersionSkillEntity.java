@@ -3,7 +3,7 @@ package com.lingxi.workbench.admin.agent.model.entity;
 import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
+import com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler;
 import lombok.Data;
 import org.apache.ibatis.type.JdbcType;
 
@@ -21,9 +21,9 @@ public class AgentVersionSkillEntity {
     private Long skillVersionId;
     private String skillCode;
     private String skillChecksum;
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private List<String> effectiveToolCodes;
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private List<String> deniedToolCodes;
     @TableField(fill = FieldFill.INSERT)
     private OffsetDateTime createdAt;

@@ -18,6 +18,8 @@ public class ApplicationVO {
     private final String name;
     private final String code;
     private final String description;
+    private final String avatar;
+    private final String avatarUrl;
     private final String domainId;
     private final EnableStatus status;
     private final String publishedVersionId;

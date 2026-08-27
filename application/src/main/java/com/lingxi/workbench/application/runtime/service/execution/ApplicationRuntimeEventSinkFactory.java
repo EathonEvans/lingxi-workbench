@@ -8,6 +8,7 @@ import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus
 import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
 import com.lingxi.workbench.application.runtime.model.ExecutionSkillActivationCommand;
+import com.lingxi.workbench.application.runtime.model.entity.ExecutionEventEntity;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatInteractionEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatPlanStepBO;
@@ -18,6 +19,8 @@ import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+
+import static com.lingxi.workbench.application.runtime.common.constants.AgentChatConstants.DELEGATE_AGENT_TOOL_PREFIX;
 
 /** 创建“先持久化 Runtime 事件，再转发 SSE”的 Application 事件适配器。 */
 @Component
@@ -46,13 +49,12 @@ public class ApplicationRuntimeEventSinkFactory {
         }
 
         @Override
-        public void onEvent(ExecutionEvent event) {
+        public long onEvent(ExecutionEvent event) {
             ExecutionEventType eventType = ExecutionEventType.valueOf(event.getType().name());
             String message = event.getPayload() == null ? null : event.getPayload().message();
             reserveApplicationBudget(event);
             ExecutionEventCommand command = ExecutionEventCommand.builder()
                     .runId(event.getRunId())
-                    .sequenceNo(event.getSequenceNo())
                     .occurredAt(event.getOccurredAt())
                     .eventType(eventType)
                     .planNo(planNo(event))
@@ -61,8 +63,9 @@ public class ApplicationRuntimeEventSinkFactory {
                     .displayName(eventType.getDescribe())
                     .message(message)
                     .build();
+            ExecutionEventEntity persisted;
             if (event.getPayload() instanceof ExecutionEventPayload.Skill skill) {
-                persistenceService.appendSkillActivationEvent(command,
+                persisted = persistenceService.appendSkillActivationEvent(command,
                         ExecutionSkillActivationCommand.builder()
                                 .runId(event.getRunId())
                                 .agentVersionId(event.getAgentVersionId())
@@ -74,9 +77,10 @@ public class ApplicationRuntimeEventSinkFactory {
                                 .effectiveToolCodes(skill.getEffectiveToolCodes())
                                 .build());
             } else {
-                persistenceService.appendEvent(command);
+                persisted = persistenceService.appendEvent(command);
             }
             publishProjection(event);
+            return persisted.getSequenceNo();
         }
 
         /** Runtime是Agent局部预算真相；Application只在统一开始事件到达时占用全局额度。 */
@@ -145,12 +149,20 @@ public class ApplicationRuntimeEventSinkFactory {
             if (event.getPayload() instanceof ExecutionEventPayload.Step step) {
                 return step.getTaskRevision();
             }
+            if (event.getPayload() instanceof ExecutionEventPayload.Tool tool && tool.isAgentDelegation()) {
+                return tool.getTaskRevision();
+            }
             return null;
         }
 
         private static String stepId(ExecutionEvent event) {
-            return event.getPayload() instanceof ExecutionEventPayload.Step step
-                    ? step.getStep().getId() : null;
+            if (event.getPayload() instanceof ExecutionEventPayload.Step step) {
+                return step.getStep().getId();
+            }
+            if (event.getPayload() instanceof ExecutionEventPayload.Tool tool && tool.isAgentDelegation()) {
+                return tool.getStepId();
+            }
+            return null;
         }
 
         private static ExecutionStepStatus stepStatus(ExecutionEvent event) {
@@ -192,13 +204,17 @@ public class ApplicationRuntimeEventSinkFactory {
         }
 
         private void publishTool(ExecutionEvent event, ExecutionEventPayload.Tool tool) {
+            String toolCode = tool.isAgentDelegation()
+                    ? DELEGATE_AGENT_TOOL_PREFIX + tool.getDelegatedAgentId() : tool.toolCode();
             eventPublisher.publishTool(AgentToolExecutionEvent.builder()
                     .invocationId(event.getInvocationId())
-                    .toolCode(tool.toolCode())
+                    .toolCode(toolCode)
                     .displayName(tool.displayName())
                     .status(toolStatus(event.getType()))
                     .durationMillis(tool.durationMillis())
                     .errorCode(tool.errorCode())
+                    .planNo(tool.getTaskRevision())
+                    .stepId(tool.getStepId())
                     .build());
         }
 

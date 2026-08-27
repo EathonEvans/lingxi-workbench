@@ -3,6 +3,9 @@ package com.lingxi.workbench.admin.application.model.converter;
 import com.lingxi.workbench.admin.application.model.entity.AiApplicationEntity;
 import com.lingxi.workbench.admin.application.model.entity.AiApplicationVersionEntity;
 import com.lingxi.workbench.admin.application.model.vo.ApplicationVO;
+import com.lingxi.workbench.admin.config.FileUploadProperties;
+import com.lingxi.workbench.admin.file.service.AvatarUrlService;
+import com.lingxi.workbench.framework.storage.ObjectStorage;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
@@ -17,6 +20,7 @@ import java.util.List;
 
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 /** Application 管理端响应转换回归测试。 */
 class ApplicationConverterTest {
@@ -33,7 +37,10 @@ class ApplicationConverterTest {
         version.setDefinitionSnapshot(ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION - 1)
                 .build());
-        ApplicationConverter converter = new ApplicationConverter();
+        FileUploadProperties fileProperties = new FileUploadProperties();
+        fileProperties.setUrlExpireHours(1);
+        ApplicationConverter converter = new ApplicationConverter(
+                new AvatarUrlService(mock(ObjectStorage.class), fileProperties));
 
         ApplicationVO legacy = converter.toListVO(application, version, null);
         version.setSchemaVersion(APPLICATION_SCHEMA_VERSION);

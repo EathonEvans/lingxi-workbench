@@ -2,14 +2,14 @@ package com.lingxi.workbench.workflow.service.impl;
 
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
-import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
+import com.lingxi.workbench.application.runtime.model.ApplicationRun;
+import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
 import com.lingxi.workbench.application.runtime.service.agent.ChatAgentNodeInvoker;
 import com.lingxi.workbench.application.runtime.service.routing.WorkflowIntentClassifierNodeInvoker;
 import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionEventPublisher;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
-import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.workflow.model.WorkflowDefinition;
 import com.lingxi.workbench.workflow.model.AgentNodeInvocation;
@@ -46,7 +46,7 @@ class ApplicationWorkflowExecutionPortsFactoryTest {
         WorkflowRunService runService = mock(WorkflowRunService.class);
         ChatAgentNodeInvoker agentNodeInvoker = mock(ChatAgentNodeInvoker.class);
         WorkflowIntentClassifierNodeInvoker intentClassifierNodeInvoker = mock(WorkflowIntentClassifierNodeInvoker.class);
-        ChatExecutionContext executionContext = mock(ChatExecutionContext.class);
+        ApplicationRun run = configureOwnership(mock(ApplicationRun.class));
         AgentNodeInvocation invocation = AgentNodeInvocation.builder()
                 .executionId("execution-1")
                 .workflowVersionId(11L)
@@ -55,7 +55,7 @@ class ApplicationWorkflowExecutionPortsFactoryTest {
                 .agentVersionId(21L)
                 .inputs(Map.of("query", "问题"))
                 .build();
-        when(agentNodeInvoker.invoke(invocation, executionContext)).thenReturn(Map.of("answer", "回答"));
+        when(agentNodeInvoker.invoke(invocation, run, null)).thenReturn(Map.of("answer", "回答"));
         IntentClassifierNodeInvocation intentInvocation = IntentClassifierNodeInvocation.builder()
                 .executionId("execution-1")
                 .runId("workflow-run-1")
@@ -66,26 +66,26 @@ class ApplicationWorkflowExecutionPortsFactoryTest {
                 .query("问题")
                 .build();
         IntentClassifierNodeResult intentResult = mock(IntentClassifierNodeResult.class);
-        when(intentClassifierNodeInvoker.invoke(intentInvocation, executionContext)).thenReturn(intentResult);
+        when(intentClassifierNodeInvoker.invoke(intentInvocation, run)).thenReturn(intentResult);
 
         WorkflowExecutionPorts ports = new ApplicationWorkflowExecutionPortsFactory(
-                runService, agentNodeInvoker, intentClassifierNodeInvoker).create(configureOwnership(executionContext));
+                runService, agentNodeInvoker, intentClassifierNodeInvoker).create(run, null);
 
         assertThat(ports.agentNodeInvoker().invoke(invocation)).containsEntry("answer", "回答");
         assertSame(intentResult, ports.intentClassifierNodeInvoker().invoke(intentInvocation));
-        verify(agentNodeInvoker).invoke(invocation, executionContext);
-        verify(intentClassifierNodeInvoker).invoke(intentInvocation, executionContext);
+        verify(agentNodeInvoker).invoke(invocation, run, null);
+        verify(intentClassifierNodeInvoker).invoke(intentInvocation, run);
     }
 
     @Test
     void shouldPublishNodeStartedTimelineEvent() {
         WorkflowRunService runService = mock(WorkflowRunService.class);
-        ChatExecutionContext executionContext = mock(ChatExecutionContext.class);
+        ApplicationRun run = configureOwnership(mock(ApplicationRun.class));
         ChatExecutionEventPublisher publisher = mock(ChatExecutionEventPublisher.class);
-        when(executionContext.getEventPublisher()).thenReturn(publisher);
+        when(run.request().getEventPublisher()).thenReturn(publisher);
         WorkflowRunListener listener = new ApplicationWorkflowExecutionPortsFactory(
                 runService, mock(ChatAgentNodeInvoker.class), mock(WorkflowIntentClassifierNodeInvoker.class))
-                .create(configureOwnership(executionContext)).runListener();
+                .create(run, null).runListener();
         WorkflowRunContext context = runContext();
         WorkflowNodeDefinition node = startNode();
         Instant startedAt = Instant.parse("2026-08-09T06:00:00Z");
@@ -106,10 +106,10 @@ class ApplicationWorkflowExecutionPortsFactoryTest {
     @Test
     void shouldPersistWorkflowStartWithExplicitOwnershipCommand() {
         WorkflowRunService runService = mock(WorkflowRunService.class);
-        ChatExecutionContext executionContext = configureOwnership(mock(ChatExecutionContext.class));
+        ApplicationRun run = configureOwnership(mock(ApplicationRun.class));
         WorkflowRunListener listener = new ApplicationWorkflowExecutionPortsFactory(
                 runService, mock(ChatAgentNodeInvoker.class), mock(WorkflowIntentClassifierNodeInvoker.class))
-                .create(executionContext).runListener();
+                .create(run, null).runListener();
 
         WorkflowRunContext context = runContext();
         listener.onRunStarted(context);
@@ -129,13 +129,13 @@ class ApplicationWorkflowExecutionPortsFactoryTest {
     @Test
     void shouldKeepPersistedNodeStateWhenTimelinePublishingFails() {
         WorkflowRunService runService = mock(WorkflowRunService.class);
-        ChatExecutionContext executionContext = mock(ChatExecutionContext.class);
+        ApplicationRun run = configureOwnership(mock(ApplicationRun.class));
         ChatExecutionEventPublisher publisher = mock(ChatExecutionEventPublisher.class);
-        when(executionContext.getEventPublisher()).thenReturn(publisher);
+        when(run.request().getEventPublisher()).thenReturn(publisher);
         doThrow(new IllegalStateException("SSE连接已关闭")).when(publisher).publishExecution(any(ChatExecutionTimelineEventBO.class));
         WorkflowRunListener listener = new ApplicationWorkflowExecutionPortsFactory(
                 runService, mock(ChatAgentNodeInvoker.class), mock(WorkflowIntentClassifierNodeInvoker.class))
-                .create(configureOwnership(executionContext)).runListener();
+                .create(run, null).runListener();
         WorkflowRunContext context = runContext();
         WorkflowNodeDefinition node = startNode();
         Instant startedAt = Instant.parse("2026-08-09T06:00:00Z");
@@ -160,15 +160,16 @@ class ApplicationWorkflowExecutionPortsFactoryTest {
         return new WorkflowNodeDefinition("start", "开始", WorkflowNodeType.START, new StartNodeConfig());
     }
 
-    private static ChatExecutionContext configureOwnership(ChatExecutionContext executionContext) {
-        ConversationContext conversation = mock(ConversationContext.class);
+    private static ApplicationRun configureOwnership(ApplicationRun run) {
         AppRuntimeSnapshot application = mock(AppRuntimeSnapshot.class);
-        when(executionContext.getConversationContext()).thenReturn(conversation);
-        when(executionContext.getTurn()).thenReturn(new ChatTurnBO(2L, 3L, 4L, 1));
-        when(conversation.getLoginUser()).thenReturn(new LoginUser(5L, "tester", "测试用户", null));
-        when(conversation.getApplicationSnapshot()).thenReturn(application);
+        ApplicationChatExecutionRequest request = mock(ApplicationChatExecutionRequest.class);
+        when(run.request()).thenReturn(request);
+        when(request.getEventPublisher()).thenReturn(ChatExecutionEventPublisher.noop());
+        when(request.getTurn()).thenReturn(new ChatTurnBO(2L, 3L, 4L, 1));
+        when(request.getLoginUser()).thenReturn(new LoginUser(5L, "tester", "测试用户", null));
+        when(request.getApplication()).thenReturn(application);
         when(application.applicationId()).thenReturn(6L);
         when(application.versionId()).thenReturn(7L);
-        return executionContext;
+        return run;
     }
 }

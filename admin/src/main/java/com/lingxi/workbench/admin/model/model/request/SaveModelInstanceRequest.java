@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.model.model.request;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelCapability;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;

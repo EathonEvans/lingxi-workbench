@@ -13,8 +13,8 @@ import java.util.Optional;
 /**
  * Agent 工具的唯一注册表。
  *
- * <p>Spring 收集全部 AgentTool 后在启动阶段校验编码唯一性，以及结构化定义
- * code 与 Spring AI Function name 的一致性。该注册表只管理当前应用实际部署的执行器。</p>
+ * <p>Spring 收集全部 AgentTool 后在启动阶段校验编码唯一性与输入 Schema。
+ * 该注册表只管理当前应用实际部署的执行器。</p>
  */
 @Component
 public class AgentToolRegistry {
@@ -54,9 +54,9 @@ public class AgentToolRegistry {
 
     private static void register(Map<String, AgentTool> registeredTools, AgentTool tool) {
         AgentToolDefinition definition = Objects.requireNonNull(tool.definition(), "工具定义不能为空");
-        String functionName = tool.callback().getToolDefinition().name();
-        if (!Objects.equals(definition.getCode(), functionName)) {
-            throw new IllegalStateException("工具定义编码与Function name不一致：" + definition.getCode());
+        Map<String, Object> inputSchema = Objects.requireNonNull(tool.inputSchema(), "工具输入Schema不能为空");
+        if (!Objects.equals("object", inputSchema.get("type"))) {
+            throw new IllegalStateException("工具输入Schema必须声明object类型：" + definition.getCode());
         }
         AgentTool previous = registeredTools.putIfAbsent(definition.getCode(), tool);
         if (Objects.nonNull(previous)) {

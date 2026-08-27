@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.tool.service.impl;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.admin.tool.common.enums.ToolParameterDataType;
 import com.lingxi.workbench.admin.tool.model.config.ToolParameterDefinition;
 import com.lingxi.workbench.framework.exceptions.BusinessException;

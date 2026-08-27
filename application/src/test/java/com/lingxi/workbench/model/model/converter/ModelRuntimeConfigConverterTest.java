@@ -1,6 +1,6 @@
 package com.lingxi.workbench.model.model.converter;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.model.model.entity.ModelRuntimeConfigEntity;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.model.model.bo.ModelRuntimeConfigBO;

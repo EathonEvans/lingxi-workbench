@@ -18,8 +18,8 @@ import lombok.Getter;
  * 会话和消息标识，否则会形成越权访问风险。</p>
  *
  * <p>该对象只在一次 Agent 回答期间存活，不写入 AgentVersion，也不作为 Prompt
- * 内容发送给模型。Spring AI 调用工具时，项目通过 {@code ToolContext} 将同一份
- * 可信信息传递给需要鉴权的工具实现。</p>
+ * 内容发送给模型。Agent Runtime 通过 {@link AgentToolRequest} 将同一份可信信息
+ * 传递给需要鉴权的工具实现。</p>
  */
 @Getter
 @Builder

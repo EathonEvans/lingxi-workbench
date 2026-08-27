@@ -10,7 +10,7 @@ import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionStatus;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionEvent;
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentProgressPhase;
 import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
-import com.lingxi.workbench.observability.service.AiTraceRun;
+import com.lingxi.workbench.observability.service.TraceRun;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
 import org.junit.jupiter.api.Test;
 
@@ -30,7 +30,7 @@ class RunningGenerationTaskTest {
                 .applicationVersionId(30L)
                 .memoryConfig(MemoryConfig.disabled())
                 .eventRepo(mock(ChatGenerationEventRepo.class))
-                .traceRun(mock(AiTraceRun.class))
+                .traceRun(mock(TraceRun.class))
                 .build();
         task.publishTool(toolEvent(AgentToolExecutionStatus.RUNNING, null));
         task.publishProgress(new AgentProgressEvent(
@@ -62,7 +62,7 @@ class RunningGenerationTaskTest {
                 .applicationVersionId(30L)
                 .memoryConfig(MemoryConfig.disabled())
                 .eventRepo(mock(ChatGenerationEventRepo.class))
-                .traceRun(mock(AiTraceRun.class))
+                .traceRun(mock(TraceRun.class))
                 .build();
 
         task.publishStepOutput(new ChatStepOutputEventBO("run-1", 1, "collect", "步骤结果"));

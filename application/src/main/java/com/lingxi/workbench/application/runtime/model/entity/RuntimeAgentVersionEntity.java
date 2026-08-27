@@ -3,7 +3,7 @@ package com.lingxi.workbench.application.runtime.model.entity;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
-import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
+import com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler;
 import lombok.Data;
 import org.apache.ibatis.type.JdbcType;
 
@@ -13,7 +13,7 @@ import org.apache.ibatis.type.JdbcType;
 public class RuntimeAgentVersionEntity {
     private Long id;
     private Long agentId;
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private AgentRuntimeDefinition definitionSnapshot;
     private String snapshotChecksum;
 }

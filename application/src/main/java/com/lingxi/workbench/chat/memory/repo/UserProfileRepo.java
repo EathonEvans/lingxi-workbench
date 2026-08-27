@@ -1,6 +1,6 @@
 package com.lingxi.workbench.chat.memory.repo;
 
-import com.alibaba.fastjson2.JSON;
+import com.lingxi.workbench.framework.json.JSON;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.lingxi.workbench.chat.memory.model.entity.UserProfileEntity;
 import com.lingxi.workbench.chat.memory.repo.mapper.UserProfileMapper;

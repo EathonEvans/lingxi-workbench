@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.tool;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.application.runtime.model.entity.RuntimeToolEntity;
 import com.lingxi.workbench.application.runtime.common.enums.RuntimeToolSourceType;
 import com.lingxi.workbench.application.runtime.common.enums.RuntimeMcpAuthenticationType;
@@ -11,12 +11,12 @@ import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.AgentToolException;
 import com.lingxi.workbench.infra.ai.tool.AgentToolRegistry;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionContext;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolRequest;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.definition.ToolDefinition;
-import org.springframework.ai.tool.metadata.ToolMetadata;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -31,15 +31,15 @@ class ToolRuntimeServiceImplTest {
         ToolRuntimeServiceImpl service = new ToolRuntimeServiceImpl(new StubToolRuntimeRepo(List.of(managedDefinition)), new StubMcpServerRuntimeRepo(), new AgentToolRegistry(List.of(new StubAgentTool())), null, null);
 
         AgentTool resolved = service.resolveActiveTools(List.of("weather_query")).getFirst();
-        JSONObject runtimeSchema = JSONObject.parseObject(resolved.callback().getToolDefinition().inputSchema());
+        JSONObject runtimeSchema = new JSONObject(resolved.inputSchema());
 
         assertEquals("天气查询", resolved.definition().getDisplayName());
-        assertEquals("查询指定城市天气", resolved.callback().getToolDefinition().description());
+        assertEquals("查询指定城市天气", resolved.definition().getDescription());
         assertEquals("string", runtimeSchema.getJSONObject("properties").getJSONObject("city").getString("type"));
         assertEquals("目标城市", runtimeSchema.getJSONObject("properties").getJSONObject("city").getString("description"));
         assertTrue(runtimeSchema.getJSONArray("required").contains("city"));
         assertFalse(runtimeSchema.getBooleanValue("additionalProperties"));
-        assertEquals("executed:{\"city\":\"上海\"}", resolved.callback().call("{\"city\":\"上海\"}"));
+        assertEquals("executed:{\"city\":\"上海\"}", resolved.execute(request("{\"city\":\"上海\"}")));
     }
 
     @Test
@@ -58,9 +58,9 @@ class ToolRuntimeServiceImplTest {
 
         AgentTool resolved = service.resolveActiveTools(List.of("local_mcp_calculator")).getFirst();
 
-        assertEquals("local_mcp_calculator", resolved.callback().getToolDefinition().name());
-        assertEquals("远端基础计算器", resolved.callback().getToolDefinition().description());
-        assertTrue(resolved.callback().getToolDefinition().inputSchema().contains("leftOperand"));
+        assertEquals("local_mcp_calculator", resolved.definition().getCode());
+        assertEquals("远端基础计算器", resolved.definition().getDescription());
+        assertTrue(((Map<?, ?>) resolved.inputSchema().get("properties")).containsKey("leftOperand"));
     }
 
     @Test
@@ -159,8 +159,6 @@ class ToolRuntimeServiceImplTest {
 
     private static final class StubAgentTool implements AgentTool {
 
-        private final ToolCallback callback = new StubToolCallback();
-
         @Override
         public AgentToolDefinition definition() {
             return AgentToolDefinition.builder()
@@ -171,30 +169,17 @@ class ToolRuntimeServiceImplTest {
         }
 
         @Override
-        public ToolCallback callback() {
-            return callback;
+        public Map<String, Object> inputSchema() {
+            return Map.of("type", "object", "properties", Map.of());
+        }
+
+        @Override
+        public String execute(AgentToolRequest request) {
+            return "executed:" + request.input();
         }
     }
 
-    private static final class StubToolCallback implements ToolCallback {
-
-        @Override
-        public ToolDefinition getToolDefinition() {
-            return ToolDefinition.builder()
-                    .name("weather_query")
-                    .description("代码内旧描述")
-                    .inputSchema("{\"type\":\"object\",\"properties\":{}}")
-                    .build();
-        }
-
-        @Override
-        public ToolMetadata getToolMetadata() {
-            return ToolMetadata.builder().build();
-        }
-
-        @Override
-        public String call(String toolInput) {
-            return "executed:" + toolInput;
-        }
+    private static AgentToolRequest request(String input) {
+        return new AgentToolRequest(input, AgentToolExecutionContext.builder().executionId("test").build(), null);
     }
 }

@@ -18,12 +18,12 @@ import java.util.Map;
  * 发布版本、预算、审批指纹和数据库审计所需事实，避免重新维护框架消息编解码或第二层运行时快照。</p>
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class AgentScopeCheckpoint {
 
-    public static final int CURRENT_VERSION = 3;
+    public static final int CURRENT_VERSION = 4;
 
     private Integer version;
     private String query;
@@ -37,6 +37,7 @@ public class AgentScopeCheckpoint {
     private Integer applicationModelCallsBeforeAgent;
     private Integer applicationToolCallsBeforeAgent;
     private String runId;
+    private String agentSessionId;
     private Long agentId;
     private Long agentVersionId;
     private Integer maxModelCalls;

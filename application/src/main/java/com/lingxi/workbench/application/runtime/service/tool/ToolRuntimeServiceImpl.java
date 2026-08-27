@@ -6,7 +6,7 @@ import com.lingxi.workbench.application.runtime.model.entity.RuntimeToolEntity;
 import com.lingxi.workbench.application.runtime.repo.McpServerRuntimeRepo;
 import com.lingxi.workbench.application.runtime.repo.ToolRuntimeRepo;
 import com.lingxi.workbench.application.runtime.service.tool.ToolRuntimeService;
-import com.lingxi.workbench.application.runtime.tool.McpRuntimeToolCallback;
+import com.lingxi.workbench.application.runtime.tool.McpRuntimeToolExecutor;
 import com.lingxi.workbench.application.runtime.tool.McpToolReconciliation;
 import com.lingxi.workbench.framework.security.SecretCipher;
 import com.lingxi.workbench.infra.ai.mcp.AgentScopeMcpClientFactory;
@@ -16,14 +16,11 @@ import com.lingxi.workbench.infra.ai.tool.AgentToolRegistry;
 import com.lingxi.workbench.infra.ai.tool.AgentToolReconciliation;
 import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionMode;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolRequest;
 import com.lingxi.workbench.infra.ai.tool.model.ToolSecurityPolicy;
 import cn.hutool.crypto.digest.DigestUtil;
-import com.alibaba.fastjson2.JSON;
+import com.lingxi.workbench.framework.json.JSON;
 import lombok.RequiredArgsConstructor;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.definition.ToolDefinition;
-import org.springframework.ai.tool.metadata.ToolMetadata;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,8 +35,7 @@ import java.util.stream.Collectors;
  * Tool 运行时装配服务。
  *
  * <p>数据库定义是模型可见契约的事实来源，Java AgentTool 是执行逻辑的事实来源。
- * 两者仅通过稳定 toolCode 对接，外层 AgentScope Toolkit 由 Agent Runtime 装配；此处保留的
- * ToolCallback 仅是执行器适配，不参与模型 Tool Calling 循环。</p>
+ * 两者仅通过稳定 toolCode 对接，发布 Schema 与执行器直接交给 AgentScope Toolkit。</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -102,11 +98,12 @@ public class ToolRuntimeServiceImpl implements ToolRuntimeService {
         if (Objects.isNull(definition.getRemoteToolName()) || definition.getRemoteToolName().isBlank()) {
             throw new AgentToolException("MCP Tool缺少远端工具名称：" + definition.getCode());
         }
-        AgentToolDefinition runtimeDefinition = runtimeDefinition(definition);
-        ToolCallback callback = new McpRuntimeToolCallback(definition, server, agentScopeMcpClientFactory, secretCipher);
+        McpRuntimeToolExecutor executor = new McpRuntimeToolExecutor(
+                definition, server, agentScopeMcpClientFactory, secretCipher);
         AgentToolReconciliation reconciliation = definition.getReconciliationQueryToolName() == null
-                ? null : new McpToolReconciliation(definition, (McpRuntimeToolCallback) callback);
-        return new ManagedAgentTool(runtimeDefinition, callback, reconciliation);
+                ? null : new McpToolReconciliation(definition, executor);
+        return new ManagedAgentTool(runtimeDefinition(definition),
+                new java.util.LinkedHashMap<>(definition.getParameterSchema()), executor, reconciliation);
     }
 
     private static RuntimeMcpServerEntity requireMcpServer(Map<Long, RuntimeMcpServerEntity> mcpServers, RuntimeToolEntity definition) {
@@ -127,8 +124,9 @@ public class ToolRuntimeServiceImpl implements ToolRuntimeService {
 
     private static AgentTool managedTool(RuntimeToolEntity definition, AgentTool executor) {
         AgentToolDefinition runtimeDefinition = runtimeDefinition(definition, executor.definition());
-        ToolCallback callback = new ManagedToolCallback(definition, executor.callback());
-        return new ManagedAgentTool(runtimeDefinition, callback, executor.reconciliation().orElse(null));
+        return new ManagedAgentTool(runtimeDefinition,
+                new java.util.LinkedHashMap<>(definition.getParameterSchema()), executor,
+                executor.reconciliation().orElse(null));
     }
 
     private static AgentToolDefinition runtimeDefinition(RuntimeToolEntity definition) {
@@ -168,52 +166,21 @@ public class ToolRuntimeServiceImpl implements ToolRuntimeService {
      * 将控制面模型契约和运行端执行回调组合为不可变工具。
      *
      * @param definition 模型可见的工具契约定义
-     * @param callback   实际执行回调
+     * @param inputSchema 发布版本锁定的参数 Schema
+     * @param executor    实际执行器
      */
-    private record ManagedAgentTool(AgentToolDefinition definition, ToolCallback callback,
+    private record ManagedAgentTool(AgentToolDefinition definition, Map<String, Object> inputSchema,
+                                    AgentTool executor,
                                     AgentToolReconciliation reconciliationHandler) implements AgentTool {
+
+        @Override
+        public String execute(AgentToolRequest request) {
+            return executor.execute(request);
+        }
 
         @Override
         public Optional<AgentToolReconciliation> reconciliation() {
             return Optional.ofNullable(reconciliationHandler);
-        }
-    }
-
-    /**
-     * 仅覆盖模型可见的 ToolDefinition，调用行为、元数据和 ToolContext 全部委托给部署的执行器。
-     */
-    private static final class ManagedToolCallback implements ToolCallback {
-
-        private final ToolDefinition definition;
-        private final ToolCallback delegate;
-
-        private ManagedToolCallback(RuntimeToolEntity managedDefinition, ToolCallback delegate) {
-            this.definition = ToolDefinition.builder()
-                    .name(managedDefinition.getCode())
-                    .description(managedDefinition.getDescription())
-                    .inputSchema(managedDefinition.getParameterSchema().toJSONString())
-                    .build();
-            this.delegate = delegate;
-        }
-
-        @Override
-        public ToolDefinition getToolDefinition() {
-            return definition;
-        }
-
-        @Override
-        public ToolMetadata getToolMetadata() {
-            return delegate.getToolMetadata();
-        }
-
-        @Override
-        public String call(String toolInput) {
-            return delegate.call(toolInput);
-        }
-
-        @Override
-        public String call(String toolInput, ToolContext toolContext) {
-            return delegate.call(toolInput, toolContext);
         }
     }
 }

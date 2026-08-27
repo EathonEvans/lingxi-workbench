@@ -9,7 +9,7 @@ import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingAction
 import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingReason;
 import com.lingxi.workbench.application.runtime.model.IntentRoutingDecisionCandidate;
 import com.lingxi.workbench.application.runtime.model.IntentSemanticDecisionSnapshot;
-import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
+import com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler;
 import lombok.Data;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -46,9 +46,9 @@ public class IntentRoutingDecisionEntity {
     private IntentRoutingReason reason;
     private String selectedIntentCode;
     private String capabilityCode;
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private List<IntentRoutingDecisionCandidate> candidateEvidence;
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private IntentSemanticDecisionSnapshot semanticDecision;
     private Integer inputTokens;
     private Integer outputTokens;

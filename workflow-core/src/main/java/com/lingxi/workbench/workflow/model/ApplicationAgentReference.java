@@ -1,7 +1,7 @@
 package com.lingxi.workbench.workflow.model;
 
-import com.alibaba.fastjson2.JSONWriter;
-import com.alibaba.fastjson2.annotation.JSONField;
+import com.lingxi.workbench.framework.json.JSONWriter;
+import com.lingxi.workbench.framework.json.annotation.JSONField;
 
 /**
  * Application 协作配置中冻结的 Agent 引用快照。

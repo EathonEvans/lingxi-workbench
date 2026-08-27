@@ -14,7 +14,7 @@ public interface AiApplicationDraftMapper extends BaseMapper<AiApplicationDraftE
     @Update("""
             UPDATE lingxi_core.ai_application_draft
                SET schema_version = #{entity.schemaVersion},
-                   definition = #{entity.definition,typeHandler=com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler},
+                   definition = #{entity.definition,typeHandler=com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler},
                    change_note = #{entity.changeNote},
                    updated_by = #{entity.updatedBy},
                    revision = revision + 1,

@@ -1,5 +1,6 @@
 package com.lingxi.workbench.chat.config;
 
+import com.lingxi.workbench.infra.ai.token.TextTokenEstimator;
 import org.springframework.ai.tokenizer.JTokkitTokenCountEstimator;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 import org.springframework.context.annotation.Bean;
@@ -16,6 +17,15 @@ public class ChatMemoryConfiguration {
     @Bean
     public TokenCountEstimator tokenCountEstimator() {
         return new JTokkitTokenCountEstimator();
+    }
+
+    /**
+     * 将 Spring AI 的 Token 估算能力适配为 Agent Runtime 可依赖的稳定契约。
+     * 该 Bean 仅由 Application 装配，避免 infra-ai 的实现被其他服务无条件扫描。
+     */
+    @Bean
+    public TextTokenEstimator textTokenEstimator(TokenCountEstimator tokenCountEstimator) {
+        return tokenCountEstimator::estimate;
     }
 
 }

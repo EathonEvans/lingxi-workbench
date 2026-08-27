@@ -11,7 +11,7 @@ import java.util.Objects;
  * 平台统一的结构化工具定义。
  *
  * <p>该对象描述管理端和模型调用共同关心的稳定元数据。参数 JSON Schema
- * 仍由 Spring AI 根据工具入参类型生成，避免项目重复实现协议细节。</p>
+ * 由发布后 Tool 契约提供，AgentScope Toolkit 直接消费，不再经过 Spring AI Tool 转换。</p>
  */
 @Getter
 @EqualsAndHashCode

@@ -233,7 +233,7 @@ public class ExecutionPersistenceServiceImpl implements ExecutionPersistenceServ
     private static void requireSkillActivation(ExecutionEventCommand event,
                                                ExecutionSkillActivationCommand activation) {
         if (event == null || event.getEventType() != ExecutionEventType.SKILL_ACTIVATED
-                || event.getSequenceNo() == null || event.getSequenceNo() < 1
+                || (event.getSequenceNo() != null && event.getSequenceNo() < 1)
                 || activation == null || !Objects.equals(event.getRunId(), activation.getRunId())
                 || activation.getAgentVersionId() == null || activation.getSkillId() == null
                 || activation.getSkillVersionId() == null || activation.getSkillCode() == null

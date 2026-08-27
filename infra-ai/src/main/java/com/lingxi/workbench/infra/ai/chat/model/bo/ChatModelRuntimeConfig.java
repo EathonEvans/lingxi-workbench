@@ -1,6 +1,6 @@
 package com.lingxi.workbench.infra.ai.chat.model.bo;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;

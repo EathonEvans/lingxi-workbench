@@ -1,13 +1,13 @@
 package com.lingxi.workbench.admin.model.model.entity;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelConnectionTestStatus;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import com.lingxi.workbench.admin.model.common.enums.ModelCapability;
-import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
+import com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler;
 import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -39,7 +39,7 @@ public class ModelInstanceEntity extends TimeEntity {
     /** 模型类型：CHAT / EMBEDDING / RERANK。 */
     private ModelType modelType;
     /** 模型支持的可选能力列表。 */
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private List<ModelCapability> capabilities;
     /** 温度参数，控制生成随机性，范围 0~2。 */
     private BigDecimal temperature;
@@ -50,10 +50,10 @@ public class ModelInstanceEntity extends TimeEntity {
     /** 模型上下文窗口大小。 */
     private Integer contextWindow;
     /** 停止生成序列列表。 */
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private List<String> stopSequences;
     /** 供应商特有的 OpenAI Chat 请求体扩展参数。 */
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private JSONObject extensionParameters;
     /** 请求超时时间（秒）。 */
     private Integer timeoutSeconds;

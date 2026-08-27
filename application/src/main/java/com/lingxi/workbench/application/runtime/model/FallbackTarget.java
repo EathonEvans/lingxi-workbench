@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.model;
 
-import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
+import com.lingxi.workbench.workflow.model.CapabilityDefinition;
 
 /**
  * Application fallback 角色在当前发布快照中解析出的执行目标。
@@ -9,6 +9,6 @@ import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
  * @param agent      能力目录锁定的 Agent 运行快照
  */
 public record FallbackTarget(
-        ApplicationCapabilityDefinition capability,
+        CapabilityDefinition capability,
         AgentRuntimeSnapshot agent) {
 }

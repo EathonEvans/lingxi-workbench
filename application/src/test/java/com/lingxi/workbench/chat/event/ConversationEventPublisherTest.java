@@ -64,6 +64,19 @@ class ConversationEventPublisherTest {
                 new ChatTurnBO(10L, 11L, 12L, 1), 30L, "回答", TokenUsage.empty(), 40L));
     }
 
+    @Test
+    void shouldReplayCompletedEventWithoutRewritingAssistant() {
+        @SuppressWarnings("unchecked")
+        MqProducer<Object> mqProducer = mock(MqProducer.class);
+        ConversationEventPublisher publisher = new ConversationEventPublisher(mqProducer);
+        ConversationCompletedMessage event =
+                new ConversationCompletedMessage("conversation-completed:12", 10L, 12L, 30L);
+
+        publisher.replay(event);
+
+        verify(mqProducer).send(ConversationMqConstants.EVENT_TX_TOPIC, event.eventId(), event);
+    }
+
     private static TransactionSendResult sendResult(LocalTransactionState state) {
         TransactionSendResult result = new TransactionSendResult();
         result.setLocalTransactionState(state);

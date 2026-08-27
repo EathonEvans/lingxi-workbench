@@ -2,11 +2,11 @@ package com.lingxi.workbench.infra.ai.tool;
 
 import com.lingxi.workbench.infra.ai.tool.builtin.SystemCurrentTimeAgentTool;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolRequest;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.function.FunctionToolCallback;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -32,7 +32,6 @@ class AgentToolRegistryTest {
 
     private static AgentTool tool(String code, String displayName) {
         AgentToolDefinition definition = AgentToolDefinition.builder().code(code).displayName(displayName).description("测试工具").build();
-        ToolCallback callback = FunctionToolCallback.builder(code, (String input) -> input).description("测试工具").inputType(String.class).build();
         return new AgentTool() {
             @Override
             public AgentToolDefinition definition() {
@@ -40,8 +39,13 @@ class AgentToolRegistryTest {
             }
 
             @Override
-            public ToolCallback callback() {
-                return callback;
+            public Map<String, Object> inputSchema() {
+                return Map.of("type", "object", "properties", Map.of());
+            }
+
+            @Override
+            public String execute(AgentToolRequest request) {
+                return request.input();
             }
         };
     }

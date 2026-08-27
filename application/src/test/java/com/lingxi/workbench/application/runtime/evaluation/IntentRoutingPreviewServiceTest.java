@@ -17,7 +17,7 @@ import com.lingxi.workbench.application.runtime.service.app.RuntimeVariablesInit
 import com.lingxi.workbench.application.runtime.service.routing.IntentCandidateRetriever;
 import com.lingxi.workbench.application.runtime.service.routing.IntentSemanticDecisionService;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
-import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
+import com.lingxi.workbench.workflow.model.CapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
@@ -194,8 +194,8 @@ class IntentRoutingPreviewServiceTest {
     }
 
     private static IntentRoutingPreviewRequest request() {
-        ApplicationCapabilityDefinition fallback = capability("fallback-agent", ApplicationCapabilityType.AGENT, 1L, 2L);
-        ApplicationCapabilityDefinition workflow = capability(
+        CapabilityDefinition fallback = capability("fallback-agent", ApplicationCapabilityType.AGENT, 1L, 2L);
+        CapabilityDefinition workflow = capability(
                 "refund-workflow", ApplicationCapabilityType.WORKFLOW, 3L, 4L);
         ApplicationDefinition definition = ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
@@ -225,9 +225,9 @@ class IntentRoutingPreviewServiceTest {
         return new IntentRoutingPreviewRequest(10L, "refund-assistant", "我要退款", definition);
     }
 
-    private static ApplicationCapabilityDefinition capability(
+    private static CapabilityDefinition capability(
             String code, ApplicationCapabilityType type, Long targetId, Long targetVersionId) {
-        return ApplicationCapabilityDefinition.builder()
+        return CapabilityDefinition.builder()
                 .code(code)
                 .type(type)
                 .targetId(targetId)

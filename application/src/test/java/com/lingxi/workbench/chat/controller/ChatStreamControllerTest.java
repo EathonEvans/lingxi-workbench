@@ -1,8 +1,11 @@
 package com.lingxi.workbench.chat.controller;
 
 import com.lingxi.workbench.auth.config.UserSaTokenAuthWebConfig;
+import com.lingxi.workbench.application.runtime.model.vo.ApplicationAssistantIdentityVO;
 import com.lingxi.workbench.auth.config.interceptor.UserAuthenticationInterceptor;
 import com.lingxi.workbench.framework.context.UserContext;
+import com.lingxi.workbench.framework.json.JSON;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.vo.ChatStartVO;
 import com.lingxi.workbench.chat.service.ChatStreamService;
@@ -25,6 +28,7 @@ import reactor.core.publisher.Flux;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -70,7 +74,9 @@ class ChatStreamControllerTest {
     @Test
     void shouldCreateGenerationTaskBeforeSseSubscription() throws Exception {
         when(chatStreamService.start(any(), eq(LOGIN_USER)))
-                .thenReturn(new ChatStartVO("10", "11", "12"));
+                .thenReturn(new ChatStartVO(
+                        "10", "11", "12",
+                        new ApplicationAssistantIdentityVO("支持助手", "https://example.com/support.png")));
 
         mockMvc.perform(post("/api/v1/ai/chat/start")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -89,7 +95,11 @@ class ChatStreamControllerTest {
                           "data": {
                             "assistantMessageId": "12",
                             "conversationId": "10",
-                            "userMessageId": "11"
+                            "userMessageId": "11",
+                            "assistant": {
+                              "name": "支持助手",
+                              "avatar": "https://example.com/support.png"
+                            }
                           },
                           "msg": "成功"
                         }
@@ -139,7 +149,10 @@ class ChatStreamControllerTest {
         String content = new String(
                 completedResult.getResponse().getContentAsByteArray(), StandardCharsets.UTF_8);
         assertTrue(content.contains("id:4"));
-        assertTrue(content.contains("data:{\"content\":\"继续\",\"sequence\":4}"));
+        String data = content.lines().filter(line -> line.startsWith("data:")).findFirst().orElseThrow();
+        JSONObject payload = JSON.parseObject(data.substring("data:".length()));
+        assertEquals(4, payload.getIntValue("sequence"));
+        assertEquals("继续", payload.getString("content"));
         assertTrue(content.contains("event:done"));
     }
 

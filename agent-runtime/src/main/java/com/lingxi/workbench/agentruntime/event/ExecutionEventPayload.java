@@ -150,14 +150,53 @@ public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run,
         }
     }
 
-    /**
-     * @param toolCode       Tool稳定编码
-     * @param displayName    Tool展示名称
-     * @param durationMillis 已完成调用耗时
-     * @param errorCode      失败时的稳定编码
-     */
-    record Tool(String toolCode, String displayName, Long durationMillis, String errorCode)
-            implements ExecutionEventPayload {
+    /** Tool 或 Agent 委派的安全展示事实。Agent 委派额外携带所属任务，不包含任务输入和结果。 */
+    @Getter
+    @Builder
+    final class Tool implements ExecutionEventPayload {
+
+        private final String toolCode;
+        private final String displayName;
+        private final Long durationMillis;
+        private final String errorCode;
+        private final Long delegatedAgentId;
+        private final Integer taskRevision;
+        private final String stepId;
+
+        private Tool(String toolCode, String displayName, Long durationMillis, String errorCode,
+                     Long delegatedAgentId, Integer taskRevision, String stepId) {
+            this.toolCode = toolCode;
+            this.displayName = displayName;
+            this.durationMillis = durationMillis;
+            this.errorCode = errorCode;
+            this.delegatedAgentId = delegatedAgentId;
+            this.taskRevision = taskRevision;
+            this.stepId = stepId;
+        }
+
+        public Tool(String toolCode, String displayName, Long durationMillis, String errorCode) {
+            this(toolCode, displayName, durationMillis, errorCode, null, null, null);
+        }
+
+        public boolean isAgentDelegation() {
+            return delegatedAgentId != null;
+        }
+
+        public String toolCode() {
+            return toolCode;
+        }
+
+        public String displayName() {
+            return displayName;
+        }
+
+        public Long durationMillis() {
+            return durationMillis;
+        }
+
+        public String errorCode() {
+            return errorCode;
+        }
 
         @Override
         public String message() {

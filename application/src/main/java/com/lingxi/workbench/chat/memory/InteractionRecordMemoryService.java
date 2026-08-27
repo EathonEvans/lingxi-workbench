@@ -1,6 +1,6 @@
 package com.lingxi.workbench.chat.memory;
 
-import com.alibaba.fastjson2.JSON;
+import com.lingxi.workbench.framework.json.JSON;
 import com.lingxi.workbench.chat.memory.config.MemoryEmbeddingModelResolver;
 import com.lingxi.workbench.chat.memory.event.AssistantCompletedEvent;
 import com.lingxi.workbench.chat.memory.model.MemoryData;

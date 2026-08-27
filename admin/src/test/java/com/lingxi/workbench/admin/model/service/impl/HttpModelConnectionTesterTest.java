@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.model.service.impl;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.admin.model.model.bo.ModelConnectionTestResult;
 import com.lingxi.workbench.admin.model.common.enums.ModelType;
 import com.lingxi.workbench.infra.ai.outbound.ModelOutboundAddressPolicy;

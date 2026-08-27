@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.routing;
 
-import com.lingxi.workbench.agentruntime.gateway.TokenUsageConverter;
+import com.lingxi.workbench.infra.ai.chat.spring.SpringAiTokenUsageConverter;
 import com.lingxi.workbench.application.runtime.common.enums.IntentDecisionReason;
 import com.lingxi.workbench.application.runtime.common.enums.IntentSemanticAction;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
@@ -22,7 +22,7 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
 import com.lingxi.workbench.infra.ai.chat.openai.OpenAiCompatibleChatModelFactory;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
-import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
+import com.lingxi.workbench.workflow.model.CapabilityDefinition;
 import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
@@ -48,7 +48,7 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.converter.BeanOutputConverter;
+import org.springframework.ai.converter.StructuredOutputConverter;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.util.JacksonUtils;
@@ -99,7 +99,7 @@ public class IntentSemanticDecisionService {
     private final PromptRuntimeService promptRuntimeService;
     private final PromptTemplateRenderer promptRenderer;
     private final JsonMapper jsonMapper;
-    private final BeanOutputConverter<IntentSemanticDecision> outputConverter;
+    private final IntentDecisionOutputConverter outputConverter;
 
     public IntentSemanticDecisionService(OpenAiCompatibleChatModelFactory chatModelFactory,
                                          SpringAiChatClientFactory chatClientFactory,
@@ -112,7 +112,7 @@ public class IntentSemanticDecisionService {
         this.promptRuntimeService = promptRuntimeService;
         this.promptRenderer = promptRenderer;
         this.jsonMapper = strictJsonMapper();
-        this.outputConverter = new BeanOutputConverter<>(IntentSemanticDecision.class, jsonMapper);
+        this.outputConverter = new IntentDecisionOutputConverter(jsonMapper);
     }
 
     /**
@@ -276,12 +276,12 @@ public class IntentSemanticDecisionService {
                 ? binding.mappings().stream().collect(Collectors.toMap(
                         ApplicationIntentMapping::getIntentCode, Function.identity()))
                 : Map.of();
-        Map<String, ApplicationCapabilityDefinition> capabilities = application.definition().capabilityCatalog()
+        Map<String, CapabilityDefinition> capabilities = application.definition().capabilityCatalog()
                 .capabilities().stream()
-                .collect(Collectors.toMap(ApplicationCapabilityDefinition::getCode, Function.identity()));
+                .collect(Collectors.toMap(CapabilityDefinition::getCode, Function.identity()));
         return candidates.stream().map(candidate -> {
             ApplicationIntentMapping mapping = mappings.get(candidate.intentCode());
-            ApplicationCapabilityDefinition capability = Objects.isNull(mapping)
+            CapabilityDefinition capability = Objects.isNull(mapping)
                     ? null : capabilities.get(mapping.getCapabilityCode());
             IntentExecutionTargetType targetType = Objects.isNull(mapping) ? null : mapping.getTargetType();
             String capabilityName = targetType == IntentExecutionTargetType.FIXED_RESPONSE
@@ -572,6 +572,75 @@ public class IntentSemanticDecisionService {
                 .build();
     }
 
+    /**
+     * 意图决策协议使用平台维护的稳定 Schema，不再依赖 Spring AI 的 VicTools 代码生成。
+     * Spring AI 仍负责结构化响应约束与重试，最终对象由严格 JsonMapper 解析。
+     */
+    private static final class IntentDecisionOutputConverter
+            implements StructuredOutputConverter<IntentSemanticDecision> {
+
+        private static final String JSON_SCHEMA = """
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "action": {"type": "string", "enum": ["SELECT", "CLARIFY", "DEFER"]},
+                    "selectedIntentCode": {"type": "string"},
+                    "alternativeIntentCodes": {"type": "array", "items": {"type": "string"}},
+                    "recognizedSlots": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "slotCode": {"type": "string"},
+                          "value": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "stringValue": {"type": "string"},
+                              "numberValue": {"type": "number"},
+                              "dateValue": {"type": "string", "format": "date"},
+                              "booleanValue": {"type": "boolean"}
+                            }
+                          }
+                        },
+                        "required": ["slotCode", "value"]
+                      }
+                    },
+                    "reasonCode": {
+                      "type": "string",
+                      "enum": ["SINGLE_INTENT", "AMBIGUOUS_INTENT", "MISSING_REQUIRED_SLOT",
+                        "OUT_OF_SCOPE", "MULTIPLE_INTENTS", "NEGATED_OR_CORRECTED",
+                        "INSUFFICIENT_CONTEXT", "NO_SUITABLE_CANDIDATE"]
+                    }
+                  },
+                  "required": ["action", "reasonCode"]
+                }
+                """;
+
+        private final JsonMapper jsonMapper;
+
+        private IntentDecisionOutputConverter(JsonMapper jsonMapper) {
+            this.jsonMapper = jsonMapper;
+        }
+
+        @Override
+        public IntentSemanticDecision convert(String source) {
+            return jsonMapper.readValue(source, IntentSemanticDecision.class);
+        }
+
+        @Override
+        public String getFormat() {
+            return "仅输出符合以下 JSON Schema 的 JSON 对象：\n" + JSON_SCHEMA;
+        }
+
+        @Override
+        public String getJsonSchema() {
+            return JSON_SCHEMA;
+        }
+    }
+
     /** 统计 StructuredOutputValidationAdvisor 内部修复产生的每一次真实模型调用。 */
     private static final class IntentDecisionAttemptAdvisor implements CallAdvisor {
 
@@ -600,7 +669,7 @@ public class IntentSemanticDecisionService {
             }
             modelCalls++;
             ChatClientResponse response = chain.nextCall(request);
-            TokenUsage usage = TokenUsageConverter.convert(response.chatResponse());
+            TokenUsage usage = SpringAiTokenUsageConverter.convert(response.chatResponse());
             tokenUsage.add(usage);
             if (Objects.nonNull(executionBudget)) {
                 executionBudget.recordUsage(usage);

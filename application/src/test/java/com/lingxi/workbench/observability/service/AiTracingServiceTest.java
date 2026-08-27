@@ -22,14 +22,14 @@ class AiTracingServiceTest {
         AiObservationEventWriter eventWriter = mock(AiObservationEventWriter.class);
         doThrow(new IllegalStateException("database unavailable"))
                 .when(eventWriter).append(any(AiObservationEventEntity.class));
-        AiTracingService service = new AiTracingService(ObservationRegistry.create(), eventWriter);
+        TracingService service = new TracingService(ObservationRegistry.create(), eventWriter);
         AppRuntimeSnapshot application = mock(AppRuntimeSnapshot.class);
         when(application.applicationId()).thenReturn(1L);
         when(application.applicationCode()).thenReturn("career_assistant");
         when(application.versionId()).thenReturn(2L);
         ChatTurnBO turn = new ChatTurnBO(3L, 4L, 5L, 1);
 
-        AiTraceRun traceRun = service.start(application, turn, 6L);
+        TraceRun traceRun = service.start(application, turn, 6L);
 
         assertEquals("continued", traceRun.scoped(() -> "continued"));
         assertDoesNotThrow(() -> traceRun.complete(TokenUsage.empty(), null));

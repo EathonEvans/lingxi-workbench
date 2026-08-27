@@ -9,11 +9,9 @@ import com.lingxi.workbench.agentruntime.plan.RuntimeTaskStep;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
 import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
-import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.model.ExecutionEventCommand;
+import com.lingxi.workbench.application.runtime.model.entity.ExecutionEventEntity;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
-import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
-import com.lingxi.workbench.chat.model.ccontext.RuntimeVariables;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationReason;
@@ -29,6 +27,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -40,7 +39,8 @@ class ApplicationRuntimeEventSinkFactoryTest {
     void shouldPersistSkillEventAndAuditBeforeTimelineProjection() {
         ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
         ChatExecutionEventPublisher publisher = mock(ChatExecutionEventPublisher.class);
-        RuntimeEventSink sink = sink(persistenceService, context(publisher));
+        RuntimeEventSink sink = sink(persistenceService,
+                ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.defaults()), publisher);
 
         sink.onEvent(ExecutionEvent.builder()
                 .runId("run-1").sequenceNo(5L).occurredAt(Instant.parse("2026-08-17T14:00:00Z"))
@@ -63,11 +63,11 @@ class ApplicationRuntimeEventSinkFactoryTest {
     void shouldPersistRuntimeEventBeforeForwardingTimeline() {
         ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
         ChatExecutionEventPublisher publisher = mock(ChatExecutionEventPublisher.class);
-        ChatExecutionContext context = context(publisher);
-        RuntimeEventSink sink = sink(persistenceService, context);
+        ApplicationExecutionBudget budget = ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.defaults());
+        RuntimeEventSink sink = sink(persistenceService, budget, publisher);
         Instant occurredAt = Instant.parse("2026-08-17T14:00:00Z");
 
-        sink.onEvent(ExecutionEvent.builder()
+        long persistedSequence = sink.onEvent(ExecutionEvent.builder()
                 .runId("run-1")
                 .sequenceNo(6L)
                 .occurredAt(occurredAt)
@@ -83,23 +83,24 @@ class ApplicationRuntimeEventSinkFactoryTest {
         order.verify(publisher).publishExecution(org.mockito.ArgumentMatchers.any(ChatExecutionTimelineEventBO.class));
         ArgumentCaptor<ExecutionEventCommand> commandCaptor = ArgumentCaptor.forClass(ExecutionEventCommand.class);
         verify(persistenceService).appendEvent(commandCaptor.capture());
-        assertEquals(6L, commandCaptor.getValue().getSequenceNo());
+        assertNull(commandCaptor.getValue().getSequenceNo());
+        assertEquals(1L, persistedSequence);
         assertEquals(occurredAt, commandCaptor.getValue().getOccurredAt());
         assertEquals(ExecutionEventType.MODEL_STARTED, commandCaptor.getValue().getEventType());
-        assertEquals(15, context.getExecutionBudget().remainingModelCalls());
+        assertEquals(15, budget.remainingModelCalls());
     }
 
     @Test
     void shouldPersistBeforeProjectingUnifiedToolEventAndReserveBudget() {
         ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
         ChatExecutionEventPublisher publisher = mock(ChatExecutionEventPublisher.class);
-        ChatExecutionContext context = context(publisher, ApplicationRuntimePolicy.builder()
+        ApplicationExecutionBudget budget = ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.builder()
                 .maxModelCalls(2)
                 .maxToolCalls(1)
                 .maxDelegations(0)
                 .totalTokenBudget(1000)
                 .build());
-        RuntimeEventSink sink = sink(persistenceService, context);
+        RuntimeEventSink sink = sink(persistenceService, budget, publisher);
 
         sink.onEvent(ExecutionEvent.builder()
                 .runId("run-1")
@@ -121,27 +122,57 @@ class ApplicationRuntimeEventSinkFactoryTest {
         verify(publisher).publishTool(toolCaptor.capture());
         assertEquals("invocation-1", toolCaptor.getValue().getInvocationId());
         assertEquals(AgentToolExecutionStatus.RUNNING, toolCaptor.getValue().getStatus());
-        assertEquals(0, context.getExecutionBudget().remainingToolCalls());
+        assertEquals(0, budget.remainingToolCalls());
+    }
+
+    @Test
+    void shouldProjectAgentCapabilityAsScopedSubAgentEvent() {
+        ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
+        ChatExecutionEventPublisher publisher = mock(ChatExecutionEventPublisher.class);
+        RuntimeEventSink sink = sink(persistenceService,
+                ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.builder()
+                        .maxModelCalls(2).maxToolCalls(1).maxDelegations(1).totalTokenBudget(1000).build()),
+                publisher);
+
+        sink.onEvent(ExecutionEvent.builder()
+                .runId("run-1").sequenceNo(8L).occurredAt(Instant.parse("2026-08-17T14:00:01Z"))
+                .type(com.lingxi.workbench.agentruntime.event.ExecutionEventType.TOOL_STARTED)
+                .stage(ExecutionStage.TOOL).agentId(10L).agentVersionId(20L).invocationId("delegation-1")
+                .payload(ExecutionEventPayload.Tool.builder()
+                        .toolCode("career_coach").displayName("个人求职教练")
+                        .delegatedAgentId(30L).taskRevision(2).stepId("analyze-role").build())
+                .build());
+
+        ArgumentCaptor<ExecutionEventCommand> commandCaptor = ArgumentCaptor.forClass(ExecutionEventCommand.class);
+        verify(persistenceService).appendEvent(commandCaptor.capture());
+        assertEquals(2, commandCaptor.getValue().getPlanNo());
+        assertEquals("analyze-role", commandCaptor.getValue().getStepId());
+        ArgumentCaptor<AgentToolExecutionEvent> toolCaptor = ArgumentCaptor.forClass(AgentToolExecutionEvent.class);
+        verify(publisher).publishTool(toolCaptor.capture());
+        assertEquals("delegate_agent_30", toolCaptor.getValue().getToolCode());
+        assertEquals(2, toolCaptor.getValue().getPlanNo());
+        assertEquals("analyze-role", toolCaptor.getValue().getStepId());
     }
 
     @Test
     void shouldForwardTextAndAccumulateUsage() {
         ChatExecutionEventPublisher publisher = mock(ChatExecutionEventPublisher.class);
-        ChatExecutionContext context = context(publisher);
-        RuntimeEventSink sink = sink(mock(ExecutionPersistenceService.class), context);
+        ApplicationExecutionBudget budget = ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.defaults());
+        RuntimeEventSink sink = sink(mock(ExecutionPersistenceService.class), budget, publisher);
         ChatStreamChunk chunk = new ChatStreamChunk("回答", TokenUsage.of(5, 2, 7));
 
         sink.onText(chunk);
 
         verify(publisher).publishText(chunk);
-        assertEquals(7, context.getExecutionBudget().tokenUsage().totalTokens());
+        assertEquals(7, budget.tokenUsage().totalTokens());
     }
 
     @Test
     void shouldProjectAgentScopeTasksWithRevision() {
         ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
         ChatExecutionEventPublisher publisher = mock(ChatExecutionEventPublisher.class);
-        RuntimeEventSink sink = sink(persistenceService, context(publisher));
+        RuntimeEventSink sink = sink(persistenceService,
+                ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.defaults()), publisher);
         Task task = Task.builder().id("research").subject("收集资料").description("收集资料")
                 .state(Task.State.PENDING).metadata(java.util.Map.of("capabilityCode", "research_agent"))
                 .build();
@@ -172,7 +203,8 @@ class ApplicationRuntimeEventSinkFactoryTest {
     void shouldPersistAndProjectTypedStepState() {
         ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
         ChatExecutionEventPublisher publisher = mock(ChatExecutionEventPublisher.class);
-        RuntimeEventSink sink = sink(persistenceService, context(publisher));
+        RuntimeEventSink sink = sink(persistenceService,
+                ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.defaults()), publisher);
         RuntimeTaskStep step = RuntimeTaskStep.builder().id("research").name("收集资料")
                 .capabilityCode("research_agent").build();
 
@@ -200,24 +232,22 @@ class ApplicationRuntimeEventSinkFactoryTest {
         assertEquals("收集资料", timelineCaptor.getValue().getDisplayName());
     }
 
-    private static ChatExecutionContext context(ChatExecutionEventPublisher publisher) {
-        return context(publisher, ApplicationRuntimePolicy.defaults());
-    }
-
-    private static ChatExecutionContext context(ChatExecutionEventPublisher publisher,
-                                                ApplicationRuntimePolicy runtimePolicy) {
-        return ChatExecutionContext.builder()
-                .executionId("run-1")
-                .runtimeVariables(mock(RuntimeVariables.class))
-                .turn(new ChatTurnBO(1L, 2L, 3L, 1))
-                .eventPublisher(publisher)
-                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(runtimePolicy))
-                .build();
-    }
-
     private static RuntimeEventSink sink(ExecutionPersistenceService persistenceService,
-                                         ChatExecutionContext context) {
-        return new ApplicationRuntimeEventSinkFactory(persistenceService).create(context.getExecutionBudget(),
-                context.getEventPublisher());
+                                         ApplicationExecutionBudget budget,
+                                         ChatExecutionEventPublisher publisher) {
+        org.mockito.Mockito.when(persistenceService.appendEvent(org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> persisted(invocation.getArgument(0)));
+        org.mockito.Mockito.when(persistenceService.appendSkillActivationEvent(
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> persisted(invocation.getArgument(0)));
+        return new ApplicationRuntimeEventSinkFactory(persistenceService).create(budget, publisher);
+    }
+
+    private static ExecutionEventEntity persisted(ExecutionEventCommand command) {
+        ExecutionEventEntity event = new ExecutionEventEntity();
+        event.setRunId(command.getRunId());
+        event.setSequenceNo(java.util.Objects.requireNonNullElse(command.getSequenceNo(), 1L));
+        event.setEventType(command.getEventType());
+        return event;
     }
 }

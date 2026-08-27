@@ -6,7 +6,7 @@ import com.lingxi.workbench.chat.model.message.ConversationCompletedMessage;
 import com.lingxi.workbench.chat.service.ConversationMemoryService;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
 import com.lingxi.workbench.observability.common.enums.AiObservationStage;
-import com.lingxi.workbench.observability.service.AiStageObserver;
+import com.lingxi.workbench.observability.service.StageObserver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -30,7 +30,7 @@ public class MemoryPostProcessor {
     private final ConversationSummaryMemoryService summaryService;
     private final UserProfileMemoryService profileService;
     private final InteractionRecordMemoryService interactionService;
-    private final AiStageObserver aiStageObserver;
+    private final StageObserver aiStageObserver;
 
     /**
      * 消费会话摘要任务；重复事件由摘要覆盖水位和唯一约束共同幂等。

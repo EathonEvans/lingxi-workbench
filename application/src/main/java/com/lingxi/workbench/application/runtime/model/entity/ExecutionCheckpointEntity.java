@@ -5,7 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionCheckpointStatus;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionCheckpointType;
 import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
-import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
+import com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler;
 import lombok.Data;
 import org.apache.ibatis.type.JdbcType;
 
@@ -45,7 +45,7 @@ public class ExecutionCheckpointEntity {
     /**
      * AgentScope 可恢复状态与 Lingxi 审批事实（JSONB）
      */
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private AgentScopeCheckpoint payload;
     /**
      * 快照指纹校验和，恢复时校验防篡改

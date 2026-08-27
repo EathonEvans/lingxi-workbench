@@ -1,6 +1,6 @@
 package com.lingxi.workbench.workflow.model;
 
-import com.alibaba.fastjson2.JSON;
+import com.lingxi.workbench.framework.json.JSON;
 import com.lingxi.workbench.workflow.model.config.AgentNodeConfig;
 import com.lingxi.workbench.workflow.model.config.EndNodeConfig;
 import com.lingxi.workbench.workflow.model.config.IntentClassifierNodeConfig;
@@ -69,7 +69,7 @@ class WorkflowDefinitionJsonTest {
         ApplicationAgentReference member = new ApplicationAgentReference(9007199254740997L, 9007199254740999L, "售后专家", "处理售后问题");
         AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(
                 supervisor, List.of(member), List.of(100L), List.of(200L));
-        ApplicationCapabilityDefinition fallbackCap = ApplicationCapabilityDefinition.builder()
+        CapabilityDefinition fallbackCap = CapabilityDefinition.builder()
                 .code("default_agent")
                 .type(ApplicationCapabilityType.AGENT)
                 .targetId(member.agentId())
@@ -92,6 +92,24 @@ class WorkflowDefinitionJsonTest {
         assertThat(restored.collaboration().excludedDomainIds()).containsExactly(100L);
         assertThat(restored.collaboration().excludedAgentIds()).containsExactly(200L);
         assertThat(json).contains("\"agentVersionId\":\"9007199254740999\"");
+    }
+
+    @Test
+    void shouldRejectLegacyApplicationCapabilityType() {
+        String legacySnapshot = """
+                {
+                  "schemaVersion": 13,
+                  "capabilityCatalog": {
+                    "capabilities": [
+                      {"code": "fallback_agent", "type": "REACT_AGENT"}
+                    ]
+                  }
+                }
+                """;
+
+        assertThatThrownBy(() -> JSON.parseObject(legacySnapshot, ApplicationDefinition.class))
+                .hasRootCauseMessage(
+                        "未知枚举值: com.lingxi.workbench.workflow.model.ApplicationCapabilityType=REACT_AGENT");
     }
 
     @Test
@@ -170,7 +188,7 @@ class WorkflowDefinitionJsonTest {
 
     @Test
     void shouldRoundTripApplicationCapabilityCatalog() {
-        ApplicationCapabilityDefinition capability = ApplicationCapabilityDefinition.builder()
+        CapabilityDefinition capability = CapabilityDefinition.builder()
                 .code("fallback_agent")
                 .type(ApplicationCapabilityType.AGENT)
                 .name("默认助手")

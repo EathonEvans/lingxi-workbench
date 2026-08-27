@@ -15,7 +15,7 @@ import java.util.Objects;
 /**
  * Application 单轮 Chat 执行所需的服务端可信输入。
  *
- * <p>由 ChatStreamServiceImpl 组装后传入 ApplicationChatExecutionService.execute()。
+ * <p>由 ChatStreamServiceImpl 组装后传入 AppRuntime.execute()。
  * 所有字段均为服务端可信数据，不可由客户端直接构造。</p>
  */
 @Getter

@@ -57,7 +57,7 @@ class ApplicationRuntimeTaskStoreTest {
         RuntimeTaskStep step = RuntimeTaskStep.builder().id("research-step").name("研究")
                 .capabilityCode("research").build();
         RuntimeCapability capability = RuntimeCapability.builder().code("research").name("研究")
-                .type(RuntimeCapabilityType.AGENT).risk(RuntimeCapabilityRisk.READ_ONLY)
+                .type(RuntimeCapabilityType.AGENT).targetId(30L).risk(RuntimeCapabilityRisk.READ_ONLY)
                 .maxCalls(1).resultTokenBudget(100).build();
         return new AgentInvocationState("run-1", 2, 1, step, capability,
                 Map.of("query", "问题"), "fingerprint");

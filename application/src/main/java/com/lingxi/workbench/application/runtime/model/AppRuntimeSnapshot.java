@@ -1,7 +1,7 @@
 package com.lingxi.workbench.application.runtime.model;
 
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
-import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
+import com.lingxi.workbench.workflow.model.CapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.FallbackAgent;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
@@ -95,7 +95,7 @@ public record AppRuntimeSnapshot(
         ApplicationCapabilityType expectedType = mapping.getTargetType() == IntentExecutionTargetType.WORKFLOW
                 ? ApplicationCapabilityType.WORKFLOW
                 : ApplicationCapabilityType.AGENT;
-        ApplicationCapabilityDefinition capability = definition.capabilityCatalog().capabilities().stream()
+        CapabilityDefinition capability = definition.capabilityCatalog().capabilities().stream()
                 .filter(item -> Objects.equals(item.getCode(), mapping.getCapabilityCode()))
                 .filter(item -> item.getType() == expectedType)
                 .filter(item -> Objects.equals(item.getTargetId(), mapping.getTargetId()))

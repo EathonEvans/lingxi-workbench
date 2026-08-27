@@ -23,7 +23,7 @@ public interface KnowledgeChunkMapper extends BaseMapper<KnowledgeChunkEntity> {
             <foreach collection="items" item="item" separator=",">
                 (#{item.taskId}, #{item.knowledgeBaseId}, #{item.documentId}, #{item.chunkNo},
                  #{item.content}, #{item.contentHash}, #{item.charCount}, #{item.tokenCount},
-                 #{item.metadata,typeHandler=com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler,jdbcType=OTHER},
+                 #{item.metadata,typeHandler=com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler,jdbcType=OTHER},
                  #{item.enabled},
                  #{item.createdBy}, #{item.updatedBy},
                  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)

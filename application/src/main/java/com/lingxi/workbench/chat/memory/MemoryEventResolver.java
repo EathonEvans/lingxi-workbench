@@ -1,7 +1,7 @@
 package com.lingxi.workbench.chat.memory;
 
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
-import com.lingxi.workbench.application.runtime.service.app.ApplicationRuntimeService;
+import com.lingxi.workbench.application.runtime.service.app.ApplicationVersionService;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
 import com.lingxi.workbench.chat.memory.event.AssistantCompletedEvent;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
@@ -27,7 +27,7 @@ public class MemoryEventResolver {
 
     private final ConversationRepo conversationRepo;
     private final ConversationMessageRepo messageRepo;
-    private final ApplicationRuntimeService applicationRuntimeService;
+    private final ApplicationVersionService applicationVersionService;
 
     @Transactional(readOnly = true)
     public AssistantCompletedEvent resolve(ConversationCompletedMessage message) {
@@ -47,7 +47,7 @@ public class MemoryEventResolver {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "记忆事件对应Assistant消息缺少Application主键");
         }
 
-        AppRuntimeSnapshot application = applicationRuntimeService.loadRuntimeAppVersion(
+        AppRuntimeSnapshot application = applicationVersionService.loadRuntimeAppVersion(
                 assistantMessage.getApplicationId(), message.appVersionId());
         ChatTurnBO turn = new ChatTurnBO(
                 message.conversationId(), userMessage.getId(), assistantMessage.getId(), userMessage.getSequenceNo());

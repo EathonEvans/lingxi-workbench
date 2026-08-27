@@ -26,4 +26,8 @@ public class ChatSubAgentEventVO {
     private final Long durationMillis;
     /** 失败时的安全错误码。 */
     private final String errorCode;
+    /** 所属计划修订号。 */
+    private final Integer planNo;
+    /** 所属计划步骤。 */
+    private final String stepId;
 }

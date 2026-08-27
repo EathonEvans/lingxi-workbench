@@ -2,6 +2,7 @@
 .vscode/
 .DS_Store
 target/
+.agentscope/
 *.iml
 *.log
 .env

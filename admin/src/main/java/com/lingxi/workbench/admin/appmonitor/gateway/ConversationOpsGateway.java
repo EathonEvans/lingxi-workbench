@@ -1,8 +1,8 @@
 package com.lingxi.workbench.admin.appmonitor.gateway;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSON;
+import com.lingxi.workbench.framework.json.JSONArray;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.admin.appmonitor.config.ConversationOpsGatewayProperties;
 import com.lingxi.workbench.admin.appmonitor.model.request.ReplayConversationDlqRequest;
 import com.lingxi.workbench.admin.appmonitor.model.vo.ConversationDlqMessageVO;

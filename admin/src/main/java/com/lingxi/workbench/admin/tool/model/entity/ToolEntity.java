@@ -1,11 +1,11 @@
 package com.lingxi.workbench.admin.tool.model.entity;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.tool.common.enums.ToolSourceType;
-import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
+import com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler;
 import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import com.lingxi.workbench.infra.ai.tool.common.enums.ToolRiskLevel;
 import lombok.Data;
@@ -48,7 +48,7 @@ public class ToolEntity extends TimeEntity {
     private String reconciliationQueryToolName;
 
     /** 符合 OpenAI Function Calling 规范的参数 JSON Schema。 */
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private JSONObject parameterSchema;
 
     /** 工具风险等级，与是否需要人工批准分别配置。 */

@@ -1,14 +1,14 @@
 package com.lingxi.workbench.infra.ai.tool.builtin;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.infra.ai.tool.AgentToolException;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionContext;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolRequest;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.tool.ToolCallback;
 
 import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -18,21 +18,20 @@ class SystemCalculatorAgentToolTest {
 
     @Test
     void shouldRequireCalculatorForExplicitArithmetic() {
-        assertTrue(tool.callback().getToolDefinition().description().contains("必须调用本工具"));
+        assertTrue(tool.definition().getDescription().contains("必须调用本工具"));
     }
 
     @Test
     void shouldExposeMultiParameterSchemaAndMultiplyDecimalNumbers() {
-        ToolCallback callback = tool.callback();
-        JSONObject schema = JSONObject.parseObject(callback.getToolDefinition().inputSchema());
+        JSONObject schema = new JSONObject(tool.inputSchema());
 
         assertTrue(schema.getJSONObject("properties").containsKey("leftOperand"));
         assertTrue(schema.getJSONObject("properties").containsKey("operator"));
         assertTrue(schema.getJSONObject("properties").containsKey("rightOperand"));
 
-        String rawResult = callback.call("""
+        String rawResult = tool.execute(request("""
                 {"leftOperand":127.5,"operator":"MULTIPLY","rightOperand":8.6}
-                """);
+                """));
         JSONObject result = JSONObject.parseObject(rawResult);
 
         assertEquals("127.5 MULTIPLY 8.6", result.getString("expression"));
@@ -82,5 +81,9 @@ class SystemCalculatorAgentToolTest {
         input.setRightOperand(new BigDecimal(rightOperand));
         input.setScale(scale);
         return input;
+    }
+
+    private static AgentToolRequest request(String input) {
+        return new AgentToolRequest(input, AgentToolExecutionContext.builder().executionId("test").build(), null);
     }
 }

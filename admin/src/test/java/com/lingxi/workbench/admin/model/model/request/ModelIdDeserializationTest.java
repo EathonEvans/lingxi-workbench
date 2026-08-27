@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.model.model.request;
 
-import com.alibaba.fastjson2.JSON;
+import com.lingxi.workbench.framework.json.JSON;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

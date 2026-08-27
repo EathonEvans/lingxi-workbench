@@ -15,7 +15,7 @@ public interface IntentTreeDraftMapper extends BaseMapper<IntentTreeDraftEntity>
             UPDATE lingxi_core.ai_intent_tree_draft
                SET schema_version = #{entity.schemaVersion},
                    embedding_model_instance_id = #{entity.embeddingModelInstanceId},
-                   definition = #{entity.definition,typeHandler=com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler},
+                   definition = #{entity.definition,typeHandler=com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler},
                    change_note = #{entity.changeNote},
                    updated_by = #{entity.updatedBy},
                    revision = revision + 1,

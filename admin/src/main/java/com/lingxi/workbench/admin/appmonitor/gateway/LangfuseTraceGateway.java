@@ -1,8 +1,8 @@
 package com.lingxi.workbench.admin.appmonitor.gateway;
 
 import cn.hutool.core.text.CharSequenceUtil;
-import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONArray;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.admin.appmonitor.common.enums.TraceSourceStatus;
 import com.lingxi.workbench.admin.appmonitor.config.LangfuseProperties;
 import com.lingxi.workbench.admin.appmonitor.model.bo.LangfuseObservationBO;

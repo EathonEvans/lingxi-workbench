@@ -1,8 +1,15 @@
 package com.lingxi.workbench.mcp.tool.config;
 
+import com.google.gson.Gson;
+import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.builtin.SystemCalculatorAgentTool;
 import com.lingxi.workbench.infra.ai.tool.builtin.SystemCurrentTimeAgentTool;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionContext;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolRequest;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.ai.tool.definition.ToolDefinition;
+import org.springframework.ai.tool.metadata.ToolMetadata;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -30,6 +37,36 @@ public class LocalMcpToolConfiguration {
      */
     @Bean
     public ToolCallbackProvider localMcpToolCallbackProvider(SystemCalculatorAgentTool calculatorTool, SystemCurrentTimeAgentTool currentTimeTool) {
-        return ToolCallbackProvider.from(calculatorTool.callback(), currentTimeTool.callback());
+        return ToolCallbackProvider.from(mcpCallback(calculatorTool), mcpCallback(currentTimeTool));
+    }
+
+    /**
+     * 独立 MCP Server 的协议适配器。Spring Tool 类型只停留在该进程边界，
+     * Agent Runtime 继续直接使用平台 AgentTool 与 AgentScope Toolkit。
+     */
+    private static ToolCallback mcpCallback(AgentTool tool) {
+        return new ToolCallback() {
+            @Override
+            public ToolDefinition getToolDefinition() {
+                return ToolDefinition.builder()
+                        .name(tool.definition().getCode())
+                        .description(tool.definition().getDescription())
+                        .inputSchema(new Gson().toJson(tool.inputSchema()))
+                        .build();
+            }
+
+            @Override
+            public ToolMetadata getToolMetadata() {
+                return ToolMetadata.builder().returnDirect(false).build();
+            }
+
+            @Override
+            public String call(String input) {
+                AgentToolExecutionContext execution = AgentToolExecutionContext.builder()
+                        .executionId("mcp-server")
+                        .build();
+                return tool.execute(new AgentToolRequest(input, execution, null));
+            }
+        };
     }
 }

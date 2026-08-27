@@ -126,7 +126,7 @@ class ExecutionPersistenceServiceImplTest {
     }
 
     @Test
-    void shouldPersistRuntimeOwnedSequenceAndOccurrenceTime() {
+    void shouldPersistProvidedSequenceAndOccurrenceTime() {
         ExecutionRunRepo runRepo = mock(ExecutionRunRepo.class);
         ExecutionEventRepo eventRepo = mock(ExecutionEventRepo.class);
         when(runRepo.lockByRunId("run-runtime")).thenReturn(Optional.of(new ExecutionRunEntity()));
@@ -185,7 +185,7 @@ class ExecutionPersistenceServiceImplTest {
                 skillRepo, new ExecutionTaskChecksum());
 
         service.appendSkillActivationEvent(ExecutionEventCommand.builder()
-                        .runId("run-skill").sequenceNo(1L)
+                        .runId("run-skill")
                         .eventType(ExecutionEventType.SKILL_ACTIVATED).message("Skill已激活").build(),
                 ExecutionSkillActivationCommand.builder().runId("run-skill").agentVersionId(20L)
                         .skillId(1L).skillVersionId(11L).skillCode("fact_check").checksum("checksum")

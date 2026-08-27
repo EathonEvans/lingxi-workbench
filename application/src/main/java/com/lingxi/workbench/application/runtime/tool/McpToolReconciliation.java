@@ -1,8 +1,8 @@
 package com.lingxi.workbench.application.runtime.tool;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSON;
+import com.lingxi.workbench.framework.json.JSONArray;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.application.runtime.model.entity.RuntimeToolEntity;
 import com.lingxi.workbench.infra.ai.tool.AgentToolException;
 import com.lingxi.workbench.infra.ai.tool.AgentToolReconciliation;
@@ -10,7 +10,7 @@ import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionContext;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolReconciliationRequest;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolReconciliationResult;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolReconciliationStatus;
-import org.springframework.ai.chat.model.ToolContext;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolRequest;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -19,9 +19,9 @@ import java.util.Map;
 public final class McpToolReconciliation implements AgentToolReconciliation {
 
     private final RuntimeToolEntity tool;
-    private final McpRuntimeToolCallback callback;
+    private final McpRuntimeToolExecutor callback;
 
-    public McpToolReconciliation(RuntimeToolEntity tool, McpRuntimeToolCallback callback) {
+    public McpToolReconciliation(RuntimeToolEntity tool, McpRuntimeToolExecutor callback) {
         this.tool = tool;
         this.callback = callback;
     }
@@ -33,7 +33,7 @@ public final class McpToolReconciliation implements AgentToolReconciliation {
         arguments.put("toolCode", tool.getCode());
         arguments.put("toolInput", JSON.parseObject(request.toolInput()));
         String response = callback.callRemoteTool(tool.getReconciliationQueryToolName(),
-                JSON.toJSONString(arguments), new ToolContext(toMcpMeta(request.executionContext(), request.idempotencyKey())));
+                new AgentToolRequest(JSON.toJSONString(arguments), request.executionContext(), request.idempotencyKey()));
         return parseResponse(response);
     }
 
@@ -65,13 +65,4 @@ public final class McpToolReconciliation implements AgentToolReconciliation {
         throw new AgentToolException("MCP对账查询未返回文本结果");
     }
 
-    private static Map<String, Object> toMcpMeta(AgentToolExecutionContext context, String idempotencyKey) {
-        Map<String, Object> metadata = new LinkedHashMap<>();
-        metadata.put("executionId", context.getExecutionId());
-        metadata.put("userId", context.getUserId());
-        metadata.put("conversationId", context.getConversationId());
-        metadata.put("assistantMessageId", context.getAssistantMessageId());
-        metadata.put("idempotencyKey", idempotencyKey);
-        return metadata;
-    }
 }

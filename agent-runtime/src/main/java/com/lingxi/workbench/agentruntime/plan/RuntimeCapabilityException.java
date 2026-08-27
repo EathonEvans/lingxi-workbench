@@ -1,19 +1,11 @@
 package com.lingxi.workbench.agentruntime.plan;
 
-import lombok.Getter;
+import com.lingxi.workbench.agentruntime.model.AgentRuntimeException;
 
 /** Application 能力适配器向 Runtime 返回的稳定失败分类。 */
-@Getter
-public class RuntimeCapabilityException extends RuntimeException {
-
-    private final String code;
-    private final String clientMessage;
-    private final boolean retryable;
+public class RuntimeCapabilityException extends AgentRuntimeException {
 
     public RuntimeCapabilityException(String code, String clientMessage, boolean retryable, Throwable cause) {
-        super(code, cause);
-        this.code = code;
-        this.clientMessage = clientMessage;
-        this.retryable = retryable;
+        super(code, clientMessage, retryable, cause);
     }
 }

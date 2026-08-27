@@ -1,7 +1,7 @@
 package com.lingxi.workbench.application.runtime.service.routing;
 
 import com.lingxi.workbench.application.runtime.common.enums.IntentDecisionReason;
-import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
+import com.lingxi.workbench.application.runtime.model.ApplicationRun;
 import com.lingxi.workbench.application.runtime.model.IntentCandidate;
 import com.lingxi.workbench.application.runtime.model.IntentCandidateRequest;
 import com.lingxi.workbench.application.runtime.model.IntentCandidateSet;
@@ -39,11 +39,11 @@ public class WorkflowIntentClassifierNodeInvoker {
 
     /**
      * 分类节点只返回状态变量，不解析或执行 Application 能力映射。
-     * 每一次真实模型调用由共享 ChatExecutionContext 原子占用预算并累计 Token。
+     * 每一次真实模型调用由 Application 根运行的共享预算原子占用并累计 Token。
      */
     public IntentClassifierNodeResult invoke(IntentClassifierNodeInvocation invocation,
-                                             ChatExecutionContext executionContext) {
-        requireInvocation(invocation, executionContext);
+                                             ApplicationRun run) {
+        requireInvocation(invocation, run);
         RuntimeIntentTreeVersionEntity version = intentTreeRuntimeRepo
                 .findVersion(invocation.getIntentTreeId(), invocation.getIntentTreeVersionId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "Workflow锁定的意图树版本不存在"));
@@ -53,11 +53,10 @@ public class WorkflowIntentClassifierNodeInvoker {
             return emptyCandidateResult(version);
         }
 
-        ConversationContext scopedContext = executionContext.getConversationContext()
-                .forkForQuery(invocation.getQuery());
+        ConversationContext scopedContext = run.conversation().forkForQuery(invocation.getQuery());
         try {
             IntentSemanticDecisionResult decisionResult = semanticDecisionService.decideForWorkflow(
-                    scopedContext, version, candidateSet.candidates(), executionContext.getExecutionBudget());
+                    scopedContext, version, candidateSet.candidates(), run.budget());
             return toWorkflowResult(candidateSet.candidates(), decisionResult);
         } catch (IntentSemanticDecisionException exception) {
             IntentClassifierNodeResult result = toWorkflowResult(
@@ -130,9 +129,8 @@ public class WorkflowIntentClassifierNodeInvoker {
     }
 
     private static void requireInvocation(IntentClassifierNodeInvocation invocation,
-                                          ChatExecutionContext executionContext) {
-        if (Objects.isNull(invocation) || Objects.isNull(executionContext)
-                || Objects.isNull(executionContext.getConversationContext())
+                                          ApplicationRun run) {
+        if (Objects.isNull(invocation) || Objects.isNull(run)
                 || Objects.isNull(invocation.getIntentTreeId())
                 || Objects.isNull(invocation.getIntentTreeVersionId())
                 || Objects.isNull(invocation.getQuery()) || invocation.getQuery().isBlank()) {

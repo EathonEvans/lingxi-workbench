@@ -3,7 +3,7 @@ package com.lingxi.workbench.application.runtime.model.entity;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.application.runtime.common.enums.CapabilityInvocationStatus;
-import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
+import com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler;
 import lombok.Data;
 import org.apache.ibatis.type.JdbcType;
 
@@ -20,8 +20,8 @@ public class CapabilityInvocationEntity {
     private Long interactionId;
     private Long assistantMessageId;
     private String toolCode;
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
-    private com.alibaba.fastjson2.JSONObject toolInput;
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    private com.lingxi.workbench.framework.json.JSONObject toolInput;
     private String resourceScope;
     private String approvalFingerprint;
     private CapabilityInvocationStatus status;

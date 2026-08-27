@@ -1,7 +1,7 @@
 package com.lingxi.workbench.admin.model.model.converter;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSON;
+import com.lingxi.workbench.framework.json.JSONObject;
 import cn.hutool.core.collection.CollUtil;
 import com.lingxi.workbench.admin.model.common.enums.ModelCapability;
 import com.lingxi.workbench.admin.model.model.entity.ModelCredentialEntity;

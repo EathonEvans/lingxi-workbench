@@ -1,20 +1,21 @@
 package com.lingxi.workbench.infra.ai.tool.builtin;
 
+import com.lingxi.workbench.framework.json.JSON;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.AgentToolException;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolRequest;
 import lombok.Builder;
 import lombok.Data;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.ai.tool.function.FunctionToolCallback;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Locale;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 import static com.lingxi.workbench.infra.ai.tool.common.constants.SystemCalculatorToolConstants.DEFAULT_DIVISION_SCALE;
@@ -48,12 +49,23 @@ public class SystemCalculatorAgentTool implements AgentTool {
     }
 
     @Override
-    public ToolCallback callback() {
-        AgentToolDefinition definition = definition();
-        return FunctionToolCallback.builder(definition.getCode(), this::calculate)
-                .description(definition.getDescription())
-                .inputType(CalculatorInput.class)
-                .build();
+    public Map<String, Object> inputSchema() {
+        return Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "leftOperand", Map.of("type", "number", "description", "左操作数"),
+                        "operator", Map.of("type", "string", "description", "ADD、SUBTRACT、MULTIPLY、DIVIDE或+ - * /"),
+                        "rightOperand", Map.of("type", "number", "description", "右操作数"),
+                        "scale", Map.of("type", "integer", "minimum", 0, "maximum", 10,
+                                "description", "除法小数位数，默认6")),
+                "required", List.of("leftOperand", "operator", "rightOperand"),
+                "additionalProperties", false);
+    }
+
+    @Override
+    public String execute(AgentToolRequest request) {
+        CalculatorInput input = JSON.parseObject(request.input(), CalculatorInput.class);
+        return JSON.toJSONString(calculate(input));
     }
 
     /**
@@ -121,22 +133,18 @@ public class SystemCalculatorAgentTool implements AgentTool {
     }
 
     /**
-     * Spring AI 反序列化的计算参数。
+     * 计算参数。
      */
     @Data
     @NoArgsConstructor
     public static class CalculatorInput {
 
-        @ToolParam(description = "左操作数", required = true)
         private BigDecimal leftOperand;
 
-        @ToolParam(description = "运算符，仅支持ADD、SUBTRACT、MULTIPLY、DIVIDE或+、-、*、/", required = true)
         private String operator;
 
-        @ToolParam(description = "右操作数", required = true)
         private BigDecimal rightOperand;
 
-        @ToolParam(description = "除法结果保留的小数位数，范围0到10，默认6", required = false)
         private Integer scale;
     }
 

@@ -1,6 +1,6 @@
 package com.lingxi.workbench.infra.ai.chat.openai;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.outbound.ModelOutboundAddressPolicy;
 import io.agentscope.core.model.GenerateOptions;

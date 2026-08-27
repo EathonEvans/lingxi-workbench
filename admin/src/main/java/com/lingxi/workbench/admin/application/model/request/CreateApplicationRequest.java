@@ -20,6 +20,9 @@ public class CreateApplicationRequest {
     @Size(max = 500, message = "应用描述不能超过500个字符")
     private String description;
 
+    @Size(max = 255, message = "应用头像标识不能超过255个字符")
+    private String avatar;
+
     @NotNull(message = "请选择一级领域")
     private Long domainId;
 }

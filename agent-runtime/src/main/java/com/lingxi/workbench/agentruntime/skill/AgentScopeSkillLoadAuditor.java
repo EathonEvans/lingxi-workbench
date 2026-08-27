@@ -1,6 +1,7 @@
 package com.lingxi.workbench.agentruntime.skill;
 
-import com.lingxi.workbench.agentruntime.model.ExecutionState;
+import com.lingxi.workbench.agentruntime.event.ExecutionEvents;
+import com.lingxi.workbench.agentruntime.model.ExecutionTools;
 import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationReason;
 import com.lingxi.workbench.infra.ai.skill.model.AgentSkillBindingSnapshot;
 import io.agentscope.core.agent.Agent;
@@ -26,12 +27,15 @@ public final class AgentScopeSkillLoadAuditor implements MiddlewareBase {
     private static final String SKILL_LOAD_TOOL = "load_skill_through_path";
 
     private final AgentScopePublishedSkillCatalog catalog;
-    private final ExecutionState state;
+    private final ExecutionTools tools;
+    private final ExecutionEvents events;
     private final Set<String> auditedSkillIds = new HashSet<>();
 
-    public AgentScopeSkillLoadAuditor(AgentScopePublishedSkillCatalog catalog, ExecutionState state) {
+    public AgentScopeSkillLoadAuditor(AgentScopePublishedSkillCatalog catalog, ExecutionTools tools,
+                                      ExecutionEvents events) {
         this.catalog = catalog;
-        this.state = state;
+        this.tools = tools;
+        this.events = events;
     }
 
     @Override
@@ -66,7 +70,8 @@ public final class AgentScopeSkillLoadAuditor implements MiddlewareBase {
         }
         AgentSkillBindingSnapshot binding = catalog.modelRoutedBinding(skillId);
         if (binding != null) {
-            state.recordSkillActivation(binding, SkillActivationReason.MODEL_ROUTED);
+            tools.validateSkillTools(binding.getEffectiveToolCodes(), binding.getSkill().getCode());
+            events.skillActivated(binding, SkillActivationReason.MODEL_ROUTED);
         }
     }
 }

@@ -20,7 +20,7 @@ public interface MqProducer<T> {
     SendResult send(String topic, T message);
 
     /**
-     * 同步发送带业务标识的即时消息，用于顺序消费时路由到同一队列。
+     * 同步发送带业务标识的即时消息，用于链路定位和消费幂等。
      *
      * @param topic   消息主题
      * @param key     业务标识

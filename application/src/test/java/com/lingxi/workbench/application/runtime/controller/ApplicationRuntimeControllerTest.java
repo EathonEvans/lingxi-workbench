@@ -1,8 +1,8 @@
 package com.lingxi.workbench.application.runtime.controller;
 
 import com.lingxi.workbench.application.runtime.model.vo.AvailableApplicationVO;
-import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
-import com.lingxi.workbench.application.runtime.service.app.ApplicationRuntimeService;
+import com.lingxi.workbench.application.runtime.model.vo.ApplicationAssistantIdentityVO;
+import com.lingxi.workbench.application.runtime.service.app.ApplicationVersionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -13,6 +13,8 @@ import java.util.List;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * AI 应用运行端接口契约测试。
@@ -23,7 +25,11 @@ class ApplicationRuntimeControllerTest {
 
     @BeforeEach
     void setUp() {
-        ApplicationRuntimeService service = new StubApplicationRuntimeService();
+        ApplicationVersionService service = mock(ApplicationVersionService.class);
+        when(service.listAvailableApplications()).thenReturn(List.of(
+                new AvailableApplicationVO(
+                        "general_assistant", "灵析通用助手", "企业知识问答",
+                        new ApplicationAssistantIdentityVO("灵析通用助手", "https://example.com/avatar.png"))));
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new ApplicationRuntimeController(service))
                 .build();
@@ -39,35 +45,15 @@ class ApplicationRuntimeControllerTest {
                           "data": [{
                             "code": "general_assistant",
                             "name": "灵析通用助手",
-                            "description": "企业知识问答"
+                            "description": "企业知识问答",
+                            "assistant": {
+                              "name": "灵析通用助手",
+                              "avatar": "https://example.com/avatar.png"
+                            }
                           }],
                           "msg": "成功"
                         }
                         """));
     }
 
-    /**
-     * Controller 契约测试只提供固定业务结果，不引入数据库和 Mock 代理。
-     */
-    private static final class StubApplicationRuntimeService
-            implements ApplicationRuntimeService {
-
-        @Override
-        public List<AvailableApplicationVO> listAvailableApplications() {
-            return List.of(
-                    new AvailableApplicationVO(
-                            "general_assistant", "灵析通用助手", "企业知识问答")
-            );
-        }
-
-        @Override
-        public AppRuntimeSnapshot loadRuntimeAppConfig(String applicationCode) {
-            throw new UnsupportedOperationException("当前测试不覆盖应用版本解析");
-        }
-
-        @Override
-        public AppRuntimeSnapshot loadRuntimeAppVersion(Long applicationId, Long applicationVersionId) {
-            throw new UnsupportedOperationException("当前测试不覆盖冻结应用版本解析");
-        }
-    }
 }

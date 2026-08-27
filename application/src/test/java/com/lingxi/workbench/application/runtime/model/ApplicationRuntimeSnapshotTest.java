@@ -6,7 +6,7 @@ import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.FallbackAgent;
-import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
+import com.lingxi.workbench.workflow.model.CapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
@@ -112,13 +112,13 @@ class ApplicationRuntimeSnapshotTest {
     }
 
     private static ApplicationDefinition definition(ApplicationIntentMapping mapping) {
-        ApplicationCapabilityDefinition fallbackCap = ApplicationCapabilityDefinition.builder()
+        CapabilityDefinition fallbackCap = CapabilityDefinition.builder()
                 .code("default_agent")
                 .type(ApplicationCapabilityType.AGENT)
                 .targetId(10L)
                 .targetVersionId(11L)
                 .build();
-        ApplicationCapabilityDefinition workflowCapability = ApplicationCapabilityDefinition.builder()
+        CapabilityDefinition workflowCapability = CapabilityDefinition.builder()
                 .code("refund_workflow")
                 .type(ApplicationCapabilityType.WORKFLOW)
                 .targetId(20L)

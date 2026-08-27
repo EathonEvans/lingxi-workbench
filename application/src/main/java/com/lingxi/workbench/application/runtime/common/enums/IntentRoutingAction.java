@@ -7,7 +7,7 @@ import lombok.RequiredArgsConstructor;
  * 意图门控完成后交给上层执行调度器的动作指令。
  *
  * <p>该枚举由 {@code IntentRoutingServiceImpl} 返回，上层
- * {@code ApplicationChatExecutionServiceImpl} 根据动作类型决定后续行为：</p>
+ * {@code AppRuntime} 根据动作类型决定后续行为：</p>
  * <ul>
  *   <li><b>EXECUTE_WORKFLOW</b> — 意图明确且槽位完整，执行叶子映射锁定的 WorkflowVersion。
  *       executionQuery 包含原始问题或拼接了已收集槽位的增强查询。</li>

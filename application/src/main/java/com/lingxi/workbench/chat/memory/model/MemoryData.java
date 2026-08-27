@@ -1,7 +1,7 @@
 package com.lingxi.workbench.chat.memory.model;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSON;
+import com.lingxi.workbench.framework.json.JSONObject;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.LinkedHashMap;

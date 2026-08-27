@@ -1,6 +1,6 @@
 package com.lingxi.workbench.chat.repo;
 
-import com.alibaba.fastjson2.JSON;
+import com.lingxi.workbench.framework.json.JSON;
 import com.lingxi.workbench.chat.config.ChatGenerationEventProperties;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventCacheBO;

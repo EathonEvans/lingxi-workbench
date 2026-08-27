@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.capability;
 
-import com.alibaba.fastjson2.JSON;
+import com.lingxi.workbench.framework.json.JSON;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.springframework.stereotype.Component;

@@ -1,8 +1,8 @@
 package com.lingxi.workbench.admin.model.service.impl;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSON;
+import com.lingxi.workbench.framework.json.JSONArray;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.admin.model.common.constants.ModelExtensionParameterConstants;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
@@ -29,7 +29,7 @@ final class ModelExtensionParameterValidator {
         if (json.length() > ModelExtensionParameterConstants.MAX_JSON_LENGTH) {
             throw invalid("扩展参数不能超过16KB");
         }
-        // 先标准化为 Fastjson2 节点，再递归校验，避免嵌套 Map 绕过敏感字段检查。
+        // 先标准化为 Gson 节点，再递归校验，避免嵌套 Map 绕过敏感字段检查。
         JSONObject normalizedParameters = JSON.parseObject(json);
         validateObject(normalizedParameters, 1);
         return normalizedParameters;

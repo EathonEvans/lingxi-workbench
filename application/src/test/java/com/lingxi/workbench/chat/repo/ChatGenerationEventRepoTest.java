@@ -1,6 +1,6 @@
 package com.lingxi.workbench.chat.repo;
 
-import com.alibaba.fastjson2.JSON;
+import com.lingxi.workbench.framework.json.JSON;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
 import com.lingxi.workbench.chat.config.ChatGenerationEventProperties;
@@ -8,6 +8,7 @@ import com.lingxi.workbench.chat.common.enums.ChatGenerationEventType;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventCacheBO;
+import com.lingxi.workbench.chat.model.bo.ChatInteractionEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatPlanStepBO;
 import com.lingxi.workbench.chat.model.bo.ChatStepOutputEventBO;
 import com.lingxi.workbench.framework.cache.RedisUtil;
@@ -18,6 +19,7 @@ import com.lingxi.workbench.infra.ai.agent.model.AgentProgressEvent;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -47,6 +49,8 @@ class ChatGenerationEventRepoTest {
         ChatGenerationEventCacheBO cached = JSON.parseObject(valueCaptor.getValue(), ChatGenerationEventCacheBO.class);
         assertEquals("system_current_time", cached.getToolCode());
         assertEquals(AgentToolExecutionStatus.SUCCEEDED, cached.getToolStatus());
+        assertEquals(2, cached.getPlanNo());
+        assertEquals("collect", cached.getStepId());
     }
 
     @Test
@@ -62,6 +66,8 @@ class ChatGenerationEventRepoTest {
         assertEquals(1, events.size());
         assertEquals(2, events.getFirst().sequence());
         assertEquals(AgentToolExecutionStatus.SUCCEEDED, events.getFirst().tool().getStatus());
+        assertEquals(2, events.getFirst().tool().getPlanNo());
+        assertEquals("collect", events.getFirst().tool().getStepId());
     }
 
     @Test
@@ -128,6 +134,35 @@ class ChatGenerationEventRepoTest {
         assertEquals(4, restored.progress().toolCallCount());
     }
 
+    @Test
+    void shouldRoundTripHitlEventsAndKeepSequenceForResume() {
+        RedisUtil redisUtil = mock(RedisUtil.class);
+        ChatGenerationEventRepo repo = new ChatGenerationEventRepo(redisUtil, properties());
+        ChatInteractionEventBO interaction = ChatInteractionEventBO.builder()
+                .interactionId("91")
+                .interactionType("ACTION_APPROVAL")
+                .title("确认执行工具")
+                .summary("需要用户明确批准")
+                .riskLevel("MEDIUM")
+                .resourceScope("当前会话")
+                .fingerprint("fingerprint")
+                .revision(0)
+                .expiresAt(OffsetDateTime.parse("2026-08-26T16:48:00+08:00"))
+                .build();
+        ChatGenerationEventBO required = ChatGenerationEventBO.interaction(
+                6, ChatGenerationEventType.INTERACTION_REQUIRED, interaction);
+        when(redisUtil.lRange(EVENT_KEY, 0, -1)).thenReturn(List.of(
+                JSON.toJSONString(ChatGenerationEventCacheBO.from(required))));
+
+        ChatGenerationEventBO restored = repo.findAfter(12L, 5).getFirst();
+
+        assertEquals(ChatGenerationEventType.INTERACTION_REQUIRED, restored.type());
+        assertEquals(6, restored.sequence());
+        assertEquals("91", restored.interaction().getInteractionId());
+        assertEquals(interaction.getExpiresAt(), restored.interaction().getExpiresAt());
+        assertEquals(6, repo.lastSequence(12L));
+    }
+
     private static ChatGenerationEventProperties properties() {
         ChatGenerationEventProperties properties = new ChatGenerationEventProperties();
         properties.setMaxEvents(2000);
@@ -142,6 +177,8 @@ class ChatGenerationEventRepoTest {
                 .displayName("查询当前时间")
                 .status(AgentToolExecutionStatus.SUCCEEDED)
                 .durationMillis(18L)
+                .planNo(2)
+                .stepId("collect")
                 .build();
     }
 }

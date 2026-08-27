@@ -25,7 +25,7 @@
         <agentscope.version>2.0.2</agentscope.version>
         <redisson.version>4.2.0</redisson.version>
         <networknt-json-schema.version>3.0.1</networknt-json-schema.version>
-        <victools-jsonschema.version>5.0.0</victools-jsonschema.version>
+        <victools-jsonschema.version>4.38.0</victools-jsonschema.version>
         <langgraph4j.version>1.8.17</langgraph4j.version>
         <mybatis-plus.version>3.5.17</mybatis-plus.version>
         <sa-token.version>1.45.0</sa-token.version>
@@ -34,7 +34,7 @@
         <maven.compiler.parameters>true</maven.compiler.parameters>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <hutool.version>5.8.38</hutool.version>
-        <fastjson2.version>2.0.61</fastjson2.version>
+        <gson.version>2.13.1</gson.version>
         <tika.version>3.3.1</tika.version>
         <minio.version>8.6.0</minio.version>
         <aliyun-oss.version>3.18.1</aliyun-oss.version>
@@ -99,6 +99,11 @@
             <dependency>
                 <groupId>io.agentscope</groupId>
                 <artifactId>agentscope-extensions-redis</artifactId>
+                <version>${agentscope.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.agentscope</groupId>
+                <artifactId>agentscope-harness</artifactId>
                 <version>${agentscope.version}</version>
             </dependency>
             <dependency>
@@ -169,9 +174,9 @@
             </dependency>
 
             <dependency>
-                <groupId>com.alibaba.fastjson2</groupId>
-                <artifactId>fastjson2</artifactId>
-                <version>${fastjson2.version}</version>
+                <groupId>com.google.code.gson</groupId>
+                <artifactId>gson</artifactId>
+                <version>${gson.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.tika</groupId>
@@ -192,11 +197,6 @@
                 <groupId>com.aliyun.oss</groupId>
                 <artifactId>aliyun-sdk-oss</artifactId>
                 <version>${aliyun-oss.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.alibaba.fastjson2</groupId>
-                <artifactId>fastjson2-extension-spring6</artifactId>
-                <version>${fastjson2.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.squareup.okhttp3</groupId>

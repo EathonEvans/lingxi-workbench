@@ -1,7 +1,7 @@
 package com.lingxi.workbench.application.runtime.model;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONException;
+import com.lingxi.workbench.framework.json.JSON;
+import com.lingxi.workbench.framework.json.JSONException;
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import org.junit.jupiter.api.Test;
 

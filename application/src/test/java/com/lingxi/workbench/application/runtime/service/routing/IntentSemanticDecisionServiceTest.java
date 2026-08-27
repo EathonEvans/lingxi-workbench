@@ -4,7 +4,6 @@ import com.lingxi.workbench.application.runtime.common.enums.IntentDecisionReaso
 import com.lingxi.workbench.application.runtime.common.enums.IntentSemanticAction;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
-import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
 import com.lingxi.workbench.application.runtime.model.IntentCandidate;
 import com.lingxi.workbench.application.runtime.model.IntentCandidateSlot;
 import com.lingxi.workbench.application.runtime.model.IntentSemanticDecisionResult;
@@ -18,14 +17,13 @@ import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.chat.service.impl.PromptTemplateRenderer;
 import com.lingxi.workbench.framework.context.LoginUser;
-import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.SpringAiChatClientFactory;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.openai.OpenAiCompatibleChatModelFactory;
 import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
-import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
+import com.lingxi.workbench.workflow.model.CapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
@@ -281,24 +279,18 @@ class IntentSemanticDecisionServiceTest {
                 .maxDelegations(1)
                 .totalTokenBudget(1000)
                 .build();
-        ChatExecutionContext executionContext = ChatExecutionContext.builder()
-                .executionId("execution-1")
-                .runtimeVariables(conversation.getRuntimeVariables())
-                .turn(conversation.getTurn())
-                .conversationContext(conversation)
-                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(policy))
-                .build();
+        ApplicationExecutionBudget budget = ApplicationExecutionBudget.fromRuntimePolicy(policy);
 
         IntentSemanticDecisionResult result = service.decideForWorkflow(
                 conversation, version(1, IntentDecisionFailureAction.DEFER),
-                List.of(candidate("refund", "申请退款", List.of())), executionContext.getExecutionBudget());
+                List.of(candidate("refund", "申请退款", List.of())), budget);
 
         assertThat(result.getDecision().getAction()).isEqualTo(IntentSemanticAction.SELECT);
-        assertThat(executionContext.getExecutionBudget().usedModelCalls()).isEqualTo(1);
-        assertThat(executionContext.getExecutionBudget().remainingModelCalls()).isEqualTo(1);
-        assertThat(executionContext.getExecutionBudget().tokenUsage().inputTokens()).isEqualTo(8);
-        assertThat(executionContext.getExecutionBudget().tokenUsage().outputTokens()).isEqualTo(3);
-        assertThat(executionContext.getExecutionBudget().tokenUsage().totalTokens()).isEqualTo(11);
+        assertThat(budget.usedModelCalls()).isEqualTo(1);
+        assertThat(budget.remainingModelCalls()).isEqualTo(1);
+        assertThat(budget.tokenUsage().inputTokens()).isEqualTo(8);
+        assertThat(budget.tokenUsage().outputTokens()).isEqualTo(3);
+        assertThat(budget.tokenUsage().totalTokens()).isEqualTo(11);
     }
 
     @Test
@@ -313,25 +305,19 @@ class IntentSemanticDecisionServiceTest {
                 .maxDelegations(1)
                 .totalTokenBudget(100)
                 .build();
-        ChatExecutionContext executionContext = ChatExecutionContext.builder()
-                .executionId("execution-1")
-                .runtimeVariables(conversation.getRuntimeVariables())
-                .turn(conversation.getTurn())
-                .conversationContext(conversation)
-                .executionBudget(ApplicationExecutionBudget.fromRuntimePolicy(policy))
-                .build();
-        executionContext.getExecutionBudget().recordUsage(new TokenUsage(80, 10, 90));
+        ApplicationExecutionBudget budget = ApplicationExecutionBudget.fromRuntimePolicy(policy);
+        budget.recordUsage(new TokenUsage(80, 10, 90));
 
         IntentSemanticDecisionResult result = service.decideForWorkflow(
                 conversation, version(1, IntentDecisionFailureAction.DEFER),
-                List.of(candidate("refund", "申请退款", List.of())), executionContext.getExecutionBudget());
+                List.of(candidate("refund", "申请退款", List.of())), budget);
 
         assertThat(result.getDecision().getAction()).isEqualTo(IntentSemanticAction.SELECT);
         ArgumentCaptor<ChatModelRuntimeConfig> configCaptor = ArgumentCaptor.forClass(ChatModelRuntimeConfig.class);
         verify(chatModelFactory).create(configCaptor.capture());
         assertThat(configCaptor.getValue().getMaxTokens()).isEqualTo(10);
-        assertThat(executionContext.getExecutionBudget().remainingModelCalls()).isEqualTo(1);
-        assertThat(executionContext.getExecutionBudget().tokenUsage().totalTokens()).isEqualTo(98);
+        assertThat(budget.remainingModelCalls()).isEqualTo(1);
+        assertThat(budget.tokenUsage().totalTokens()).isEqualTo(98);
     }
 
     private static String select(String code) {
@@ -415,9 +401,9 @@ class IntentSemanticDecisionServiceTest {
     }
 
     private static AppRuntimeSnapshot applicationSnapshot() {
-        ApplicationCapabilityDefinition fallback = capability(
+        CapabilityDefinition fallback = capability(
                 "fallback", "主Agent", 1L, 11L, ApplicationCapabilityType.AGENT);
-        ApplicationCapabilityDefinition refund = capability(
+        CapabilityDefinition refund = capability(
                 "refund_agent", "退款Agent", 2L, 22L, ApplicationCapabilityType.AGENT);
         ApplicationIntentMapping mapping = ApplicationIntentMapping.builder()
                 .intentCode("refund")
@@ -448,10 +434,10 @@ class IntentSemanticDecisionServiceTest {
         return new AppRuntimeSnapshot(3L, "support", 30L, definition);
     }
 
-    private static ApplicationCapabilityDefinition capability(String code, String name,
-                                                              Long targetId, Long targetVersionId,
-                                                              ApplicationCapabilityType type) {
-        return ApplicationCapabilityDefinition.builder()
+    private static CapabilityDefinition capability(String code, String name,
+                                                   Long targetId, Long targetVersionId,
+                                                   ApplicationCapabilityType type) {
+        return CapabilityDefinition.builder()
                 .code(code)
                 .name(name)
                 .description(name + "能力描述")

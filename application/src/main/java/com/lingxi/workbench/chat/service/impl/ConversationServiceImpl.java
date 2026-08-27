@@ -1,6 +1,8 @@
 package com.lingxi.workbench.chat.service.impl;
 
 import cn.hutool.core.text.CharSequenceUtil;
+import com.lingxi.workbench.application.runtime.model.vo.ApplicationAssistantIdentityVO;
+import com.lingxi.workbench.application.runtime.service.app.ApplicationVersionService;
 import com.lingxi.workbench.chat.common.enums.ConversationStatus;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
@@ -26,16 +28,20 @@ import com.lingxi.workbench.framework.convention.PageQuery;
 import com.lingxi.workbench.framework.convention.PageResult;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
 /**
  * 用户会话及消息业务实现。
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ConversationServiceImpl implements ConversationService {
@@ -47,6 +53,7 @@ public class ConversationServiceImpl implements ConversationService {
     private final ConversationMessageRepo messageRepo;
     private final ConversationConverter converter;
     private final ConversationOpsMetrics opsMetrics;
+    private final ApplicationVersionService applicationVersionService;
 
     /**
      * 分页查询当前用户的会话，支持关键字和状态过滤。
@@ -65,7 +72,26 @@ public class ConversationServiceImpl implements ConversationService {
     public PageResult<ConversationMessageVO> messagePage(Long userId, String conversationId, PageQuery query) {
         Long persistedConversationId = parseConversationId(conversationId);
         requireConversation(persistedConversationId, userId);
-        return messageRepo.findPage(persistedConversationId, query).map(converter::toMessageVO);
+        PageResult<ConversationMessageEntity> messages = messageRepo.findPage(persistedConversationId, query);
+        List<Long> applicationVersionIds = messages.records().stream()
+                .filter(message -> message.getRole() == MessageRole.ASSISTANT)
+                .map(ConversationMessageEntity::getApplicationVersionId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Long, ApplicationAssistantIdentityVO> assistantIdentities =
+                applicationVersionService.resolveAssistantIdentities(applicationVersionIds);
+        return messages.map(message -> toMessageVO(message, assistantIdentities));
+    }
+
+    private ConversationMessageVO toMessageVO(
+            ConversationMessageEntity message,
+            Map<Long, ApplicationAssistantIdentityVO> assistantIdentities) {
+        ConversationMessageVO value = converter.toMessageVO(message);
+        if (message.getRole() == MessageRole.ASSISTANT) {
+            value.setAssistant(assistantIdentities.get(message.getApplicationVersionId()));
+        }
+        return value;
     }
 
     /**

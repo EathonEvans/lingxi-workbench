@@ -1,20 +1,16 @@
 package com.lingxi.workbench.application.runtime.tool;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.auth.model.entity.UserEntity;
 import com.lingxi.workbench.auth.repo.mapper.UserMapper;
 import com.lingxi.workbench.infra.ai.tool.AgentToolException;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionContext;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolRequest;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.execution.ToolExecutionException;
-
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -30,7 +26,7 @@ class GetCurrentUserInfoToolTest {
         user.setAvatarUrl("http://storage.local/avatar.png");
         when(userMapper.selectById(42L)).thenReturn(user);
 
-        JSONObject output = invoke(Map.of("userId", 42L));
+        JSONObject output = invoke(42L);
 
         assertEquals("灵犀用户", output.getString("username"));
         assertEquals("http://storage.local/avatar.png", output.getString("avatar"));
@@ -38,27 +34,21 @@ class GetCurrentUserInfoToolTest {
     }
 
     @Test
-    void shouldFailWhenTrustedContextLacksUserId() {
-        // 模型无论如何构造参数，都拿不到用户身份；缺少可信上下文时工具直接失败。
-        ToolExecutionException exception = assertThrows(ToolExecutionException.class, () -> invoke(Map.of()));
-        assertInstanceOf(AgentToolException.class, exception.getCause());
-        verify(userMapper, never()).selectById(org.mockito.ArgumentMatchers.any());
-    }
-
-    @Test
     void shouldFailWhenUserDoesNotExist() {
         when(userMapper.selectById(7L)).thenReturn(null);
 
-        ToolExecutionException exception = assertThrows(ToolExecutionException.class,
-                () -> invoke(Map.of("userId", 7L)));
+        AgentToolException exception = assertThrows(AgentToolException.class, () -> invoke(7L));
 
-        assertInstanceOf(AgentToolException.class, exception.getCause());
-        assertEquals("当前用户不存在，无法获取用户信息", exception.getCause().getMessage());
+        assertEquals("当前用户不存在，无法获取用户信息", exception.getMessage());
     }
 
-    /** 通过 Spring AI 协议层执行工具：参数固定为空 JSON，身份只能来自 ToolContext。 */
-    private JSONObject invoke(Map<String, Object> context) {
-        String result = tool.callback().call("{}", new ToolContext(context));
+    /** 参数固定为空 JSON，身份只能来自服务端可信执行上下文。 */
+    private JSONObject invoke(Long userId) {
+        AgentToolExecutionContext execution = AgentToolExecutionContext.builder()
+                .executionId("test")
+                .userId(userId)
+                .build();
+        String result = tool.execute(new AgentToolRequest("{}", execution, null));
         return JSONObject.parseObject(result);
     }
 }

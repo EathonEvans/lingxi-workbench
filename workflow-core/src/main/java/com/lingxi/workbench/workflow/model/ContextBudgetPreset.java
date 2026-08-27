@@ -1,7 +1,7 @@
 package com.lingxi.workbench.workflow.model;
 
-import com.alibaba.fastjson2.annotation.JSONCreator;
-import com.alibaba.fastjson2.annotation.JSONField;
+import com.lingxi.workbench.framework.json.annotation.JSONCreator;
+import com.lingxi.workbench.framework.json.annotation.JSONField;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 

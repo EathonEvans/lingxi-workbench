@@ -18,14 +18,21 @@
         <dependency>
             <groupId>com.lingxi.ai</groupId>
             <artifactId>infra-ai</artifactId>
+            <exclusions>
+                <!-- Agent Runtime 只消费 infra-ai 稳定契约，不继承其 Spring AI 适配实现。 -->
+                <exclusion>
+                    <groupId>org.springframework.ai</groupId>
+                    <artifactId>spring-ai-openai</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.springframework.ai</groupId>
+                    <artifactId>spring-ai-client-chat</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-openai</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-client-chat</artifactId>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-harness</artifactId>
         </dependency>
         <dependency>
             <groupId>io.micrometer</groupId>
@@ -34,10 +41,6 @@
         <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-core</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.alibaba.fastjson2</groupId>
-            <artifactId>fastjson2</artifactId>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

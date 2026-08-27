@@ -1,7 +1,7 @@
 package com.lingxi.workbench.application.runtime.service.execution;
 
 import com.lingxi.workbench.agentruntime.model.AgentReconciliationPendingException;
-import com.lingxi.workbench.agentruntime.model.AgentRuntimeLimitException;
+import com.lingxi.workbench.agentruntime.model.AgentRuntimeException;
 import com.lingxi.workbench.application.runtime.model.ExecutionFailure;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.springframework.stereotype.Component;
@@ -20,8 +20,8 @@ public class ExecutionFailureClassifier {
                 return new ExecutionFailure("TOOL_RECONCILIATION_PENDING",
                         "外部操作可能已完成，系统正在核对结果，请勿重复提交", false);
             }
-            if (current instanceof AgentRuntimeLimitException limit) {
-                return new ExecutionFailure(limit.getCode(), limit.getMessage(), true);
+            if (current instanceof AgentRuntimeException runtime) {
+                return new ExecutionFailure(runtime.getCode(), runtime.getClientMessage(), runtime.isRetryable());
             }
             if (current instanceof TimeoutException) {
                 return new ExecutionFailure("AI_MODEL_TIMEOUT", "模型响应超时，请重试", true);
@@ -34,6 +34,6 @@ public class ExecutionFailureClassifier {
             }
             current = current.getCause();
         }
-        return new ExecutionFailure("CAPABILITY_EXECUTION_FAILED", "能力执行失败", true);
+        return new ExecutionFailure("CAPABILITY_EXECUTION_FAILED", "能力执行失败", false);
     }
 }

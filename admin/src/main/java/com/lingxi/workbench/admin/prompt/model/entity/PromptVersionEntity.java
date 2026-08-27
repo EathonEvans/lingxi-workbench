@@ -3,7 +3,7 @@ package com.lingxi.workbench.admin.prompt.model.entity;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.admin.prompt.common.enums.PromptVersionStatus;
-import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
+import com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler;
 import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -26,7 +26,7 @@ public class PromptVersionEntity extends TimeEntity {
     /** Prompt正文内容。 */
     private String promptContent;
     /** 变量声明列表，以JSONB形式存储。 */
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private List<PromptVariableDefinition> variables;
     /** 版本状态：DRAFT / PUBLISHED。 */
     private PromptVersionStatus status;

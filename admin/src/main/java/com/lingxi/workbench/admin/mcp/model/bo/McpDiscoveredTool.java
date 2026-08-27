@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.mcp.model.bo;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import lombok.Builder;
 import lombok.Getter;
 

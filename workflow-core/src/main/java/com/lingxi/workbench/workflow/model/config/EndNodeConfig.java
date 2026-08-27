@@ -1,6 +1,6 @@
 package com.lingxi.workbench.workflow.model.config;
 
-import com.alibaba.fastjson2.annotation.JSONType;
+import com.lingxi.workbench.framework.json.annotation.JSONType;
 
 import java.util.Map;
 

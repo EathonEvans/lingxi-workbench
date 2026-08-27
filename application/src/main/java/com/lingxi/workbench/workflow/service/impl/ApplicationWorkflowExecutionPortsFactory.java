@@ -2,12 +2,13 @@ package com.lingxi.workbench.workflow.service.impl;
 
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionEventType;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
-import com.lingxi.workbench.application.runtime.model.ChatExecutionContext;
+import com.lingxi.workbench.application.runtime.model.ApplicationRun;
+import com.lingxi.workbench.application.runtime.model.CapabilityInvocationScope;
 import com.lingxi.workbench.application.runtime.model.WorkflowRunStartCommand;
 import com.lingxi.workbench.application.runtime.service.agent.ChatAgentNodeInvoker;
+import com.lingxi.workbench.application.runtime.service.execution.ChatExecutionEventPublisher;
 import com.lingxi.workbench.application.runtime.service.routing.WorkflowIntentClassifierNodeInvoker;
 import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
-import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
 import com.lingxi.workbench.workflow.model.WorkflowExecutionResult;
 import com.lingxi.workbench.workflow.model.WorkflowExecutionPorts;
 import com.lingxi.workbench.workflow.model.WorkflowNodeDefinition;
@@ -32,22 +33,25 @@ public class ApplicationWorkflowExecutionPortsFactory {
     private final ChatAgentNodeInvoker agentNodeInvoker;
     private final WorkflowIntentClassifierNodeInvoker intentClassifierNodeInvoker;
 
-    public WorkflowExecutionPorts create(ChatExecutionContext executionContext) {
-        WorkflowRunListener runListener = new BoundWorkflowRunListener(runService, executionContext,
-                startCommand(executionContext));
+    public WorkflowExecutionPorts create(ApplicationRun run,
+                                         CapabilityInvocationScope invocationScope) {
+        ChatExecutionEventPublisher eventPublisher =
+                invocationScope == null ? run.request().getEventPublisher() : invocationScope.eventPublisher();
+        WorkflowRunListener runListener = new BoundWorkflowRunListener(runService, eventPublisher,
+                startCommand(run));
         return new WorkflowExecutionPorts(
-                invocation -> agentNodeInvoker.invoke(invocation, executionContext),
-                invocation -> intentClassifierNodeInvoker.invoke(invocation, executionContext),
+                invocation -> agentNodeInvoker.invoke(invocation, run, invocationScope),
+                invocation -> intentClassifierNodeInvoker.invoke(invocation, run),
                 runListener);
     }
 
     private record BoundWorkflowRunListener(WorkflowRunService runService,
-                                            ChatExecutionContext executionContext,
+                                            ChatExecutionEventPublisher eventPublisher,
                                             WorkflowRunStartCommand startCommand) implements WorkflowRunListener {
 
         private BoundWorkflowRunListener {
             java.util.Objects.requireNonNull(runService, "Workflow运行服务不能为空");
-            java.util.Objects.requireNonNull(executionContext, "Chat执行上下文不能为空");
+            java.util.Objects.requireNonNull(eventPublisher, "Workflow事件发布器不能为空");
             java.util.Objects.requireNonNull(startCommand, "Workflow运行启动命令不能为空");
         }
 
@@ -86,7 +90,7 @@ public class ApplicationWorkflowExecutionPortsFactory {
 
         private void publishNodeEvent(WorkflowRunContext context, WorkflowNodeDefinition node, ExecutionEventType eventType, ExecutionStepStatus status, String message) {
             try {
-                executionContext.getEventPublisher().publishExecution(ChatExecutionTimelineEventBO.builder()
+                eventPublisher.publishExecution(ChatExecutionTimelineEventBO.builder()
                         .runId(context.getRunId())
                         .eventType(eventType)
                         .stepId(node.id())
@@ -101,15 +105,13 @@ public class ApplicationWorkflowExecutionPortsFactory {
         }
     }
 
-    private static WorkflowRunStartCommand startCommand(ChatExecutionContext executionContext) {
-        ConversationContext conversation = java.util.Objects.requireNonNull(executionContext.getConversationContext(),
-                "Workflow缺少共享对话上下文");
+    private static WorkflowRunStartCommand startCommand(ApplicationRun run) {
         return WorkflowRunStartCommand.builder()
-                .assistantMessageId(executionContext.getTurn().assistantMessageId())
-                .conversationId(executionContext.getTurn().conversationId())
-                .userId(conversation.getLoginUser().id())
-                .applicationId(conversation.getApplicationSnapshot().applicationId())
-                .applicationVersionId(conversation.getApplicationSnapshot().versionId())
+                .assistantMessageId(run.request().getTurn().assistantMessageId())
+                .conversationId(run.request().getTurn().conversationId())
+                .userId(run.request().getLoginUser().id())
+                .applicationId(run.request().getApplication().applicationId())
+                .applicationVersionId(run.request().getApplication().versionId())
                 .build();
     }
 }

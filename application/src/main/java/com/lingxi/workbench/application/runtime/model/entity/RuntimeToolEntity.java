@@ -1,9 +1,9 @@
 package com.lingxi.workbench.application.runtime.model.entity;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
+import com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler;
 import com.lingxi.workbench.application.runtime.common.enums.RuntimeToolSourceType;
 import lombok.Data;
 import org.apache.ibatis.type.JdbcType;
@@ -36,7 +36,7 @@ public class RuntimeToolEntity {
     /** MCP 对账查询 Tool 名称；为空表示该 Tool 不支持自动查询外部效果。 */
     private String reconciliationQueryToolName;
 
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private JSONObject parameterSchema;
 
     private ToolRiskLevel riskLevel;

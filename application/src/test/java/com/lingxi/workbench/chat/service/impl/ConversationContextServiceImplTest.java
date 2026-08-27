@@ -15,7 +15,7 @@ import com.lingxi.workbench.chat.service.ConversationMemoryService;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
 import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
-import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
+import com.lingxi.workbench.workflow.model.CapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
@@ -122,7 +122,7 @@ class ConversationContextServiceImplTest {
     }
 
     private static AppRuntimeSnapshot application(MemoryConfig memoryConfig, ApplicationRuntimePolicy runtimePolicy) {
-        ApplicationCapabilityDefinition capability = ApplicationCapabilityDefinition.builder()
+        CapabilityDefinition capability = CapabilityDefinition.builder()
                 .code("default_agent")
                 .type(ApplicationCapabilityType.AGENT)
                 .targetId(40L)

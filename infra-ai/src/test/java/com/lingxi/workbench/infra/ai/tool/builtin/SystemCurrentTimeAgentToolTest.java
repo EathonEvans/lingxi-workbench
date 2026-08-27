@@ -1,7 +1,8 @@
 package com.lingxi.workbench.infra.ai.tool.builtin;
 
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionContext;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolRequest;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.tool.ToolCallback;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,16 +10,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SystemCurrentTimeAgentToolTest {
 
     @Test
-    void shouldKeepDefinitionCallbackAndExecutionInOneTool() {
+    void shouldKeepDefinitionSchemaAndExecutionInOneTool() {
         SystemCurrentTimeAgentTool tool = new SystemCurrentTimeAgentTool();
-        ToolCallback callback = tool.callback();
 
-        String inputSchema = callback.getToolDefinition().inputSchema();
-        String result = callback.call("{\"zoneId\":\"Asia/Shanghai\"}");
+        String result = tool.execute(new AgentToolRequest("{\"zoneId\":\"Asia/Shanghai\"}",
+                AgentToolExecutionContext.builder().executionId("test").build(), null));
 
-        assertEquals(tool.definition().getCode(), callback.getToolDefinition().name());
+        assertEquals("system_current_time", tool.definition().getCode());
         assertEquals("查询当前时间", tool.definition().getDisplayName());
-        assertTrue(inputSchema.contains("\"zoneId\""));
+        assertTrue(((java.util.Map<?, ?>) tool.inputSchema().get("properties")).containsKey("zoneId"));
         assertTrue(result.contains("\"zoneId\":\"Asia/Shanghai\""));
         assertTrue(result.contains("\"currentTime\""));
         assertTrue(result.contains("\"currentDate\""));

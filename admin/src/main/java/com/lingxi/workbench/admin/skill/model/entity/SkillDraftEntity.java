@@ -2,7 +2,7 @@ package com.lingxi.workbench.admin.skill.model.entity;
 
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
+import com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler;
 import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import com.lingxi.workbench.infra.ai.skill.common.enums.SkillActivationMode;
 import lombok.Data;
@@ -23,7 +23,7 @@ public class SkillDraftEntity extends TimeEntity {
     private Integer schemaVersion;
     private String instructions;
     private SkillActivationMode activationMode;
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private List<String> requestedToolCodes;
     private Long revision;
     private String changeNote;

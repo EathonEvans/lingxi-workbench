@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.interaction;
 
-import com.alibaba.fastjson2.JSON;
+import com.lingxi.workbench.framework.json.JSON;
 import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
 import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeInterruptionRequest;
 import com.lingxi.workbench.agentruntime.checkpoint.RuntimeInterruption;
@@ -154,7 +154,7 @@ class ApplicationRuntimeCheckpointStoreTest {
         invocation.setStatus(CapabilityInvocationStatus.APPROVED);
         invocation.setApprovalFingerprint("fingerprint");
         invocation.setToolCode("send_mail");
-        invocation.setToolInput(new com.alibaba.fastjson2.JSONObject(Map.of()));
+        invocation.setToolInput(new com.lingxi.workbench.framework.json.JSONObject(Map.of()));
         when(interactionRepo.findOwned(10L, 8L, 7L)).thenReturn(Optional.of(interaction));
         when(checkpointRepo.findById(30L)).thenReturn(Optional.of(stored));
         when(invocationRepo.findByInteractionId(10L)).thenReturn(Optional.of(invocation));
@@ -185,7 +185,7 @@ class ApplicationRuntimeCheckpointStoreTest {
                 .version(AgentScopeCheckpoint.CURRENT_VERSION)
                 .query("发送邮件").capabilityCode("mail_agent").applicationVersionId(30L)
                 .userId(7L).conversationId(8L).assistantMessageId(9L)
-                .runId("run-1").agentId(11L).agentVersionId(12L)
+                .runId("run-1").agentSessionId("run-1").agentId(11L).agentVersionId(12L)
                 .maxModelCalls(3).maxToolCalls(2).maxTotalTokens(100)
                 .maxFinalizationTokens(120)
                 .modelCalls(1).toolCalls(1).tokenUsage(TokenUsage.empty()).lastSequenceNo(4L)

@@ -25,6 +25,7 @@ import com.lingxi.workbench.admin.application.service.ApplicationService;
 import com.lingxi.workbench.admin.application.service.ApplicationSnapshotChecksum;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.domain.service.DomainService;
+import com.lingxi.workbench.admin.file.common.enums.FileBasePath;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageResult;
@@ -128,6 +129,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         application.setName(request.getName().trim());
         application.setCode(code);
         application.setDescription(trimToNull(request.getDescription()));
+        application.setAvatar(validateAvatar(request.getAvatar(), operatorId));
         application.setDomainId(domainService.requireRoot(request.getDomainId()).getId());
         application.setStatus(EnableStatus.ACTIVE);
         application.setCreatedBy(operatorId);
@@ -161,6 +163,7 @@ public class ApplicationServiceImpl implements ApplicationService {
         AiApplicationEntity application = requireApplication(id);
         application.setName(request.getName().trim());
         application.setDescription(trimToNull(request.getDescription()));
+        updateAvatar(application, request.getAvatar(), operatorId);
         application.setDomainId(domainService.requireRoot(request.getDomainId()).getId());
         application.setUpdatedBy(operatorId);
         applicationRepo.save(application);
@@ -260,7 +263,9 @@ public class ApplicationServiceImpl implements ApplicationService {
         }
 
         ApplicationDefinition snapshot = resolution.definition();
-        String checksum = snapshotChecksum.calculate(snapshot);
+        String name = application.getName();
+        String avatar = application.getAvatar();
+        String checksum = snapshotChecksum.calculate(snapshot, name, avatar);
         if (versionRepo.existsByChecksum(id, checksum)) {
             throw new BusinessException(
                     HttpStatusEnum.CONFLICT,
@@ -273,6 +278,8 @@ public class ApplicationServiceImpl implements ApplicationService {
         version.setVersionName(versionName(request.getVersionName(), versionNo));
         version.setSchemaVersion(snapshot.schemaVersion());
         version.setDefinitionSnapshot(snapshot);
+        version.setName(name);
+        version.setAvatar(avatar);
         version.setSnapshotChecksum(checksum);
         version.setChangeNote(draft.getChangeNote());
         version.setPublishedBy(operatorId);
@@ -311,10 +318,11 @@ public class ApplicationServiceImpl implements ApplicationService {
         AiApplicationVersionEntity version = requireVersion(id, versionId);
         if (!Objects.equals(version.getSchemaVersion(), APPLICATION_SCHEMA_VERSION)
                 || version.getDefinitionSnapshot() == null
-                || version.getDefinitionSnapshot().schemaVersion() != APPLICATION_SCHEMA_VERSION) {
+                || version.getDefinitionSnapshot().schemaVersion() != APPLICATION_SCHEMA_VERSION
+                || CharSequenceUtil.isBlank(version.getName())) {
             throw new BusinessException(
                     HttpStatusEnum.CONFLICT,
-                    "当前运行时只能激活V9 Application正式版本");
+                    "当前运行时只能激活包含助手身份快照的V9 Application正式版本");
         }
         application.setPublishedVersionId(versionId);
         application.setUpdatedBy(operatorId);
@@ -363,6 +371,29 @@ public class ApplicationServiceImpl implements ApplicationService {
         return versionRepo.findByApplicationIdAndId(applicationId, versionId)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "Application发布版本不存在"));
+    }
+
+    /**
+     * 仅接受当前操作人通过 application-avatar 上传通道取得的头像标识。
+     * 新建时可在尚未创建 Application 前先上传；更新时未传字段保持原头像，传空字符串表示移除。
+     */
+    private static String validateAvatar(String avatar, Long operatorId) {
+        String normalizedAvatar = trimToNull(avatar);
+        if (Objects.nonNull(normalizedAvatar)
+                && !FileBasePath.APPLICATION_AVATAR.hasApplicationAvatar(normalizedAvatar, operatorId)) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "应用头像必须使用当前用户上传的图片");
+        }
+        return normalizedAvatar;
+    }
+
+    private static void updateAvatar(AiApplicationEntity application, String requestedAvatar, Long operatorId) {
+        if (Objects.isNull(requestedAvatar)) {
+            return;
+        }
+        String normalizedAvatar = validateAvatar(requestedAvatar, operatorId);
+        if (!Objects.equals(application.getAvatar(), normalizedAvatar)) {
+            application.setAvatar(normalizedAvatar);
+        }
     }
 
     private static ApplicationDefinition defaultDefinition() {

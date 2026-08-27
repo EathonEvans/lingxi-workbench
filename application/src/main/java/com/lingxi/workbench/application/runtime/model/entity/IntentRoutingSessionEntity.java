@@ -5,7 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import com.lingxi.workbench.application.runtime.common.enums.IntentClarificationType;
 import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingSessionStatus;
 import com.lingxi.workbench.application.runtime.model.IntentClarificationContext;
-import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
+import com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler;
 import lombok.Data;
 import org.apache.ibatis.type.JdbcType;
 
@@ -58,7 +58,7 @@ public class IntentRoutingSessionEntity {
     private Integer roundNo;
 
     /** 持久化的运行时上下文（JSONB），包含候选编码、目标意图、槽位进度 */
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private IntentClarificationContext context;
 
     /** 过期时间，PENDING 状态下超过此时间后状态变为 EXPIRED */

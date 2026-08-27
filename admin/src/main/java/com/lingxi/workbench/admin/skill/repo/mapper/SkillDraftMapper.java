@@ -15,7 +15,7 @@ public interface SkillDraftMapper extends BaseMapper<SkillDraftEntity> {
             UPDATE lingxi_core.ai_skill_draft
                SET instructions = #{entity.instructions},
                    activation_mode = #{entity.activationMode},
-                   requested_tool_codes = #{entity.requestedToolCodes,typeHandler=com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler},
+                   requested_tool_codes = #{entity.requestedToolCodes,typeHandler=com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler},
                    change_note = #{entity.changeNote},
                    updated_by = #{entity.updatedBy},
                    revision = revision + 1,

@@ -15,6 +15,7 @@ public class RuntimeCapability {
     private final String name;
     private final String description;
     private final RuntimeCapabilityType type;
+    private final Long targetId;
     private final RuntimeCapabilityRisk risk;
     private final int maxCalls;
     private final int resultTokenBudget;

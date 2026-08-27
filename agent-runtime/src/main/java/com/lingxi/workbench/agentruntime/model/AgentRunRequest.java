@@ -3,10 +3,10 @@ package com.lingxi.workbench.agentruntime.model;
 import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
 import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpointStore;
 import com.lingxi.workbench.agentruntime.event.RuntimeEventSink;
+import com.lingxi.workbench.agentruntime.plan.SupervisorRuntimeConfig;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatStreamCommand;
-import io.agentscope.core.agent.RuntimeContext;
-import io.agentscope.core.state.AgentStateStore;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -23,9 +23,12 @@ public class AgentRunRequest {
     private final String runId;
     private final Long agentId;
     private final Long agentVersionId;
+    private final AgentRole role;
     private final ExecutionScope scope;
     private final ChatStreamCommand modelCommand;
-    private final RuntimeContext runtimeContext;
+    /** AgentScope 用户与会话标识；RuntimeContext 由 AgentRuntime 在运行边界内构建。 */
+    private final String userId;
+    private final String sessionId;
     private final SkillRuntimeCatalog skillCatalog;
     private final List<String> authorizedToolCodes;
     private final boolean finalizationOnly;
@@ -37,9 +40,8 @@ public class AgentRunRequest {
     /** 仅包含审批归属的 Checkpoint 种子；动态运行事实由 Runtime 在 ASK 时补齐。 */
     private final AgentScopeCheckpoint checkpointSeed;
     private final AgentScopeCheckpointStore checkpointStore;
-    /** AgentScope 的跨实例会话运行态；业务审批与执行终态不写入该存储。 */
-    private final AgentStateStore agentStateStore;
-
+    /** 仅 Supervisor 必填；Specialist 不携带计划与能力目录。 */
+    private final SupervisorRuntimeConfig supervisorConfig;
     public SkillRuntimeCatalog getSkillCatalog() {
         return java.util.Objects.requireNonNullElseGet(skillCatalog, SkillRuntimeCatalog::empty);
     }

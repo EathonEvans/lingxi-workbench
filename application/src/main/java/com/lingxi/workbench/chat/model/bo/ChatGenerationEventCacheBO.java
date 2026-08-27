@@ -34,7 +34,10 @@ public class ChatGenerationEventCacheBO {
     private AgentToolExecutionStatus toolStatus;
     private Long durationMillis;
     private String errorCode;
+    private Integer planNo;
+    private String stepId;
     private ChatClarificationEventBO clarification;
+    private ChatInteractionEventBO interaction;
     private ChatExecutionTimelineEventBO execution;
     private ChatStepOutputEventBO stepOutput;
     private AgentProgressEvent progress;
@@ -48,6 +51,7 @@ public class ChatGenerationEventCacheBO {
                 .type(event.type())
                 .sequence(event.sequence())
                 .content(event.content())
+                .interaction(event.interaction())
                 .execution(event.execution())
                 .stepOutput(event.stepOutput())
                 .progress(event.progress());
@@ -60,7 +64,9 @@ public class ChatGenerationEventCacheBO {
                     .displayName(tool.getDisplayName())
                     .toolStatus(tool.getStatus())
                     .durationMillis(tool.getDurationMillis())
-                    .errorCode(tool.getErrorCode());
+                    .errorCode(tool.getErrorCode())
+                    .planNo(tool.getPlanNo())
+                    .stepId(tool.getStepId());
         }
         return builder.build();
     }
@@ -78,12 +84,16 @@ public class ChatGenerationEventCacheBO {
                     .status(toolStatus)
                     .durationMillis(durationMillis)
                     .errorCode(errorCode)
+                    .planNo(planNo)
+                    .stepId(stepId)
                     .build());
             case PROGRESS -> ChatGenerationEventBO.progress(
                     sequence, Objects.requireNonNull(progress, "Agent进度缓存内容不能为空"));
             case CLARIFICATION -> ChatGenerationEventBO.clarification(
                     sequence,
                     Objects.requireNonNull(clarification, "澄清事件缓存内容不能为空"));
+            case INTERACTION_REQUIRED, INTERACTION_RESOLVED -> ChatGenerationEventBO.interaction(
+                    sequence, type, Objects.requireNonNull(interaction, "HITL事件缓存内容不能为空"));
             case PLANNING, PLAN, STEP, REPLANNING -> ChatGenerationEventBO.execution(
                     sequence, type, Objects.requireNonNull(execution, "执行时间线缓存内容不能为空"));
             case STEP_OUTPUT -> ChatGenerationEventBO.stepOutput(

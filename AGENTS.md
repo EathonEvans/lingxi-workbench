@@ -104,10 +104,10 @@
 ## 4. 项目模块与依赖边界
 
 - `framework`：共享工程能力，不依赖业务模块。
-- `infra-ai`：AI 公共契约、Prompt 内置变量和供应商协议适配，只依赖 `framework`。
-- `agent-runtime`：Agent 运行时内核，承载生命周期、模型调用、Tool 循环、预算、事件和执行状态；依赖 `infra-ai`，不承载管理端或用户端业务。
+- `infra-ai`：AI 公共契约、Prompt 内置变量和供应商协议适配，只依赖 `framework`；Spring AI 仅用于非 Agent 模型调用等供应商实现，不向稳定契约泄漏其类型。
+- `agent-runtime`：基于 AgentScope 的 Agent 运行时内核，承载生命周期、模型调用、Tool 循环、预算、事件和检查点；依赖 `infra-ai` 和 AgentScope，不得依赖 Spring AI，也不承载管理端或用户端业务。
 - `admin`：独立管理端服务，承载管理员认证和配置管理；依赖 `framework`、`infra-ai`。
-- `application`：独立用户端服务和运行入口；依赖 `framework`、`infra-ai`、`agent-runtime`、`workflow-core`。
+- `application`：独立用户端服务和运行入口；内部具体 `AppRuntime` 负责应用级上下文、意图、能力调度、总预算和 HITL 恢复，外围负责版本加载、事件转发与结果落库；依赖 `framework`、`infra-ai`、`agent-runtime`、`workflow-core`。在无法通过少量稳定契约分离持久化前，不为形式新建 `app-runtime` 模块。
 - `mcp-server`：独立 MCP 协议服务，不依赖 `admin` 或 `application` 的业务实现。
 
 硬性约束：

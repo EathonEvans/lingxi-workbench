@@ -2,7 +2,7 @@ package com.lingxi.workbench.application.runtime.model.entity;
 
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.lingxi.workbench.framework.persistence.handler.Fastjson2JsonbTypeHandler;
+import com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler;
 import com.lingxi.workbench.workflow.model.intent.IntentTreeDefinition;
 import lombok.Data;
 import org.apache.ibatis.type.JdbcType;
@@ -16,7 +16,7 @@ import org.apache.ibatis.type.JdbcType;
  * <p>该实体仅包含运行时需要的字段（ID、意图树 ID、Embedding 模型 ID、定义快照），
  * 不包含发布者、发布时间、版本说明等管理端字段，减少序列化开销。</p>
  *
- * <p>{@code definitionSnapshot} 为 JSONB 字段，通过 Fastjson2JsonbTypeHandler
+ * <p>{@code definitionSnapshot} 为 JSONB 字段，通过 GsonJsonbTypeHandler
  * 自动反序列化为 {@link IntentTreeDefinition} 对象。</p>
  */
 @Data
@@ -33,6 +33,6 @@ public class RuntimeIntentTreeVersionEntity {
     private Long embeddingModelInstanceId;
 
     /** 不可变意图树定义快照（JSONB → IntentTreeDefinition） */
-    @TableField(typeHandler = Fastjson2JsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private IntentTreeDefinition definitionSnapshot;
 }

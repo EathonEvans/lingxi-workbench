@@ -172,6 +172,8 @@ public final class ChatGenerationSseEventRouter {
                 .status(tool.getStatus().getCode())
                 .durationMillis(tool.getDurationMillis())
                 .errorCode(tool.getErrorCode())
+                .planNo(tool.getPlanNo())
+                .stepId(tool.getStepId())
                 .build();
         return ServerSentEvent.<ChatToolEventVO>builder()
                 .id(String.valueOf(event.sequence()))
@@ -197,6 +199,8 @@ public final class ChatGenerationSseEventRouter {
                 .status(tool.getStatus().getCode())
                 .durationMillis(tool.getDurationMillis())
                 .errorCode(tool.getErrorCode())
+                .planNo(tool.getPlanNo())
+                .stepId(tool.getStepId())
                 .build();
         return ServerSentEvent.<ChatSubAgentEventVO>builder()
                 .id(String.valueOf(event.sequence()))

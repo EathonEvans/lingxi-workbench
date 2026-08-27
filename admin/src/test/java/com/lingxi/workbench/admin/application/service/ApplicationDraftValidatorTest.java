@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.application.service;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.admin.application.model.vo.ApplicationValidationIssueVO;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
@@ -16,8 +16,7 @@ import com.lingxi.workbench.admin.tool.common.enums.ToolSourceType;
 import com.lingxi.workbench.admin.tool.model.bo.ToolReferenceBO;
 import com.lingxi.workbench.admin.workflow.service.WorkflowService;
 import com.lingxi.workbench.workflow.model.ApplicationDefinition;
-import com.lingxi.workbench.workflow.model.FallbackAgent;
-import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
+import com.lingxi.workbench.workflow.model.CapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
 import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
@@ -50,7 +49,6 @@ import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -124,7 +122,7 @@ class ApplicationDraftValidatorTest {
         assertThat(result.definition().collaboration().members()).isEmpty();
         assertThat(result.definition().collaboration().excludedAgentIds()).containsExactly(20L);
         assertThat(result.definition().capabilityCatalog().capabilities())
-                .extracting(ApplicationCapabilityDefinition::getCode)
+                .extracting(CapabilityDefinition::getCode)
                 .containsExactly("default_agent");
     }
 
@@ -190,7 +188,7 @@ class ApplicationDraftValidatorTest {
         ApplicationDefinitionResolution result = resolve(intentValidator,
                 fallbackDefinitionBuilder()
                         .capabilityCatalog(catalog(
-                                ApplicationCapabilityDefinition.builder()
+                                CapabilityDefinition.builder()
                                         .code("refund_workflow")
                                         .type(ApplicationCapabilityType.WORKFLOW)
                                         .targetId(30L)
@@ -280,7 +278,7 @@ class ApplicationDraftValidatorTest {
     void shouldDefaultReadOnlyWorkflowCallsToDelegationBudget() {
         workflows.put(30L, new WorkflowService.WorkflowReference(30L, true, 300L, "调研流程"));
         workflowVersions.put(key(30L, 300L), workflowDefinition());
-        ApplicationCapabilityDefinition capability = ApplicationCapabilityDefinition.builder()
+        CapabilityDefinition capability = CapabilityDefinition.builder()
                 .code("research_workflow")
                 .type(ApplicationCapabilityType.WORKFLOW)
                 .targetId(30L)
@@ -298,7 +296,7 @@ class ApplicationDraftValidatorTest {
     void shouldRejectRepeatedSideEffectCapability() {
         workflows.put(30L, new WorkflowService.WorkflowReference(30L, true, 300L, "提交流程"));
         workflowVersions.put(key(30L, 300L), workflowDefinition());
-        ApplicationCapabilityDefinition capability = ApplicationCapabilityDefinition.builder()
+        CapabilityDefinition capability = CapabilityDefinition.builder()
                 .code("submit_workflow")
                 .type(ApplicationCapabilityType.WORKFLOW)
                 .targetId(30L)
@@ -319,7 +317,7 @@ class ApplicationDraftValidatorTest {
     void shouldRejectExplicitSupervisorCapability() {
         gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
         gateway.addVersion(40L, 401L);
-        ApplicationCapabilityDefinition fallbackCap = ApplicationCapabilityDefinition.builder()
+        CapabilityDefinition fallbackCap = CapabilityDefinition.builder()
                 .code("fallback_agent")
                 .type(ApplicationCapabilityType.AGENT)
                 .targetId(40L)
@@ -344,7 +342,7 @@ class ApplicationDraftValidatorTest {
     void shouldRejectFallbackCodeOutsideCatalog() {
         gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
         gateway.addVersion(40L, 401L);
-        ApplicationCapabilityDefinition fallbackCap = ApplicationCapabilityDefinition.builder()
+        CapabilityDefinition fallbackCap = CapabilityDefinition.builder()
                 .code("other_agent")
                 .type(ApplicationCapabilityType.AGENT)
                 .targetId(41L)
@@ -366,7 +364,7 @@ class ApplicationDraftValidatorTest {
         gateway.addVersion(40L, 401L);
         workflows.put(30L, new WorkflowService.WorkflowReference(30L, true, 300L, "退款流程"));
         workflowVersions.put(key(30L, 300L), workflowDefinition());
-        ApplicationCapabilityDefinition fallbackCap = ApplicationCapabilityDefinition.builder()
+        CapabilityDefinition fallbackCap = CapabilityDefinition.builder()
                 .code("refund_workflow")
                 .type(ApplicationCapabilityType.WORKFLOW)
                 .targetId(30L)
@@ -387,7 +385,7 @@ class ApplicationDraftValidatorTest {
     void shouldRejectExplicitSpecialistCapability() {
         gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
         gateway.addVersion(40L, 401L);
-        ApplicationCapabilityDefinition agentCapability = ApplicationCapabilityDefinition.builder()
+        CapabilityDefinition agentCapability = CapabilityDefinition.builder()
                 .code("order_agent")
                 .type(ApplicationCapabilityType.AGENT)
                 .targetId(20L)
@@ -424,12 +422,12 @@ class ApplicationDraftValidatorTest {
                 .build());
         CapabilityCatalogSnapshot catalog = catalog(
                         fallbackCapability(null),
-                        ApplicationCapabilityDefinition.builder()
+                        CapabilityDefinition.builder()
                                 .code("refund_workflow")
                                 .type(ApplicationCapabilityType.WORKFLOW)
                                 .targetId(30L)
                                 .build(),
-                        ApplicationCapabilityDefinition.builder()
+                        CapabilityDefinition.builder()
                                 .code("order_lookup")
                                 .type(ApplicationCapabilityType.TOOL)
                                 .targetId(50L)
@@ -462,7 +460,7 @@ class ApplicationDraftValidatorTest {
         gateway.addVersion(40L, 401L);
         gateway.addAgent(41L, true, 411L, AgentRole.SUPERVISOR);
         gateway.addVersion(41L, 411L);
-        ApplicationCapabilityDefinition nested = ApplicationCapabilityDefinition.builder()
+        CapabilityDefinition nested = CapabilityDefinition.builder()
                 .code("nested_planner")
                 .type(ApplicationCapabilityType.AGENT)
                 .targetId(41L)
@@ -494,7 +492,7 @@ class ApplicationDraftValidatorTest {
     void shouldRejectCapabilityResultExceedingApplicationRuntimeBudget() {
         gateway.addAgent(40L, true, 401L, AgentRole.SUPERVISOR);
         gateway.addVersion(40L, 401L);
-        ApplicationCapabilityDefinition fallbackCap = ApplicationCapabilityDefinition.builder()
+        CapabilityDefinition fallbackCap = CapabilityDefinition.builder()
                 .code("fallback_agent")
                 .type(ApplicationCapabilityType.AGENT)
                 .targetId(40L)
@@ -814,12 +812,12 @@ class ApplicationDraftValidatorTest {
                 .capabilityCatalog(catalog());
     }
 
-    private static CapabilityCatalogSnapshot catalog(ApplicationCapabilityDefinition... capabilities) {
+    private static CapabilityCatalogSnapshot catalog(CapabilityDefinition... capabilities) {
         return CapabilityCatalogSnapshot.builder().capabilities(List.of(capabilities)).build();
     }
 
-    private static ApplicationCapabilityDefinition fallbackCapability(Long versionId) {
-        return ApplicationCapabilityDefinition.builder()
+    private static CapabilityDefinition fallbackCapability(Long versionId) {
+        return CapabilityDefinition.builder()
                 .code("fallback_agent")
                 .type(ApplicationCapabilityType.AGENT)
                 .targetId(40L)
@@ -827,7 +825,7 @@ class ApplicationDraftValidatorTest {
                 .build();
     }
 
-    private static ApplicationCapabilityDefinition resolvedCapability(
+    private static CapabilityDefinition resolvedCapability(
             ApplicationDefinition definition, String capabilityCode) {
         return definition.capabilityCatalog().capabilities().stream()
                 .filter(capability -> capabilityCode.equals(capability.getCode()))

@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.mcp.service.impl;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.admin.mcp.common.enums.McpConnectionTestStatus;
 import com.lingxi.workbench.admin.mcp.model.bo.McpConnectionConfig;
 import com.lingxi.workbench.admin.mcp.model.bo.McpDiscoveredTool;

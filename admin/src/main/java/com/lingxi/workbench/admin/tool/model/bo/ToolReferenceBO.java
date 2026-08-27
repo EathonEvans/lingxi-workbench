@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.tool.model.bo;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.tool.common.enums.ToolSourceType;
 import lombok.AccessLevel;

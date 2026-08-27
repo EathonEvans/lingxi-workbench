@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.interaction;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
 import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeApprovedInvocation;
 import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpointStore;
@@ -207,6 +207,7 @@ public class ApplicationRuntimeCheckpointStore implements AgentScopeCheckpointSt
                 || !Objects.equals(stored.getChecksum(), fingerprint)
                 || !Objects.equals(storedCheckpoint.getFingerprint(), fingerprint)
                 || !Objects.equals(storedCheckpoint.getRunId(), checkpoint.getRunId())
+                || !Objects.equals(storedCheckpoint.getAgentSessionId(), checkpoint.getAgentSessionId())
                 || !Objects.equals(storedCheckpoint.getPendingToolCall().name(),
                         checkpoint.getPendingToolCall().name())
                 || !Objects.equals(storedCheckpoint.getPendingToolCall().input(),
@@ -224,6 +225,7 @@ public class ApplicationRuntimeCheckpointStore implements AgentScopeCheckpointSt
         if (checkpoint == null || checkpoint.getVersion() == null
                 || checkpoint.getVersion() != AgentScopeCheckpoint.CURRENT_VERSION
                 || checkpoint.getRunId() == null
+                || checkpoint.getAgentSessionId() == null || checkpoint.getAgentSessionId().isBlank()
                 || checkpoint.getAgentStateJson() == null || checkpoint.getAgentStateJson().isBlank()
                 || checkpoint.getPendingToolCall() == null || checkpoint.getFingerprint() == null) {
             throw conflict("AgentScope Checkpoint版本或内容不合法");

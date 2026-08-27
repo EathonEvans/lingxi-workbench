@@ -6,7 +6,7 @@ import com.lingxi.workbench.chat.model.bo.ChatMemoryMessageBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.message.ConversationCompletedMessage;
 import com.lingxi.workbench.chat.service.ConversationMemoryService;
-import com.lingxi.workbench.observability.service.AiStageObserver;
+import com.lingxi.workbench.observability.service.StageObserver;
 import com.lingxi.workbench.workflow.model.ConversationSummaryMemoryConfig;
 import com.lingxi.workbench.workflow.model.InteractionRecordMemoryConfig;
 import com.lingxi.workbench.workflow.model.MemoryConfig;
@@ -19,7 +19,6 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -36,7 +35,7 @@ class MemoryPostProcessorTest {
     private final InteractionRecordMemoryService interactionService = mock(InteractionRecordMemoryService.class);
     private final MemoryPostProcessor processor = new MemoryPostProcessor(
             eventResolver, memoryService, summaryService, profileService, interactionService,
-            new AiStageObserver(ObservationRegistry.NOOP));
+            new StageObserver(ObservationRegistry.NOOP));
 
     @Test
     void shouldPropagateSummaryFailureForRocketMqRetry() {

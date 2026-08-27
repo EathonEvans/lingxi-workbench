@@ -66,7 +66,9 @@ public class FileUploadServiceImpl implements FileUploadService {
     /** 头像和Logo只接受经过内容识别的安全图片格式。 */
     private static String resolveExtension(
             FileBasePath basePath, String contentType, String originalFileName) {
-        if (basePath == FileBasePath.AVATAR || basePath == FileBasePath.LOGO) {
+        if (basePath == FileBasePath.AVATAR
+                || basePath == FileBasePath.APPLICATION_AVATAR
+                || basePath == FileBasePath.LOGO) {
             String extension = IMAGE_EXTENSIONS.get(contentType);
             if (extension == null) {
                 throw new BusinessException(

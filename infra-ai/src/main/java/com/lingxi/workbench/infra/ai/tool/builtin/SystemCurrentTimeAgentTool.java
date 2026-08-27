@@ -1,11 +1,10 @@
 package com.lingxi.workbench.infra.ai.tool.builtin;
 
+import com.lingxi.workbench.framework.json.JSON;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.AgentToolException;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.ai.tool.function.FunctionToolCallback;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolRequest;
 import org.springframework.stereotype.Component;
 
 import java.time.DateTimeException;
@@ -13,6 +12,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Objects;
+import java.util.Map;
 
 import static com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionMode.DYNAMIC_READ_ONLY;
 
@@ -37,12 +37,16 @@ public class SystemCurrentTimeAgentTool implements AgentTool {
     }
 
     @Override
-    public ToolCallback callback() {
-        AgentToolDefinition definition = definition();
-        return FunctionToolCallback.builder(definition.getCode(), this::execute)
-                .description(definition.getDescription())
-                .inputType(CurrentTimeInput.class)
-                .build();
+    public Map<String, Object> inputSchema() {
+        return Map.of("type", "object", "properties", Map.of(
+                "zoneId", Map.of("type", "string", "description", "IANA时区，例如Asia/Shanghai")),
+                "additionalProperties", false);
+    }
+
+    @Override
+    public String execute(AgentToolRequest request) {
+        CurrentTimeInput input = JSON.parseObject(request.input(), CurrentTimeInput.class);
+        return JSON.toJSONString(execute(input));
     }
 
     private CurrentTimeOutput execute(CurrentTimeInput input) {
@@ -63,16 +67,16 @@ public class SystemCurrentTimeAgentTool implements AgentTool {
     }
 
     /**
-     * Spring AI 根据参数类型自动生成 Function parameters JSON Schema。
+     * 当前时间查询参数。
      *
      * @param zoneId IANA 时区，例如 Asia/Shanghai；不传时使用系统时区
      */
     public record CurrentTimeInput(
-            @ToolParam(description = "IANA时区，例如Asia/Shanghai；不传时使用系统时区", required = false) String zoneId) {
+            String zoneId) {
     }
 
     /**
-     * Spring AI 将返回对象自动序列化为 Tool 消息 content。
+     * 当前时间查询结果。
      *
      * @param currentTime 当前时间的时分秒部分
      * @param currentDate 当前日期的年月日部分

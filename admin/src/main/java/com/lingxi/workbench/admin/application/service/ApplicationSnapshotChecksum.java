@@ -22,12 +22,18 @@ public class ApplicationSnapshotChecksum {
             .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
             .build();
 
-    /** 将 ApplicationDefinition 序列化为字段排序的规范 JSON 后计算 SHA-256 摘要。 */
-    public String calculate(ApplicationDefinition definition) {
+    /** 将行为定义和助手身份序列化为规范内容后计算 SHA-256 摘要。 */
+    public String calculate(ApplicationDefinition definition, String name, String avatar) {
         try {
             byte[] canonicalJson = canonicalObjectMapper.writeValueAsBytes(definition);
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(canonicalJson));
+            digest.update(canonicalJson);
+            digest.update((byte) '\n');
+            digest.update(("name=" + name).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            digest.update((byte) '\n');
+            digest.update(("avatar=" + (avatar == null ? "" : avatar))
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest.digest());
         } catch (JsonProcessingException | NoSuchAlgorithmException exception) {
             throw new BusinessException(
                     HttpStatusEnum.INTERNAL_SERVER_ERROR, "Application配置快照计算失败");

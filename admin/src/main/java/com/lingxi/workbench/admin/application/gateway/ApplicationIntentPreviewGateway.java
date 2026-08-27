@@ -1,7 +1,7 @@
 package com.lingxi.workbench.admin.application.gateway;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSON;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.admin.application.config.ApplicationIntentPreviewProperties;
 import com.lingxi.workbench.admin.application.model.vo.ApplicationIntentPreviewVO;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;

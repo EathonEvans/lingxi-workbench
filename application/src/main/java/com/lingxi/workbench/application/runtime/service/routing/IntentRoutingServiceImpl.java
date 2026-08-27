@@ -25,7 +25,6 @@ import com.lingxi.workbench.application.runtime.model.entity.IntentRoutingSessio
 import com.lingxi.workbench.application.runtime.model.entity.RuntimeIntentTreeVersionEntity;
 import com.lingxi.workbench.application.runtime.repo.IntentRoutingSessionRepo;
 import com.lingxi.workbench.application.runtime.repo.IntentTreeRuntimeRepo;
-import com.lingxi.workbench.application.runtime.service.routing.IntentRoutingService;
 import com.lingxi.workbench.chat.model.bo.ChatClarificationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
 import com.lingxi.workbench.chat.model.ccontext.ConversationContext;
@@ -36,7 +35,7 @@ import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
-import com.lingxi.workbench.workflow.model.ApplicationCapabilityDefinition;
+import com.lingxi.workbench.workflow.model.CapabilityDefinition;
 import com.lingxi.workbench.workflow.model.intent.IntentNodeDefinition;
 import com.lingxi.workbench.workflow.model.intent.IntentSlotDefinition;
 import com.lingxi.workbench.workflow.model.intent.IntentSlotValueType;
@@ -69,7 +68,7 @@ import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConsta
  *
  * <h2>路由入口</h2>
  * <p>{@link #route(ConversationContext, ClarificationResponseRequest)}
- * 是唯一公开入口，由 {@code ApplicationChatExecutionServiceImpl} 在
+ * 是唯一公开入口，由 {@code AppRuntime} 在
  * {@code ChatStreamServiceImpl.startChat()} 中调用。</p>
  *
  * <h2>执行流程</h2>
@@ -906,9 +905,9 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
             String query,
             List<IntentCandidate> candidates,
             IntentRoutingReason reason) {
-        Map<String, ApplicationCapabilityDefinition> capabilitiesByCode = configuration.getApplication()
+        Map<String, CapabilityDefinition> capabilitiesByCode = configuration.getApplication()
                 .definition().capabilityCatalog().capabilities().stream()
-                .collect(Collectors.toMap(ApplicationCapabilityDefinition::getCode, Function.identity()));
+                .collect(Collectors.toMap(CapabilityDefinition::getCode, Function.identity()));
         List<IntentRoutingEvidenceCandidate> evidenceCandidates = candidates.stream()
                 .map(candidate -> toEvidenceCandidate(configuration, capabilitiesByCode, candidate))
                 .toList();
@@ -920,11 +919,11 @@ public class IntentRoutingServiceImpl implements IntentRoutingService {
 
     private static IntentRoutingEvidenceCandidate toEvidenceCandidate(
             RouteConfiguration configuration,
-            Map<String, ApplicationCapabilityDefinition> capabilitiesByCode,
+            Map<String, CapabilityDefinition> capabilitiesByCode,
             IntentCandidate candidate) {
         ApplicationIntentMapping mapping = findMapping(configuration, candidate.intentCode()).orElse(null);
         String capabilityCode = Objects.isNull(mapping) ? null : mapping.getCapabilityCode();
-        ApplicationCapabilityDefinition capability = capabilitiesByCode.get(capabilityCode);
+        CapabilityDefinition capability = capabilitiesByCode.get(capabilityCode);
         IntentNodeDefinition node = configuration.getNodesByCode().get(candidate.intentCode());
         return IntentRoutingEvidenceCandidate.builder()
                 .intentCode(candidate.intentCode())

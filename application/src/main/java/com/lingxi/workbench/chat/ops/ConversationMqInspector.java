@@ -1,11 +1,11 @@
 package com.lingxi.workbench.chat.ops;
 
-import com.alibaba.fastjson2.JSON;
 import com.lingxi.workbench.chat.common.constants.ConversationMqConstants;
 import com.lingxi.workbench.chat.model.message.ConversationCompletedMessage;
 import com.lingxi.workbench.chat.ops.common.enums.ConversationDlqGroup;
 import com.lingxi.workbench.chat.ops.model.bo.MqHealthBO;
 import com.lingxi.workbench.chat.ops.model.vo.ConversationDlqMessageVO;
+import com.lingxi.workbench.framework.json.JSON;
 import jakarta.annotation.PreDestroy;
 import org.apache.rocketmq.client.consumer.DefaultMQPullConsumer;
 import org.apache.rocketmq.client.consumer.PullResult;
@@ -30,7 +30,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/** 以只读Pull方式检查事务Topic和三个消费组DLQ，不推进任何消费位点。 */
+/** 以只读 Pull 方式检查事务 Topic 和三个消费组 DLQ，不推进任何消费位点。 */
 @Component
 @SuppressWarnings("deprecation")
 public class ConversationMqInspector {

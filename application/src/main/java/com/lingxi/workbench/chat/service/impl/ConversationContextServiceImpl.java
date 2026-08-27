@@ -66,7 +66,7 @@ public class ConversationContextServiceImpl implements ConversationContextServic
 
         // ② 加载窗口记忆：启用摘要时走 ContextMemory（窗口+已有摘要），否则只取近 N 轮
         MemoryConfig memoryConfig = application.definition().memoryConf();
-        ConversationMemorySnapshot memory = loadConversationMemory(memoryConfig, loginUser.id(), turn, budget);
+        ConversationMemorySnapshot memory = this.loadConversationMemory(memoryConfig, loginUser.id(), turn, budget);
 
         // ③ 会话摘要：启用时按 maxMemoryTokens 截断（Token 级别二分截断，非简单字符截断）
         String summary = memoryConfig.summary().isEnabled()

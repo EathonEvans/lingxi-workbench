@@ -1,6 +1,6 @@
 package com.lingxi.workbench.application.runtime.service.capability;
 
-import com.alibaba.fastjson2.JSONObject;
+import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.application.runtime.common.enums.CapabilityInvocationStatus;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionRunStatus;
 import com.lingxi.workbench.application.runtime.model.entity.CapabilityInvocationEntity;
