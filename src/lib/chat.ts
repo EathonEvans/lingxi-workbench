@@ -17,7 +17,9 @@ export type ChatToolEvent = {
   errorCode?: string;
   invocationId: string;
   sequence: number;
+  planNo?: number;
   status: "FAILED" | "REUSED" | "RUNNING" | "SUCCEEDED";
+  stepId?: string;
   toolCode: string;
 };
 
@@ -35,8 +37,10 @@ export type ChatSubAgentEvent = {
   delegationId: string;
   durationMillis?: number;
   errorCode?: string;
+  planNo?: number;
   sequence: number;
   status: "FAILED" | "RUNNING" | "SUCCEEDED";
+  stepId?: string;
 };
 
 export type ChatPlanStep = {
@@ -45,9 +49,31 @@ export type ChatPlanStep = {
   stepId: string;
 };
 
+export type ChatExecutionEventType =
+  | "AGENT_COMPLETED"
+  | "AGENT_FAILED"
+  | "AGENT_STARTED"
+  | "CLARIFICATION_REQUIRED"
+  | "FINALIZING"
+  | "MODEL_COMPLETED"
+  | "MODEL_STARTED"
+  | "PLANNING"
+  | "PLAN_CREATED"
+  | "REPLANNING"
+  | "RUN_CANCELLED"
+  | "RUN_COMPLETED"
+  | "RUN_FAILED"
+  | "SKILL_ACTIVATED"
+  | "STEP_COMPLETED"
+  | "STEP_FAILED"
+  | "STEP_STARTED"
+  | "TOOL_COMPLETED"
+  | "TOOL_FAILED"
+  | "TOOL_STARTED";
+
 export type ChatExecutionTimelineEvent = {
   displayName?: string;
-  eventType: "CLARIFICATION_REQUIRED" | "FINALIZING" | "PLANNING" | "PLAN_CREATED" | "REPLANNING" | "RUN_CANCELLED" | "RUN_COMPLETED" | "RUN_FAILED" | "STEP_COMPLETED" | "STEP_FAILED" | "STEP_STARTED";
+  eventType: ChatExecutionEventType;
   message?: string;
   planNo?: number;
   runId: string;
@@ -106,12 +132,19 @@ export type ClarificationResponse = {
 };
 
 export type ChatStart = {
+  assistant: ApplicationAssistantIdentity;
   assistantMessageId: string;
   conversationId: string;
   userMessageId: string;
 };
 
+export type ApplicationAssistantIdentity = {
+  avatar?: string;
+  name: string;
+};
+
 export type AvailableApplication = {
+  assistant: ApplicationAssistantIdentity;
   code: string;
   description?: string;
   name: string;
@@ -128,6 +161,7 @@ export type Conversation = {
 };
 
 export type ConversationMessage = {
+  assistant?: ApplicationAssistantIdentity;
   completedAt?: string;
   content: string;
   conversationId: string;

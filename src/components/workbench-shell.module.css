@@ -593,20 +593,11 @@
   margin-top: 28px;
 }
 
-.assistantAvatar {
-  display: grid;
+.messageAvatar {
   width: 34px;
   height: 34px;
   flex: 0 0 34px;
-  place-items: center;
-}
-
-.assistantAvatarLogo {
-  width: 34px;
-  height: auto;
-  max-height: 34px;
-  object-fit: contain;
-  filter: drop-shadow(0 5px 9px rgba(43, 103, 246, 0.2));
+  box-shadow: 0 5px 12px rgba(43, 103, 246, 0.13);
 }
 
 .messageBody {
@@ -630,6 +621,32 @@
   white-space: normal;
 }
 
+.messageActions {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  margin-top: 2px;
+  color: #8993a3;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
+}
+
+.messageRow:hover .messageActions,
+.messageActions:focus-within {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.copyMessage {
+  color: inherit;
+}
+
+.copyMessage:hover {
+  color: #2b64cb;
+  background: #edf4ff;
+}
+
 .userMessage {
   justify-content: flex-end;
 }
@@ -638,6 +655,10 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+}
+
+.userMessage .messageActions {
+  align-self: flex-end;
 }
 
 .userMessage .messageContent {
@@ -1159,6 +1180,15 @@
   color: #dce1e8;
 }
 
+.shell[data-theme="dark"] .messageActions {
+  color: #7f8998;
+}
+
+.shell[data-theme="dark"] .copyMessage:hover {
+  color: #9cbcff;
+  background: rgba(66, 112, 210, 0.18);
+}
+
 .shell[data-theme="dark"] .toolItem {
   border-color: rgba(255, 255, 255, 0.1);
   color: #c5ccd7;
@@ -1431,6 +1461,13 @@
   }
 }
 
+@media (hover: none) {
+  .messageActions {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .authLoadingMark,
   .streamCaret,
@@ -1438,6 +1475,10 @@
   .conversationEntering .messageStage,
   .conversationEntering .composerWrap {
     animation: none;
+  }
+
+  .messageActions {
+    transition: none;
   }
 
   .messageStage {

@@ -1,8 +1,8 @@
 "use client";
 
+import Collapse from "@lobehub/ui/es/Collapse/index";
 import {
   Bot,
-  ChevronDown,
   Circle,
   CircleCheck,
   CircleX,
@@ -10,6 +10,7 @@ import {
   Sparkles,
   Wrench,
 } from "lucide-react";
+import { useState } from "react";
 import type {
   ChatAgentProgressEvent,
   ChatExecutionTimelineEvent,
@@ -32,6 +33,8 @@ type ExecutionTraceProps = {
 
 type TraceStatus = "completed" | "failed" | "reused" | "running";
 
+const TRACE_PANEL_KEY = "execution-details";
+
 type ToolGroup = {
   displayName: string;
   durationMillis: number;
@@ -39,6 +42,16 @@ type ToolGroup = {
   status: TraceStatus;
   toolCode: string;
 };
+
+const STEP_ACTIVITY_TYPES = new Set<ChatExecutionTimelineEvent["eventType"]>([
+  "AGENT_STARTED",
+  "MODEL_STARTED",
+  "MODEL_COMPLETED",
+  "SKILL_ACTIVATED",
+  "FINALIZING",
+  "AGENT_COMPLETED",
+  "AGENT_FAILED",
+]);
 
 function formatDuration(durationMillis: number): string {
   return durationMillis >= 1000
@@ -71,6 +84,59 @@ function groupTools(tools: ChatToolEvent[]): ToolGroup[] {
       toolCode,
     };
   });
+}
+
+function isCurrentStep(
+  event: { planNo?: number; stepId?: string },
+  planNo: number | undefined,
+  stepId: string,
+): boolean {
+  return event.planNo === planNo && event.stepId === stepId;
+}
+
+function agentStatus(agent: ChatSubAgentEvent): TraceStatus {
+  if (agent.status === "RUNNING") return "running";
+  if (agent.status === "FAILED") return "failed";
+  return "completed";
+}
+
+function agentStatusLabel(agent: ChatSubAgentEvent): string {
+  if (agent.status === "RUNNING") return "协作中";
+  if (agent.status === "FAILED") return "未完成";
+  return "已完成";
+}
+
+function toolOperation(group: ToolGroup) {
+  return (
+    <li key={group.toolCode}>
+      <span className={`${styles.operationIcon} ${styles[group.status]}`}>
+        {group.status === "failed" ? <Wrench size={13} /> : statusIcon(group.status)}
+      </span>
+      <span className={styles.operationName}>{group.displayName}</span>
+      {group.events.length > 1 ? <span className={styles.count}>× {group.events.length}</span> : null}
+      <span className={styles.operationMeta}>
+        {group.status === "reused" ? "已复用" : group.status === "running" ? "执行中" : group.status === "failed" ? "失败" : "完成"}
+        {group.durationMillis > 0 ? ` · ${formatDuration(group.durationMillis)}` : ""}
+      </span>
+    </li>
+  );
+}
+
+function subAgentOperation(agent: ChatSubAgentEvent) {
+  const status = agentStatus(agent);
+  return (
+    <li key={agent.delegationId}>
+      <span className={`${styles.operationIcon} ${styles[status]}`}>
+        {status === "running" ? <LoaderCircle size={13} /> : statusIcon(status)}
+      </span>
+      <Bot aria-hidden="true" className={styles.agentIcon} size={13} />
+      <span className={styles.operationName}>{agent.agentName}</span>
+      <span className={styles.operationMeta}>
+        {agentStatusLabel(agent)}
+        {agent.durationMillis ? ` · ${formatDuration(agent.durationMillis)}` : ""}
+      </span>
+    </li>
+  );
 }
 
 function traceSummary(
@@ -159,7 +225,10 @@ export default function ExecutionTrace({
   timeline = [],
   tools = [],
 }: ExecutionTraceProps) {
+  const [openPanels, setOpenPanels] = useState<string[]>([]);
   const toolGroups = groupTools(tools);
+  const rootToolGroups = groupTools(tools.filter((tool) => !tool.stepId));
+  const rootSubAgents = subAgents.filter((agent) => !agent.stepId);
   const summary = traceSummary(
     failed,
     errorMessage,
@@ -201,27 +270,31 @@ export default function ExecutionTrace({
     || notices.length > 0
     || Boolean(plan?.steps.length);
 
+  const activePanels = streaming ? [TRACE_PANEL_KEY] : openPanels;
+
   if (!hasDetails) {
     return (
-      <div className={`${styles.summary} ${styles[summary.status]}`} role="status">
-        {statusIcon(summary.status)}
-        <span>{summary.label}</span>
-      </div>
+      <section aria-label="执行动态" className={styles.trace} data-testid="execution-trace">
+        <div className={`${styles.summary} ${styles[summary.status]}`} role="status">
+          {statusIcon(summary.status)}
+          <span>{summary.label}</span>
+        </div>
+      </section>
     );
   }
 
   return (
-    <details
+    <section
+      aria-label={plan?.steps.length ? "执行计划与执行动态" : "执行动态"}
       className={styles.trace}
       data-testid="execution-trace"
-      open={streaming || undefined}
     >
-      <summary className={`${styles.summary} ${styles[summary.status]}`}>
-        {statusIcon(summary.status)}
-        <span>{summary.label}</span>
-        <ChevronDown className={styles.chevron} size={14} />
-      </summary>
-      <div className={styles.details}>
+      <Collapse
+        activeKey={activePanels}
+        className={styles.collapse}
+        expandIconPlacement="end"
+        items={[{
+          children: <div className={styles.details}>
         {visibleProgress.length ? (
           <section className={styles.section} aria-label="执行进度">
             <span className={styles.sectionLabel}>执行进度</span>
@@ -262,6 +335,27 @@ export default function ExecutionTrace({
               {plan.steps.map((step) => {
                 const status = statusByStep.get(step.stepId);
                 const output = outputByStep.get(step.stepId)?.trim();
+                const stepAgents = subAgents.filter((agent) =>
+                  isCurrentStep(agent, plan.planNo, step.stepId));
+                const stepToolGroups = groupTools(tools.filter((tool) =>
+                  isCurrentStep(tool, plan.planNo, step.stepId)));
+                const stepActivity = timeline
+                  .filter((event) =>
+                    isCurrentStep(event, plan.planNo, step.stepId)
+                    && STEP_ACTIVITY_TYPES.has(event.eventType)
+                    && event.message)
+                  .reduce<ChatExecutionTimelineEvent[]>((events, event) => {
+                    const previous = events.at(-1);
+                    if (previous?.eventType === event.eventType && previous.message === event.message) {
+                      return [...events.slice(0, -1), event];
+                    }
+                    return [...events, event];
+                  }, [])
+                  .slice(-4);
+                const hasChildTrace = stepAgents.length > 0
+                  || stepToolGroups.length > 0
+                  || stepActivity.length > 0
+                  || Boolean(output);
                 return (
                   <li className={styles.planItem} key={`${plan.planNo}:${step.stepId}`}>
                     <div className={styles.planRow}>
@@ -271,10 +365,47 @@ export default function ExecutionTrace({
                       <span>{step.name}</span>
                       <small>{status === "RUNNING" ? "执行中" : status === "COMPLETED" ? "完成" : status === "FAILED" ? "失败" : "等待"}</small>
                     </div>
-                    {output ? (
-                      <p className={styles.stepOutput} data-live={status === "RUNNING" || undefined}>
-                        {output}
-                      </p>
+                    {hasChildTrace ? (
+                      <div className={styles.childTrace} aria-label={`${step.name}协作进度`}>
+                        {stepAgents.length ? (
+                          <ul className={styles.operations} aria-label="协作 Agent">
+                            {stepAgents.map(subAgentOperation)}
+                          </ul>
+                        ) : null}
+                        {stepActivity.length ? (
+                          <ol className={styles.childProgress} aria-label="协作执行进度">
+                            {stepActivity.map((event, index) => {
+                              const active = status === "RUNNING"
+                                && index === stepActivity.length - 1
+                                && !["AGENT_COMPLETED", "AGENT_FAILED", "MODEL_COMPLETED"].includes(event.eventType);
+                              return (
+                                <li key={event.sequence} data-active={active || undefined}>
+                                  <span className={styles.progressIcon}>
+                                    {active ? <LoaderCircle size={11} /> : <CircleCheck size={11} />}
+                                  </span>
+                                  <span>{event.message}</span>
+                                </li>
+                              );
+                            })}
+                          </ol>
+                        ) : null}
+                        {stepToolGroups.length ? (
+                          <div className={styles.childTools}>
+                            <span className={styles.childLabel}>所需操作</span>
+                            <ul className={styles.operations}>{stepToolGroups.map(toolOperation)}</ul>
+                          </div>
+                        ) : null}
+                        {output ? (
+                          <div
+                            aria-live={status === "RUNNING" ? "polite" : undefined}
+                            className={styles.childOutput}
+                            data-live={status === "RUNNING" || undefined}
+                          >
+                            <span className={styles.childLabel}>阶段输出</span>
+                            <p>{output}</p>
+                          </div>
+                        ) : null}
+                      </div>
                     ) : null}
                   </li>
                 );
@@ -283,47 +414,38 @@ export default function ExecutionTrace({
           </section>
         ) : null}
 
-        {toolGroups.length ? (
+        {rootToolGroups.length ? (
           <section className={styles.section}>
             <span className={styles.sectionLabel}>工具调用</span>
             <ul className={styles.operations}>
-              {toolGroups.map((group) => (
-                <li key={group.toolCode}>
-                  <span className={`${styles.operationIcon} ${styles[group.status]}`}>
-                    {group.status === "failed" ? <Wrench size={13} /> : statusIcon(group.status)}
-                  </span>
-                  <span className={styles.operationName}>{group.displayName}</span>
-                  {group.events.length > 1 ? <span className={styles.count}>× {group.events.length}</span> : null}
-                  <span className={styles.operationMeta}>
-                    {group.status === "reused" ? "已复用" : group.status === "running" ? "执行中" : group.status === "failed" ? "失败" : "完成"}
-                    {group.durationMillis > 0 ? ` · ${formatDuration(group.durationMillis)}` : ""}
-                  </span>
-                </li>
-              ))}
+              {rootToolGroups.map(toolOperation)}
             </ul>
           </section>
         ) : null}
 
-        {subAgents.length ? (
+        {rootSubAgents.length ? (
           <section className={styles.section}>
             <span className={styles.sectionLabel}>协作 Agent</span>
             <ul className={styles.operations}>
-              {subAgents.map((agent) => (
-                <li key={agent.delegationId}>
-                  <span className={`${styles.operationIcon} ${styles[agent.status === "RUNNING" ? "running" : agent.status === "FAILED" ? "failed" : "completed"]}`}>
-                    <Bot size={13} />
-                  </span>
-                  <span className={styles.operationName}>{agent.agentName}</span>
-                  <span className={styles.operationMeta}>
-                    {agent.status === "RUNNING" ? "协作中" : agent.status === "FAILED" ? "未完成" : "已完成"}
-                    {agent.durationMillis ? ` · ${formatDuration(agent.durationMillis)}` : ""}
-                  </span>
-                </li>
-              ))}
+              {rootSubAgents.map(subAgentOperation)}
             </ul>
           </section>
         ) : null}
-      </div>
-    </details>
+          </div>,
+          key: TRACE_PANEL_KEY,
+          label: (
+            <span className={`${styles.traceSummary} ${styles[summary.status]}`}>
+              {statusIcon(summary.status)}
+              <span>{summary.label}</span>
+            </span>
+          ),
+        }]}
+        onChange={(keys) => {
+          setOpenPanels((Array.isArray(keys) ? keys : [keys]).map(String));
+        }}
+        padding={{ body: 0, header: "8px 11px" }}
+        variant="outlined"
+      />
+    </section>
   );
 }

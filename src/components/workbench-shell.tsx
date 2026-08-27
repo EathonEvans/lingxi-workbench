@@ -2,6 +2,7 @@
 
 import { ActionIcon, Avatar, Button, Markdown, Tag } from "@lobehub/ui";
 import { ChatInputArea } from "@lobehub/ui/chat";
+import CopyButton from "@lobehub/ui/es/CopyButton/index";
 import { Drawer, Dropdown, Empty, Input, Spin } from "antd";
 import type { MenuProps } from "antd";
 import {
@@ -75,6 +76,7 @@ function formatConversationTime(iso: string): string {
 // ─── 主组件 ───────────────────────────────────────────────────
 
 function toChatMessage(msg: {
+  assistant?: AvailableApplication["assistant"];
   content: string;
   id: string;
   role: string;
@@ -91,6 +93,7 @@ function toChatMessage(msg: {
     status = "error";
   else if (msg.status === "CANCELLED") status = "stopped";
   return {
+    assistant: msg.assistant,
     content: msg.content,
     errorCode: msg.errorCode,
     errorMessage: msg.errorMessage,
@@ -204,6 +207,10 @@ export default function WorkbenchShell() {
     setConversationStatus("ACTIVE");
   }, [setConversationId, setConversationStatus]);
 
+  const selectedApplication = applications.find(
+    (app) => app.code === selectedApplicationCode,
+  );
+
   const {
     messages,
     setMessages,
@@ -223,6 +230,7 @@ export default function WorkbenchShell() {
     restorePendingInteraction,
   } = useChatStream({
     session,
+    selectedAssistant: selectedApplication?.assistant,
     selectedApplicationCode,
     conversationId: currentConversationId,
     onConversationCreated: handleConversationCreated,
@@ -236,10 +244,6 @@ export default function WorkbenchShell() {
   }, [ready, router, session]);
 
   // ─── 应用选择 ──────────────────────────────────────────────
-
-  const selectedApplication = applications.find(
-    (app) => app.code === selectedApplicationCode,
-  );
 
   useEffect(() => {
     if (!session) return;
@@ -790,22 +794,21 @@ export default function WorkbenchShell() {
                     key={message.id}
                   >
                     {message.role === "assistant" && (
-                      <span
-                        className={styles.assistantAvatar}
-                        aria-hidden="true"
-                      >
-                        <Image
-                          alt=""
-                          className={styles.assistantAvatarLogo}
-                          height={578}
-                          src="/lingxi-logo-glass.png"
-                          width={640}
-                        />
-                      </span>
+                      <Avatar
+                        avatar={message.assistant?.avatar}
+                        background={appearance === "dark" ? "#25324a" : "#e8f1ff"}
+                        className={styles.messageAvatar}
+                        shape="square"
+                        size={34}
+                        title={message.assistant?.name || "应用助手"}
+                        variant="filled"
+                      />
                     )}
                     <div className={styles.messageBody}>
                       <span className={styles.messageAuthor}>
-                        {message.role === "user" ? "你" : "灵犀通用助手"}
+                        {message.role === "user"
+                          ? "你"
+                          : (message.assistant?.name || "应用助手")}
                       </span>
                       {message.role === "assistant" &&
                       (message.status === "streaming" ||
@@ -864,8 +867,22 @@ export default function WorkbenchShell() {
                               className={styles.streamCaret}
                               aria-hidden="true"
                             />
-                          )}
+                        )}
                       </div>
+                      {message.content ? (
+                        <div className={styles.messageActions}>
+                          <CopyButton
+                            aria-label={
+                              message.role === "user" ? "复制你的消息" : "复制助手回复"
+                            }
+                            className={styles.copyMessage}
+                            content={message.content}
+                            size={{ blockSize: 32, size: 15 }}
+                            title="复制内容"
+                            variant="borderless"
+                          />
+                        </div>
+                      ) : null}
                       {message.status === "stopped" && (
                         <span className={styles.messageStatus}>
                           {message.errorMessage || "已停止生成"}
@@ -885,6 +902,17 @@ export default function WorkbenchShell() {
                         </div>
                       )}
                     </div>
+                    {message.role === "user" && (
+                      <Avatar
+                        avatar={session.user.avatarUrl}
+                        background={appearance === "dark" ? "#25324a" : "#e8f1ff"}
+                        className={styles.messageAvatar}
+                        shape="square"
+                        size={34}
+                        title={session.user.displayName}
+                        variant="filled"
+                      />
+                    )}
                   </article>
                 ))}
                 <div className={styles.messageEnd} ref={messageEndRef} />

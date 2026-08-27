@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  appendChunkIfNew,
   type PendingGeneration,
   readPendingGeneration,
   savePendingGeneration,
@@ -61,5 +62,15 @@ describe("pending generation persistence", () => {
     });
 
     expect(readPendingGeneration()).toBeUndefined();
+  });
+
+  it("does not append a chunk whose sequence was already consumed", () => {
+    const pending = localPending();
+
+    expect(appendChunkIfNew(pending, "你", 1)).toBe(true);
+    expect(appendChunkIfNew(pending, "不应重复", 1)).toBe(false);
+    expect(appendChunkIfNew(pending, "好", 2)).toBe(true);
+
+    expect(pending).toMatchObject({ answer: "你好", lastSequence: 2 });
   });
 });

@@ -1,10 +1,16 @@
 .trace {
   width: min(560px, 100%);
   margin: 0 0 12px;
-  border: 1px solid #dde5f0;
-  border-radius: 10px;
-  background: #f8fafd;
+}
+
+.collapse {
   overflow: hidden;
+  border-radius: 10px;
+}
+
+.collapse :global(.ant-collapse-header:focus-visible) {
+  outline: 2px solid #3f70ce;
+  outline-offset: -2px;
 }
 
 .summary {
@@ -22,22 +28,34 @@
   list-style: none;
 }
 
-.trace > .summary {
-  width: 100%;
-  border: 0;
-  border-radius: 0;
-  cursor: pointer;
-}
-
-.summary::-webkit-details-marker {
-  display: none;
-}
-
 .summary > svg:first-child {
   flex: 0 0 auto;
 }
 
 .summary > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.traceSummary {
+  display: flex;
+  min-width: 0;
+  min-height: 22px;
+  align-items: center;
+  color: #536278;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.traceSummary > svg:first-child {
+  flex: 0 0 auto;
+}
+
+.traceSummary > span {
   min-width: 0;
   flex: 1;
   overflow: hidden;
@@ -65,19 +83,9 @@
   color: #b74d55;
 }
 
-.chevron {
-  color: #8995a6;
-  transition: transform 160ms ease;
-}
-
-.trace[open] .chevron {
-  transform: rotate(180deg);
-}
-
 .details {
   display: grid;
   padding: 2px 11px 10px 31px;
-  border-top: 1px solid #e9eef5;
   gap: 10px;
 }
 
@@ -184,21 +192,78 @@
   font-size: 10px;
 }
 
-.stepOutput {
-  max-height: 92px;
-  padding: 6px 8px;
-  margin: 1px 0 5px 20px;
-  border-left: 2px solid #d8e2f1;
-  color: #728096;
+.childTrace {
+  display: grid;
+  padding: 7px 8px;
+  margin: 2px 0 7px 20px;
+  border: 1px solid #e2e9f3;
+  border-left: 2px solid #a9bee6;
+  border-radius: 7px;
   background: #f3f6fa;
+  gap: 5px;
+}
+
+.childTrace .operations li {
+  min-height: 24px;
+}
+
+.agentIcon {
+  flex: 0 0 auto;
+  color: #6d83ad;
+}
+
+.childProgress {
+  display: grid;
+  padding: 2px 0 2px 21px;
+  margin: 0;
+  gap: 3px;
+  list-style: none;
+}
+
+.childProgress li {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  color: #7b8798;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.childProgress li[data-active="true"] {
+  color: #4d6488;
+}
+
+.childProgress li[data-active="true"] .progressIcon {
+  animation: trace-spin 1s linear infinite;
+}
+
+.childLabel {
+  display: block;
+  margin-bottom: 3px;
+  color: #929cac;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.childTools,
+.childOutput {
+  padding: 5px 0 0 21px;
+  border-top: 1px solid #e2e8f1;
+}
+
+.childOutput p {
+  max-height: 92px;
+  margin: 0;
+  color: #728096;
   overflow: auto;
   font-size: 11px;
   line-height: 1.55;
   white-space: pre-wrap;
 }
 
-.stepOutput[data-live="true"] {
-  border-left-color: #5c84dc;
+.childOutput[data-live="true"] {
+  border-top-color: #b9cbed;
 }
 
 .operationIcon,
@@ -241,13 +306,11 @@
 
 :global([data-theme="dark"]) .trace,
 :global([data-theme="dark"]) .summary {
-  border-color: #303b4c;
   color: #a9b5c8;
-  background: #202a38;
 }
 
-:global([data-theme="dark"]) .details {
-  border-color: #303b4c;
+:global([data-theme="dark"]) .traceSummary {
+  color: #a9b5c8;
 }
 
 :global([data-theme="dark"]) .operations li,
@@ -266,10 +329,20 @@
   background: #472b31;
 }
 
-:global([data-theme="dark"]) .stepOutput {
+:global([data-theme="dark"]) .childTrace {
   border-color: #3b4d68;
-  color: #9eabc0;
+  border-left-color: #5874a5;
   background: #1d2633;
+}
+
+:global([data-theme="dark"]) .childProgress li,
+:global([data-theme="dark"]) .childOutput p {
+  color: #9eabc0;
+}
+
+:global([data-theme="dark"]) .childTools,
+:global([data-theme="dark"]) .childOutput {
+  border-color: #344256;
 }
 
 :global([data-theme="dark"]) .count {
@@ -290,6 +363,10 @@
     width: 100%;
     margin: -3px 0 3px 21px;
   }
+
+  .childTrace {
+    margin-left: 10px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -302,7 +379,11 @@
     animation: none;
   }
 
-  .chevron {
-    transition: none;
+  .childProgress li[data-active="true"] .progressIcon {
+    animation: none;
+  }
+
+  .collapse :global(.ant-collapse-content) {
+    transition: none !important;
   }
 }

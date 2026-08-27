@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AuthSession } from "@/lib/auth";
 import type {
   ChatAgentProgressEvent,
+  ApplicationAssistantIdentity,
   ChatClarificationEvent,
   ChatExecutionTimelineEvent,
   ChatInteractionEvent,
@@ -26,6 +27,7 @@ import {
 import { normalizeMarkdownTables } from "@/lib/markdown";
 
 export type ChatMessage = {
+  assistant?: ApplicationAssistantIdentity;
   animateOnMount?: boolean;
   content: string;
   errorMessage?: string;
@@ -42,6 +44,7 @@ export type ChatMessage = {
 
 export type PendingGeneration = {
   answer: string;
+  assistant?: ApplicationAssistantIdentity;
   applicationCode: string;
   assistantMessageId: string;
   clarificationResponse?: ClarificationResponse;
@@ -76,6 +79,7 @@ type GenerationHandlers = {
 
 type UseChatStreamOptions = {
   session: AuthSession | null;
+  selectedAssistant?: ApplicationAssistantIdentity;
   selectedApplicationCode: string | null;
   conversationId: string | null;
   onConversationCreated?: (id: string) => void;
@@ -106,6 +110,17 @@ type UseChatStreamReturn = {
 
 const PENDING_GENERATION_KEY = "lingxi-pending-generation";
 const MAX_STEP_OUTPUT_CHARACTERS = 12000;
+
+/**
+ * 服务端为同一生成任务的文本、进度和工具事件分配同一条单调序号。
+ * SSE 断线恢复或短暂的并发订阅可能让已消费的文本事件再次到达，必须在拼接前幂等过滤。
+ */
+export function appendChunkIfNew(pending: PendingGeneration, content: string, sequence: number): boolean {
+  if (sequence <= pending.lastSequence) return false;
+  pending.answer += content;
+  pending.lastSequence = sequence;
+  return true;
+}
 
 export function readPendingGeneration(): PendingGeneration | undefined {
   try {
@@ -186,6 +201,7 @@ function generateMessageId(): string {
 
 export function useChatStream({
   session,
+  selectedAssistant,
   selectedApplicationCode,
   conversationId: externalConversationId,
   onConversationCreated,
@@ -252,8 +268,7 @@ export function useChatStream({
       },
       onChunk: (content, sequence) => {
         if (!isActive()) return;
-        pending.answer += content;
-        pending.lastSequence = Math.max(pending.lastSequence, sequence);
+        if (!appendChunkIfNew(pending, content, sequence)) return;
         savePendingGeneration(pending);
         updateAssistant(pending, (message) => ({
           ...message,
@@ -308,11 +323,14 @@ export function useChatStream({
         pending.assistantMessageId = start.assistantMessageId;
         pending.conversationId = start.conversationId;
         pending.userMessageId = start.userMessageId;
+        pending.assistant = start.assistant;
         conversationIdRef.current = start.conversationId;
         savePendingGeneration(pending);
         setMessages((current) =>
           current.map((message) => {
-            if (message.id === temporaryAssistantId) return { ...message, id: start.assistantMessageId };
+            if (message.id === temporaryAssistantId) {
+              return { ...message, assistant: start.assistant, id: start.assistantMessageId };
+            }
             if (message.id === temporaryUserId) return { ...message, id: start.userMessageId };
             return message;
           }),
@@ -459,6 +477,7 @@ export function useChatStream({
           { content: pending.prompt, id: pending.userMessageId, role: "user", status: "done" },
           {
             content: normalizeMarkdownTables(pending.answer),
+            assistant: pending.assistant,
             id: pending.assistantMessageId,
             role: "assistant",
             status: pending.interaction ? "waiting" : "streaming",
@@ -499,6 +518,7 @@ export function useChatStream({
         const prompt = text.trim();
         const pending: PendingGeneration = {
           answer: "",
+          assistant: selectedAssistant,
           applicationCode: selectedApplicationCode,
           assistantMessageId: generateMessageId(),
           conversationId,
@@ -522,7 +542,13 @@ export function useChatStream({
             role: "user",
             status: "done",
           },
-          { content: "", id: pending.assistantMessageId, role: "assistant", status: "streaming" },
+          {
+            assistant: pending.assistant,
+            content: "",
+            id: pending.assistantMessageId,
+            role: "assistant",
+            status: "streaming",
+          },
         ]);
         void startGeneration(pending);
         return true;
@@ -533,7 +559,7 @@ export function useChatStream({
         submittingRef.current = false;
       }
     },
-    [selectedApplicationCode, session, startGeneration, streaming],
+    [selectedApplicationCode, selectedAssistant, session, startGeneration, streaming],
   );
 
   /** 用户显式切换对话上下文时，丢弃仅用于当前页面续传的本地状态。 */
