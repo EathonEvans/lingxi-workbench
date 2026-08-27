@@ -2,12 +2,12 @@
 
 import Collapse from "@lobehub/ui/es/Collapse/index";
 import {
-  Bot,
   Circle,
   CircleCheck,
   CircleX,
   LoaderCircle,
   Sparkles,
+  Users,
   Wrench,
 } from "lucide-react";
 import { useState } from "react";
@@ -29,11 +29,18 @@ type ExecutionTraceProps = {
   stepOutputs?: ChatStepOutputEvent[];
   timeline?: ChatExecutionTimelineEvent[];
   tools?: ChatToolEvent[];
+  waiting?: boolean;
 };
 
 type TraceStatus = "completed" | "failed" | "reused" | "running";
+type PlanStepStatus = "PENDING" | NonNullable<ChatExecutionTimelineEvent["stepStatus"]>;
 
 const TRACE_PANEL_KEY = "execution-details";
+const RUN_TERMINAL_TYPES = new Set<ChatExecutionTimelineEvent["eventType"]>([
+  "RUN_CANCELLED",
+  "RUN_COMPLETED",
+  "RUN_FAILED",
+]);
 
 type ToolGroup = {
   displayName: string;
@@ -64,6 +71,39 @@ function statusIcon(status: TraceStatus) {
   if (status === "failed") return <CircleX size={14} />;
   if (status === "reused") return <Sparkles size={14} />;
   return <CircleCheck size={14} />;
+}
+
+function findRunTerminal(timeline: ChatExecutionTimelineEvent[]) {
+  return timeline.findLast((event) => RUN_TERMINAL_TYPES.has(event.eventType));
+}
+
+function resolvePlanStepStatus(
+  status: PlanStepStatus | undefined,
+  failed: boolean,
+  terminalType: ChatExecutionTimelineEvent["eventType"] | undefined,
+): PlanStepStatus {
+  const current = status ?? "PENDING";
+  const runFailed = failed || terminalType === "RUN_FAILED";
+  if (runFailed && current === "RUNNING") return "FAILED";
+  if (terminalType === "RUN_CANCELLED" && current === "RUNNING") return "CANCELLED";
+  if ((runFailed || terminalType === "RUN_CANCELLED") && current === "PENDING") return "SKIPPED";
+  return current;
+}
+
+function planStatusIcon(status: PlanStepStatus) {
+  if (status === "COMPLETED") return <CircleCheck size={13} />;
+  if (status === "FAILED" || status === "CANCELLED") return <CircleX size={13} />;
+  if (status === "RUNNING") return <LoaderCircle size={13} />;
+  return <Circle size={13} />;
+}
+
+function planStatusLabel(status: PlanStepStatus): string {
+  if (status === "RUNNING") return "执行中";
+  if (status === "COMPLETED") return "完成";
+  if (status === "FAILED") return "失败";
+  if (status === "CANCELLED") return "已停止";
+  if (status === "SKIPPED") return "未执行";
+  return "等待";
 }
 
 function groupTools(tools: ChatToolEvent[]): ToolGroup[] {
@@ -102,7 +142,7 @@ function agentStatus(agent: ChatSubAgentEvent): TraceStatus {
 
 function agentStatusLabel(agent: ChatSubAgentEvent): string {
   if (agent.status === "RUNNING") return "协作中";
-  if (agent.status === "FAILED") return "未完成";
+  if (agent.status === "FAILED") return "失败";
   return "已完成";
 }
 
@@ -129,7 +169,7 @@ function subAgentOperation(agent: ChatSubAgentEvent) {
       <span className={`${styles.operationIcon} ${styles[status]}`}>
         {status === "running" ? <LoaderCircle size={13} /> : statusIcon(status)}
       </span>
-      <Bot aria-hidden="true" className={styles.agentIcon} size={13} />
+      <Users aria-hidden="true" className={styles.agentIcon} size={13} />
       <span className={styles.operationName}>{agent.agentName}</span>
       <span className={styles.operationMeta}>
         {agentStatusLabel(agent)}
@@ -142,6 +182,7 @@ function subAgentOperation(agent: ChatSubAgentEvent) {
 function traceSummary(
   failed: boolean,
   errorMessage: string | undefined,
+  waiting: boolean,
   streaming: boolean,
   toolGroups: ToolGroup[],
   subAgents: ChatSubAgentEvent[],
@@ -149,12 +190,22 @@ function traceSummary(
   progress: ChatAgentProgressEvent[],
 ): { label: string; status: TraceStatus } {
   const latestTimeline = timeline.at(-1);
-  const terminal = timeline.findLast((event) =>
-    ["RUN_CANCELLED", "RUN_COMPLETED", "RUN_FAILED"].includes(event.eventType),
-  );
+  const terminal = findRunTerminal(timeline);
   if (failed) {
     return {
-      label: errorMessage || terminal?.message || "执行失败",
+      label: errorMessage || "处理失败",
+      status: "failed",
+    };
+  }
+  if (waiting) {
+    return {
+      label: "等待你确认后继续",
+      status: "running",
+    };
+  }
+  if (terminal?.eventType === "RUN_CANCELLED") {
+    return {
+      label: terminal.message || "处理已停止",
       status: "failed",
     };
   }
@@ -168,13 +219,13 @@ function traceSummary(
   if (latestTimeline?.eventType === "PLANNING") return { label: "正在规划任务", status: "running" };
   if (latestTimeline?.eventType === "REPLANNING") {
     return {
-      label: latestTimeline.message || "正在调整执行计划",
+      label: "正在调整执行计划",
       status: "running",
     };
   }
   if (latestTimeline?.eventType === "FINALIZING") {
     return {
-      label: latestTimeline.message || "正在基于现有信息整理回答",
+      label: "正在基于现有信息整理回答",
       status: "reused",
     };
   }
@@ -182,8 +233,7 @@ function traceSummary(
     + subAgents.length;
   if (terminal?.eventType === "RUN_COMPLETED" && !streaming) {
     return {
-      label: terminal.message
-        || (operationCount > 0 ? `处理完成 · ${operationCount} 项操作` : "处理完成"),
+      label: operationCount > 0 ? `处理完成 · ${operationCount} 项操作` : "处理完成",
       status: "completed",
     };
   }
@@ -224,6 +274,7 @@ export default function ExecutionTrace({
   stepOutputs = [],
   timeline = [],
   tools = [],
+  waiting = false,
 }: ExecutionTraceProps) {
   const [openPanels, setOpenPanels] = useState<string[]>([]);
   const toolGroups = groupTools(tools);
@@ -232,6 +283,7 @@ export default function ExecutionTrace({
   const summary = traceSummary(
     failed,
     errorMessage,
+    waiting,
     streaming,
     toolGroups,
     subAgents,
@@ -246,11 +298,15 @@ export default function ExecutionTrace({
     return [...events, event];
   }, []).slice(-4);
   const plan = timeline.findLast((event) => event.steps.length > 0);
-  const statusByStep = new Map(
-    timeline
-      .filter((event) => event.planNo === plan?.planNo && event.stepId)
-      .map((event) => [event.stepId, event.stepStatus] as const),
+  const terminal = findRunTerminal(timeline);
+  const statusByStep = new Map<string, PlanStepStatus>(
+    plan?.steps.map((step) => [step.stepId, step.status]),
   );
+  timeline
+    .filter((event) => event.planNo === plan?.planNo && event.stepId && event.stepStatus)
+    .forEach((event) => {
+      if (event.stepId && event.stepStatus) statusByStep.set(event.stepId, event.stepStatus);
+    });
   const outputByStep = new Map<string, string>();
   stepOutputs
     .filter((event) => event.planNo === plan?.planNo)
@@ -333,7 +389,11 @@ export default function ExecutionTrace({
             <span className={styles.sectionLabel}>执行计划</span>
             <ol className={styles.plan}>
               {plan.steps.map((step) => {
-                const status = statusByStep.get(step.stepId);
+                const status = resolvePlanStepStatus(
+                  statusByStep.get(step.stepId),
+                  failed,
+                  terminal?.eventType,
+                );
                 const output = outputByStep.get(step.stepId)?.trim();
                 const stepAgents = subAgents.filter((agent) =>
                   isCurrentStep(agent, plan.planNo, step.stepId));
@@ -359,16 +419,16 @@ export default function ExecutionTrace({
                 return (
                   <li className={styles.planItem} key={`${plan.planNo}:${step.stepId}`}>
                     <div className={styles.planRow}>
-                      <span className={styles.planIcon} data-status={status ?? "PENDING"}>
-                        {status === "COMPLETED" ? <CircleCheck size={13} /> : status === "FAILED" ? <CircleX size={13} /> : status === "RUNNING" ? <LoaderCircle size={13} /> : <Circle size={13} />}
+                      <span className={styles.planIcon} data-status={status}>
+                        {planStatusIcon(status)}
                       </span>
                       <span>{step.name}</span>
-                      <small>{status === "RUNNING" ? "执行中" : status === "COMPLETED" ? "完成" : status === "FAILED" ? "失败" : "等待"}</small>
+                      <small>{planStatusLabel(status)}</small>
                     </div>
                     {hasChildTrace ? (
                       <div className={styles.childTrace} aria-label={`${step.name}协作进度`}>
                         {stepAgents.length ? (
-                          <ul className={styles.operations} aria-label="协作 Agent">
+                          <ul className={styles.operations} aria-label="协作处理">
                             {stepAgents.map(subAgentOperation)}
                           </ul>
                         ) : null}
@@ -416,7 +476,7 @@ export default function ExecutionTrace({
 
         {rootToolGroups.length ? (
           <section className={styles.section}>
-            <span className={styles.sectionLabel}>工具调用</span>
+            <span className={styles.sectionLabel}>所需操作</span>
             <ul className={styles.operations}>
               {rootToolGroups.map(toolOperation)}
             </ul>
@@ -425,7 +485,7 @@ export default function ExecutionTrace({
 
         {rootSubAgents.length ? (
           <section className={styles.section}>
-            <span className={styles.sectionLabel}>协作 Agent</span>
+            <span className={styles.sectionLabel}>协作处理</span>
             <ul className={styles.operations}>
               {rootSubAgents.map(subAgentOperation)}
             </ul>

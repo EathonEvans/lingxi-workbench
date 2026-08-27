@@ -46,6 +46,7 @@ export type ChatSubAgentEvent = {
 export type ChatPlanStep = {
   capabilityCode: string;
   name: string;
+  status: "COMPLETED" | "PENDING" | "RUNNING";
   stepId: string;
 };
 

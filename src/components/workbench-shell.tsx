@@ -827,6 +827,7 @@ export default function WorkbenchShell() {
                           stepOutputs={message.stepOutputs}
                           timeline={message.timeline}
                           tools={message.tools}
+                          waiting={message.status === "waiting"}
                         />
                       ) : null}
                       <div
