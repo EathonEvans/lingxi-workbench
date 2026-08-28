@@ -13,8 +13,9 @@ class InternalIntentRoutingPreviewControllerTest {
 
     private final InternalOpsTokenVerifier tokenVerifier = mock(InternalOpsTokenVerifier.class);
     private final IntentRoutingPreviewService previewService = mock(IntentRoutingPreviewService.class);
+    private final IntentRoutingEvaluationService evaluationService = mock(IntentRoutingEvaluationService.class);
     private final InternalIntentRoutingPreviewController controller = new InternalIntentRoutingPreviewController(
-            tokenVerifier, previewService);
+            tokenVerifier, previewService, evaluationService);
 
     @Test
     void shouldVerifyInternalTokenBeforeReturningPreviewResult() {

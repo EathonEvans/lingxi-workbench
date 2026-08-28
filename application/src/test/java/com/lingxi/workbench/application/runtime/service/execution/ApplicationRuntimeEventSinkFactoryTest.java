@@ -84,7 +84,8 @@ class ApplicationRuntimeEventSinkFactoryTest {
                 .stage(ExecutionStage.MODEL)
                 .agentId(10L)
                 .agentVersionId(20L)
-                .payload(new ExecutionEventPayload.Model(1, TokenUsage.empty(), false, "模型调用已开始"))
+                .payload(new ExecutionEventPayload.Model(1, 9L, "test-model", TokenUsage.empty(), false, null,
+                        "模型调用已开始"))
                 .build());
 
         InOrder order = inOrder(persistenceService, publisher);
@@ -301,6 +302,45 @@ class ApplicationRuntimeEventSinkFactoryTest {
         assertNull(context.getError());
     }
 
+    @Test
+    void shouldAttachFirstResponseLatencyToModelObservation() {
+        ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
+        ChatExecutionEventPublisher publisher = mock(ChatExecutionEventPublisher.class);
+        ObservationRegistry observationRegistry = ObservationRegistry.create();
+        List<Observation.Context> stopped = new ArrayList<>();
+        observationRegistry.observationConfig().observationHandler(new ObservationHandler<Observation.Context>() {
+            @Override
+            public void onStop(Observation.Context context) {
+                stopped.add(context);
+            }
+
+            @Override
+            public boolean supportsContext(Observation.Context context) {
+                return "lingxi.ai.runtime.phase".equals(context.getName());
+            }
+        });
+        RuntimeEventSink sink = sink(persistenceService,
+                ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.defaults()), publisher,
+                observationRegistry);
+
+        sink.onEvent(modelEvent(com.lingxi.workbench.agentruntime.event.ExecutionEventType.MODEL_STARTED,
+                null));
+        sink.onEvent(modelEvent(com.lingxi.workbench.agentruntime.event.ExecutionEventType.MODEL_COMPLETED,
+                730L, TokenUsage.of(1200, 240, 1440)));
+
+        assertEquals(1, stopped.size());
+        assertEquals("730", stopped.getFirst()
+                .getHighCardinalityKeyValue("lingxi.runtime.model.first_response_ms").getValue());
+        assertEquals("1200", stopped.getFirst()
+                .getHighCardinalityKeyValue("lingxi.runtime.model.input_tokens").getValue());
+        assertEquals("240", stopped.getFirst()
+                .getHighCardinalityKeyValue("lingxi.runtime.model.output_tokens").getValue());
+        assertEquals("9", stopped.getFirst()
+                .getHighCardinalityKeyValue("lingxi.runtime.model.instance_id").getValue());
+        assertEquals("test-model", stopped.getFirst()
+                .getHighCardinalityKeyValue("lingxi.runtime.model.code").getValue());
+    }
+
     private static RuntimeEventSink sink(ExecutionPersistenceService persistenceService,
                                          ApplicationExecutionBudget budget,
                                          ChatExecutionEventPublisher publisher) {
@@ -328,6 +368,22 @@ class ApplicationRuntimeEventSinkFactoryTest {
                 .invocationId("coordination-observation-1")
                 .payload(new ExecutionEventPayload.Coordination(
                         "wait_async_results", "结果等待", durationMillis, null))
+                .build();
+    }
+
+    private static ExecutionEvent modelEvent(
+            com.lingxi.workbench.agentruntime.event.ExecutionEventType eventType, Long firstResponseMillis) {
+        return modelEvent(eventType, firstResponseMillis, TokenUsage.empty());
+    }
+
+    private static ExecutionEvent modelEvent(
+            com.lingxi.workbench.agentruntime.event.ExecutionEventType eventType, Long firstResponseMillis,
+            TokenUsage usage) {
+        return ExecutionEvent.builder()
+                .runId("run-observation-1").sequenceNo(13L).occurredAt(Instant.parse("2026-08-17T14:00:05Z"))
+                .type(eventType).stage(ExecutionStage.MODEL).agentId(10L).agentVersionId(20L)
+                .payload(new ExecutionEventPayload.Model(1, 9L, "test-model", usage, false,
+                        firstResponseMillis, "模型调用"))
                 .build();
     }
 

@@ -80,16 +80,19 @@ public final class ExecutionEvents {
                         .effectiveToolCodes(tools).message("Skill已激活：" + binding.getSkill().getName()).build());
     }
 
-    public void modelStarted(int callNo, boolean finalCall) {
+    public void modelStarted(int callNo, Long modelInstanceId, String modelCode, boolean finalCall) {
         publish(ExecutionEventType.MODEL_STARTED, ExecutionStage.MODEL,
-                new ExecutionEventPayload.Model(callNo, TokenUsage.empty(), finalCall,
+                new ExecutionEventPayload.Model(callNo, modelInstanceId, modelCode, TokenUsage.empty(), finalCall, null,
                         finalCall ? "最终模型调用已开始" : "模型调用已开始"));
     }
 
-    public void modelCompleted(int callNo, TokenUsage usage, boolean finalCall) {
+    public void modelCompleted(int callNo, Long modelInstanceId, String modelCode, TokenUsage usage,
+                               boolean finalCall, Long firstResponseMillis) {
         if (!terminal.get()) {
             publish(ExecutionEventType.MODEL_COMPLETED, ExecutionStage.MODEL,
-                    new ExecutionEventPayload.Model(callNo, usage, finalCall, "模型调用已完成"));
+                    new ExecutionEventPayload.Model(callNo, modelInstanceId, modelCode, usage, finalCall,
+                            firstResponseMillis,
+                            "模型调用已完成"));
         }
     }
 

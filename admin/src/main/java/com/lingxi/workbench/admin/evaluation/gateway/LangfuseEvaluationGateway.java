@@ -9,6 +9,8 @@ import com.lingxi.workbench.admin.evaluation.common.enums.EvaluationMetric;
 import com.lingxi.workbench.admin.evaluation.common.enums.EvaluationSourceStatus;
 import com.lingxi.workbench.admin.evaluation.model.bo.EvaluationTraceContext;
 import com.lingxi.workbench.admin.evaluation.model.bo.LangfuseDatasetBO;
+import com.lingxi.workbench.admin.evaluation.model.bo.LangfuseDatasetItemBO;
+import com.lingxi.workbench.admin.evaluation.model.bo.LangfuseDatasetItemsResult;
 import com.lingxi.workbench.admin.evaluation.model.bo.LangfuseDatasetPageResult;
 import com.lingxi.workbench.admin.evaluation.model.bo.LangfuseMetricBO;
 import com.lingxi.workbench.admin.evaluation.model.bo.LangfuseMutationResult;
@@ -52,6 +54,8 @@ public class LangfuseEvaluationGateway {
 
     private static final double PASSING_SCORE = 4D;
     private static final String MANAGED_BY = "lingxi-workbench";
+    private static final int DATASET_ITEM_PAGE_SIZE = 100;
+    private static final int MAX_DATASET_ITEMS = 1000;
 
     private final LangfuseProperties properties;
     private final HttpClient httpClient;
@@ -116,6 +120,64 @@ public class LangfuseEvaluationGateway {
         } catch (RuntimeException | IOException exception) {
             log.warn("Langfuse数据集查询不可用，errorType={}", exception.getClass().getSimpleName());
             return unavailableDatasets(query, "评测数据源暂不可用");
+        }
+    }
+
+    /** 读取指定时刻的数据集快照，评测运行创建后不再跟随外部数据集变化。 */
+    public LangfuseDatasetItemsResult datasetItems(String datasetName, OffsetDateTime datasetVersion) {
+        EvaluationSourceStatus status = configurationStatus();
+        if (status != EvaluationSourceStatus.AVAILABLE) {
+            return LangfuseDatasetItemsResult.builder()
+                    .status(status)
+                    .message(configurationMessage(status))
+                    .datasetName(datasetName)
+                    .datasetVersion(datasetVersion)
+                    .items(List.of())
+                    .build();
+        }
+        try {
+            List<LangfuseDatasetItemBO> items = new ArrayList<>();
+            int page = 1;
+            int totalPages;
+            do {
+                JSONObject response = JSONObject.parseObject(send(datasetItemsRequest(
+                        datasetName, datasetVersion, page, DATASET_ITEM_PAGE_SIZE)).body());
+                items.addAll(parseDatasetItems(response));
+                if (items.size() > MAX_DATASET_ITEMS) {
+                    throw new IllegalArgumentException("单次评测数据集不能超过1000条用例");
+                }
+                JSONObject meta = response.getJSONObject("meta");
+                totalPages = Objects.isNull(meta) ? 1 : Math.max(meta.getIntValue("totalPages"), 1);
+                page++;
+            } while (page <= totalPages);
+            return LangfuseDatasetItemsResult.builder()
+                    .status(EvaluationSourceStatus.AVAILABLE)
+                    .message("评测数据集快照已加载")
+                    .datasetName(datasetName)
+                    .datasetVersion(datasetVersion)
+                    .items(List.copyOf(items))
+                    .build();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return LangfuseDatasetItemsResult.builder()
+                    .status(EvaluationSourceStatus.UNAVAILABLE)
+                    .message("评测数据集查询被中断")
+                    .datasetName(datasetName)
+                    .datasetVersion(datasetVersion)
+                    .items(List.of())
+                    .build();
+        } catch (IllegalArgumentException exception) {
+            throw exception;
+        } catch (RuntimeException | IOException exception) {
+            log.warn("Langfuse数据集用例查询不可用，datasetName={}，errorType={}",
+                    datasetName, exception.getClass().getSimpleName());
+            return LangfuseDatasetItemsResult.builder()
+                    .status(EvaluationSourceStatus.UNAVAILABLE)
+                    .message("评测数据源暂不可用")
+                    .datasetName(datasetName)
+                    .datasetVersion(datasetVersion)
+                    .items(List.of())
+                    .build();
         }
     }
 
@@ -206,6 +268,16 @@ public class LangfuseEvaluationGateway {
         return getRequest("/api/public/v2/datasets?page=" + current + "&limit=" + size);
     }
 
+    private HttpRequest datasetItemsRequest(
+            String datasetName, OffsetDateTime datasetVersion, int page, int size) {
+        StringBuilder path = new StringBuilder("/api/public/dataset-items?");
+        path.append("datasetName=").append(encode(datasetName));
+        path.append("&version=").append(encode(datasetVersion.toInstant().toString()));
+        path.append("&page=").append(page);
+        path.append("&limit=").append(size);
+        return getRequest(path.toString());
+    }
+
     private HttpRequest getRequest(String path) {
         return requestBuilder(path).GET().build();
     }
@@ -282,6 +354,25 @@ public class LangfuseEvaluationGateway {
         return Objects.isNull(meta) ? 0L : meta.getLongValue("totalItems");
     }
 
+    static List<LangfuseDatasetItemBO> parseDatasetItems(JSONObject response) {
+        JSONArray data = response.getJSONArray("data");
+        if (Objects.isNull(data)) {
+            return List.of();
+        }
+        return data.stream().map(JSONObject.class::cast)
+                .filter(item -> "ACTIVE".equals(item.getString("status")))
+                .map(item -> LangfuseDatasetItemBO.builder()
+                        .id(item.getString("id"))
+                        .input(item.getJSONObject("input"))
+                        .expectedOutput(item.getJSONObject("expectedOutput"))
+                        .metadata(item.getJSONObject("metadata"))
+                        .sourceTraceId(item.getString("sourceTraceId"))
+                        .createdAt(item.getObject("createdAt", OffsetDateTime.class))
+                        .updatedAt(item.getObject("updatedAt", OffsetDateTime.class))
+                        .build())
+                .toList();
+    }
+
     private static LangfuseScoreBO toScore(JSONObject item) {
         JSONObject subject = item.getJSONObject("subject");
         String traceId = null;
@@ -343,7 +434,10 @@ public class LangfuseEvaluationGateway {
         JSONObject input = new JSONObject();
         input.put("query", request.getInput());
         JSONObject expectedOutput = new JSONObject();
-        expectedOutput.put("answer", request.getExpectedOutput());
+        expectedOutput.put("scenario", request.getScenario().name());
+        expectedOutput.put("expectedAction", request.getExpectedAction().name());
+        expectedOutput.put("expectedIntentCodes", request.getExpectedIntentCodes());
+        expectedOutput.put("highRisk", request.isHighRisk());
         JSONObject metadata = commonMetadata(trace, operatorId);
         metadata.put("note", request.getNote());
         JSONObject body = new JSONObject();

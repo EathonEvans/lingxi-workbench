@@ -26,6 +26,7 @@ import com.lingxi.workbench.admin.application.service.ApplicationSnapshotChecksu
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.admin.domain.service.DomainService;
 import com.lingxi.workbench.admin.file.common.enums.FileBasePath;
+import com.lingxi.workbench.admin.evaluation.service.EvaluationService;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.convention.PageResult;
@@ -58,6 +59,7 @@ public class ApplicationServiceImpl implements ApplicationService {
     private final ApplicationConverter converter;
     private final AuditService auditService;
     private final DomainService domainService;
+    private final EvaluationService evaluationService;
 
     @Override
     @Transactional(readOnly = true)
@@ -286,9 +288,12 @@ public class ApplicationServiceImpl implements ApplicationService {
         version.setPublishedAt(OffsetDateTime.now());
         versionRepo.insert(version);
 
-        application.setPublishedVersionId(version.getId());
-        application.setUpdatedBy(operatorId);
-        applicationRepo.save(application);
+        boolean evaluationRequired = isProductionEvaluationRequired(snapshot);
+        if (!evaluationRequired) {
+            application.setPublishedVersionId(version.getId());
+            application.setUpdatedBy(operatorId);
+            applicationRepo.save(application);
+        }
         draftRepo.updatePublicationBase(
                 draft.getId(), version.getId(), operatorId, request.getExpectedRevision());
         auditService.record(
@@ -299,6 +304,7 @@ public class ApplicationServiceImpl implements ApplicationService {
                 "APPLICATION_PUBLISH",
                 "应用编码=" + application.getCode()
                         + "，发布版本=V" + versionNo
+                        + "，等待生产评测=" + evaluationRequired
                         + "，checksum=" + checksum);
         return converter.toVersionDetailVO(version);
     }
@@ -323,6 +329,9 @@ public class ApplicationServiceImpl implements ApplicationService {
             throw new BusinessException(
                     HttpStatusEnum.CONFLICT,
                     "当前运行时只能激活包含助手身份快照的V9 Application正式版本");
+        }
+        if (isProductionEvaluationRequired(version.getDefinitionSnapshot())) {
+            evaluationService.requireProductionGatePassed(id, versionId);
         }
         application.setPublishedVersionId(versionId);
         application.setUpdatedBy(operatorId);
@@ -371,6 +380,10 @@ public class ApplicationServiceImpl implements ApplicationService {
         return versionRepo.findByApplicationIdAndId(applicationId, versionId)
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.NOT_FOUND, "Application发布版本不存在"));
+    }
+
+    private static boolean isProductionEvaluationRequired(ApplicationDefinition definition) {
+        return definition.intentRouting() != null && definition.intentRouting().isEnabled();
     }
 
     /**

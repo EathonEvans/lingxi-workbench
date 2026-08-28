@@ -47,8 +47,7 @@ public class HitlApprovalClosureTxService {
                 ExecutionRunStatus.EXPIRED, "HITL_EXPIRED", OffsetDateTime.now())) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "执行运行状态已变化");
         }
-        conversationService.cancelWaiting(interaction.getAssistantMessageId(),
-                "APPROVAL_EXPIRED", "审批已过期，本轮任务已结束");
+        conversationService.cancelWaiting(interaction.getAssistantMessageId(), "APPROVAL_EXPIRED", "审批已过期，本轮任务已结束");
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)

@@ -67,6 +67,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -76,7 +77,10 @@ class AgentScopeSpecialistStreamingGatewayTest {
 
     @Test
     void shouldRunNoToolSpecialistWithMappedMessagesAndStableRuntimeEvents() {
-        ChatModelRuntimeConfig config = ChatModelRuntimeConfig.builder().build();
+        ChatModelRuntimeConfig config = ChatModelRuntimeConfig.builder()
+                .instanceId(9L)
+                .modelCode("test-model")
+                .build();
         StubChatModel model = new StubChatModel("AgentScope回答", ChatUsage.builder()
                 .inputTokens(7).outputTokens(2).build());
         AgentScopeOpenAiChatModelFactory factory = mock(AgentScopeOpenAiChatModelFactory.class);
@@ -97,6 +101,11 @@ class AgentScopeSpecialistStreamingGatewayTest {
         assertEquals(List.of(ExecutionEventType.RUN_STARTED, ExecutionEventType.AGENT_STARTED,
                         ExecutionEventType.MODEL_STARTED, ExecutionEventType.MODEL_COMPLETED),
                 sink.events.stream().map(ExecutionEvent::getType).toList());
+        ExecutionEventPayload.Model completedModel = (ExecutionEventPayload.Model) sink.events.getLast().getPayload();
+        assertEquals(9L, completedModel.modelInstanceId());
+        assertEquals("test-model", completedModel.modelCode());
+        assertNotNull(completedModel.firstResponseMillis());
+        assertTrue(completedModel.firstResponseMillis() >= 0);
         assertEquals(List.of(MsgRole.USER, MsgRole.ASSISTANT, MsgRole.USER),
                 model.messages.subList(model.messages.size() - 3, model.messages.size())
                         .stream().map(Msg::getRole).toList());

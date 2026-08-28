@@ -179,7 +179,8 @@ public class AgentScopeSpecialistStreamingGateway {
                 .permissionContext(permissionContext(tools))
                 .stateStore(prepareStateStore(runtimeContext, checkpoint))
                 .enablePendingToolRecovery(false)
-                .middleware(new AgentScopeRuntimeModelMiddleware())
+                .middleware(new AgentScopeRuntimeModelMiddleware(command.modelConfig().getInstanceId(),
+                        command.modelConfig().getModelCode()))
                 .middleware(new AgentScopePublishedSkillMiddleware(skillCatalog))
                 .middleware(skillLoadAuditor)
                 // Lingxi 只开放发布版本显式授权的 Tool/Skill，关闭 Harness 的工作区侧能力。

@@ -23,6 +23,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class IntentRoutingEvaluationServiceTest {
@@ -55,6 +57,20 @@ class IntentRoutingEvaluationServiceTest {
             assertThat(entry.actualAction()).isEqualTo(IntentRoutingAction.EXECUTE_AGENT);
             assertThat(entry.count()).isPositive();
         });
+    }
+
+    @Test
+    void shouldBuildReportFromExternallyObservedResultsWithoutCallingModelAgain() {
+        IntentRoutingEvaluationDataset dataset = validDataset(300);
+        mockPublishedContract(dataset);
+        List<IntentRoutingEvaluatedSample> results = dataset.samples().stream()
+                .map(sample -> new IntentRoutingEvaluatedSample(sample.getId(), resultFor(sample.getQuery())))
+                .toList();
+
+        IntentRoutingEvaluationReport report = service.report(dataset, results);
+
+        assertThat(report.isProductionGatePassed()).isTrue();
+        verify(previewGateway, never()).preview(anyLong(), anyLong(), anyString());
     }
 
     @Test

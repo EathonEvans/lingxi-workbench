@@ -236,12 +236,22 @@ public interface AppMonitorMapper {
     Optional<AppTraceBO> trace(@Param("traceId") String traceId);
 
     @Select("""
-            SELECT span_id, parent_span_id, event_type, stage, status, latency_ms, model_code,
-                   COALESCE(metadata ->> 'runtimeOperationName', metadata ->> 'toolName') AS tool_name,
-                   COALESCE(metadata ->> 'runtimeErrorCode', metadata ->> 'errorType') AS error_code, created_at
-            FROM lingxi_core.ai_observability_event
-            WHERE trace_id = #{traceId}
-            ORDER BY created_at, id
+            SELECT event.span_id, event.parent_span_id, event.event_type, event.stage, event.status,
+                   event.latency_ms, (event.metadata ->> 'modelInstanceId')::BIGINT AS model_instance_id,
+                   model_instance.code AS model_instance_code, event.model_code,
+                   model_provider.name AS model_provider_name,
+                   (event.metadata ->> 'modelCallNo')::INTEGER AS model_call_no,
+                   event.prompt_tokens, event.completion_tokens,
+                   COALESCE(event.metadata ->> 'runtimeOperationName', event.metadata ->> 'toolName') AS tool_name,
+                   (event.metadata ->> 'modelFirstResponseMs')::BIGINT AS first_response_ms,
+                   COALESCE(event.metadata ->> 'runtimeErrorCode', event.metadata ->> 'errorType') AS error_code,
+                   event.created_at
+            FROM lingxi_core.ai_observability_event event
+            LEFT JOIN lingxi_core.ai_model_instance model_instance
+              ON model_instance.id = (event.metadata ->> 'modelInstanceId')::BIGINT
+            LEFT JOIN lingxi_core.ai_model_provider model_provider ON model_provider.id = model_instance.provider_id
+            WHERE event.trace_id = #{traceId}
+            ORDER BY event.created_at, event.id
             """)
     List<AppTraceEventBO> traceEvents(@Param("traceId") String traceId);
 }

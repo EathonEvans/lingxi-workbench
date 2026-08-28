@@ -85,8 +85,15 @@ class ApplicationDraftValidatorTest {
     void shouldResolveSupervisorAndDomainSpecialists() {
         gateway.addAgent(40L, true, 402L);
         gateway.addVersion(40L, 402L);
+        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(
+                new ApplicationAgentReference(40L, 402L, null, null),
+                List.of(new ApplicationAgentReference(20L, 201L, null, null)),
+                List.of(),
+                List.of());
 
-        ApplicationDefinitionResolution result = resolve(validator, definition());
+        ApplicationDefinitionResolution result = resolve(validator, fallbackDefinitionBuilder()
+                .collaboration(collaboration)
+                .build());
 
         assertThat(result.valid()).isTrue();
         assertThat(result.definition().fallback().cap()).isEqualTo("default_agent");
@@ -96,6 +103,39 @@ class ApplicationDraftValidatorTest {
                 .extracting(ApplicationAgentReference::agentId)
                 .containsExactly(20L);
         assertThat(resolvedCapability(result.definition(), "agent_20").getTargetVersionId()).isEqualTo(201L);
+    }
+
+    @Test
+    void shouldKeepExplicitAgentVersionsWhenNewerVersionsAreActive() {
+        gateway.addAgent(40L, true, 402L);
+        gateway.addVersion(40L, 402L);
+        gateway.addAgent(20L, true, 202L);
+        gateway.addVersion(20L, 202L);
+
+        ApplicationDefinitionResolution result = resolve(validator, definition());
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.definition().collaboration().supervisor().agentVersionId()).isEqualTo(401L);
+        assertThat(result.definition().collaboration().members()).singleElement()
+                .extracting(ApplicationAgentReference::agentVersionId)
+                .isEqualTo(201L);
+    }
+
+    @Test
+    void shouldRejectMissingExplicitAgentVersions() {
+        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(
+                new ApplicationAgentReference(40L, null, null, null),
+                List.of(),
+                List.of(),
+                List.of());
+
+        ApplicationDefinitionResolution result = resolve(validator, fallbackDefinitionBuilder()
+                .collaboration(collaboration)
+                .build());
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code)
+                .contains("COLLABORATION_AGENT_VERSION_REQUIRED", "COLLABORATION_MEMBER_VERSION_REQUIRED");
     }
 
     @Test
@@ -112,7 +152,7 @@ class ApplicationDraftValidatorTest {
     @Test
     void shouldExcludeSelectedSpecialistFromPublishedSnapshot() {
         AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(
-                new ApplicationAgentReference(40L, null, null, null), List.of(), List.of(), List.of(20L));
+                new ApplicationAgentReference(40L, 401L, null, null), List.of(), List.of(), List.of(20L));
 
         ApplicationDefinitionResolution result = resolve(validator, fallbackDefinitionBuilder()
                 .collaboration(collaboration)
@@ -131,7 +171,7 @@ class ApplicationDraftValidatorTest {
         gateway.addAgent(10L, true, 101L, AgentRole.SPECIALIST);
         gateway.addVersion(10L, 101L);
         AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(
-                new ApplicationAgentReference(10L, null, null, null), List.of(), List.of(), List.of());
+                new ApplicationAgentReference(10L, 101L, null, null), List.of(), List.of(), List.of());
 
         ApplicationDefinitionResolution result = resolve(validator, fallbackDefinitionBuilder()
                 .collaboration(collaboration)
@@ -669,8 +709,6 @@ class ApplicationDraftValidatorTest {
 
     @Test
     void shouldValidateAndFreezeContextualizationPolicy() {
-        gateway.addAgent(10L, true, 101L);
-        gateway.addVersion(10L, 101L);
         models.put(601L, modelReference(601L, ModelType.CHAT));
         prompts.put(701L, new PromptService.PromptVersionReference(
                 701L, PromptRole.SYSTEM, true, contextualizationVariables()));
@@ -701,8 +739,6 @@ class ApplicationDraftValidatorTest {
 
     @Test
     void shouldRejectUnavailableContextualizationReferencesAndInvalidBudget() {
-        gateway.addAgent(10L, true, 101L);
-        gateway.addVersion(10L, 101L);
         ContextBudgetPolicy invalidBudget = ContextBudgetPolicy.defaults();
         invalidBudget.setMaxInputTokens(0);
         ApplicationDefinition draft = fallbackDefinitionBuilder()
@@ -722,8 +758,6 @@ class ApplicationDraftValidatorTest {
 
     @Test
     void shouldRejectRemovedVariableInContextualizationPrompt() {
-        gateway.addAgent(10L, true, 101L);
-        gateway.addVersion(10L, 101L);
         models.put(601L, modelReference(601L, ModelType.CHAT));
         List<PromptService.PromptVariableReference> variables = List.of(
                 new PromptService.PromptVariableReference("query.rewrite_history", PromptVariableType.MESSAGE_LIST));
@@ -748,8 +782,6 @@ class ApplicationDraftValidatorTest {
 
     @Test
     void shouldRejectMissingRequiredContextualizationVariables() {
-        gateway.addAgent(10L, true, 101L);
-        gateway.addVersion(10L, 101L);
         models.put(601L, modelReference(601L, ModelType.CHAT));
         prompts.put(701L, new PromptService.PromptVersionReference(701L, PromptRole.SYSTEM, true, List.of()));
         ApplicationDefinition draft = fallbackDefinitionBuilder()
@@ -805,8 +837,8 @@ class ApplicationDraftValidatorTest {
         return ApplicationDefinition.builder()
                 .schemaVersion(APPLICATION_SCHEMA_VERSION)
                 .collaboration(new AgentCollaborationDefinition(
-                        new ApplicationAgentReference(40L, null, null, null),
-                        List.of(),
+                        new ApplicationAgentReference(40L, 401L, null, null),
+                        List.of(new ApplicationAgentReference(20L, 201L, null, null)),
                         List.of(),
                         List.of()))
                 .capabilityCatalog(catalog());

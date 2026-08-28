@@ -12,7 +12,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 
 /** V2 离线评测通过内部接口逐条调用生产版本决策链，不装配第二套模型运行时。 */
-public class IntentRoutingVersionPreviewGateway {
+public class IntentRoutingVersionPreviewGateway implements IntentRoutingEvaluationPreview {
 
     private static final String OPS_TOKEN_HEADER = "X-Lingxi-Ops-Token";
 
@@ -29,6 +29,7 @@ public class IntentRoutingVersionPreviewGateway {
         this.httpClient = httpClient;
     }
 
+    @Override
     public IntentRoutingPreviewResult preview(Long applicationId, Long applicationVersionId, String query) {
         requireConfigured();
         try {

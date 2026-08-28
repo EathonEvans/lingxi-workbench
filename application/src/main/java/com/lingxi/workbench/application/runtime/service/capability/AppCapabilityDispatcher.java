@@ -386,6 +386,7 @@ public class AppCapabilityDispatcher {
 
         private final CapabilityExecutionRequest rootRequest;
         private final Map<String, CapabilityDefinition> capabilities;
+        private final Observation parentObservation;
         private final List<WorkflowNodeTrace> traces = new ArrayList<>();
         private Long modelInstanceId;
 
@@ -393,6 +394,7 @@ public class AppCapabilityDispatcher {
                                              Map<String, CapabilityDefinition> capabilities) {
             this.rootRequest = rootRequest;
             this.capabilities = capabilities;
+            this.parentObservation = observationRegistry.getCurrentObservation();
         }
 
         @Override
@@ -419,11 +421,12 @@ public class AppCapabilityDispatcher {
                         ChatExecutionEventPublisher.forPlanStep(root.request().getEventPublisher(), root.executionId(),
                                 invocation.getInvocationState().getTaskRevision(),
                                 invocation.getInvocationState().getStep().getId()));
-                CapabilityExecutionResult result = AppCapabilityDispatcher.this.execute(
-                        CapabilityExecutionRequest.builder().capability(capability).inputs(inputs)
-                                .run(root).invocationScope(invocationScope)
-                                .routingEvidence(rootRequest.getRoutingEvidence())
-                                .confirmedCapabilityCodes(invocation.getConfirmedCapabilityCodes()).build());
+                CapabilityExecutionResult result = Observation.tryScoped(parentObservation,
+                        () -> AppCapabilityDispatcher.this.execute(
+                                CapabilityExecutionRequest.builder().capability(capability).inputs(inputs)
+                                        .run(root).invocationScope(invocationScope)
+                                        .routingEvidence(rootRequest.getRoutingEvidence())
+                                        .confirmedCapabilityCodes(invocation.getConfirmedCapabilityCodes()).build()));
                 if (result.modelInstanceId() != null) {
                     modelInstanceId = result.modelInstanceId();
                 }

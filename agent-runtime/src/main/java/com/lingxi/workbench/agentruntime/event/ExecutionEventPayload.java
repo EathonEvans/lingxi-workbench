@@ -102,16 +102,55 @@ public sealed interface ExecutionEventPayload permits ExecutionEventPayload.Run,
         }
     }
 
-    /**
-     * @param callNo    当前Agent调用内的模型调用序号
-     * @param usage     供应商返回的实际Token用量
-     * @param finalCall 是否为禁用Tool的最终回答调用
-     * @param message   可安全展示的说明
-     */
-    record Model(int callNo, TokenUsage usage, boolean finalCall, String message)
-            implements ExecutionEventPayload {
-        public Model {
-            usage = java.util.Objects.requireNonNullElseGet(usage, TokenUsage::empty);
+    /** 模型调用的脱敏观测事实，不包含 Prompt、思维或生成内容。 */
+    final class Model implements ExecutionEventPayload {
+
+        private final int callNo;
+        private final Long modelInstanceId;
+        private final String modelCode;
+        private final TokenUsage usage;
+        private final boolean finalCall;
+        private final Long firstResponseMillis;
+        private final String message;
+
+        public Model(int callNo, Long modelInstanceId, String modelCode, TokenUsage usage, boolean finalCall,
+                     Long firstResponseMillis, String message) {
+            this.callNo = callNo;
+            this.modelInstanceId = modelInstanceId;
+            this.modelCode = modelCode;
+            this.usage = java.util.Objects.requireNonNullElseGet(usage, TokenUsage::empty);
+            this.finalCall = finalCall;
+            this.firstResponseMillis = firstResponseMillis;
+            this.message = message;
+        }
+
+        public int callNo() {
+            return callNo;
+        }
+
+        public Long modelInstanceId() {
+            return modelInstanceId;
+        }
+
+        public String modelCode() {
+            return modelCode;
+        }
+
+        public TokenUsage usage() {
+            return usage;
+        }
+
+        public boolean finalCall() {
+            return finalCall;
+        }
+
+        public Long firstResponseMillis() {
+            return firstResponseMillis;
+        }
+
+        @Override
+        public String message() {
+            return message;
         }
     }
 

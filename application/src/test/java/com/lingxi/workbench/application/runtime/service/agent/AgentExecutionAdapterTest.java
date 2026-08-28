@@ -581,7 +581,7 @@ class AgentExecutionAdapterTest {
             }
             int callNo = budget.reserveModelCall();
             tools.startModelRound();
-            events.modelStarted(callNo, false);
+            events.modelStarted(callNo, 9L, "test-model", false);
             AtomicReference<TokenUsage> usage = new AtomicReference<>(TokenUsage.empty());
             return streamingChatGateway.apply(request.getModelCommand())
                     .doOnNext(chunk -> {
@@ -591,7 +591,7 @@ class AgentExecutionAdapterTest {
                     })
                     .doOnComplete(() -> {
                         budget.completeModelCall(usage.get());
-                        events.modelCompleted(callNo, usage.get(), false);
+                        events.modelCompleted(callNo, 9L, "test-model", usage.get(), false, null);
                     });
         });
         when(agentScopeGateway.stream(any(AgentRunRequest.class), any(), any()))

@@ -71,9 +71,10 @@ SET parent_id  = EXCLUDED.parent_id,
 
 -- 评测中心管理运行评分和回归数据集，外部Langfuse访问统一经过Admin后端。
 INSERT INTO lingxi_core.sys_menu
-    (parent_id, name, code, menu_type, route_path, component, icon, sort_order, visible, status)
+    (parent_id, name, code, menu_type, route_path, component, icon, permission_code,
+     sort_order, visible, status)
 SELECT workbench.id, '评测中心', 'EVALUATION_CENTER', 'MENU', '/dashboard/evaluation',
-       'dashboard/evaluation/index', 'ri:flask-line', 30, TRUE, 'ACTIVE'
+       'dashboard/evaluation/index', 'ri:flask-line', 'evaluation:list', 30, TRUE, 'ACTIVE'
 FROM lingxi_core.sys_menu workbench
 WHERE workbench.code = 'WORKBENCH'
 ON CONFLICT (code) DO UPDATE
@@ -83,10 +84,27 @@ SET parent_id  = EXCLUDED.parent_id,
     route_path = EXCLUDED.route_path,
     component  = EXCLUDED.component,
     icon       = EXCLUDED.icon,
-    permission_code = NULL,
+    permission_code = EXCLUDED.permission_code,
     sort_order = EXCLUDED.sort_order,
     visible    = TRUE,
     status     = 'ACTIVE';
+
+INSERT INTO lingxi_core.sys_menu
+    (parent_id, name, code, menu_type, permission_code, sort_order, visible, status)
+SELECT parent.id, action.name, action.code, 'BUTTON', action.permission_code,
+       action.sort_order, FALSE, 'ACTIVE'
+FROM (VALUES
+    ('评测数据维护', 'EVALUATION_MANAGE', 'evaluation:manage', 10),
+    ('执行评测任务', 'EVALUATION_EXECUTE', 'evaluation:execute', 20)
+) AS action(name, code, permission_code, sort_order)
+JOIN lingxi_core.sys_menu parent ON parent.code = 'EVALUATION_CENTER'
+ON CONFLICT (code) DO UPDATE
+SET parent_id = EXCLUDED.parent_id,
+    name = EXCLUDED.name,
+    permission_code = EXCLUDED.permission_code,
+    sort_order = EXCLUDED.sort_order,
+    visible = FALSE,
+    status = 'ACTIVE';
 
 -- 保留既有DASHBOARD菜单主键，仅将其调整为工作台目录下的仪表盘页面。
 INSERT INTO lingxi_core.sys_menu

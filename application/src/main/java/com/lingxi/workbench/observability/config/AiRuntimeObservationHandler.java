@@ -56,6 +56,9 @@ public class AiRuntimeObservationHandler implements ObservationHandler<Observati
         event.setStage(stage(context));
         event.setApplicationId(longValue(context, "lingxi.application.id"));
         event.setRunId(value(context, "lingxi.run.id"));
+        event.setModelCode(value(context, "lingxi.runtime.model.code"));
+        event.setPromptTokens(integerValue(context, "lingxi.runtime.model.input_tokens"));
+        event.setCompletionTokens(integerValue(context, "lingxi.runtime.model.output_tokens"));
         event.setLatencyMs(elapsedMillis(context));
         event.setStatus(status(context));
         event.setMetadata(metadata(context));
@@ -95,7 +98,10 @@ public class AiRuntimeObservationHandler implements ObservationHandler<Observati
         putIfPresent(metadata, "agentId", value(context, "lingxi.agent.id"));
         putIfPresent(metadata, "agentVersionId", value(context, "lingxi.agent.version.id"));
         putIfPresent(metadata, "invocationId", value(context, "lingxi.runtime.invocation.id"));
+        putIfPresent(metadata, "modelInstanceId", value(context, "lingxi.runtime.model.instance_id"));
         putIfPresent(metadata, "modelCallNo", value(context, "lingxi.runtime.model.call_no"));
+        putIfPresent(metadata, "modelFirstResponseMs",
+                value(context, "lingxi.runtime.model.first_response_ms"));
         putIfPresent(metadata, "runtimeErrorCode", value(context, "lingxi.runtime.error.code"));
         if (Objects.nonNull(context.getError())) {
             metadata.put("errorType", context.getError().getClass().getSimpleName());
@@ -118,6 +124,10 @@ public class AiRuntimeObservationHandler implements ObservationHandler<Observati
 
     private static Long longValue(Observation.Context context, String key) {
         return Optional.ofNullable(value(context, key)).map(Long::valueOf).orElse(null);
+    }
+
+    private static Integer integerValue(Observation.Context context, String key) {
+        return Optional.ofNullable(value(context, key)).map(Integer::valueOf).orElse(null);
     }
 
     private static String value(Observation.Context context, String key) {

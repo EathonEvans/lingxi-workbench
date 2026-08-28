@@ -26,6 +26,7 @@ import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConsta
 /**
  * 通过正在运行的生产决策链生成 V2 版本评测报告，不写业务数据。
  */
+@Service
 public class IntentRoutingEvaluationService {
 
     private static final int MINIMUM_PRODUCTION_SAMPLE_COUNT = 300;
@@ -36,14 +37,14 @@ public class IntentRoutingEvaluationService {
 
     private final IntentEvaluationService baselineService;
     private final IntentTreeRuntimeRepo intentTreeRuntimeRepo;
-    private final IntentRoutingVersionPreviewGateway previewGateway;
+    private final IntentRoutingEvaluationPreview evaluationPreview;
 
     public IntentRoutingEvaluationService(IntentEvaluationService baselineService,
                                           IntentTreeRuntimeRepo intentTreeRuntimeRepo,
-                                          IntentRoutingVersionPreviewGateway previewGateway) {
+                                          IntentRoutingEvaluationPreview evaluationPreview) {
         this.baselineService = baselineService;
         this.intentTreeRuntimeRepo = intentTreeRuntimeRepo;
-        this.previewGateway = previewGateway;
+        this.evaluationPreview = evaluationPreview;
     }
 
     public IntentRoutingEvaluationDataset exportDatasetTemplate(
@@ -70,19 +71,50 @@ public class IntentRoutingEvaluationService {
     }
 
     public IntentRoutingEvaluationReport evaluate(IntentRoutingEvaluationDataset dataset) {
-        validateDataset(dataset);
-        validatePublishedContract(dataset);
+        validate(dataset);
         List<SampleResult> results = new ArrayList<>(dataset.samples().size());
         for (IntentRoutingEvaluationSample sample : dataset.samples()) {
-            IntentRoutingPreviewResult result = previewGateway.preview(
+            IntentRoutingPreviewResult result = evaluationPreview.preview(
                     dataset.getApplicationId(), dataset.getApplicationVersionId(), sample.getQuery());
             validatePreviewResult(dataset, result);
             results.add(new SampleResult(sample, result));
         }
-        return report(dataset, results);
+        return buildReport(dataset, results);
     }
 
-    private static IntentRoutingEvaluationReport report(
+    /** 在调用模型前校验数据集覆盖率及所有锁定版本契约。 */
+    public void validate(IntentRoutingEvaluationDataset dataset) {
+        validateDataset(dataset);
+        validatePublishedContract(dataset);
+    }
+
+    /** 根据外部逐条执行结果生成报告，避免 Admin 为了进度观测重复调用模型。 */
+    public IntentRoutingEvaluationReport report(
+            IntentRoutingEvaluationDataset dataset, List<IntentRoutingEvaluatedSample> evaluatedSamples) {
+        validate(dataset);
+        if (evaluatedSamples == null || evaluatedSamples.size() != dataset.samples().size()) {
+            throw invalid("评测结果数量与数据集样本数量不一致");
+        }
+        Map<String, IntentRoutingPreviewResult> resultsBySampleId = new java.util.LinkedHashMap<>();
+        for (IntentRoutingEvaluatedSample evaluatedSample : evaluatedSamples) {
+            if (evaluatedSample == null || evaluatedSample.sampleId() == null
+                    || resultsBySampleId.putIfAbsent(evaluatedSample.sampleId(), evaluatedSample.result()) != null) {
+                throw invalid("评测结果包含空值或重复sampleId");
+            }
+        }
+        List<SampleResult> results = new ArrayList<>(dataset.samples().size());
+        for (IntentRoutingEvaluationSample sample : dataset.samples()) {
+            IntentRoutingPreviewResult result = resultsBySampleId.get(sample.getId());
+            validatePreviewResult(dataset, result);
+            results.add(new SampleResult(sample, result));
+        }
+        if (resultsBySampleId.size() != results.size()) {
+            throw invalid("评测结果包含数据集之外的sampleId");
+        }
+        return buildReport(dataset, results);
+    }
+
+    private static IntentRoutingEvaluationReport buildReport(
             IntentRoutingEvaluationDataset dataset, List<SampleResult> results) {
         long expectedCandidateCount = results.stream()
                 .mapToLong(item -> item.sample().expectedIntentCodes().size())

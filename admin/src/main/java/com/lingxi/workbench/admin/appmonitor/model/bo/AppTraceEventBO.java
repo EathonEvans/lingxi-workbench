@@ -13,8 +13,15 @@ public class AppTraceEventBO {
     private String stage;
     private String status;
     private Long latencyMs;
+    private Long modelInstanceId;
+    private String modelInstanceCode;
     private String modelCode;
+    private String modelProviderName;
+    private Integer modelCallNo;
+    private Integer promptTokens;
+    private Integer completionTokens;
     private String toolName;
+    private Long firstResponseMs;
     private String errorCode;
     private OffsetDateTime createdAt;
 }

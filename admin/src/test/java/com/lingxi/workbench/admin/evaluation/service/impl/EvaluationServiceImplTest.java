@@ -2,6 +2,9 @@ package com.lingxi.workbench.admin.evaluation.service.impl;
 
 import com.lingxi.workbench.admin.appmonitor.model.bo.AppTraceBO;
 import com.lingxi.workbench.admin.appmonitor.repo.AppMonitorRepo;
+import com.lingxi.workbench.admin.application.gateway.ApplicationIntentPreviewGateway;
+import com.lingxi.workbench.admin.application.repo.AiApplicationRepo;
+import com.lingxi.workbench.admin.application.repo.AiApplicationVersionRepo;
 import com.lingxi.workbench.admin.evaluation.common.enums.EvaluationMetric;
 import com.lingxi.workbench.admin.evaluation.common.enums.EvaluationSourceStatus;
 import com.lingxi.workbench.admin.evaluation.gateway.LangfuseEvaluationGateway;
@@ -13,6 +16,7 @@ import com.lingxi.workbench.admin.evaluation.model.request.CreateEvaluationScore
 import com.lingxi.workbench.admin.evaluation.model.request.EvaluationOverviewQuery;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationMutationVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationOverviewVO;
+import com.lingxi.workbench.admin.evaluation.repo.EvaluationRunRepo;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.junit.jupiter.api.Test;
@@ -38,7 +42,7 @@ class EvaluationServiceImplTest {
                 new LangfuseOverviewResult(EvaluationSourceStatus.AVAILABLE, "评测数据已同步", List.of(
                         new LangfuseMetricBO("lingxi.correctness", 4, 3, 4.5),
                         new LangfuseMetricBO("lingxi.relevance", 2, 1, 3.0)), 3));
-        EvaluationServiceImpl service = new EvaluationServiceImpl(gateway, mock(AppMonitorRepo.class));
+        EvaluationServiceImpl service = service(gateway, mock(AppMonitorRepo.class));
 
         EvaluationOverviewVO result = service.overview(new EvaluationOverviewQuery());
 
@@ -52,7 +56,7 @@ class EvaluationServiceImplTest {
     void shouldRejectScoreForUnknownTrace() {
         AppMonitorRepo monitorRepo = mock(AppMonitorRepo.class);
         when(monitorRepo.trace("0123456789abcdef")).thenReturn(Optional.empty());
-        EvaluationServiceImpl service = new EvaluationServiceImpl(mock(LangfuseEvaluationGateway.class), monitorRepo);
+        EvaluationServiceImpl service = service(mock(LangfuseEvaluationGateway.class), monitorRepo);
 
         assertThatThrownBy(() -> service.createScore(scoreRequest(), 7L))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
@@ -71,7 +75,7 @@ class EvaluationServiceImplTest {
         when(gateway.createScore(any(CreateEvaluationScoreRequest.class),
                 eq(new EvaluationTraceContext(trace.getTraceId(), 12L, "求职助手")), eq(7L)))
                 .thenReturn(new LangfuseMutationResult(EvaluationSourceStatus.AVAILABLE, "评分已记录", "score-1"));
-        EvaluationServiceImpl service = new EvaluationServiceImpl(gateway, monitorRepo);
+        EvaluationServiceImpl service = service(gateway, monitorRepo);
 
         EvaluationMutationVO result = service.createScore(scoreRequest(), 7L);
 
@@ -86,5 +90,17 @@ class EvaluationServiceImplTest {
         request.setValue(BigDecimal.valueOf(4));
         request.setComment("结果正确");
         return request;
+    }
+
+    private static EvaluationServiceImpl service(
+            LangfuseEvaluationGateway gateway, AppMonitorRepo monitorRepo) {
+        return new EvaluationServiceImpl(
+                gateway,
+                monitorRepo,
+                mock(EvaluationRunRepo.class),
+                mock(AiApplicationRepo.class),
+                mock(AiApplicationVersionRepo.class),
+                mock(ApplicationIntentPreviewGateway.class),
+                Runnable::run);
     }
 }

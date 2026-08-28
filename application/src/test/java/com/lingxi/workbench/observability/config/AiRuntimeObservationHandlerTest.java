@@ -77,6 +77,12 @@ class AiRuntimeObservationHandlerTest {
         context.addLowCardinalityKeyValue(KeyValue.of("lingxi.runtime.operation", "wait_async_results"));
         context.addHighCardinalityKeyValue(KeyValue.of("lingxi.runtime.operation.name", "结果等待"));
         context.addHighCardinalityKeyValue(KeyValue.of("lingxi.runtime.invocation.id", "invocation-1"));
+        context.addHighCardinalityKeyValue(KeyValue.of("lingxi.runtime.model.first_response_ms", "730"));
+        context.addHighCardinalityKeyValue(KeyValue.of("lingxi.runtime.model.instance_id", "9"));
+        context.addHighCardinalityKeyValue(KeyValue.of("lingxi.runtime.model.code", "test-model"));
+        context.addHighCardinalityKeyValue(KeyValue.of("lingxi.runtime.model.call_no", "2"));
+        context.addHighCardinalityKeyValue(KeyValue.of("lingxi.runtime.model.input_tokens", "1200"));
+        context.addHighCardinalityKeyValue(KeyValue.of("lingxi.runtime.model.output_tokens", "240"));
         context.addHighCardinalityKeyValue(KeyValue.of("lingxi.runtime.error.code", "AGENTSCOPE_COORDINATION_ERROR"));
         context.addHighCardinalityKeyValue(KeyValue.of("agentscope.tool.arguments", "private"));
         context.setError(new IllegalStateException("internal"));
@@ -92,6 +98,12 @@ class AiRuntimeObservationHandlerTest {
         assertThat(event.getMetadata().getString("runtimePhase")).isEqualTo("COORDINATION");
         assertThat(event.getMetadata().getString("runtimeOperation")).isEqualTo("wait_async_results");
         assertThat(event.getMetadata().getString("runtimeOperationName")).isEqualTo("结果等待");
+        assertThat(event.getMetadata().getLong("modelFirstResponseMs")).isEqualTo(730L);
+        assertThat(event.getMetadata().getLong("modelInstanceId")).isEqualTo(9L);
+        assertThat(event.getMetadata().getInteger("modelCallNo")).isEqualTo(2);
+        assertThat(event.getModelCode()).isEqualTo("test-model");
+        assertThat(event.getPromptTokens()).isEqualTo(1200);
+        assertThat(event.getCompletionTokens()).isEqualTo(240);
         assertThat(event.getMetadata().getString("runtimeErrorCode")).isEqualTo("AGENTSCOPE_COORDINATION_ERROR");
         assertThat(event.getMetadata()).doesNotContainKeys("arguments", "result");
     }

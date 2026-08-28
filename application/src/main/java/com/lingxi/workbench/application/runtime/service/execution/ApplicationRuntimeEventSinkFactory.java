@@ -372,6 +372,9 @@ public class ApplicationRuntimeEventSinkFactory {
             }
             if (event.getPayload() instanceof ExecutionEventPayload.Model model) {
                 observation.highCardinalityKeyValue("lingxi.runtime.model.call_no", String.valueOf(model.callNo()));
+                observation.highCardinalityKeyValue("lingxi.runtime.model.instance_id",
+                        String.valueOf(model.modelInstanceId()));
+                observation.highCardinalityKeyValue("lingxi.runtime.model.code", model.modelCode());
             }
             observation.start();
             Observation previous = activeObservations.putIfAbsent(phase.key(), observation);
@@ -386,6 +389,14 @@ public class ApplicationRuntimeEventSinkFactory {
             if (Objects.isNull(observation)) {
                 return;
             }
+            if (event.getPayload() instanceof ExecutionEventPayload.Model model
+                    && Objects.nonNull(model.firstResponseMillis())) {
+                observation.highCardinalityKeyValue("lingxi.runtime.model.first_response_ms",
+                        String.valueOf(model.firstResponseMillis()));
+            }
+            if (event.getPayload() instanceof ExecutionEventPayload.Model model) {
+                addTokenUsage(observation, model.usage());
+            }
             if (event.getType() == com.lingxi.workbench.agentruntime.event.ExecutionEventType.TOOL_FAILED
                     || event.getType()
                     == com.lingxi.workbench.agentruntime.event.ExecutionEventType.COORDINATION_FAILED) {
@@ -393,6 +404,18 @@ public class ApplicationRuntimeEventSinkFactory {
                 observation.error(new IllegalStateException("RUNTIME_PHASE_FAILED"));
             }
             observation.stop();
+        }
+
+        private static void addTokenUsage(Observation observation,
+                                          com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage usage) {
+            if (Objects.nonNull(usage.inputTokens())) {
+                observation.highCardinalityKeyValue("lingxi.runtime.model.input_tokens",
+                        String.valueOf(usage.inputTokens()));
+            }
+            if (Objects.nonNull(usage.outputTokens())) {
+                observation.highCardinalityKeyValue("lingxi.runtime.model.output_tokens",
+                        String.valueOf(usage.outputTokens()));
+            }
         }
 
         private void closeIncomplete() {

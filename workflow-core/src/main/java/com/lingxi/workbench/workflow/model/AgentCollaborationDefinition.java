@@ -10,8 +10,8 @@ import java.util.List;
  *   <li><b>协作关系属于 Application，不属于 Agent</b>：
  *       Agent 自身只维护独立的模型、Prompt、工具和知识库配置。
  *       谁担任 Supervisor、可以委派给谁，由 Application 在发布时决定。</li>
- *   <li><b>发布时冻结</b>：Application 发布时，Supervisor 和成员 Agent 的当前生效版本
- *       被解析并写入 {@link ApplicationAgentReference#agentVersionId()}，
+ *   <li><b>发布时冻结</b>：Application 草稿明确选择 Supervisor 和成员 Agent 的正式版本，
+ *       发布时校验并写入 {@link ApplicationAgentReference#agentVersionId()}，
  *       之后任一 Agent 发布新版本都不影响该 ApplicationVersion。</li>
  *   <li><b>V1 单层委派</b>：当前只支持 Supervisor → 成员 Agent 的一级委派，
  *       成员 Agent 不再继续委派。深度固定为 1。</li>
@@ -21,7 +21,7 @@ import java.util.List;
  * 领域专家只处理被分配的具体业务任务，不能继续委派。</p>
  *
  * @param supervisor Supervisor Agent 的快照引用，含 agentId、agentVersionId、名称和职责描述
- * @param members 发布时根据领域范围解析的专家版本快照；草稿阶段为空
+ * @param members 草稿按领域范围配置的专家版本引用；发布时补齐名称和职责描述
  * @param excludedDomainIds 草稿中明确排除的领域主键
  * @param excludedAgentIds 草稿中明确排除的专家 Agent 主键
  */

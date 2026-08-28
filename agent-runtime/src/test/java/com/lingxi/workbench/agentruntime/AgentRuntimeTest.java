@@ -151,12 +151,12 @@ class AgentRuntimeTest {
             ExecutionEvents events = context.get(ExecutionEvents.class);
             assertTrue(budget.isFinalizationRequested());
             int callNo = budget.reserveFinalModelCall();
-            events.modelStarted(callNo, true);
+            events.modelStarted(callNo, 9L, "test-model", true);
             return Flux.just(new ChatStreamChunk("收尾回答", TokenUsage.of(5, 2, 7)))
                     .doOnComplete(() -> {
                         TokenUsage usage = TokenUsage.of(5, 2, 7);
                         budget.completeModelCall(usage);
-                        events.modelCompleted(callNo, usage, true);
+                        events.modelCompleted(callNo, 9L, "test-model", usage, true, null);
                     });
         }));
         RecordingSink sink = new RecordingSink();
@@ -288,11 +288,11 @@ class AgentRuntimeTest {
             ExecutionEvents events = context.get(ExecutionEvents.class);
             int callNo = budget.reserveModelCall();
             tools.startModelRound();
-            events.modelStarted(callNo, false);
+            events.modelStarted(callNo, 9L, "test-model", false);
             return chunks.doOnComplete(() -> {
                 TokenUsage usage = TokenUsage.of(8, 2, 10);
                 budget.completeModelCall(usage);
-                events.modelCompleted(callNo, usage, false);
+                events.modelCompleted(callNo, 9L, "test-model", usage, false, null);
             });
         }));
         return gateway;

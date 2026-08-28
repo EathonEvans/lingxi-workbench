@@ -46,9 +46,10 @@ import org.springframework.stereotype.Component;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.HexFormat;
-import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -66,7 +67,7 @@ import static com.lingxi.workbench.workflow.common.constants.IntentRoutingConsta
 /**
  * Application 发布校验与引用解析。
  *
- * <p>草稿允许 AgentVersion 为空；发布快照必须解析并锁定不可变版本。</p>
+ * <p>草稿明确选择 AgentVersion；发布时校验归属并冻结不可变版本快照。</p>
  */
 @Component
 @RequiredArgsConstructor
@@ -828,7 +829,7 @@ public class ApplicationDraftValidator {
             return null;
         }
         ApplicationAgentReference supervisor = resolveCollaborationAgent(
-                draft.supervisor(), null, AgentRole.SUPERVISOR, "definition.collaboration.supervisor", issues);
+                draft.supervisor(), AgentRole.SUPERVISOR, "definition.collaboration.supervisor", issues);
         validateSupervisorDomain(supervisor, root, issues);
 
         List<DomainEntity> domains = Objects.isNull(root) ? List.of() : domainRepo.findActiveByRootId(root.getId());
@@ -839,18 +840,27 @@ public class ApplicationDraftValidator {
         List<AgentReferenceService.AgentReference> candidates = agentReferenceService.listPublishedSpecialists(allDomainIds);
         Set<Long> excludedAgentIds = resolveExcludedAgents(draft.excludedAgentIds(), candidates, issues);
 
+        Map<Long, ApplicationAgentReference> requestedMembers = resolveRequestedMembers(draft.members(), issues);
         List<ApplicationAgentReference> members = new ArrayList<>();
         for (AgentReferenceService.AgentReference candidate : candidates) {
             if (excludedDomainIds.contains(candidate.domainId()) || excludedAgentIds.contains(candidate.identity().id())) {
                 continue;
             }
-            ApplicationAgentReference reference = new ApplicationAgentReference(candidate.identity().id(), null, null, null);
+            ApplicationAgentReference reference = requestedMembers.remove(candidate.identity().id());
+            if (Objects.isNull(reference)) {
+                issues.add(issue("COLLABORATION_MEMBER_VERSION_REQUIRED", "definition.collaboration.members",
+                        "请选择领域专家的正式版本"));
+                continue;
+            }
             ApplicationAgentReference resolved = resolveCollaborationAgent(
-                    reference, candidate.publishedVersionId(), AgentRole.SPECIALIST,
-                    "definition.collaboration.members", issues);
+                    reference, AgentRole.SPECIALIST, "definition.collaboration.members", issues);
             if (Objects.nonNull(resolved)) {
                 members.add(resolved);
             }
+        }
+        if (!requestedMembers.isEmpty()) {
+            issues.add(issue("COLLABORATION_MEMBER_OUT_OF_SCOPE", "definition.collaboration.members",
+                    "领域专家不属于Application当前可用范围"));
         }
         members.sort(Comparator.comparing(ApplicationAgentReference::name)
                 .thenComparing(ApplicationAgentReference::agentId));
@@ -912,7 +922,26 @@ public class ApplicationDraftValidator {
         return excludedIds;
     }
 
-    private ApplicationAgentReference resolveCollaborationAgent(ApplicationAgentReference reference, Long lockedVersionId, AgentRole expectedType, String field, List<ApplicationValidationIssueVO> issues) {
+    private static Map<Long, ApplicationAgentReference> resolveRequestedMembers(
+            List<ApplicationAgentReference> requestedMembers, List<ApplicationValidationIssueVO> issues) {
+        Map<Long, ApplicationAgentReference> memberByAgentId = new LinkedHashMap<>();
+        for (ApplicationAgentReference member : requestedMembers) {
+            if (Objects.isNull(member) || Objects.isNull(member.agentId())) {
+                issues.add(issue("COLLABORATION_MEMBER_INVALID", "definition.collaboration.members",
+                        "领域专家配置缺少Agent主键"));
+                continue;
+            }
+            if (Objects.nonNull(memberByAgentId.putIfAbsent(member.agentId(), member))) {
+                issues.add(issue("COLLABORATION_MEMBER_DUPLICATED", "definition.collaboration.members",
+                        "同一领域专家不能重复配置"));
+            }
+        }
+        return memberByAgentId;
+    }
+
+    private ApplicationAgentReference resolveCollaborationAgent(ApplicationAgentReference reference,
+                                                                 AgentRole expectedType, String field,
+                                                                 List<ApplicationValidationIssueVO> issues) {
         AgentReferenceService.AgentReference agent = agentReferenceService.findAgent(reference.agentId()).orElse(null);
         if (Objects.isNull(agent)) {
             issues.add(issue("COLLABORATION_AGENT_NOT_FOUND", field, "协作Agent不存在"));
@@ -929,10 +958,9 @@ public class ApplicationDraftValidator {
             issues.add(issue("COLLABORATION_AGENT_ROLE_INVALID", field, message));
             return null;
         }
-        // 草稿只关联 Agent 主体，Application 发布时统一锁定当前正式版本。
-        Long versionId = Objects.requireNonNullElse(lockedVersionId, agent.publishedVersionId());
+        Long versionId = reference.agentVersionId();
         if (Objects.isNull(versionId)) {
-            issues.add(issue("COLLABORATION_AGENT_UNPUBLISHED", field, "协作Agent尚无生效版本"));
+            issues.add(issue("COLLABORATION_AGENT_VERSION_REQUIRED", field, "请选择协作Agent的正式版本"));
             return null;
         }
         AgentReferenceService.AgentVersionReference resolvedVersion =

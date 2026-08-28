@@ -148,7 +148,8 @@ public class AgentScopeSupervisorGateway {
                 .stateStore(prepareStateStore(context))
                 .enablePendingToolRecovery(false)
                 .enableTaskList()
-                .middleware(new AgentScopeRuntimeModelMiddleware())
+                .middleware(new AgentScopeRuntimeModelMiddleware(request.getModelCommand().modelConfig().getInstanceId(),
+                        request.getModelCommand().modelConfig().getModelCode()))
                 .middleware(new AgentScopeCoordinationMiddleware(events))
                 .middleware(new TaskReminderMiddleware())
                 .middleware(new SupervisorTaskProjectionMiddleware(session))
