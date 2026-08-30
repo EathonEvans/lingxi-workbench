@@ -27,6 +27,7 @@ type ExecutionTraceProps = {
   streaming: boolean;
   subAgents?: ChatSubAgentEvent[];
   stepOutputs?: ChatStepOutputEvent[];
+  stopped?: boolean;
   timeline?: ChatExecutionTimelineEvent[];
   tools?: ChatToolEvent[];
   waiting?: boolean;
@@ -80,13 +81,15 @@ function findRunTerminal(timeline: ChatExecutionTimelineEvent[]) {
 function resolvePlanStepStatus(
   status: PlanStepStatus | undefined,
   failed: boolean,
+  stopped: boolean,
   terminalType: ChatExecutionTimelineEvent["eventType"] | undefined,
 ): PlanStepStatus {
   const current = status ?? "PENDING";
   const runFailed = failed || terminalType === "RUN_FAILED";
+  const runStopped = stopped || terminalType === "RUN_CANCELLED";
   if (runFailed && current === "RUNNING") return "FAILED";
-  if (terminalType === "RUN_CANCELLED" && current === "RUNNING") return "CANCELLED";
-  if ((runFailed || terminalType === "RUN_CANCELLED") && current === "PENDING") return "SKIPPED";
+  if (runStopped && current === "RUNNING") return "CANCELLED";
+  if ((runFailed || runStopped) && current === "PENDING") return "SKIPPED";
   return current;
 }
 
@@ -182,6 +185,7 @@ function subAgentOperation(agent: ChatSubAgentEvent) {
 function traceSummary(
   failed: boolean,
   errorMessage: string | undefined,
+  stopped: boolean,
   waiting: boolean,
   streaming: boolean,
   toolGroups: ToolGroup[],
@@ -194,6 +198,12 @@ function traceSummary(
   if (failed) {
     return {
       label: errorMessage || "处理失败",
+      status: "failed",
+    };
+  }
+  if (stopped) {
+    return {
+      label: errorMessage || "处理已停止",
       status: "failed",
     };
   }
@@ -272,6 +282,7 @@ export default function ExecutionTrace({
   streaming,
   subAgents = [],
   stepOutputs = [],
+  stopped = false,
   timeline = [],
   tools = [],
   waiting = false,
@@ -283,6 +294,7 @@ export default function ExecutionTrace({
   const summary = traceSummary(
     failed,
     errorMessage,
+    stopped,
     waiting,
     streaming,
     toolGroups,
@@ -392,6 +404,7 @@ export default function ExecutionTrace({
                 const status = resolvePlanStepStatus(
                   statusByStep.get(step.stepId),
                   failed,
+                  stopped,
                   terminal?.eventType,
                 );
                 const output = outputByStep.get(step.stepId)?.trim();

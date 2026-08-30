@@ -825,6 +825,7 @@ export default function WorkbenchShell() {
                           progress={message.progress}
                           subAgents={message.subAgents}
                           stepOutputs={message.stepOutputs}
+                          stopped={message.status === "stopped"}
                           timeline={message.timeline}
                           tools={message.tools}
                           waiting={message.status === "waiting"}

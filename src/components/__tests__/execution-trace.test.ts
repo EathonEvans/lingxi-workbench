@@ -223,6 +223,39 @@ describe("ExecutionTrace", () => {
     expect(html).not.toContain('data-status="RUNNING"');
   });
 
+  it("用户拒绝审批后停止当前步骤并跳过未开始步骤", () => {
+    const html = renderToStaticMarkup(createElement(ExecutionTrace, {
+      errorMessage: "已拒绝该操作，本轮任务已结束",
+      stopped: true,
+      streaming: true,
+      timeline: [{
+        eventType: "PLAN_CREATED",
+        planNo: 1,
+        runId: "run-rejected",
+        sequence: 1,
+        steps: [{
+          capabilityCode: "career_coach",
+          name: "总结高级Java工程师能力",
+          status: "RUNNING",
+          stepId: "career-summary",
+        }, {
+          capabilityCode: "",
+          name: "给出准备建议",
+          status: "PENDING",
+          stepId: "final-advice",
+        }],
+      }],
+    }));
+
+    expect(html).toContain("已拒绝该操作，本轮任务已结束");
+    expect(html).toContain("总结高级Java工程师能力");
+    expect(html).toContain("已停止");
+    expect(html).toContain("给出准备建议");
+    expect(html).toContain("未执行");
+    expect(html).not.toContain("执行中");
+    expect(html).not.toContain('data-status="RUNNING"');
+  });
+
   it("非计划执行只展示原有进度，不额外创建执行计划", () => {
     const html = renderToStaticMarkup(createElement(ExecutionTrace, {
       progress: [{
