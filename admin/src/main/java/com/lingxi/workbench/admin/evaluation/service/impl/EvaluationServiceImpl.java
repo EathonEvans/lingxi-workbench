@@ -30,6 +30,7 @@ import com.lingxi.workbench.admin.evaluation.model.request.CreateEvaluationScore
 import com.lingxi.workbench.admin.evaluation.model.request.CreateEvaluationRunRequest;
 import com.lingxi.workbench.admin.evaluation.model.request.EvaluationDatasetQuery;
 import com.lingxi.workbench.admin.evaluation.model.request.EvaluationOverviewQuery;
+import com.lingxi.workbench.admin.evaluation.model.request.EvaluationReadinessRequest;
 import com.lingxi.workbench.admin.evaluation.model.request.EvaluationScoreQuery;
 import com.lingxi.workbench.admin.evaluation.model.request.EvaluationRunQuery;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationDatasetPageVO;
@@ -39,6 +40,7 @@ import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationCaseVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationMetricVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationMutationVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationOverviewVO;
+import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationReadinessVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationScorePageVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationScoreVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationRunDetailVO;
@@ -206,6 +208,21 @@ public class EvaluationServiceImpl implements EvaluationService {
     }
 
     @Override
+    public EvaluationReadinessVO readiness(EvaluationReadinessRequest request, Long operatorId) {
+        OffsetDateTime datasetVersion = OffsetDateTime.now(ZoneOffset.UTC);
+        int sampleCount = 0;
+        try {
+            JSONObject dataset = loadDatasetSnapshot(request.applicationId(), request.applicationVersionId(),
+                    request.datasetName(), operatorId, datasetVersion);
+            sampleCount = dataset.getJSONArray("samples").size();
+            intentPreviewGateway.validateEvaluation(dataset);
+            return new EvaluationReadinessVO(true, sampleCount, "已满足当前生产门禁，可以发起评测");
+        } catch (BusinessException exception) {
+            return new EvaluationReadinessVO(false, sampleCount, exception.getMessage());
+        }
+    }
+
+    @Override
     public EvaluationRunVO createRun(CreateEvaluationRunRequest request, Long operatorId) {
         AiApplicationEntity application = applicationRepo.findById(request.getApplicationId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "Application不存在"));
@@ -213,15 +230,8 @@ public class EvaluationServiceImpl implements EvaluationService {
                         request.getApplicationId(), request.getApplicationVersionId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "ApplicationVersion不存在"));
         OffsetDateTime datasetVersion = OffsetDateTime.now(ZoneOffset.UTC);
-        LangfuseDatasetItemsResult items;
-        try {
-            items = evaluationGateway.datasetItems(request.getDatasetName().trim(), datasetVersion);
-        } catch (IllegalArgumentException exception) {
-            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, exception.getMessage());
-        }
-        requireDatasetItems(items);
-        JSONObject dataset = buildDatasetSnapshot(
-                request, operatorId, datasetVersion, items.getItems());
+        JSONObject dataset = loadDatasetSnapshot(request.getApplicationId(), request.getApplicationVersionId(),
+                request.getDatasetName(), operatorId, datasetVersion);
         intentPreviewGateway.validateEvaluation(dataset);
 
         EvaluationRunEntity run = new EvaluationRunEntity();
@@ -231,7 +241,7 @@ public class EvaluationServiceImpl implements EvaluationService {
         run.setDatasetName(request.getDatasetName().trim());
         run.setDatasetVersion(datasetVersion);
         run.setStatus(EvaluationRunStatus.PENDING);
-        run.setSampleCount(items.getItems().size());
+        run.setSampleCount(dataset.getJSONArray("samples").size());
         run.setCompletedCount(0);
         run.setPassedCount(0);
         run.setFailedCount(0);
@@ -322,16 +332,29 @@ public class EvaluationServiceImpl implements EvaluationService {
         }
     }
 
-    private JSONObject buildDatasetSnapshot(CreateEvaluationRunRequest request, Long operatorId,
-                                            OffsetDateTime datasetVersion,
+    private JSONObject loadDatasetSnapshot(Long applicationId, Long applicationVersionId, String datasetName,
+                                           Long operatorId, OffsetDateTime datasetVersion) {
+        LangfuseDatasetItemsResult items;
+        try {
+            items = evaluationGateway.datasetItems(datasetName.trim(), datasetVersion);
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, exception.getMessage());
+        }
+        requireDatasetItems(items);
+        return buildDatasetSnapshot(applicationId, applicationVersionId, datasetName,
+                operatorId, datasetVersion, items.getItems());
+    }
+
+    private JSONObject buildDatasetSnapshot(Long applicationId, Long applicationVersionId, String datasetName,
+                                            Long operatorId, OffsetDateTime datasetVersion,
                                             List<LangfuseDatasetItemBO> items) {
         JSONObject dataset = intentPreviewGateway.evaluationTemplate(
-                request.getApplicationId(), request.getApplicationVersionId(), datasetVersion.toInstant().toString());
+                applicationId, applicationVersionId, datasetVersion.toInstant().toString());
         dataset.put("labelingOwner", String.valueOf(operatorId));
         dataset.put("labeledAt", Instant.now().toString());
-        dataset.put("sourceDescription", "Langfuse数据集：" + request.getDatasetName().trim());
+        dataset.put("sourceDescription", "Langfuse数据集：" + datasetName.trim());
         dataset.put("samples", items.stream()
-                .map(item -> toEvaluationSample(request.getApplicationId(), item))
+                .map(item -> toEvaluationSample(applicationId, item))
                 .toList());
         return dataset;
     }

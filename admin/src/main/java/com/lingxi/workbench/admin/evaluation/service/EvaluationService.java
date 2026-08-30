@@ -6,11 +6,13 @@ import com.lingxi.workbench.admin.evaluation.model.request.CreateEvaluationScore
 import com.lingxi.workbench.admin.evaluation.model.request.CreateEvaluationRunRequest;
 import com.lingxi.workbench.admin.evaluation.model.request.EvaluationDatasetQuery;
 import com.lingxi.workbench.admin.evaluation.model.request.EvaluationOverviewQuery;
+import com.lingxi.workbench.admin.evaluation.model.request.EvaluationReadinessRequest;
 import com.lingxi.workbench.admin.evaluation.model.request.EvaluationScoreQuery;
 import com.lingxi.workbench.admin.evaluation.model.request.EvaluationRunQuery;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationDatasetPageVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationMutationVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationOverviewVO;
+import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationReadinessVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationScorePageVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationRunDetailVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationRunVO;
@@ -37,6 +39,8 @@ public interface EvaluationService {
     PageResult<EvaluationRunVO> runs(EvaluationRunQuery query);
 
     EvaluationRunDetailVO runDetail(Long runId);
+
+    EvaluationReadinessVO readiness(EvaluationReadinessRequest request, Long operatorId);
 
     EvaluationRunVO createRun(CreateEvaluationRunRequest request, Long operatorId);
 

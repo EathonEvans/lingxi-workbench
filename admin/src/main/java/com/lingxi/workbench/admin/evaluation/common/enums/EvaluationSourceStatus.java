@@ -4,5 +4,6 @@ package com.lingxi.workbench.admin.evaluation.common.enums;
 public enum EvaluationSourceStatus {
     AVAILABLE,
     DISABLED,
+    MISCONFIGURED,
     UNAVAILABLE
 }

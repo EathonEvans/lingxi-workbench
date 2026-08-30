@@ -43,7 +43,7 @@ lingxi:
     token: ${LINGXI_INTERNAL_OPS_TOKEN:YU1xZXA1T21TTkRlQVl4TkU2Zm5YSGRHd3dINzhVcjQ}
     timeout: ${LINGXI_INTENT_PREVIEW_TIMEOUT:30s}
   langfuse:
-    api-enabled: ${LINGXI_LANGFUSE_API_ENABLED:false}
+    api-enabled: ${LINGXI_LANGFUSE_API_ENABLED:true}
     base-url: ${LINGXI_LANGFUSE_BASE_URL:}
     public-key: ${LINGXI_LANGFUSE_PUBLIC_KEY:}
     secret-key: ${LINGXI_LANGFUSE_SECRET_KEY:}

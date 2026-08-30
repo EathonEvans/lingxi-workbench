@@ -64,8 +64,8 @@ class IntentEvaluationIsolationTest {
     }
 
     @Test
-    void shouldKeepOfflineCommandAndServiceOutsideProductionComponentScan() {
+    void shouldOnlyKeepOfflineCommandOutsideProductionComponentScan() {
         assertThat(AnnotatedElementUtils.findMergedAnnotation(IntentEvaluationCommand.class, Component.class)).isNull();
-        assertThat(AnnotatedElementUtils.findMergedAnnotation(IntentEvaluationService.class, Component.class)).isNull();
+        assertThat(AnnotatedElementUtils.findMergedAnnotation(IntentEvaluationService.class, Component.class)).isNotNull();
     }
 }

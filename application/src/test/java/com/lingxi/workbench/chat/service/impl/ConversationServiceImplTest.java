@@ -1,5 +1,6 @@
 package com.lingxi.workbench.chat.service.impl;
 
+import com.lingxi.workbench.application.runtime.service.app.ApplicationVersionService;
 import com.lingxi.workbench.chat.common.enums.ConversationStatus;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
@@ -14,7 +15,7 @@ import com.lingxi.workbench.chat.model.entity.ConversationEntity;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
 import com.lingxi.workbench.chat.repo.ConversationMessageRepo;
 import com.lingxi.workbench.chat.repo.ConversationRepo;
-import com.lingxi.workbench.application.runtime.service.app.ApplicationVersionService;
+import com.lingxi.workbench.framework.exceptions.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -25,7 +26,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -139,6 +142,31 @@ class ConversationServiceImplTest {
         boolean result = service.cancelAssistant(12L, "部分回答", TokenUsage.empty());
 
         assertFalse(result);
+    }
+
+    @Test
+    void shouldAcceptFailedAssistantAsAlreadyClosedWhenExpiringApproval() {
+        ConversationMessageEntity failed = new ConversationMessageEntity();
+        failed.setStatus(MessageStatus.FAILED);
+        when(messageRepo.findById(12L)).thenReturn(Optional.of(failed));
+
+        assertDoesNotThrow(() -> service.cancelWaiting(12L, "APPROVAL_EXPIRED", "审批已过期，本轮任务已结束"));
+
+        verify(messageRepo).cancelWaiting(
+                org.mockito.ArgumentMatchers.eq(12L),
+                org.mockito.ArgumentMatchers.eq("APPROVAL_EXPIRED"),
+                org.mockito.ArgumentMatchers.eq("审批已过期，本轮任务已结束"),
+                org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void shouldRejectClosingApprovalWhileAssistantIsStillGenerating() {
+        ConversationMessageEntity generating = new ConversationMessageEntity();
+        generating.setStatus(MessageStatus.GENERATING);
+        when(messageRepo.findById(12L)).thenReturn(Optional.of(generating));
+
+        assertThrows(BusinessException.class,
+                () -> service.cancelWaiting(12L, "APPROVAL_EXPIRED", "审批已过期，本轮任务已结束"));
     }
 
     @Test

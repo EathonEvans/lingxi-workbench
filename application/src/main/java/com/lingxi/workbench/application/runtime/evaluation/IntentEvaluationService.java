@@ -16,6 +16,7 @@ import com.lingxi.workbench.workflow.model.intent.IntentNodeDefinition;
 import com.lingxi.workbench.workflow.model.intent.IntentNodeType;
 import com.lingxi.workbench.workflow.model.intent.IntentTreeDefinition;
 import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -28,7 +29,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/** 意图候选召回的只读数据集导出和离线评测服务。 */
+/** 意图候选召回的只读数据集导出和评测服务。 */
+@Service
 @RequiredArgsConstructor
 public class IntentEvaluationService {
 

@@ -7,12 +7,14 @@ import com.lingxi.workbench.admin.evaluation.model.request.CreateEvaluationScore
 import com.lingxi.workbench.admin.evaluation.model.request.CreateEvaluationRunRequest;
 import com.lingxi.workbench.admin.evaluation.model.request.EvaluationDatasetQuery;
 import com.lingxi.workbench.admin.evaluation.model.request.EvaluationOverviewQuery;
+import com.lingxi.workbench.admin.evaluation.model.request.EvaluationReadinessRequest;
 import com.lingxi.workbench.admin.evaluation.model.request.EvaluationScoreQuery;
 import com.lingxi.workbench.admin.evaluation.model.request.EvaluationRunQuery;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationDatasetPageVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationCaseListVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationMutationVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationOverviewVO;
+import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationReadinessVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationScorePageVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationRunDetailVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationRunVO;
@@ -97,6 +99,13 @@ public class EvaluationController {
     @SaCheckPermission("evaluation:list")
     public ApiResponse<EvaluationRunDetailVO> runDetail(@PathVariable Long runId) {
         return ApiResponse.success(evaluationService.runDetail(runId));
+    }
+
+    @PostMapping("/runs/readiness")
+    @SaCheckPermission("evaluation:execute")
+    public ApiResponse<EvaluationReadinessVO> readiness(
+            @Valid @RequestBody EvaluationReadinessRequest request) {
+        return ApiResponse.success(evaluationService.readiness(request, UserContext.userId()));
     }
 
     @PostMapping("/runs")

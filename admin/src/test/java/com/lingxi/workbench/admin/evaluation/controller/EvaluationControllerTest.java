@@ -4,10 +4,16 @@ import com.lingxi.workbench.admin.config.SysSaTokenAuthWebConfig;
 import com.lingxi.workbench.admin.config.interceptor.SysAuthenticationInterceptor;
 import com.lingxi.workbench.admin.evaluation.common.enums.EvaluationSourceStatus;
 import com.lingxi.workbench.admin.evaluation.model.request.EvaluationOverviewQuery;
+import com.lingxi.workbench.admin.evaluation.model.request.EvaluationReadinessRequest;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationOverviewVO;
+import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationReadinessVO;
 import com.lingxi.workbench.admin.evaluation.service.EvaluationService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
+import com.lingxi.workbench.framework.context.LoginUser;
+import com.lingxi.workbench.framework.context.UserContext;
 import com.lingxi.workbench.framework.web.GlobalExceptionHandler;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -47,6 +53,16 @@ class EvaluationControllerTest {
 
     @MockitoBean
     private SysAuthenticationInterceptor sysAuthenticationInterceptor;
+
+    @BeforeEach
+    void setUpUserContext() {
+        UserContext.set(new LoginUser(7L, "tester", "测试用户", null));
+    }
+
+    @AfterEach
+    void clearUserContext() {
+        UserContext.clear();
+    }
 
     @Test
     void shouldReturnEvaluationOverview() throws Exception {
@@ -91,5 +107,21 @@ class EvaluationControllerTest {
                 .andExpect(jsonPath("$.code").value(HttpStatusEnum.BAD_REQUEST.getCode()));
 
         verifyNoInteractions(evaluationService);
+    }
+
+    @Test
+    void shouldReturnEvaluationReadinessWithoutStartingRun() throws Exception {
+        when(evaluationService.readiness(any(EvaluationReadinessRequest.class), any()))
+                .thenReturn(new EvaluationReadinessVO(false, 42, "V2生产门禁样本不得少于300条"));
+
+        mockMvc.perform(post("/api/v1/evaluations/runs/readiness")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"applicationId":12,"applicationVersionId":20,"datasetName":"求职基线"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.ready").value(false))
+                .andExpect(jsonPath("$.data.sampleCount").value(42))
+                .andExpect(jsonPath("$.data.message").value("V2生产门禁样本不得少于300条"));
     }
 }

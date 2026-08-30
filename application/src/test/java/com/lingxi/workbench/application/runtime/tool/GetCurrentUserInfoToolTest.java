@@ -20,6 +20,11 @@ class GetCurrentUserInfoToolTest {
     private final GetCurrentUserInfoTool tool = new GetCurrentUserInfoTool(userMapper);
 
     @Test
+    void shouldExposeNarrowModelVisibleContract() {
+        assertEquals(GetCurrentUserInfoTool.DESCRIPTION, tool.definition().getDescription());
+    }
+
+    @Test
     void shouldReadUserIdFromTrustedContextAndReturnUserInfo() {
         UserEntity user = new UserEntity();
         user.setDisplayName("灵犀用户");

@@ -25,6 +25,9 @@ import static com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecution
 @RequiredArgsConstructor
 public class GetCurrentUserInfoTool implements AgentTool {
 
+    static final String DESCRIPTION = "仅当用户明确要求查询当前登录账号的显示名称或头像时调用。"
+            + "仅返回显示名称和头像；不得用于获取简历、JD、候选人事实或回答通用求职问题。";
+
     private final UserMapper userMapper;
 
     @Override
@@ -32,7 +35,7 @@ public class GetCurrentUserInfoTool implements AgentTool {
         return AgentToolDefinition.builder()
                 .code("get_current_user_info")
                 .displayName("获取当前用户信息")
-                .description("根据当前对话用户ID查询用户基本信息")
+                .description(DESCRIPTION)
                 .executionMode(DETERMINISTIC_READ_ONLY)
                 .build();
     }

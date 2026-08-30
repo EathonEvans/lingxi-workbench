@@ -267,7 +267,7 @@ public class ConversationServiceImpl implements ConversationService {
     public void cancelWaiting(Long assistantMessageId, String code, String message) {
         if (!messageRepo.cancelWaiting(assistantMessageId, code, truncate(message, 255), OffsetDateTime.now())) {
             MessageStatus status = findCurrentStatus(assistantMessageId);
-            if (status != MessageStatus.CANCELLED) {
+            if (status == MessageStatus.GENERATING || status == MessageStatus.WAITING_HUMAN) {
                 throw new BusinessException(HttpStatusEnum.CONFLICT, "Assistant消息等待状态已变化");
             }
         }

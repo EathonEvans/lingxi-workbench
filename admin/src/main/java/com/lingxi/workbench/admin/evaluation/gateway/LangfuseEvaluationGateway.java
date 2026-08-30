@@ -510,16 +510,34 @@ public class LangfuseEvaluationGateway {
         if (!properties.isApiEnabled()) {
             return EvaluationSourceStatus.DISABLED;
         }
-        if (CharSequenceUtil.isBlank(properties.getBaseUrl())
-                || CharSequenceUtil.isBlank(properties.getPublicKey())
-                || CharSequenceUtil.isBlank(properties.getSecretKey())) {
-            return EvaluationSourceStatus.UNAVAILABLE;
+        if (!missingConfigurationItems().isEmpty()) {
+            return EvaluationSourceStatus.MISCONFIGURED;
         }
         return EvaluationSourceStatus.AVAILABLE;
     }
 
-    private static String configurationMessage(EvaluationSourceStatus status) {
-        return status == EvaluationSourceStatus.DISABLED ? "评测数据查询未启用" : "评测数据源配置不完整";
+    private String configurationMessage(EvaluationSourceStatus status) {
+        if (status == EvaluationSourceStatus.DISABLED) {
+            return "评测数据源未启用，请设置 LINGXI_LANGFUSE_API_ENABLED=true 后重启 Admin 后端";
+        }
+        if (status == EvaluationSourceStatus.MISCONFIGURED) {
+            return "评测数据源缺少配置：" + String.join("、", missingConfigurationItems()) + "；补齐后重启 Admin 后端";
+        }
+        return "评测数据源暂不可用";
+    }
+
+    private List<String> missingConfigurationItems() {
+        List<String> missingItems = new ArrayList<>();
+        if (CharSequenceUtil.isBlank(properties.getBaseUrl())) {
+            missingItems.add("服务地址（LINGXI_LANGFUSE_BASE_URL）");
+        }
+        if (CharSequenceUtil.isBlank(properties.getPublicKey())) {
+            missingItems.add("Public Key（LINGXI_LANGFUSE_PUBLIC_KEY）");
+        }
+        if (CharSequenceUtil.isBlank(properties.getSecretKey())) {
+            missingItems.add("Secret Key（LINGXI_LANGFUSE_SECRET_KEY）");
+        }
+        return missingItems;
     }
 
     private static void append(StringBuilder path, String name, String value) {

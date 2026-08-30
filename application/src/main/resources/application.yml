@@ -70,7 +70,7 @@ sa-token:
 
 lingxi:
   intent-evaluation:
-    enabled: ${LINGXI_INTENT_EVALUATION_ENABLED:false}
+    enabled: ${LINGXI_INTENT_EVALUATION_ENABLED:true}
     base-url: ${LINGXI_APPLICATION_BASE_URL:http://127.0.0.1:8080}
     token: ${LINGXI_INTERNAL_OPS_TOKEN:YU1xZXA1T21TTkRlQVl4TkU2Zm5YSGRHd3dINzhVcjQ}
     timeout: ${LINGXI_INTENT_EVALUATION_TIMEOUT:60s}

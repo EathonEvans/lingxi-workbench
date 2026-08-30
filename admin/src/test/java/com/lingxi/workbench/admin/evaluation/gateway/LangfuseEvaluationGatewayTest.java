@@ -27,6 +27,22 @@ class LangfuseEvaluationGatewayTest {
     }
 
     @Test
+    void shouldExposeMissingConfigurationWithoutCallingExternalApi() {
+        LangfuseProperties properties = new LangfuseProperties();
+        properties.setApiEnabled(true);
+        LangfuseEvaluationGateway gateway = new LangfuseEvaluationGateway(properties);
+
+        LangfuseScorePageResult result = gateway.scores(new EvaluationScoreQuery());
+
+        assertThat(result.status()).isEqualTo(EvaluationSourceStatus.MISCONFIGURED);
+        assertThat(result.message()).contains(
+                "LINGXI_LANGFUSE_BASE_URL",
+                "LINGXI_LANGFUSE_PUBLIC_KEY",
+                "LINGXI_LANGFUSE_SECRET_KEY");
+        assertThat(result.scores()).isEmpty();
+    }
+
+    @Test
     void shouldParseAndMergeNumericScoreMetrics() {
         List<LangfuseMetricBO> totals = LangfuseEvaluationGateway.parseMetrics("""
                 {"data":[

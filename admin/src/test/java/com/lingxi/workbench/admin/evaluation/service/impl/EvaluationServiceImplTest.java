@@ -12,13 +12,18 @@ import com.lingxi.workbench.admin.evaluation.model.bo.EvaluationTraceContext;
 import com.lingxi.workbench.admin.evaluation.model.bo.LangfuseMetricBO;
 import com.lingxi.workbench.admin.evaluation.model.bo.LangfuseMutationResult;
 import com.lingxi.workbench.admin.evaluation.model.bo.LangfuseOverviewResult;
+import com.lingxi.workbench.admin.evaluation.model.bo.LangfuseDatasetItemBO;
+import com.lingxi.workbench.admin.evaluation.model.bo.LangfuseDatasetItemsResult;
 import com.lingxi.workbench.admin.evaluation.model.request.CreateEvaluationScoreRequest;
 import com.lingxi.workbench.admin.evaluation.model.request.EvaluationOverviewQuery;
+import com.lingxi.workbench.admin.evaluation.model.request.EvaluationReadinessRequest;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationMutationVO;
 import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationOverviewVO;
+import com.lingxi.workbench.admin.evaluation.model.vo.EvaluationReadinessVO;
 import com.lingxi.workbench.admin.evaluation.repo.EvaluationRunRepo;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.framework.json.JSONObject;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -31,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 class EvaluationServiceImplTest {
@@ -83,6 +89,46 @@ class EvaluationServiceImplTest {
         assertThat(result.message()).isEqualTo("评分已记录");
     }
 
+    @Test
+    void shouldExposeApplicationProductionGateFailureAsReadinessResult() {
+        LangfuseEvaluationGateway gateway = mock(LangfuseEvaluationGateway.class);
+        ApplicationIntentPreviewGateway previewGateway = mock(ApplicationIntentPreviewGateway.class);
+        OffsetDateTime datasetVersion = OffsetDateTime.now();
+        JSONObject input = new JSONObject();
+        input.put("query", "帮我优化简历");
+        JSONObject expected = new JSONObject();
+        expected.put("scenario", "POSITIVE");
+        expected.put("expectedAction", "EXECUTE_AGENT");
+        JSONObject metadata = new JSONObject();
+        metadata.put("applicationId", "12");
+        LangfuseDatasetItemBO item = LangfuseDatasetItemBO.builder()
+                .id("case-1")
+                .input(input)
+                .expectedOutput(expected)
+                .metadata(metadata)
+                .build();
+        when(gateway.datasetItems(eq("求职基线"), any(OffsetDateTime.class))).thenReturn(
+                LangfuseDatasetItemsResult.builder()
+                        .status(EvaluationSourceStatus.AVAILABLE)
+                        .message("评测数据已同步")
+                        .datasetName("求职基线")
+                        .datasetVersion(datasetVersion)
+                        .items(List.of(item))
+                        .build());
+        when(previewGateway.evaluationTemplate(eq(12L), eq(20L), any(String.class)))
+                .thenReturn(new JSONObject());
+        doThrow(new BusinessException(HttpStatusEnum.BAD_REQUEST, "V2生产门禁样本不得少于300条"))
+                .when(previewGateway).validateEvaluation(any(JSONObject.class));
+        EvaluationServiceImpl service = service(gateway, mock(AppMonitorRepo.class), previewGateway);
+
+        EvaluationReadinessVO result = service.readiness(
+                new EvaluationReadinessRequest(12L, 20L, "求职基线"), 7L);
+
+        assertThat(result.ready()).isFalse();
+        assertThat(result.sampleCount()).isEqualTo(1);
+        assertThat(result.message()).isEqualTo("V2生产门禁样本不得少于300条");
+    }
+
     private static CreateEvaluationScoreRequest scoreRequest() {
         CreateEvaluationScoreRequest request = new CreateEvaluationScoreRequest();
         request.setTraceId("0123456789abcdef");
@@ -94,13 +140,19 @@ class EvaluationServiceImplTest {
 
     private static EvaluationServiceImpl service(
             LangfuseEvaluationGateway gateway, AppMonitorRepo monitorRepo) {
+        return service(gateway, monitorRepo, mock(ApplicationIntentPreviewGateway.class));
+    }
+
+    private static EvaluationServiceImpl service(
+            LangfuseEvaluationGateway gateway, AppMonitorRepo monitorRepo,
+            ApplicationIntentPreviewGateway previewGateway) {
         return new EvaluationServiceImpl(
                 gateway,
                 monitorRepo,
                 mock(EvaluationRunRepo.class),
                 mock(AiApplicationRepo.class),
                 mock(AiApplicationVersionRepo.class),
-                mock(ApplicationIntentPreviewGateway.class),
+                previewGateway,
                 Runnable::run);
     }
 }
