@@ -131,6 +131,8 @@ public class HitlDecisionTxService {
                 ExecutionRunStatus.RESUMING, "HITL_APPROVED", null)) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "执行运行状态已变化");
         }
+        // 审批提交后即可订阅恢复事件，不能让浏览器等待 MQ 消费者才看到消息继续生成。
+        conversationService.resumeFromHuman(interaction.getAssistantMessageId());
     }
 
     private void close(InteractionSessionEntity interaction, CapabilityInvocationEntity invocation, String eventId,

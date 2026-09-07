@@ -149,6 +149,11 @@ public final class ExecutionEvents {
         publishCapability(ExecutionEventType.TOOL_FAILED, invocationId, invocation, durationMillis, code);
     }
 
+    /** 人工门禁只暂停委派，不将尚未执行的操作记录为失败。 */
+    public void capabilityWaitingHuman(String invocationId, AgentInvocationState invocation, long durationMillis) {
+        publishCapability(ExecutionEventType.TOOL_WAITING_HUMAN, invocationId, invocation, durationMillis, null);
+    }
+
     public void coordinationStarted(String invocationId, String operation, String displayName) {
         publish(ExecutionEventType.COORDINATION_STARTED, ExecutionStage.COORDINATION, invocationId,
                 new ExecutionEventPayload.Coordination(operation, displayName, null, null));
@@ -269,9 +274,11 @@ public final class ExecutionEvents {
         publish(type, stage, null, payload);
     }
 
-    private void publish(ExecutionEventType type, ExecutionStage stage, String invocationId,
+    // 同一 Agent 的异步任务必须按发布顺序完成持久化；跨 Agent 的全局序号仍由数据库分配。
+    private synchronized void publish(ExecutionEventType type, ExecutionStage stage, String invocationId,
                          ExecutionEventPayload payload) {
-        long requestedSequenceNo = sequence.incrementAndGet();
+        // 只有持久化成功才能推进游标，失败的事件不能占用后续事件的序号。
+        long requestedSequenceNo = sequence.get() + 1;
         long persistedSequenceNo = sink.onEvent(ExecutionEvent.builder().runId(runId)
                 .sequenceNo(requestedSequenceNo)
                 .occurredAt(Instant.now()).type(type).stage(stage).agentId(agentId)

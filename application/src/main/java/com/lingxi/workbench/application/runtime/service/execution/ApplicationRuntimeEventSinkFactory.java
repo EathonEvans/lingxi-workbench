@@ -176,6 +176,7 @@ public class ApplicationRuntimeEventSinkFactory {
                 case TOOL_REUSED -> "已复用相同操作结果";
                 case TOOL_COMPLETED -> "所需操作已完成";
                 case TOOL_FAILED -> "所需操作失败";
+                case TOOL_WAITING_HUMAN -> "等待你确认后继续";
                 case COORDINATION_STARTED, COORDINATION_COMPLETED, COORDINATION_FAILED -> payloadMessage(event);
                 case HUMAN_REQUIRED -> "等待你的确认";
                 case HUMAN_RESOLVED -> "确认已生效，继续处理";
@@ -307,6 +308,7 @@ public class ApplicationRuntimeEventSinkFactory {
                 case TOOL_REUSED -> AgentToolExecutionStatus.REUSED;
                 case TOOL_COMPLETED -> AgentToolExecutionStatus.SUCCEEDED;
                 case TOOL_FAILED -> AgentToolExecutionStatus.FAILED;
+                case TOOL_WAITING_HUMAN -> AgentToolExecutionStatus.WAITING_HUMAN;
                 default -> throw new IllegalArgumentException("非Tool事件不能投影为Tool状态：" + type);
             };
         }
@@ -455,7 +457,9 @@ public class ApplicationRuntimeEventSinkFactory {
                     || event.getType()
                     == com.lingxi.workbench.agentruntime.event.ExecutionEventType.TOOL_COMPLETED
                     || event.getType()
-                    == com.lingxi.workbench.agentruntime.event.ExecutionEventType.TOOL_FAILED)) {
+                    == com.lingxi.workbench.agentruntime.event.ExecutionEventType.TOOL_FAILED
+                    || event.getType()
+                    == com.lingxi.workbench.agentruntime.event.ExecutionEventType.TOOL_WAITING_HUMAN)) {
                 return new RuntimePhase("TOOL:" + event.getInvocationId(), "TOOL", tool.toolCode(),
                         tool.displayName());
             }

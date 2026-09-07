@@ -313,7 +313,8 @@ class AgentScopeSupervisorGatewayTest {
 
         AgentRunResult.Interrupted interrupted = assertInstanceOf(AgentRunResult.Interrupted.class, result);
         assertEquals(91L, interrupted.interruption().getInteractionId());
-        assertTrue(sink.types().contains(ExecutionEventType.TOOL_FAILED));
+        assertTrue(sink.types().contains(ExecutionEventType.TOOL_WAITING_HUMAN));
+        assertFalse(sink.types().contains(ExecutionEventType.TOOL_FAILED));
         assertFalse(sink.types().contains(ExecutionEventType.RUN_FAILED));
         assertEquals(3, model.responseNo.get());
     }

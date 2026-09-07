@@ -353,8 +353,7 @@ public class AgentScopeSupervisorGateway {
                     invocation.interrupt();
                     session.saveInvocation(invocation, capability.getRisk().hasSideEffect());
                     session.interrupt(result.getInterruption());
-                    events.capabilityFailed(invocationId, invocation, elapsedMillis(startedAt),
-                            "HUMAN_REQUIRED");
+                    events.capabilityWaitingHuman(invocationId, invocation, elapsedMillis(startedAt));
                     return "能力执行等待人工处理";
                 }
                 String content = result.getContent();

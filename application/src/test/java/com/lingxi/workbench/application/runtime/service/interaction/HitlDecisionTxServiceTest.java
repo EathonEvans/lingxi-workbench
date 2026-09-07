@@ -69,6 +69,7 @@ class HitlDecisionTxServiceTest {
 
         verify(runRepo).changeStatus("run-1", ExecutionRunStatus.WAITING_HUMAN,
                 ExecutionRunStatus.RESUMING, "HITL_APPROVED", null);
+        verify(conversationService).resumeFromHuman(40L);
         verify(conversationService, never()).cancelWaiting(anyLong(), any(), any());
     }
 
@@ -82,6 +83,7 @@ class HitlDecisionTxServiceTest {
 
         verify(interactionRepo, never()).decide(anyLong(), anyLong(), eq(0), any(), any(), anyLong(), any(), any());
         verify(invocationRepo, never()).findByInteractionId(anyLong());
+        verify(conversationService, never()).resumeFromHuman(anyLong());
     }
 
     @Test

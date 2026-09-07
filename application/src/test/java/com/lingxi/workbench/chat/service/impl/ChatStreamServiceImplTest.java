@@ -624,6 +624,22 @@ class ChatStreamServiceImplTest {
     }
 
     @Test
+    void shouldKeepSubscriptionOpenAfterApprovalBeforeResumeConsumerStarts() {
+        java.util.concurrent.atomic.AtomicReference<ConversationMessageEntity> current =
+                new java.util.concurrent.atomic.AtomicReference<>(assistant(MessageStatus.GENERATING, ""));
+        when(messageRepo.findOwnedAssistantMessage(12L, 7L)).thenReturn(Optional.of(current.get()));
+        when(messageRepo.findById(12L)).thenAnswer(ignored -> Optional.of(current.get()));
+
+        CompletableFuture<List<ChatGenerationEventBO>> subscribed = service.resume(12L, 15L, 7L).collectList().toFuture();
+
+        org.junit.jupiter.api.Assertions.assertFalse(subscribed.isDone());
+        current.set(assistant(MessageStatus.COMPLETED, "审批后返回的最终结果"));
+        List<ChatGenerationEventBO> events = subscribed.orTimeout(2, TimeUnit.SECONDS).join();
+        assertEquals(List.of(ChatGenerationEventBO.snapshot("审批后返回的最终结果"), ChatGenerationEventBO.completed()), events);
+        verify(conversationService, never()).interruptAssistant(anyLong(), any(), any());
+    }
+
+    @Test
     void shouldRestoreToolEventsFromRedisBeforeDatabaseTerminalState() {
         AgentToolExecutionEvent tool = AgentToolExecutionEvent.builder()
                 .invocationId("tool-1")

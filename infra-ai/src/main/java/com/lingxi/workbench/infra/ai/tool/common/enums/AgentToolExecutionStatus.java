@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 public enum AgentToolExecutionStatus {
 
     RUNNING("RUNNING", "执行中"),
+    WAITING_HUMAN("WAITING_HUMAN", "等待人工确认"),
     SUCCEEDED("SUCCEEDED", "执行成功"),
     REUSED("REUSED", "复用已有结果"),
     FAILED("FAILED", "执行失败");

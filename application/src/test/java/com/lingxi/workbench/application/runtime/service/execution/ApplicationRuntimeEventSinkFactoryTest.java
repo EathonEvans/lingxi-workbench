@@ -41,6 +41,29 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class ApplicationRuntimeEventSinkFactoryTest {
 
     @Test
+    void shouldProjectHumanPauseWithoutFailureOrAdditionalToolBudget() {
+        ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
+        ChatExecutionEventPublisher publisher = mock(ChatExecutionEventPublisher.class);
+        ApplicationExecutionBudget budget = ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.defaults());
+        int remaining = budget.remainingToolCalls();
+        RuntimeEventSink sink = sink(persistenceService, budget, publisher);
+        sink.onEvent(ExecutionEvent.builder().runId("run-hitl").sequenceNo(8L).occurredAt(Instant.now())
+                .type(com.lingxi.workbench.agentruntime.event.ExecutionEventType.TOOL_WAITING_HUMAN)
+                .stage(ExecutionStage.TOOL).agentId(10L).agentVersionId(20L).invocationId("paused-1")
+                .payload(new ExecutionEventPayload.Tool("profile", "获取当前用户信息", 10L, null)).build());
+
+        ArgumentCaptor<AgentToolExecutionEvent> tool = ArgumentCaptor.forClass(AgentToolExecutionEvent.class);
+        verify(publisher).publishTool(tool.capture());
+        assertEquals(AgentToolExecutionStatus.WAITING_HUMAN, tool.getValue().getStatus());
+        assertNull(tool.getValue().getErrorCode());
+        ArgumentCaptor<ExecutionEventCommand> event = ArgumentCaptor.forClass(ExecutionEventCommand.class);
+        verify(persistenceService).appendEvent(event.capture());
+        assertEquals(ExecutionEventType.TOOL_WAITING_HUMAN, event.getValue().getEventType());
+        assertEquals("等待你确认后继续", event.getValue().getMessage());
+        assertEquals(remaining, budget.remainingToolCalls());
+    }
+
+    @Test
     void shouldPersistSkillEventAndProjectUserFacingMessage() {
         ExecutionPersistenceService persistenceService = mock(ExecutionPersistenceService.class);
         ChatExecutionEventPublisher publisher = mock(ChatExecutionEventPublisher.class);
