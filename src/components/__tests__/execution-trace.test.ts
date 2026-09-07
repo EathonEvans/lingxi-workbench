@@ -4,6 +4,27 @@ import { describe, expect, it } from "vitest";
 import ExecutionTrace from "../execution-trace";
 
 describe("ExecutionTrace", () => {
+  it("授权卡片到达前的暂停事件不显示操作失败", () => {
+    const html = renderToStaticMarkup(createElement(ExecutionTrace, {
+      streaming: true,
+      tools: [{ invocationId: "pause-1", toolCode: "profile", displayName: "获取用户信息", sequence: 8, status: "WAITING_HUMAN" }],
+      timeline: [{ runId: "run-1", sequence: 9, eventType: "TOOL_WAITING_HUMAN", message: "等待你确认后继续", steps: [] }],
+    }));
+    expect(html).toContain("等待你确认后继续");
+    expect(html).not.toContain("所需操作失败");
+    expect(html).not.toContain("处理完成");
+  });
+
+  it("暂停的历史操作不遮盖审批后完成的结果", () => {
+    const html = renderToStaticMarkup(createElement(ExecutionTrace, {
+      streaming: false,
+      tools: [{ invocationId: "pause-1", toolCode: "profile", displayName: "获取用户信息", sequence: 8, status: "WAITING_HUMAN" }],
+      timeline: [{ runId: "run-1", sequence: 20, eventType: "RUN_COMPLETED", message: "处理完成", steps: [] }],
+    }));
+    expect(html).toContain("处理完成");
+    expect(html).not.toContain("等待你确认后继续");
+  });
+
   it("等待用户确认时不把中断中的操作显示为失败", () => {
     const html = renderToStaticMarkup(createElement(ExecutionTrace, {
       streaming: false,

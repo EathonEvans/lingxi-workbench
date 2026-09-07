@@ -33,7 +33,7 @@ type ExecutionTraceProps = {
   waiting?: boolean;
 };
 
-type TraceStatus = "completed" | "failed" | "reused" | "running";
+type TraceStatus = "completed" | "failed" | "reused" | "running" | "paused";
 type PlanStepStatus = "PENDING" | NonNullable<ChatExecutionTimelineEvent["stepStatus"]>;
 
 const TRACE_PANEL_KEY = "execution-details";
@@ -68,6 +68,7 @@ function formatDuration(durationMillis: number): string {
 }
 
 function statusIcon(status: TraceStatus) {
+  if (status === "paused") return <Circle size={14} />;
   if (status === "running") return <LoaderCircle size={14} />;
   if (status === "failed") return <CircleX size={14} />;
   if (status === "reused") return <Sparkles size={14} />;
@@ -118,6 +119,7 @@ function groupTools(tools: ChatToolEvent[]): ToolGroup[] {
     let status: TraceStatus = "completed";
     if (events.some((event) => event.status === "RUNNING")) status = "running";
     else if (events.some((event) => event.status === "FAILED")) status = "failed";
+    else if (events.at(-1)?.status === "WAITING_HUMAN") status = "paused";
     else if (events.some((event) => event.status === "REUSED")) status = "reused";
     return {
       displayName: events.at(-1)?.displayName || toolCode,
@@ -158,7 +160,7 @@ function toolOperation(group: ToolGroup) {
       <span className={styles.operationName}>{group.displayName}</span>
       {group.events.length > 1 ? <span className={styles.count}>× {group.events.length}</span> : null}
       <span className={styles.operationMeta}>
-        {group.status === "reused" ? "已复用" : group.status === "running" ? "执行中" : group.status === "failed" ? "失败" : "完成"}
+        {group.status === "reused" ? "已复用" : group.status === "running" ? "执行中" : group.status === "paused" ? "已暂停" : group.status === "failed" ? "失败" : "完成"}
         {group.durationMillis > 0 ? ` · ${formatDuration(group.durationMillis)}` : ""}
       </span>
     </li>
@@ -218,6 +220,9 @@ function traceSummary(
       label: terminal.message || "处理已停止",
       status: "failed",
     };
+  }
+  if (latestTimeline?.eventType === "TOOL_WAITING_HUMAN") {
+    return { label: "等待你确认后继续", status: "paused" };
   }
   const runningTool = toolGroups.find((group) => group.status === "running");
   const runningAgent = subAgents.find((agent) => agent.status === "RUNNING");

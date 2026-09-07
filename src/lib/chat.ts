@@ -18,7 +18,7 @@ export type ChatToolEvent = {
   invocationId: string;
   sequence: number;
   planNo?: number;
-  status: "FAILED" | "REUSED" | "RUNNING" | "SUCCEEDED";
+  status: "FAILED" | "REUSED" | "RUNNING" | "SUCCEEDED" | "WAITING_HUMAN";
   stepId?: string;
   toolCode: string;
 };
@@ -70,6 +70,7 @@ export type ChatExecutionEventType =
   | "STEP_STARTED"
   | "TOOL_COMPLETED"
   | "TOOL_FAILED"
+  | "TOOL_WAITING_HUMAN"
   | "TOOL_STARTED";
 
 export type ChatExecutionTimelineEvent = {

@@ -83,6 +83,7 @@
   color: #b74d55;
 }
 
+.paused > svg:first-child,
 .planIcon[data-status="CANCELLED"],
 .planIcon[data-status="SKIPPED"] {
   color: #929cab;
