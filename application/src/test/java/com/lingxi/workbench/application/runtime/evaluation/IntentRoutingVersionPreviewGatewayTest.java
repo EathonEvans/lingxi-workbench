@@ -19,7 +19,7 @@ class IntentRoutingVersionPreviewGatewayTest {
     @Test
     @SuppressWarnings("unchecked")
     void shouldParseVersionPreviewResponse() throws Exception {
-        IntentRoutingEvaluationGatewayProperties properties = properties();
+        IntentEvalGatewayProperties properties = properties();
         HttpClient httpClient = mock(HttpClient.class);
         HttpResponse<String> response = mock(HttpResponse.class);
         when(response.statusCode()).thenReturn(200);
@@ -43,7 +43,7 @@ class IntentRoutingVersionPreviewGatewayTest {
 
     @Test
     void shouldRejectEvaluationWhenInternalTokenIsMissing() {
-        IntentRoutingEvaluationGatewayProperties properties = new IntentRoutingEvaluationGatewayProperties();
+        IntentEvalGatewayProperties properties = new IntentEvalGatewayProperties();
         IntentRoutingVersionPreviewGateway gateway = new IntentRoutingVersionPreviewGateway(
                 properties, mock(HttpClient.class));
 
@@ -56,7 +56,7 @@ class IntentRoutingVersionPreviewGatewayTest {
     @Test
     @SuppressWarnings("unchecked")
     void shouldNormalizeMalformedInternalResponse() throws Exception {
-        IntentRoutingEvaluationGatewayProperties properties = properties();
+        IntentEvalGatewayProperties properties = properties();
         HttpClient httpClient = mock(HttpClient.class);
         HttpResponse<String> response = mock(HttpResponse.class);
         when(response.statusCode()).thenReturn(200);
@@ -70,8 +70,8 @@ class IntentRoutingVersionPreviewGatewayTest {
                                 .isEqualTo(HttpStatusEnum.SERVICE_UNAVAILABLE));
     }
 
-    private static IntentRoutingEvaluationGatewayProperties properties() {
-        IntentRoutingEvaluationGatewayProperties properties = new IntentRoutingEvaluationGatewayProperties();
+    private static IntentEvalGatewayProperties properties() {
+        IntentEvalGatewayProperties properties = new IntentEvalGatewayProperties();
         properties.setToken("ops-token");
         return properties;
     }

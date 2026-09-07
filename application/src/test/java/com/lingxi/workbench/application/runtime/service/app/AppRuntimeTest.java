@@ -3,7 +3,7 @@ package com.lingxi.workbench.application.runtime.service.app;
 import com.lingxi.workbench.agentruntime.model.AgentRunCancelledException;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionRunStatus;
 import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingAction;
-import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
+import com.lingxi.workbench.application.runtime.model.AppExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
@@ -181,7 +181,7 @@ class AppRuntimeTest {
             executed.set(request);
             return new CapabilityExecutionResult("显式Skill回答", 88L, List.of());
         }), conversationContextService(), routed(mapping), plannerDisabled());
-        ApplicationChatExecutionRequest request = ApplicationChatExecutionRequest.builder()
+        AppExecutionRequest request = AppExecutionRequest.builder()
                 .application(routedSnapshot(mapping, capability, MemoryConfig.disabled(), false))
                 .query("核验事实").loginUser(new LoginUser(7L, "tester", "测试用户", null))
                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
@@ -202,7 +202,7 @@ class AppRuntimeTest {
                 "refund_workflow", ApplicationCapabilityType.WORKFLOW, 40L, 50L);
         AppRuntime service = service(unexpectedCapabilityService(),
                 conversationContextService(), routed(mapping), plannerDisabled());
-        ApplicationChatExecutionRequest request = ApplicationChatExecutionRequest.builder()
+        AppExecutionRequest request = AppExecutionRequest.builder()
                 .application(routedSnapshot(mapping, capability, MemoryConfig.disabled(), false))
                 .query("退款问题").loginUser(new LoginUser(7L, "tester", "测试用户", null))
                 .turn(new ChatTurnBO(10L, 11L, 12L, 3))
@@ -352,7 +352,7 @@ class AppRuntimeTest {
         AppRuntime service = service(
                 unexpectedCapabilityService(), conversationContextService(),
                 (context, response) -> IntentRoutingResult.skipped(context.routingQuery()), plannerDisabled());
-        ApplicationChatExecutionRequest request = ApplicationChatExecutionRequest.builder()
+        AppExecutionRequest request = AppExecutionRequest.builder()
                 .application(defaultSnapshot())
                 .query("问题")
                 .build();
@@ -421,13 +421,13 @@ class AppRuntimeTest {
                 .build();
     }
 
-    private static ApplicationChatExecutionRequest executionRequest(AppRuntimeSnapshot snapshot, String query) {
+    private static AppExecutionRequest executionRequest(AppRuntimeSnapshot snapshot, String query) {
         return executionRequest(snapshot, query, ChatExecutionEventPublisher.noop());
     }
 
-    private static ApplicationChatExecutionRequest executionRequest(AppRuntimeSnapshot snapshot, String query,
+    private static AppExecutionRequest executionRequest(AppRuntimeSnapshot snapshot, String query,
                                                                     ChatExecutionEventPublisher eventPublisher) {
-        return ApplicationChatExecutionRequest.builder()
+        return AppExecutionRequest.builder()
                 .application(snapshot)
                 .query(query)
                 .loginUser(new LoginUser(7L, "tester", "测试用户", null))

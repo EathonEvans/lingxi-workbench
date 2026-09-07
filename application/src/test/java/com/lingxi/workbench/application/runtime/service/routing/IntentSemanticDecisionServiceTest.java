@@ -20,7 +20,7 @@ import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.infra.ai.chat.SpringAiChatClientFactory;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
-import com.lingxi.workbench.infra.ai.chat.openai.OpenAiCompatibleChatModelFactory;
+import com.lingxi.workbench.infra.ai.chat.openai.OpenAiChatModelFactory;
 import com.lingxi.workbench.infra.ai.prompt.common.enums.PromptRole;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
 import com.lingxi.workbench.workflow.model.CapabilityDefinition;
@@ -45,6 +45,8 @@ import com.lingxi.workbench.workflow.model.intent.IntentTreeDefinition;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -69,11 +71,12 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 class IntentSemanticDecisionServiceTest {
 
-    private final OpenAiCompatibleChatModelFactory chatModelFactory = mock(OpenAiCompatibleChatModelFactory.class);
+    private final OpenAiChatModelFactory chatModelFactory = mock(OpenAiChatModelFactory.class);
     private final ModelRuntimeConfigService modelRuntimeConfigService = mock(ModelRuntimeConfigService.class);
     private final PromptRuntimeService promptRuntimeService = mock(PromptRuntimeService.class);
     private final OpenAiChatModel chatModel = mock(OpenAiChatModel.class);
@@ -318,6 +321,144 @@ class IntentSemanticDecisionServiceTest {
         assertThat(configCaptor.getValue().getMaxTokens()).isEqualTo(10);
         assertThat(budget.remainingModelCalls()).isEqualTo(1);
         assertThat(budget.tokenUsage().totalTokens()).isEqualTo(98);
+    }
+
+    @Test
+    void shouldShareOneRepairLimitAcrossSyntaxSchemaAndCandidateFailures() {
+        when(modelRuntimeConfigService.getChatModelConfig(9L)).thenReturn(modelConfig(false));
+        ChatResponse malformed = response("{", 2, 1, 3);
+        ChatResponse wrongType = response("{\"action\":\"SELECT\",\"selectedIntentCode\":123,\"reasonCode\":\"SINGLE_INTENT\"}", 3, 1, 4);
+        ChatResponse outside = response(select("outside"), 4, 1, 5);
+        ChatResponse valid = response(select("refund"), 5, 1, 6);
+        when(chatModel.call(any(Prompt.class))).thenReturn(malformed, wrongType, outside, valid);
+
+        IntentSemanticDecisionResult result = service.decide(context("我要退款"),
+                version(3, IntentDecisionFailureAction.DEFER), List.of(candidate("refund", "申请退款", List.of())));
+
+        assertThat(result.getDecision().getSelectedIntentCode()).isEqualTo("refund");
+        assertThat(result.getModelCalls()).isEqualTo(4);
+        assertThat(result.getRetryCount()).isEqualTo(3);
+        assertThat(result.getTokenUsage().totalTokens()).isEqualTo(18);
+        verify(chatModel, times(4)).call(any(Prompt.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void shouldRejectCoercibleSchemaViolationEvenWithoutRepairBudget(boolean nativeSchema) {
+        when(modelRuntimeConfigService.getChatModelConfig(9L)).thenReturn(modelConfig(nativeSchema));
+        ChatResponse invalid = response("{\"action\":\"SELECT\",\"selectedIntentCode\":123,\"reasonCode\":\"SINGLE_INTENT\"}", 5, 2, 7);
+        when(chatModel.call(any(Prompt.class))).thenReturn(invalid);
+
+        IntentSemanticDecisionException failure = assertThrows(IntentSemanticDecisionException.class,
+                () -> service.decide(context("选择编号123"), version(0, IntentDecisionFailureAction.FAIL),
+                        List.of(candidate("123", "编号候选", List.of()))));
+
+        assertThat(failure.getDecisionResult().getModelCalls()).isEqualTo(1);
+        assertThat(failure.getDecisionResult().getTokenUsage().totalTokens()).isEqualTo(7);
+        assertThat(failure.getDecisionResult().getDecision().getReasonCode()).isEqualTo(IntentDecisionReason.SEMANTIC_DECISION_FAILED);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{private_model_output}", "{\"action\":\"private_model_output\"}"})
+    void shouldOnlySendPlatformValidationHintsToRepair(String invalidOutput) {
+        when(modelRuntimeConfigService.getChatModelConfig(9L)).thenReturn(modelConfig(false));
+        ChatResponse invalid = response(invalidOutput, 5, 2, 7);
+        ChatResponse valid = response(select("refund"), 5, 2, 7);
+        when(chatModel.call(any(Prompt.class))).thenReturn(invalid, valid);
+
+        IntentSemanticDecisionResult result = service.decide(context("我要退款"),
+                version(1, IntentDecisionFailureAction.DEFER), List.of(candidate("refund", "申请退款", List.of())));
+
+        ArgumentCaptor<Prompt> prompts = ArgumentCaptor.forClass(Prompt.class);
+        verify(chatModel, times(2)).call(prompts.capture());
+        assertThat(prompts.getAllValues().getLast().getContents()).contains("上一次校验结果").doesNotContain("private_model_output");
+        assertThat(result.getDecision().getSelectedIntentCode()).isEqualTo("refund");
+    }
+
+    @Test
+    void shouldDisableUnaccountedSdkRetries() {
+        when(modelRuntimeConfigService.getChatModelConfig(9L)).thenReturn(modelConfig(false).toBuilder().maxRetries(3).build());
+        ChatResponse valid = response(select("refund"), 5, 2, 7);
+        when(chatModel.call(any(Prompt.class))).thenReturn(valid);
+
+        service.decide(context("我要退款"), version(1, IntentDecisionFailureAction.DEFER),
+                List.of(candidate("refund", "申请退款", List.of())));
+
+        ArgumentCaptor<ChatModelRuntimeConfig> configs = ArgumentCaptor.forClass(ChatModelRuntimeConfig.class);
+        verify(chatModelFactory).create(configs.capture());
+        assertThat(configs.getValue().getMaxRetries()).isZero();
+    }
+
+    @Test
+    void shouldStopRepairsWhenWorkflowTokenBudgetIsConsumed() {
+        when(modelRuntimeConfigService.getChatModelConfig(9L)).thenReturn(modelConfig(false));
+        ChatResponse invalid = response("{", 80, 20, 100);
+        when(chatModel.call(any(Prompt.class))).thenReturn(invalid);
+        ApplicationExecutionBudget budget = workflowBudget(4, 100);
+
+        IntentSemanticDecisionResult result = service.decideForWorkflow(context("我要退款"),
+                version(3, IntentDecisionFailureAction.DEFER), List.of(candidate("refund", "申请退款", List.of())), budget);
+
+        assertThat(result.getDecision().getReasonCode()).isEqualTo(IntentDecisionReason.SEMANTIC_DECISION_FAILED);
+        assertThat(result.getModelCalls()).isEqualTo(1);
+        assertThat(budget.tokenUsage().totalTokens()).isEqualTo(100);
+        verify(chatModel).call(any(Prompt.class));
+    }
+
+    @Test
+    void shouldRecomputeOutputLimitBeforeWorkflowRepair() {
+        when(modelRuntimeConfigService.getChatModelConfig(9L)).thenReturn(modelConfig(false));
+        ChatResponse invalid = response("{", 60, 20, 80);
+        ChatResponse valid = response(select("refund"), 6, 2, 8);
+        when(chatModel.call(any(Prompt.class))).thenReturn(invalid, valid);
+        ApplicationExecutionBudget budget = workflowBudget(3, 100);
+
+        IntentSemanticDecisionResult result = service.decideForWorkflow(context("我要退款"),
+                version(3, IntentDecisionFailureAction.DEFER), List.of(candidate("refund", "申请退款", List.of())), budget);
+
+        ArgumentCaptor<ChatModelRuntimeConfig> configs = ArgumentCaptor.forClass(ChatModelRuntimeConfig.class);
+        verify(chatModelFactory, times(2)).create(configs.capture());
+        assertThat(configs.getAllValues()).extracting(ChatModelRuntimeConfig::getMaxTokens).containsExactly(100, 20);
+        assertThat(result.getDecision().getSelectedIntentCode()).isEqualTo("refund");
+        assertThat(budget.remainingModelCalls()).isEqualTo(1);
+        assertThat(budget.tokenUsage().totalTokens()).isEqualTo(88);
+    }
+
+    @Test
+    void shouldKeepFinalWorkflowCallReservedAfterInvalidResponse() {
+        when(modelRuntimeConfigService.getChatModelConfig(9L)).thenReturn(modelConfig(false));
+        ChatResponse invalid = response("{", 5, 2, 7);
+        when(chatModel.call(any(Prompt.class))).thenReturn(invalid);
+        ApplicationExecutionBudget budget = workflowBudget(2, 100);
+
+        IntentSemanticDecisionResult result = service.decideForWorkflow(context("我要退款"),
+                version(3, IntentDecisionFailureAction.DEFER), List.of(candidate("refund", "申请退款", List.of())), budget);
+
+        assertThat(result.getModelCalls()).isEqualTo(1);
+        assertThat(budget.remainingModelCalls()).isEqualTo(1);
+        verify(chatModel).call(any(Prompt.class));
+    }
+
+    @Test
+    void shouldPropagateProviderInterruptionWithoutRepairOrDefer() {
+        when(modelRuntimeConfigService.getChatModelConfig(9L)).thenReturn(modelConfig(false));
+        RuntimeException interrupted = new RuntimeException(new InterruptedException("cancelled"));
+        when(chatModel.call(any(Prompt.class))).thenThrow(interrupted);
+        ApplicationExecutionBudget budget = workflowBudget(4, 100);
+        try {
+            assertThrows(RuntimeException.class, () -> service.decideForWorkflow(context("我要退款"),
+                    version(3, IntentDecisionFailureAction.DEFER), List.of(candidate("refund", "申请退款", List.of())), budget));
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+            assertThat(budget.usedModelCalls()).isEqualTo(1);
+            verify(chatModel).call(any(Prompt.class));
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    private static ApplicationExecutionBudget workflowBudget(int calls, int tokens) {
+        return ApplicationExecutionBudget.fromRuntimePolicy(ApplicationRuntimePolicy.builder()
+                .maxModelCalls(calls).maxToolCalls(1).maxDelegations(1).totalTokenBudget(tokens).build());
     }
 
     private static String select(String code) {

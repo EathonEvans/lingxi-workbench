@@ -2,7 +2,7 @@ package com.lingxi.workbench.admin.application.gateway;
 
 import com.lingxi.workbench.framework.json.JSON;
 import com.lingxi.workbench.framework.json.JSONObject;
-import com.lingxi.workbench.admin.application.config.ApplicationIntentPreviewProperties;
+import com.lingxi.workbench.admin.application.config.AppIntentPreviewProperties;
 import com.lingxi.workbench.admin.application.model.vo.ApplicationIntentPreviewVO;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
@@ -22,10 +22,10 @@ public class ApplicationIntentPreviewGateway {
 
     private static final String OPS_TOKEN_HEADER = "X-Lingxi-Ops-Token";
 
-    private final ApplicationIntentPreviewProperties properties;
+    private final AppIntentPreviewProperties properties;
     private final HttpClient httpClient;
 
-    public ApplicationIntentPreviewGateway(ApplicationIntentPreviewProperties properties, HttpClient httpClient) {
+    public ApplicationIntentPreviewGateway(AppIntentPreviewProperties properties, HttpClient httpClient) {
         this.properties = properties;
         this.httpClient = httpClient;
     }

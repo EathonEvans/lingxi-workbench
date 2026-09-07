@@ -11,7 +11,7 @@ import com.lingxi.workbench.agentruntime.plan.RuntimeTaskStep;
 import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
-import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
+import com.lingxi.workbench.application.runtime.model.AppExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
 import com.lingxi.workbench.application.runtime.model.CapabilityExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.CapabilityExecutionResult;
@@ -30,7 +30,7 @@ import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
 import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
 import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
 import com.lingxi.workbench.workflow.model.FallbackAgent;
-import com.lingxi.workbench.workflow.service.impl.ApplicationWorkflowExecutionPortsFactory;
+import com.lingxi.workbench.workflow.service.impl.AppWorkflowPortsFactory;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
 import org.junit.jupiter.api.Test;
@@ -215,7 +215,7 @@ class AppCapabilityDispatcherTest {
                 (definition, request, ports) -> {
                     throw new AssertionError("Agent测试不应进入Workflow");
                 },
-                mock(ApplicationWorkflowExecutionPortsFactory.class),
+                mock(AppWorkflowPortsFactory.class),
                 mock(ToolRuntimeRepo.class),
                 mock(ToolRuntimeService.class),
                 checksum,
@@ -272,7 +272,7 @@ class AppCapabilityDispatcherTest {
         com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot application =
                 mock(com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot.class);
         when(application.definition()).thenReturn(definition);
-        ApplicationChatExecutionRequest executionRequest = mock(ApplicationChatExecutionRequest.class);
+        AppExecutionRequest executionRequest = mock(AppExecutionRequest.class);
         when(executionRequest.getApplication()).thenReturn(application);
         when(executionRequest.getEventPublisher()).thenReturn(
                 com.lingxi.workbench.application.runtime.service.execution.ChatExecutionEventPublisher.noop());

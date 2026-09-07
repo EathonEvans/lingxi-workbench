@@ -6,7 +6,7 @@ import com.lingxi.workbench.agentruntime.event.ExecutionEvent;
 import com.lingxi.workbench.agentruntime.event.ExecutionEventType;
 import com.lingxi.workbench.agentruntime.event.ExecutionEvents;
 import com.lingxi.workbench.agentruntime.event.RuntimeEventSink;
-import com.lingxi.workbench.agentruntime.gateway.AgentScopeSpecialistStreamingGateway;
+import com.lingxi.workbench.agentruntime.gateway.AgentScopeSpecialistGateway;
 import com.lingxi.workbench.agentruntime.gateway.AgentScopeSupervisorGateway;
 import com.lingxi.workbench.agentruntime.model.AgentRunCancelledException;
 import com.lingxi.workbench.agentruntime.model.AgentRunRequest;
@@ -46,7 +46,7 @@ class AgentRuntimeTest {
 
     @Test
     void shouldCompleteWithMonotonicLifecycleAndUsage() {
-        AgentScopeSpecialistStreamingGateway gateway = gateway(Flux.just(
+        AgentScopeSpecialistGateway gateway = gateway(Flux.just(
                 new ChatStreamChunk("你"),
                 new ChatStreamChunk("好"),
                 new ChatStreamChunk("", TokenUsage.of(8, 2, 10))));
@@ -71,7 +71,7 @@ class AgentRuntimeTest {
 
     @Test
     void shouldKeepRunLifecycleOpenForDelegatedInvocation() {
-        AgentScopeSpecialistStreamingGateway gateway = gateway(Flux.just(new ChatStreamChunk("子任务完成")));
+        AgentScopeSpecialistGateway gateway = gateway(Flux.just(new ChatStreamChunk("子任务完成")));
         RecordingSink sink = new RecordingSink();
         AgentRunRequest request = AgentRunRequest.builder()
                 .runId("run-supervisor")
@@ -97,7 +97,7 @@ class AgentRuntimeTest {
 
     @Test
     void shouldAllowContinuedModelOutputWithoutWallClockDeadline() {
-        AgentScopeSpecialistStreamingGateway gateway = gateway(Flux.just(
+        AgentScopeSpecialistGateway gateway = gateway(Flux.just(
                 new ChatStreamChunk("持续"), new ChatStreamChunk("输出"))
                 .delayElements(Duration.ofMillis(60)));
         RecordingSink sink = new RecordingSink();
@@ -113,7 +113,7 @@ class AgentRuntimeTest {
 
     @Test
     void shouldFailOnceWhenModelPublisherFails() {
-        AgentScopeSpecialistStreamingGateway gateway = gateway(Flux.error(new IllegalStateException("provider unavailable")));
+        AgentScopeSpecialistGateway gateway = gateway(Flux.error(new IllegalStateException("provider unavailable")));
         RecordingSink sink = new RecordingSink();
 
         assertThrows(IllegalStateException.class,
@@ -126,7 +126,7 @@ class AgentRuntimeTest {
 
     @Test
     void shouldFailWhenModelCompletesWithoutUsefulText() {
-        AgentScopeSpecialistStreamingGateway gateway = gateway(Flux.just(
+        AgentScopeSpecialistGateway gateway = gateway(Flux.just(
                 new ChatStreamChunk("", TokenUsage.of(8, 0, 8))));
         RecordingSink sink = new RecordingSink();
 
@@ -144,7 +144,7 @@ class AgentRuntimeTest {
 
     @Test
     void shouldMarkApplicationFinalizationAsReservedFinalModelCall() {
-        AgentScopeSpecialistStreamingGateway gateway = mock(AgentScopeSpecialistStreamingGateway.class);
+        AgentScopeSpecialistGateway gateway = mock(AgentScopeSpecialistGateway.class);
         when(gateway.stream(any(), any(), any())).thenAnswer(invocation -> Flux.defer(() -> {
             io.agentscope.core.agent.RuntimeContext context = invocation.getArgument(1);
             ExecutionBudget budget = context.get(ExecutionBudget.class);
@@ -186,7 +186,7 @@ class AgentRuntimeTest {
 
     @Test
     void shouldRejectModelCallWhenTokenBudgetIsAlreadyExhausted() {
-        AgentScopeSpecialistStreamingGateway gateway = mock(AgentScopeSpecialistStreamingGateway.class);
+        AgentScopeSpecialistGateway gateway = mock(AgentScopeSpecialistGateway.class);
         when(gateway.stream(any(), any(), any())).thenAnswer(invocation -> Flux.defer(() -> {
             io.agentscope.core.agent.RuntimeContext context = invocation.getArgument(1);
             context.get(ExecutionBudget.class).reserveModelCall();
@@ -212,7 +212,7 @@ class AgentRuntimeTest {
 
     @Test
     void shouldCancelWithoutPublishingFailure() {
-        AgentScopeSpecialistStreamingGateway gateway = gateway(Flux.never());
+        AgentScopeSpecialistGateway gateway = gateway(Flux.never());
         RecordingSink sink = new RecordingSink();
         sink.cancelled.set(true);
 
@@ -227,7 +227,7 @@ class AgentRuntimeTest {
 
     @Test
     void shouldReturnTypedInterruptionWithoutPublishingFailure() {
-        AgentScopeSpecialistStreamingGateway gateway = mock(AgentScopeSpecialistStreamingGateway.class);
+        AgentScopeSpecialistGateway gateway = mock(AgentScopeSpecialistGateway.class);
         when(gateway.stream(any(), any(), any())).thenAnswer(invocation -> Flux.defer(() -> {
             io.agentscope.core.agent.RuntimeContext context = invocation.getArgument(1);
             RuntimeInterruption interruption = RuntimeInterruption.builder().interactionId(91L)
@@ -249,7 +249,7 @@ class AgentRuntimeTest {
 
     @Test
     void shouldDelegateResumeToCheckpointPathWithoutReplayingInitialModelCall() {
-        AgentScopeSpecialistStreamingGateway agentScopeGateway = mock(AgentScopeSpecialistStreamingGateway.class);
+        AgentScopeSpecialistGateway agentScopeGateway = mock(AgentScopeSpecialistGateway.class);
         when(agentScopeGateway.resume(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyString())).thenReturn(Flux.just(new ChatStreamChunk("恢复完成")));
         RecordingSink sink = new RecordingSink();
@@ -279,8 +279,8 @@ class AgentRuntimeTest {
                 org.mockito.ArgumentMatchers.eq(91L), org.mockito.ArgumentMatchers.eq("fp"));
     }
 
-    private static AgentScopeSpecialistStreamingGateway gateway(Flux<ChatStreamChunk> chunks) {
-        AgentScopeSpecialistStreamingGateway gateway = mock(AgentScopeSpecialistStreamingGateway.class);
+    private static AgentScopeSpecialistGateway gateway(Flux<ChatStreamChunk> chunks) {
+        AgentScopeSpecialistGateway gateway = mock(AgentScopeSpecialistGateway.class);
         when(gateway.stream(any(), any(), any())).thenAnswer(invocation -> Flux.defer(() -> {
             io.agentscope.core.agent.RuntimeContext context = invocation.getArgument(1);
             ExecutionBudget budget = context.get(ExecutionBudget.class);
@@ -298,7 +298,7 @@ class AgentRuntimeTest {
         return gateway;
     }
 
-    private static AgentRuntime runtime(AgentScopeSpecialistStreamingGateway gateway) {
+    private static AgentRuntime runtime(AgentScopeSpecialistGateway gateway) {
         return new AgentRuntime(gateway, mock(AgentScopeSupervisorGateway.class),
                 mock(io.agentscope.core.state.AgentStateStore.class));
     }

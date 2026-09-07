@@ -8,7 +8,7 @@ import cn.hutool.core.util.IdUtil;
 import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
-import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
+import com.lingxi.workbench.application.runtime.model.AppExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
 import com.lingxi.workbench.application.runtime.model.ApplicationRun;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
@@ -103,7 +103,7 @@ public class AppRuntime {
      * <p>默认入口和意图路由统一通过发布快照中的能力目录执行，共享同一份可信对话上下文，
      * 并由能力调用显式传递本次执行上下文。</p>
      */
-    public ApplicationChatResult execute(ApplicationChatExecutionRequest request) {
+    public ApplicationChatResult execute(AppExecutionRequest request) {
         // ① 校验服务端组装的可信请求，避免不完整数据进入上下文准备和路由阶段
         requireRequest(request);
         Instant startedAt = Instant.now();
@@ -140,18 +140,18 @@ public class AppRuntime {
         // ⑤ 调度合并和目标执行统一归入EXECUTION阶段，固定回复与澄清也保留完整链路。
         return aiStageObserver.observe(AiObservationStage.EXECUTION, () -> {
             ChatDispatch dispatch = request.getResumeContext() == null
-                    ? this.dispatch(snapshot, routedContext, interaction, routing)
+                    ? this.dispatch(snapshot, routedContext, interaction.orElse(null), routing)
                     : resolveHitlDispatch(snapshot, routedContext.routingQuery(), request.getResumeContext());
             return switch (dispatch) {
                 case ChatDispatch.Fixed fixed -> directResult(fixed.response(), routedContext);
                 case ChatDispatch.Clarify clarify -> clarificationResult(request, clarify, routedContext);
-                case ChatDispatch.Executable executable -> executeExecutable(request, routedContext, executable, startedAt);
+                case ChatDispatch.Capability executable -> executeCapabilityDispatch(request, routedContext, executable, startedAt);
             };
         });
     }
 
     /** AgentScope Checkpoint 已保存模型消息历史，恢复时不得重复读取记忆、改写问题或重新路由。 */
-    private ConversationContext restoreConversationContext(ApplicationChatExecutionRequest request) {
+    private ConversationContext restoreConversationContext(AppExecutionRequest request) {
         AgentScopeCheckpoint checkpoint = request.getResumeContext().getCheckpoint();
         if (checkpoint == null || checkpoint.getVersion() == null
                 || checkpoint.getVersion() != AgentScopeCheckpoint.CURRENT_VERSION
@@ -197,7 +197,7 @@ public class AppRuntime {
                 .build();
     }
 
-    private static int initialToolCalls(ApplicationChatExecutionRequest request) {
+    private static int initialToolCalls(AppExecutionRequest request) {
         ExecutionResumeContext resume = request.getResumeContext();
         if (resume == null) {
             return 0;
@@ -211,7 +211,7 @@ public class AppRuntime {
     }
 
     /** HITL 恢复必须回到检查点锁定的 AgentVersion，不重新经过意图路由。 */
-    private ChatDispatch.Executable resolveHitlDispatch(AppRuntimeSnapshot snapshot, String query,
+    private ChatDispatch.Capability resolveHitlDispatch(AppRuntimeSnapshot snapshot, String query,
                                                         ExecutionResumeContext resume) {
         AgentScopeCheckpoint checkpoint = resume.getCheckpoint();
         CapabilityDefinition capability = resolveCapability(
@@ -243,10 +243,10 @@ public class AppRuntime {
      * 将路由结果和Application策略合并为唯一、完整的最终调度决策。
      */
     private ChatDispatch dispatch(AppRuntimeSnapshot snapshot, ConversationContext context,
-                                  Optional<InteractionResolution> interaction, IntentRoutingResult routing) {
+                                  InteractionResolution interaction, IntentRoutingResult routing) {
         String executionQuery = resolveExecutionQuery(context, routing);
-        if (interaction.isPresent()) {
-            return resolveResumedDispatch(snapshot, executionQuery, interaction.get());
+        if (Objects.nonNull(interaction)) {
+            return resolveResumedDispatch(snapshot, executionQuery, interaction);
         }
         // 路由映射已在发布和快照加载时校验，执行目标始终从冻结能力目录读取。
         return switch (routing.getAction()) {
@@ -266,7 +266,7 @@ public class AppRuntime {
     /**
      * 意图路由未执行能力时，统一进入 Application 锁定的 fallback Agent 能力。
      */
-    private ChatDispatch.Executable resolveFallbackDispatch(AppRuntimeSnapshot snapshot, String query,
+    private ChatDispatch.Capability resolveFallbackDispatch(AppRuntimeSnapshot snapshot, String query,
                                                             IntentRoutingEvidence evidence,
                                                             Set<String> confirmedCapabilityCodes) {
         FallbackTarget fallback = resolveFallback(snapshot);
@@ -274,7 +274,7 @@ public class AppRuntime {
                 new CapabilityDispatchHints(fallback.agent(), evidence, confirmedCapabilityCodes));
     }
 
-    private ChatDispatch.Executable resolveResumedDispatch(
+    private ChatDispatch.Capability resolveResumedDispatch(
             AppRuntimeSnapshot snapshot, String query, InteractionResolution interaction) {
         InteractionResumeTarget target = interaction.getResumeTarget();
         if (target == null) {
@@ -309,7 +309,7 @@ public class AppRuntime {
         return ApplicationChatResult.completed(response, context.getPreparationTokenUsage(), List.of(), null);
     }
 
-    private static ApplicationChatResult clarificationResult(ApplicationChatExecutionRequest request, ChatDispatch.Clarify clarify, ConversationContext context) {
+    private static ApplicationChatResult clarificationResult(AppExecutionRequest request, ChatDispatch.Clarify clarify, ConversationContext context) {
         request.getEventPublisher().publishClarification(clarify.clarification());
         return directResult(clarify.response(), context);
     }
@@ -317,23 +317,22 @@ public class AppRuntime {
     /**
      * 为需要实际执行的调度统一管理运行上下文注册、日志和清理。
      */
-    private ApplicationChatResult executeExecutable(ApplicationChatExecutionRequest request, ConversationContext conversationContext, ChatDispatch.Executable dispatch, Instant startedAt) {
+    private ApplicationChatResult executeCapabilityDispatch(AppExecutionRequest request, ConversationContext conversationContext, ChatDispatch.Capability dispatch, Instant startedAt) {
         AppRuntimeSnapshot snapshot = request.getApplication();
 
         // ① 正常执行创建新 runId；HITL 恢复继续使用检查点锁定的原 runId。
         ExecutionResumeContext resume = request.getResumeContext();
         String executionId = resume == null ? IdUtil.getSnowflakeNextIdStr()
                 : resume.getCheckpoint().getRunId();
-        ChatDispatch.Capability capabilityDispatch = (ChatDispatch.Capability) dispatch;
-        validateExplicitSkillTarget(request, capabilityDispatch);
+        validateExplicitSkillTarget(request, dispatch);
         if (resume == null) {
             executionPersistenceService.startRun(ExecutionRunStartCommand.builder()
                     .application(snapshot)
                     .turn(request.getTurn())
                     .userId(request.getLoginUser().id())
                     .runId(executionId)
-                    .orchestratorAgent(capabilityDispatch.hints().agent())
-                    .capabilityCode(capabilityDispatch.capability().getCode())
+                    .orchestratorAgent(dispatch.hints().agent())
+                    .capabilityCode(dispatch.capability().getCode())
                     .executionMode(executionMode(dispatch))
                     .build());
         } else {
@@ -346,7 +345,7 @@ public class AppRuntime {
         try {
             ApplicationChatResult result = aiStageObserver.observeExecution(executionId, executionMode(dispatch),
                     () -> run.budget().hasFinalizationCapacity()
-                            ? executeCapability((ChatDispatch.Capability) dispatch, run)
+                            ? executeCapability(dispatch, run)
                             : budgetBoundaryResult(run));
 
             if (result.isInterrupted()) {
@@ -360,17 +359,16 @@ public class AppRuntime {
                     executionId, ExecutionRunStatus.RUNNING, ExecutionRunStatus.SUCCEEDED, "TERMINAL");
             return result;
         } catch (RuntimeException exception) {
-            if (hasCause(exception, AgentRunCancelledException.class)
-                    || (hasInterruptedCause(exception) && run.request().getEventPublisher().isCancelled())) {
+            boolean cancelled = hasCause(exception, AgentRunCancelledException.class);
+            boolean interrupted = hasCause(exception, InterruptedException.class);
+            if (cancelled || (interrupted && run.request().getEventPublisher().isCancelled())) {
                 executionPersistenceService.changeRunStatus(
                         executionId, ExecutionRunStatus.RUNNING, ExecutionRunStatus.CANCELLED, "TERMINAL");
             } else if (!hasCause(exception, AgentReconciliationPendingException.class)) {
                 executionPersistenceService.changeRunStatus(
                         executionId, ExecutionRunStatus.RUNNING, ExecutionRunStatus.FAILED, "TERMINAL");
             }
-            boolean expectedTerminal = hasInterruptedCause(exception)
-                    || hasCause(exception, AgentRunCancelledException.class);
-            if (!expectedTerminal) {
+            if (!interrupted && !cancelled) {
                 log.warn("Application目标执行失败，applicationCode={}，versionId={}，executionId={}，durationMs={}",
                         snapshot.applicationCode(), snapshot.versionId(), executionId,
                         Duration.between(startedAt, Instant.now()).toMillis(), exception);
@@ -380,7 +378,7 @@ public class AppRuntime {
     }
 
     /** 显式Skill只允许绑定到本次直接执行的已锁定领域专家，禁止跨Workflow或Supervisor猜测目标。 */
-    private static void validateExplicitSkillTarget(ApplicationChatExecutionRequest request,
+    private static void validateExplicitSkillTarget(AppExecutionRequest request,
                                                     ChatDispatch.Capability dispatch) {
         List<String> explicitCodes = request.getExplicitSkillCodes();
         if (explicitCodes.isEmpty()) {
@@ -407,18 +405,7 @@ public class AppRuntime {
         }
     }
 
-    private static boolean hasInterruptedCause(Throwable exception) {
-        Throwable current = exception;
-        while (Objects.nonNull(current)) {
-            if (current instanceof InterruptedException) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
-    }
-
-    private static ApplicationRun createApplicationRun(ApplicationChatExecutionRequest request,
+    private static ApplicationRun createApplicationRun(AppExecutionRequest request,
                                                        ConversationContext conversationContext,
                                                        String executionId, String executionQuery) {
         AppRuntimeSnapshot snapshot = request.getApplication();
@@ -435,7 +422,7 @@ public class AppRuntime {
      * 意图路由解析。
      * 平台交互恢复中或 Application 未启用意图路由时返回 SKIPPED。
      */
-    private IntentRoutingResult routeIntent(ApplicationChatExecutionRequest request, ConversationContext context, boolean resumed) {
+    private IntentRoutingResult routeIntent(AppExecutionRequest request, ConversationContext context, boolean resumed) {
         if (resumed) {
             return IntentRoutingResult.skipped(context.routingQuery());
         }
@@ -456,20 +443,18 @@ public class AppRuntime {
     /**
      * 日志中可读的最终执行目标类型。
      */
-    private static String targetType(ChatDispatch.Executable dispatch) {
-        ChatDispatch.Capability capability = (ChatDispatch.Capability) dispatch;
-        return capability.hints().agent() == null
-                ? capability.capability().getType().name()
-                : capability.hints().agent().definition().getRole().name();
+    private static String targetType(ChatDispatch.Capability dispatch) {
+        return Objects.isNull(dispatch.hints().agent())
+                ? dispatch.capability().getType().name()
+                : dispatch.hints().agent().definition().getRole().name();
     }
 
     /**
      * 监控读模型使用的稳定执行模式，避免前端根据能力类型反向推断。
      */
-    private static String executionMode(ChatDispatch.Executable dispatch) {
-        ChatDispatch.Capability capability = (ChatDispatch.Capability) dispatch;
-        return switch (capability.capability().getType()) {
-            case AGENT -> capability.hints().agent().definition().getRole()
+    private static String executionMode(ChatDispatch.Capability dispatch) {
+        return switch (dispatch.capability().getType()) {
+            case AGENT -> dispatch.hints().agent().definition().getRole()
                     == AgentRole.SUPERVISOR
                     ? "PLAN_EXECUTE"
                     : "REACT";
@@ -552,7 +537,7 @@ public class AppRuntime {
      * Application Chat 的最终调度决策。
      * 路由结果在此处收敛为无需执行和需要执行两类稳定状态。
      */
-    private sealed interface ChatDispatch permits ChatDispatch.Fixed, ChatDispatch.Clarify, ChatDispatch.Executable {
+    private sealed interface ChatDispatch permits ChatDispatch.Fixed, ChatDispatch.Clarify, ChatDispatch.Capability {
 
         /**
          * 直接返回固定回复。
@@ -572,21 +557,14 @@ public class AppRuntime {
         }
 
         /**
-         * 需要创建并注册运行时执行上下文的调度决策。
-         */
-        sealed interface Executable extends ChatDispatch permits Capability {
-
-            String query();
-        }
-
-        /**
          * 执行已锁定版本的Agent或Workflow能力。
          *
          * @param query      实际执行问题
          * @param capability 已解析并校验的能力
+         * @param hints      能力执行所需的锁定 Agent、路由证据及确认范围
          */
         record Capability(String query, CapabilityDefinition capability,
-                          CapabilityDispatchHints hints) implements Executable {
+                          CapabilityDispatchHints hints) implements ChatDispatch {
         }
     }
 
@@ -612,7 +590,7 @@ public class AppRuntime {
     /**
      * 校验执行请求完整性。
      */
-    private static void requireRequest(ApplicationChatExecutionRequest request) {
+    private static void requireRequest(AppExecutionRequest request) {
         Supplier<BusinessException> invalidRequest = () -> new BusinessException(HttpStatusEnum.BAD_REQUEST, "Application Chat执行请求不完整");
         Assert.notNull(request, invalidRequest);
         Object[] requiredFields = {

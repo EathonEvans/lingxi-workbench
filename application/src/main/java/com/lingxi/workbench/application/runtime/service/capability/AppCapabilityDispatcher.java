@@ -47,7 +47,7 @@ import com.lingxi.workbench.workflow.model.WorkflowExecutionResult;
 import com.lingxi.workbench.workflow.model.WorkflowNodeTrace;
 import com.lingxi.workbench.workflow.model.config.AgentNodeConfig;
 import com.lingxi.workbench.workflow.service.WorkflowExecutor;
-import com.lingxi.workbench.workflow.service.impl.ApplicationWorkflowExecutionPortsFactory;
+import com.lingxi.workbench.workflow.service.impl.AppWorkflowPortsFactory;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
@@ -84,7 +84,7 @@ public class AppCapabilityDispatcher {
     private final AgentVersionService agentVersionService;
     private final WorkflowRuntimeRepo workflowRuntimeRepo;
     private final WorkflowExecutor workflowExecutor;
-    private final ApplicationWorkflowExecutionPortsFactory workflowExecutionPortsFactory;
+    private final AppWorkflowPortsFactory workflowExecutionPortsFactory;
     private final ToolRuntimeRepo toolRuntimeRepo;
     private final ToolRuntimeService toolRuntimeService;
     private final ApplicationCapabilityChecksum checksum;

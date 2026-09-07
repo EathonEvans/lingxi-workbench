@@ -3,8 +3,8 @@ package com.lingxi.workbench.knowledge.evaluation;
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
 import com.lingxi.workbench.chat.config.ChatMemoryConfiguration;
 import com.lingxi.workbench.framework.security.SecretCipher;
-import com.lingxi.workbench.infra.ai.embedding.openai.OpenAiCompatibleEmbeddingGateway;
-import com.lingxi.workbench.infra.ai.outbound.config.ModelOutboundSecurityConfiguration;
+import com.lingxi.workbench.infra.ai.embedding.openai.OpenAiEmbeddingGateway;
+import com.lingxi.workbench.infra.ai.outbound.config.ModelOutboundSecurityConfig;
 import com.lingxi.workbench.infra.ai.rerank.http.HttpRerankGateway;
 import com.lingxi.workbench.knowledge.config.KnowledgeRetrievalProperties;
 import com.lingxi.workbench.knowledge.repo.KnowledgeBaseRepo;
@@ -42,8 +42,8 @@ import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 @Import({KnowledgeEvaluationCommand.class, KnowledgeEvaluationService.class, KnowledgeSearchServiceImpl.class,
         KnowledgeBaseRepo.class, KnowledgeChunkRepo.class, KnowledgeVectorRepo.class, KnowledgeRerankInputBudget.class,
         KnowledgeRetrievalProperties.class, ModelRuntimeConfigRepo.class, ModelRuntimeConfigServiceImpl.class,
-        SecretCipher.class, OpenAiCompatibleEmbeddingGateway.class, HttpRerankGateway.class,
-        ModelOutboundSecurityConfiguration.class, ChatMemoryConfiguration.class, StageObserver.class})
+        SecretCipher.class, OpenAiEmbeddingGateway.class, HttpRerankGateway.class,
+        ModelOutboundSecurityConfig.class, ChatMemoryConfiguration.class, StageObserver.class})
 public class KnowledgeEvaluationConfiguration {
     @Bean
     MapperFactoryBean<KnowledgeBaseMapper> knowledgeBaseMapper(SqlSessionFactory factory) {

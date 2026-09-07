@@ -320,7 +320,7 @@ class AgentScopeSupervisorGatewayTest {
 
     private static AgentRuntime runtime(AgentScopeOpenAiChatModelFactory modelFactory,
                                         TextTokenEstimator tokenCountEstimator) {
-        return new AgentRuntime(mock(AgentScopeSpecialistStreamingGateway.class),
+        return new AgentRuntime(mock(AgentScopeSpecialistGateway.class),
                 new AgentScopeSupervisorGateway(modelFactory, tokenCountEstimator),
                 new InMemoryAgentStateStore());
     }

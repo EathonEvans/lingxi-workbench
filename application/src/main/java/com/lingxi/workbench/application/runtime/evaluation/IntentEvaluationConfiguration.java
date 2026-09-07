@@ -9,8 +9,8 @@ import com.lingxi.workbench.application.runtime.repo.mapper.RuntimeApplicationVe
 import com.lingxi.workbench.application.runtime.repo.mapper.RuntimeIntentTreeVersionMapper;
 import com.lingxi.workbench.application.runtime.service.routing.IntentCandidateRetriever;
 import com.lingxi.workbench.framework.security.SecretCipher;
-import com.lingxi.workbench.infra.ai.embedding.openai.OpenAiCompatibleEmbeddingGateway;
-import com.lingxi.workbench.infra.ai.outbound.config.ModelOutboundSecurityConfiguration;
+import com.lingxi.workbench.infra.ai.embedding.openai.OpenAiEmbeddingGateway;
+import com.lingxi.workbench.infra.ai.outbound.config.ModelOutboundSecurityConfig;
 import com.lingxi.workbench.model.model.converter.ModelRuntimeConfigConverter;
 import com.lingxi.workbench.model.repo.ModelRuntimeConfigRepo;
 import com.lingxi.workbench.model.repo.mapper.ModelRuntimeConfigMapper;
@@ -34,7 +34,7 @@ import org.springframework.context.annotation.Import;
 @ConditionalOnProperty(
         name = "lingxi.intent-evaluation.enabled",
         havingValue = "true")
-@EnableConfigurationProperties(IntentRoutingEvaluationGatewayProperties.class)
+@EnableConfigurationProperties(IntentEvalGatewayProperties.class)
 @ImportAutoConfiguration({
         DataSourceAutoConfiguration.class,
         JdbcTemplateAutoConfiguration.class,
@@ -54,8 +54,8 @@ import org.springframework.context.annotation.Import;
         ModelRuntimeConfigRepo.class,
         ModelRuntimeConfigServiceImpl.class,
         SecretCipher.class,
-        OpenAiCompatibleEmbeddingGateway.class,
-        ModelOutboundSecurityConfiguration.class
+        OpenAiEmbeddingGateway.class,
+        ModelOutboundSecurityConfig.class
 })
 public class IntentEvaluationConfiguration {
 
@@ -65,13 +65,13 @@ public class IntentEvaluationConfiguration {
     }
 
     @Bean
-    MapperFactoryBean<RuntimeApplicationVersionMapper> runtimeApplicationVersionMapper(
+    MapperFactoryBean<RuntimeApplicationVersionMapper> appVersionMapper(
             SqlSessionFactory sqlSessionFactory) {
         return mapperFactory(RuntimeApplicationVersionMapper.class, sqlSessionFactory);
     }
 
     @Bean
-    MapperFactoryBean<RuntimeIntentTreeVersionMapper> runtimeIntentTreeVersionMapper(
+    MapperFactoryBean<RuntimeIntentTreeVersionMapper> intentVersionMapper(
             SqlSessionFactory sqlSessionFactory) {
         return mapperFactory(RuntimeIntentTreeVersionMapper.class, sqlSessionFactory);
     }

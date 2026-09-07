@@ -7,10 +7,8 @@ import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
 import com.lingxi.workbench.application.runtime.model.IntentCandidate;
 import com.lingxi.workbench.application.runtime.model.IntentCandidateSlot;
-import com.lingxi.workbench.application.runtime.model.IntentRecognizedSlot;
 import com.lingxi.workbench.application.runtime.model.IntentSemanticDecision;
 import com.lingxi.workbench.application.runtime.model.IntentSemanticDecisionResult;
-import com.lingxi.workbench.application.runtime.model.IntentSemanticSlotValue;
 import com.lingxi.workbench.application.runtime.model.PromptRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.entity.RuntimeIntentTreeVersionEntity;
 import com.lingxi.workbench.application.runtime.service.prompt.PromptRuntimeService;
@@ -20,7 +18,7 @@ import com.lingxi.workbench.infra.ai.chat.SpringAiChatClientFactory;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsageAccumulator;
-import com.lingxi.workbench.infra.ai.chat.openai.OpenAiCompatibleChatModelFactory;
+import com.lingxi.workbench.infra.ai.chat.openai.OpenAiChatModelFactory;
 import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
 import com.lingxi.workbench.workflow.model.CapabilityDefinition;
 import com.lingxi.workbench.workflow.model.CapabilityRiskLevel;
@@ -29,7 +27,6 @@ import com.lingxi.workbench.workflow.model.intent.ApplicationIntentBinding;
 import com.lingxi.workbench.workflow.model.intent.IntentDecisionFailureAction;
 import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
 import com.lingxi.workbench.workflow.model.intent.IntentRoutingPolicy;
-import com.lingxi.workbench.workflow.model.intent.IntentSlotValueType;
 import com.lingxi.workbench.workflow.model.intent.IntentTreeDefinition;
 import lombok.Builder;
 import lombok.Getter;
@@ -37,32 +34,21 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.AdvisorParams;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.ChatClientRequest;
-import org.springframework.ai.chat.client.ChatClientResponse;
-import org.springframework.ai.chat.client.ResponseEntity;
-import org.springframework.ai.chat.client.advisor.StructuredOutputValidationAdvisor;
-import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
-import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.converter.StructuredOutputConverter;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.util.JacksonUtils;
-import org.springframework.core.Ordered;
 import org.springframework.stereotype.Service;
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -81,16 +67,15 @@ public class IntentSemanticDecisionService {
     private static final int MAX_HISTORY_MESSAGES = 6;
     private static final int MAX_HISTORY_CHARACTERS = 1_000;
     private static final int MAX_SUMMARY_CHARACTERS = 2_000;
-    private static final int MAX_SLOT_STRING_CHARACTERS = 500;
-    private final OpenAiCompatibleChatModelFactory chatModelFactory;
+    private final OpenAiChatModelFactory chatModelFactory;
     private final SpringAiChatClientFactory chatClientFactory;
     private final ModelRuntimeConfigService modelRuntimeConfigService;
     private final PromptRuntimeService promptRuntimeService;
     private final PromptTemplateRenderer promptRenderer;
     private final JsonMapper jsonMapper;
-    private final IntentDecisionOutputConverter outputConverter;
+    private final IntentDecisionOutputProtocol outputProtocol = new IntentDecisionOutputProtocol();
 
-    public IntentSemanticDecisionService(OpenAiCompatibleChatModelFactory chatModelFactory,
+    public IntentSemanticDecisionService(OpenAiChatModelFactory chatModelFactory,
                                          SpringAiChatClientFactory chatClientFactory,
                                          ModelRuntimeConfigService modelRuntimeConfigService,
                                          PromptRuntimeService promptRuntimeService,
@@ -100,8 +85,7 @@ public class IntentSemanticDecisionService {
         this.modelRuntimeConfigService = modelRuntimeConfigService;
         this.promptRuntimeService = promptRuntimeService;
         this.promptRenderer = promptRenderer;
-        this.jsonMapper = strictJsonMapper();
-        this.outputConverter = new IntentDecisionOutputConverter(jsonMapper);
+        this.jsonMapper = JsonMapper.builder().addModules(JacksonUtils.instantiateAvailableModules()).build();
     }
 
     /**
@@ -141,32 +125,32 @@ public class IntentSemanticDecisionService {
         PromptRuntimeSnapshot promptSnapshot = promptRuntimeService.resolvePublished(policy.decisionPromptVersionId());
         String publishedPrompt = promptRenderer.renderIntentDecisionPrompt(promptSnapshot, context.getRuntimeVariables());
         ChatModelRuntimeConfig baseConfig = modelRuntimeConfigService.getChatModelConfig(policy.chatModelInstanceId());
-        int maxOutputTokens = Objects.isNull(executionBudget)
-                ? policy.maxOutputTokens()
-                : Math.min(policy.maxOutputTokens(), executionBudget.remainingTokenBudget());
-        ChatModelRuntimeConfig callConfig = decisionModelConfig(baseConfig, policy, maxOutputTokens);
         List<DecisionCandidate> decisionCandidates = decisionCandidates(
                 context.getApplicationSnapshot(), version, candidates);
         String decisionInput = decisionInputJson(context, decisionCandidates);
-        IntentDecisionAttemptAdvisor attemptAdvisor = new IntentDecisionAttemptAdvisor(executionBudget);
+        IntentDecisionAttempts attempts = new IntentDecisionAttempts(executionBudget);
         int maxCalls = Math.min(1 + policy.maxRepeatAttempts(), remainingApplicationCalls);
         long startedAt = System.nanoTime();
         String validationMessage = null;
         RuntimeException lastFailure = null;
 
-        while (attemptAdvisor.modelCalls() < maxCalls) {
+        while (attempts.modelCalls < maxCalls) {
             if (Thread.currentThread().isInterrupted()) {
                 throw new IllegalStateException("意图语义决策线程已中断");
             }
-            int remainingRepairs = Math.max(maxCalls - attemptAdvisor.modelCalls() - 1, 0);
+            if (Objects.nonNull(executionBudget) && executionBudget.shouldFinalize()) {
+                break;
+            }
             try {
-                IntentSemanticDecision decision = call(publishedPrompt, decisionInput, validationMessage, callConfig,
-                        Math.min(remainingRepairs, policy.maxRepeatAttempts()), attemptAdvisor);
-                validateDecision(decision, candidates);
-                return decisionResult(decision, policy, promptSnapshot, attemptAdvisor, startedAt);
-            } catch (JacksonException | DecisionValidationException exception) {
+                int maxOutputTokens = Objects.isNull(executionBudget) ? policy.maxOutputTokens()
+                        : Math.min(policy.maxOutputTokens(), executionBudget.remainingTokenBudget());
+                ChatModelRuntimeConfig callConfig = decisionModelConfig(baseConfig, policy, maxOutputTokens);
+                String output = call(publishedPrompt, decisionInput, validationMessage, callConfig, attempts);
+                IntentSemanticDecision decision = outputProtocol.read(output, candidates);
+                return decisionResult(decision, policy, promptSnapshot, attempts, startedAt);
+            } catch (IntentDecisionOutputProtocol.InvalidOutputException exception) {
                 lastFailure = exception;
-                validationMessage = safeValidationMessage(exception);
+                validationMessage = exception.getMessage();
             } catch (RuntimeException exception) {
                 if (hasInterruptedCause(exception)) {
                     Thread.currentThread().interrupt();
@@ -177,7 +161,7 @@ public class IntentSemanticDecisionService {
             }
         }
 
-        return failedDecision(policy, promptSnapshot, attemptAdvisor, startedAt, lastFailure);
+        return failedDecision(policy, promptSnapshot, attempts, startedAt, lastFailure);
     }
 
     /** 路由不得越过 Application 单轮总模型调用预算，也不为该降级额外调用模型。 */
@@ -199,36 +183,26 @@ public class IntentSemanticDecisionService {
                 .build();
     }
 
-    private IntentSemanticDecision call(String publishedPrompt, String decisionInput, String validationMessage,
-                                        ChatModelRuntimeConfig config, int repeatAttempts,
-                                        IntentDecisionAttemptAdvisor attemptAdvisor) {
+    private String call(String publishedPrompt, String decisionInput, String validationMessage,
+                        ChatModelRuntimeConfig config, IntentDecisionAttempts attempts) {
         OpenAiChatModel chatModel = chatModelFactory.create(config);
         String systemPrompt = publishedPrompt + INTENT_DECISION_PLATFORM_RULES;
         if (!config.isStructuredOutputSupported()) {
-            systemPrompt = systemPrompt + "\n\n" + outputConverter.getFormat();
+            systemPrompt = systemPrompt + "\n\n" + outputProtocol.getFormat();
         }
         String userPrompt = "<intent_decision_input_json>\n" + decisionInput
                 + "\n</intent_decision_input_json>";
-        if (validationMessage != null) {
+        if (Objects.nonNull(validationMessage)) {
             userPrompt = userPrompt + INTENT_DECISION_REPAIR_INSTRUCTION + "\n上一次校验结果：" + validationMessage;
         }
         List<Message> messages = List.of(new SystemMessage(systemPrompt), new UserMessage(userPrompt));
         Prompt prompt = structuredPrompt(messages, chatModel.getOptions(), config);
         ChatClient.ChatClientRequestSpec requestSpec = chatClientFactory.create(chatModel)
                 .prompt(prompt)
-                .advisors(AdvisorParams.toolCallingAdvisorAutoRegister(false))
-                .advisors(structuredOutputAdvisor(repeatAttempts), attemptAdvisor);
-        ResponseEntity<ChatResponse, IntentSemanticDecision> response = requestSpec.call().responseEntity(outputConverter);
-        return Objects.requireNonNull(response.entity(), "意图语义决策模型未返回结构化对象");
-    }
-
-    private StructuredOutputValidationAdvisor structuredOutputAdvisor(int repeatAttempts) {
-        return StructuredOutputValidationAdvisor.builder()
-                .advisorOrder(Ordered.HIGHEST_PRECEDENCE + 50)
-                .outputJsonSchema(outputConverter.getJsonSchema())
-                .jsonMapper(jsonMapper)
-                .maxRepeatAttempts(repeatAttempts)
-                .build();
+                .advisors(AdvisorParams.toolCallingAdvisorAutoRegister(false));
+        ChatResponse response = attempts.call(requestSpec);
+        return Objects.isNull(response) || Objects.isNull(response.getResult())
+                ? null : response.getResult().getOutput().getText();
     }
 
     private Prompt structuredPrompt(List<Message> messages, OpenAiChatOptions defaults,
@@ -238,7 +212,7 @@ public class IntentSemanticDecisionService {
         }
         OpenAiChatModel.ResponseFormat responseFormat = OpenAiChatModel.ResponseFormat.builder()
                 .type(OpenAiChatModel.ResponseFormat.Type.JSON_SCHEMA)
-                .jsonSchema(outputConverter.getJsonSchema())
+                .jsonSchema(outputProtocol.getJsonSchema())
                 .build();
         return new Prompt(messages, defaults.mutate().responseFormat(responseFormat).build());
     }
@@ -297,124 +271,13 @@ public class IntentSemanticDecisionService {
         }).toList();
     }
 
-    private static void validateDecision(IntentSemanticDecision decision, List<IntentCandidate> candidates) {
-        if (Objects.isNull(decision) || Objects.isNull(decision.getAction())
-                || Objects.isNull(decision.getReasonCode())) {
-            throw invalid("决策缺少action或reasonCode");
-        }
-        if (decision.getReasonCode() == IntentDecisionReason.SEMANTIC_DECISION_FAILED) {
-            throw invalid("模型不能返回平台保留原因编码");
-        }
-        Map<String, IntentCandidate> candidatesByCode = candidates.stream()
-                .collect(Collectors.toMap(IntentCandidate::intentCode, Function.identity()));
-        switch (decision.getAction()) {
-            case SELECT -> validateSelect(decision, candidatesByCode);
-            case CLARIFY -> validateClarify(decision, candidatesByCode);
-            case DEFER -> validateDefer(decision);
-        }
-    }
-
-    private static void validateSelect(IntentSemanticDecision decision,
-                                       Map<String, IntentCandidate> candidatesByCode) {
-        requireCandidate(decision.getSelectedIntentCode(), candidatesByCode);
-        requireEmpty(decision.alternativeIntentCodes(), "SELECT不能包含alternativeIntentCodes");
-        if (decision.getReasonCode() != IntentDecisionReason.SINGLE_INTENT) {
-            throw invalid("SELECT只能使用SINGLE_INTENT原因");
-        }
-        validateSlots(decision.recognizedSlots(), candidatesByCode.get(decision.getSelectedIntentCode()));
-    }
-
-    private static void validateClarify(IntentSemanticDecision decision,
-                                        Map<String, IntentCandidate> candidatesByCode) {
-        if (isBlank(decision.getSelectedIntentCode())) {
-            requireEmpty(decision.recognizedSlots(), "候选歧义澄清不能携带recognizedSlots");
-            List<String> alternatives = decision.alternativeIntentCodes();
-            if (alternatives.size() < 2) {
-                throw invalid("候选歧义澄清至少需要两个alternativeIntentCodes");
-            }
-            requireUniqueCandidates(alternatives, candidatesByCode);
-            if (decision.getReasonCode() != IntentDecisionReason.AMBIGUOUS_INTENT
-                    && decision.getReasonCode() != IntentDecisionReason.INSUFFICIENT_CONTEXT) {
-                throw invalid("候选歧义澄清原因不合法");
-            }
-            return;
-        }
-        requireCandidate(decision.getSelectedIntentCode(), candidatesByCode);
-        requireEmpty(decision.alternativeIntentCodes(), "缺槽位澄清不能包含alternativeIntentCodes");
-        if (decision.getReasonCode() != IntentDecisionReason.MISSING_REQUIRED_SLOT) {
-            throw invalid("已选择候选的CLARIFY只能表示缺少必填槽位");
-        }
-        IntentCandidate candidate = candidatesByCode.get(decision.getSelectedIntentCode());
-        validateSlots(decision.recognizedSlots(), candidate);
-        Set<String> recognizedCodes = decision.recognizedSlots().stream()
-                .map(IntentRecognizedSlot::getSlotCode)
-                .collect(Collectors.toSet());
-        boolean hasMissingRequiredSlot = candidate.getSlots().stream()
-                .anyMatch(slot -> slot.required() && !recognizedCodes.contains(slot.code()));
-        if (!hasMissingRequiredSlot) {
-            throw invalid("MISSING_REQUIRED_SLOT必须仍有未识别的必填槽位");
-        }
-    }
-
-    private static void validateDefer(IntentSemanticDecision decision) {
-        if (!isBlank(decision.getSelectedIntentCode()) || !decision.alternativeIntentCodes().isEmpty()
-                || !decision.recognizedSlots().isEmpty()) {
-            throw invalid("DEFER不能携带候选编码或槽位值");
-        }
-        Set<IntentDecisionReason> allowed = Set.of(IntentDecisionReason.OUT_OF_SCOPE,
-                IntentDecisionReason.MULTIPLE_INTENTS, IntentDecisionReason.NEGATED_OR_CORRECTED,
-                IntentDecisionReason.INSUFFICIENT_CONTEXT, IntentDecisionReason.NO_SUITABLE_CANDIDATE);
-        if (!allowed.contains(decision.getReasonCode())) {
-            throw invalid("DEFER原因不合法");
-        }
-    }
-
-    private static void validateSlots(List<IntentRecognizedSlot> recognizedSlots, IntentCandidate candidate) {
-        Map<String, IntentCandidateSlot> slotsByCode = candidate.getSlots().stream()
-                .collect(Collectors.toMap(IntentCandidateSlot::code, Function.identity()));
-        Set<String> recognizedCodes = new HashSet<>();
-        for (IntentRecognizedSlot recognizedSlot : recognizedSlots) {
-            if (Objects.isNull(recognizedSlot) || isBlank(recognizedSlot.getSlotCode())
-                    || Objects.isNull(recognizedSlot.getValue())) {
-                throw invalid("recognizedSlots存在不完整槽位");
-            }
-            if (!recognizedCodes.add(recognizedSlot.getSlotCode())) {
-                throw invalid("recognizedSlots包含重复槽位编码");
-            }
-            IntentCandidateSlot slot = slotsByCode.get(recognizedSlot.getSlotCode());
-            if (Objects.isNull(slot)) {
-                throw invalid("模型返回了候选未声明的槽位");
-            }
-            validateSlotValue(recognizedSlot.getValue(), slot.valueType());
-        }
-    }
-
-    private static void validateSlotValue(IntentSemanticSlotValue value, IntentSlotValueType expectedType) {
-        int populated = countNonNull(value.getStringValue(), value.getNumberValue(),
-                value.getDateValue(), value.getBooleanValue());
-        if (populated != 1 || Objects.isNull(expectedType)) {
-            throw invalid("槽位值必须且只能包含一个声明类型字段");
-        }
-        switch (expectedType) {
-            case STRING -> {
-                if (isBlank(value.getStringValue())
-                        || value.getStringValue().length() > MAX_SLOT_STRING_CHARACTERS) {
-                    throw invalid("STRING槽位值为空或超过长度上限");
-                }
-            }
-            case NUMBER -> requireNonNull(value.getNumberValue(), "NUMBER槽位必须使用numberValue");
-            case DATE -> requireNonNull(value.getDateValue(), "DATE槽位必须使用dateValue");
-            case BOOLEAN -> requireNonNull(value.getBooleanValue(), "BOOLEAN槽位必须使用booleanValue");
-        }
-    }
-
     private IntentSemanticDecisionResult failedDecision(IntentRoutingPolicy policy,
                                                         PromptRuntimeSnapshot promptSnapshot,
-                                                        IntentDecisionAttemptAdvisor attemptAdvisor,
+                                                        IntentDecisionAttempts attempts,
                                                         long startedAt,
                                                         RuntimeException failure) {
         log.warn("意图语义决策失败，modelInstanceId={}，promptVersionId={}，modelCalls={}，errorType={}",
-                policy.chatModelInstanceId(), promptSnapshot.promptVersionId(), attemptAdvisor.modelCalls(),
+                policy.chatModelInstanceId(), promptSnapshot.promptVersionId(), attempts.modelCalls,
                 Objects.isNull(failure) ? "UNKNOWN" : failure.getClass().getSimpleName());
         IntentSemanticDecision decision = IntentSemanticDecision.builder()
                 .action(IntentSemanticAction.DEFER)
@@ -423,7 +286,7 @@ public class IntentSemanticDecisionService {
                 .recognizedSlots(List.of())
                 .build();
         IntentSemanticDecisionResult result = decisionResult(
-                decision, policy, promptSnapshot, attemptAdvisor, startedAt);
+                decision, policy, promptSnapshot, attempts, startedAt);
         if (policy.decisionFailureAction() == IntentDecisionFailureAction.FAIL) {
             throw new IntentSemanticDecisionException(result, failure);
         }
@@ -433,12 +296,12 @@ public class IntentSemanticDecisionService {
     private static IntentSemanticDecisionResult decisionResult(IntentSemanticDecision decision,
                                                                IntentRoutingPolicy policy,
                                                                PromptRuntimeSnapshot promptSnapshot,
-                                                               IntentDecisionAttemptAdvisor attemptAdvisor,
+                                                               IntentDecisionAttempts attempts,
                                                                long startedAt) {
-        int modelCalls = attemptAdvisor.modelCalls();
+        int modelCalls = attempts.modelCalls;
         return IntentSemanticDecisionResult.builder()
                 .decision(decision)
-                .tokenUsage(attemptAdvisor.tokenUsage())
+                .tokenUsage(attempts.tokenUsage.snapshot())
                 .modelCalls(modelCalls)
                 .retryCount(Math.max(modelCalls - 1, 0))
                 .modelInstanceId(policy.chatModelInstanceId())
@@ -450,7 +313,9 @@ public class IntentSemanticDecisionService {
     private static ChatModelRuntimeConfig decisionModelConfig(ChatModelRuntimeConfig source,
                                                               IntentRoutingPolicy policy,
                                                               int maxOutputTokens) {
+        // SDK 隐式重试无法计入应用账本；该决策只允许外层有界的输出修复。
         return source.toBuilder()
+                .maxRetries(0)
                 .maxTokens(maxOutputTokens)
                 .timeoutSeconds(policy.timeoutSeconds())
                 .build();
@@ -472,44 +337,6 @@ public class IntentSemanticDecisionService {
         }
     }
 
-    private static void requireUniqueCandidates(List<String> codes,
-                                                Map<String, IntentCandidate> candidatesByCode) {
-        if (new HashSet<>(codes).size() != codes.size()) {
-            throw invalid("候选编码不能重复");
-        }
-        for (String code : codes) {
-            requireCandidate(code, candidatesByCode);
-        }
-    }
-
-    private static void requireCandidate(String code, Map<String, IntentCandidate> candidatesByCode) {
-        if (isBlank(code) || !candidatesByCode.containsKey(code)) {
-            throw invalid("模型选择了本次候选外编码");
-        }
-    }
-
-    private static void requireEmpty(List<?> values, String message) {
-        if (!values.isEmpty()) {
-            throw invalid(message);
-        }
-    }
-
-    private static void requireNonNull(Object value, String message) {
-        if (Objects.isNull(value)) {
-            throw invalid(message);
-        }
-    }
-
-    private static int countNonNull(Object... values) {
-        int count = 0;
-        for (Object value : values) {
-            if (Objects.nonNull(value)) {
-                count++;
-            }
-        }
-        return count;
-    }
-
     private static String boundedText(String value, int maxCharacters) {
         String normalized = Objects.requireNonNullElse(value, "");
         return normalized.length() <= maxCharacters ? normalized : normalized.substring(0, maxCharacters);
@@ -517,13 +344,6 @@ public class IntentSemanticDecisionService {
 
     private static boolean isBlank(String value) {
         return Objects.isNull(value) || value.isBlank();
-    }
-
-    private static String safeValidationMessage(RuntimeException exception) {
-        return Optional.ofNullable(exception.getMessage())
-                .filter(message -> !message.isBlank())
-                .map(message -> message.length() > 300 ? message.substring(0, 300) : message)
-                .orElse("结构化意图决策不符合平台协议");
     }
 
     private static boolean hasInterruptedCause(Throwable throwable) {
@@ -537,138 +357,29 @@ public class IntentSemanticDecisionService {
         return false;
     }
 
-    private static DecisionValidationException invalid(String message) {
-        return new DecisionValidationException(message);
-    }
-
-    private static JsonMapper strictJsonMapper() {
-        return JsonMapper.builder()
-                .addModules(JacksonUtils.instantiateAvailableModules())
-                .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-                .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
-                .enable(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY)
-                .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-                .build();
-    }
-
-    /**
-     * 意图决策协议使用平台维护的稳定 Schema，不再依赖 Spring AI 的 VicTools 代码生成。
-     * Spring AI 仍负责结构化响应约束与重试，最终对象由严格 JsonMapper 解析。
-     */
-    private static final class IntentDecisionOutputConverter
-            implements StructuredOutputConverter<IntentSemanticDecision> {
-
-        private static final String JSON_SCHEMA = """
-                {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "action": {"type": "string", "enum": ["SELECT", "CLARIFY", "DEFER"]},
-                    "selectedIntentCode": {"type": "string"},
-                    "alternativeIntentCodes": {"type": "array", "items": {"type": "string"}},
-                    "recognizedSlots": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "properties": {
-                          "slotCode": {"type": "string"},
-                          "value": {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "properties": {
-                              "stringValue": {"type": "string"},
-                              "numberValue": {"type": "number"},
-                              "dateValue": {"type": "string", "format": "date"},
-                              "booleanValue": {"type": "boolean"}
-                            }
-                          }
-                        },
-                        "required": ["slotCode", "value"]
-                      }
-                    },
-                    "reasonCode": {
-                      "type": "string",
-                      "enum": ["SINGLE_INTENT", "AMBIGUOUS_INTENT", "MISSING_REQUIRED_SLOT",
-                        "OUT_OF_SCOPE", "MULTIPLE_INTENTS", "NEGATED_OR_CORRECTED",
-                        "INSUFFICIENT_CONTEXT", "NO_SUITABLE_CANDIDATE"]
-                    }
-                  },
-                  "required": ["action", "reasonCode"]
-                }
-                """;
-
-        private final JsonMapper jsonMapper;
-
-        private IntentDecisionOutputConverter(JsonMapper jsonMapper) {
-            this.jsonMapper = jsonMapper;
-        }
-
-        @Override
-        public IntentSemanticDecision convert(String source) {
-            return jsonMapper.readValue(source, IntentSemanticDecision.class);
-        }
-
-        @Override
-        public String getFormat() {
-            return "仅输出符合以下 JSON Schema 的 JSON 对象：\n" + JSON_SCHEMA;
-        }
-
-        @Override
-        public String getJsonSchema() {
-            return JSON_SCHEMA;
-        }
-    }
-
-    /** 统计 StructuredOutputValidationAdvisor 内部修复产生的每一次真实模型调用。 */
-    private static final class IntentDecisionAttemptAdvisor implements CallAdvisor {
+    /** 每次模型请求先占用预算，响应即记账，格式错误也不能抹掉已经发生的用量。 */
+    private static final class IntentDecisionAttempts {
 
         private final TokenUsageAccumulator tokenUsage = new TokenUsageAccumulator();
         private final ApplicationExecutionBudget executionBudget;
         private int modelCalls;
 
-        private IntentDecisionAttemptAdvisor(ApplicationExecutionBudget executionBudget) {
+        private IntentDecisionAttempts(ApplicationExecutionBudget executionBudget) {
             this.executionBudget = executionBudget;
         }
 
-        @Override
-        public String getName() {
-            return "Intent Decision Attempt";
-        }
-
-        @Override
-        public int getOrder() {
-            return Ordered.HIGHEST_PRECEDENCE + 100;
-        }
-
-        @Override
-        public synchronized ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
+        private ChatResponse call(ChatClient.ChatClientRequestSpec request) {
             if (Objects.nonNull(executionBudget)) {
                 executionBudget.reserveModelCall();
             }
             modelCalls++;
-            ChatClientResponse response = chain.nextCall(request);
-            TokenUsage usage = SpringAiTokenUsageConverter.convert(response.chatResponse());
+            ChatResponse response = request.call().chatResponse();
+            TokenUsage usage = SpringAiTokenUsageConverter.convert(response);
             tokenUsage.add(usage);
             if (Objects.nonNull(executionBudget)) {
                 executionBudget.recordUsage(usage);
             }
             return response;
-        }
-
-        private synchronized int modelCalls() {
-            return modelCalls;
-        }
-
-        private TokenUsage tokenUsage() {
-            return tokenUsage.snapshot();
-        }
-    }
-
-    private static final class DecisionValidationException extends RuntimeException {
-
-        private DecisionValidationException(String message) {
-            super(message);
         }
     }
 

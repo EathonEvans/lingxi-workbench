@@ -16,15 +16,15 @@ public class IntentRoutingVersionPreviewGateway implements IntentRoutingEvaluati
 
     private static final String OPS_TOKEN_HEADER = "X-Lingxi-Ops-Token";
 
-    private final IntentRoutingEvaluationGatewayProperties properties;
+    private final IntentEvalGatewayProperties properties;
     private final HttpClient httpClient;
 
-    public IntentRoutingVersionPreviewGateway(IntentRoutingEvaluationGatewayProperties properties) {
+    public IntentRoutingVersionPreviewGateway(IntentEvalGatewayProperties properties) {
         this(properties, HttpClient.newBuilder().connectTimeout(properties.getTimeout()).build());
     }
 
     IntentRoutingVersionPreviewGateway(
-            IntentRoutingEvaluationGatewayProperties properties, HttpClient httpClient) {
+            IntentEvalGatewayProperties properties, HttpClient httpClient) {
         this.properties = properties;
         this.httpClient = httpClient;
     }

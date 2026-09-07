@@ -27,7 +27,7 @@ public class MemoryEventResolver {
 
     private final ConversationRepo conversationRepo;
     private final ConversationMessageRepo messageRepo;
-    private final ApplicationVersionService applicationVersionService;
+    private final ApplicationVersionService appVersionService;
 
     @Transactional(readOnly = true)
     public AssistantCompletedEvent resolve(ConversationCompletedMessage message) {
@@ -47,7 +47,7 @@ public class MemoryEventResolver {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "记忆事件对应Assistant消息缺少Application主键");
         }
 
-        AppRuntimeSnapshot application = applicationVersionService.loadRuntimeAppVersion(
+        AppRuntimeSnapshot application = appVersionService.loadRuntimeAppVersion(
                 assistantMessage.getApplicationId(), message.appVersionId());
         ChatTurnBO turn = new ChatTurnBO(
                 message.conversationId(), userMessage.getId(), assistantMessage.getId(), userMessage.getSequenceNo());

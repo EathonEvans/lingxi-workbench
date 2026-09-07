@@ -12,7 +12,7 @@ import java.util.Objects;
  * @param conversation 已完成窗口、记忆和路由准备的对话数据
  * @param budget Application 单轮共享预算账本
  */
-public record ApplicationRun(String executionId, ApplicationChatExecutionRequest request,
+public record ApplicationRun(String executionId, AppExecutionRequest request,
                              ConversationContext conversation, ApplicationExecutionBudget budget) {
 
     public ApplicationRun {

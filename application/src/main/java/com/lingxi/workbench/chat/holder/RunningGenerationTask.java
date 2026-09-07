@@ -22,6 +22,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 
 import java.util.Objects;
+import java.util.function.LongFunction;
 
 /**
  * 单个模型生成任务及其本机可重放事件。
@@ -140,9 +141,7 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
             return;
         }
         answer.append(chunk.content());
-        ChatGenerationEventBO event = ChatGenerationEventBO.chunk(++sequence, chunk.content());
-        eventRepo.append(id(), event);
-        eventSink.emitNext(event, Sinks.EmitFailureHandler.FAIL_FAST);
+        publishIncremental(nextSequence -> ChatGenerationEventBO.chunk(nextSequence, chunk.content()));
     }
 
     /**
@@ -157,65 +156,40 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
      * 发布工具执行状态；工具事件不参与回答正文累计。
      */
     @Override
-    public synchronized void publishTool(AgentToolExecutionEvent event) {
-        if (terminal) {
-            return;
-        }
-        ChatGenerationEventBO generationEvent = ChatGenerationEventBO.tool(++sequence, event);
-        eventRepo.append(id(), generationEvent);
-        eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
+    public void publishTool(AgentToolExecutionEvent event) {
+        publishIncremental(nextSequence -> ChatGenerationEventBO.tool(nextSequence, event));
     }
 
     /**
      * 发布不包含模型思维链的 Agent 阶段进度；该事件不参与回答正文累计。
      */
     @Override
-    public synchronized void publishProgress(AgentProgressEvent event) {
-        if (terminal) {
-            return;
-        }
-        ChatGenerationEventBO generationEvent = ChatGenerationEventBO.progress(++sequence, event);
-        eventRepo.append(id(), generationEvent);
-        eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
+    public void publishProgress(AgentProgressEvent event) {
+        publishIncremental(nextSequence -> ChatGenerationEventBO.progress(nextSequence, event));
     }
 
     @Override
-    public synchronized void publishClarification(ChatClarificationEventBO event) {
-        if (terminal) {
-            return;
-        }
-        event.setSequence(++sequence);
-        ChatGenerationEventBO generationEvent = ChatGenerationEventBO.clarification(sequence, event);
-        eventRepo.append(id(), generationEvent);
-        eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
+    public void publishClarification(ChatClarificationEventBO event) {
+        publishIncremental(nextSequence -> {
+            event.setSequence(nextSequence);
+            return ChatGenerationEventBO.clarification(nextSequence, event);
+        });
     }
 
     /**
      * 发布持久化 HITL 等待事件；事件不包含原始 Tool 参数。
      */
     @Override
-    public synchronized void publishInteractionRequired(ChatInteractionEventBO event) {
-        if (terminal) {
-            return;
-        }
-        ChatGenerationEventBO generationEvent = ChatGenerationEventBO.interaction(
-                ++sequence, ChatGenerationEventType.INTERACTION_REQUIRED, event);
-        eventRepo.append(id(), generationEvent);
-        eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
+    public void publishInteractionRequired(ChatInteractionEventBO event) {
+        publishIncremental(nextSequence -> ChatGenerationEventBO.interaction(nextSequence, ChatGenerationEventType.INTERACTION_REQUIRED, event));
     }
 
     /**
      * 发布人工决策已完成事件，随后同一运行继续输出进度。
      */
     @Override
-    public synchronized void publishInteractionResolved(ChatInteractionEventBO event) {
-        if (terminal) {
-            return;
-        }
-        ChatGenerationEventBO generationEvent = ChatGenerationEventBO.interaction(
-                ++sequence, ChatGenerationEventType.INTERACTION_RESOLVED, event);
-        eventRepo.append(id(), generationEvent);
-        eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
+    public void publishInteractionResolved(ChatInteractionEventBO event) {
+        publishIncremental(nextSequence -> ChatGenerationEventBO.interaction(nextSequence, ChatGenerationEventType.INTERACTION_RESOLVED, event));
     }
 
     /**
@@ -231,32 +205,37 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
     }
 
     @Override
-    public synchronized void publishExecution(ChatExecutionTimelineEventBO event) {
-        if (terminal) {
-            return;
-        }
-        ChatGenerationEventType type = switch (event.getEventType()) {
-            case PLANNING -> ChatGenerationEventType.PLANNING;
-            case PLAN_CREATED -> ChatGenerationEventType.PLAN;
-            case REPLANNING -> ChatGenerationEventType.REPLANNING;
-            default -> ChatGenerationEventType.STEP;
-        };
-        ChatGenerationEventBO generationEvent = ChatGenerationEventBO.execution(++sequence, type, event);
-        eventRepo.append(id(), generationEvent);
-        eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
+    public void publishExecution(ChatExecutionTimelineEventBO event) {
+        publishIncremental(nextSequence -> {
+            ChatGenerationEventType type = switch (event.getEventType()) {
+                case PLANNING -> ChatGenerationEventType.PLANNING;
+                case PLAN_CREATED -> ChatGenerationEventType.PLAN;
+                case REPLANNING -> ChatGenerationEventType.REPLANNING;
+                default -> ChatGenerationEventType.STEP;
+            };
+            return ChatGenerationEventBO.execution(nextSequence, type, event);
+        });
     }
 
     /**
      * 发布计划步骤文本增量；该事件不参与最终Assistant正文累计。
      */
     @Override
-    public synchronized void publishStepOutput(ChatStepOutputEventBO event) {
-        if (terminal || event == null || CharSequenceUtil.isEmpty(event.content())) {
+    public void publishStepOutput(ChatStepOutputEventBO event) {
+        if (Objects.isNull(event) || CharSequenceUtil.isEmpty(event.content())) {
             return;
         }
-        ChatGenerationEventBO generationEvent = ChatGenerationEventBO.stepOutput(++sequence, event);
-        eventRepo.append(id(), generationEvent);
-        eventSink.emitNext(generationEvent, Sinks.EmitFailureHandler.FAIL_FAST);
+        publishIncremental(nextSequence -> ChatGenerationEventBO.stepOutput(nextSequence, event));
+    }
+
+    /** 所有增量事件共用终态门禁与序号，先写可重放缓存，再通知本机订阅者。 */
+    private synchronized void publishIncremental(LongFunction<ChatGenerationEventBO> eventFactory) {
+        if (terminal) {
+            return;
+        }
+        ChatGenerationEventBO event = eventFactory.apply(++sequence);
+        eventRepo.append(id(), event);
+        eventSink.emitNext(event, Sinks.EmitFailureHandler.FAIL_FAST);
     }
 
     @Override
@@ -265,19 +244,24 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
     }
 
     /**
-     * Workflow 完成时校准最终回答和 Token 用量。
+     * 在同一临界区内取得完成处理权并校准最终回答，已取消或暂停的任务拒绝迟到结果。
      *
      * <p>正常情况下实时文本事件已经组成最终回答；如果 Workflow 对输出做了转换，
      * 则发布 SNAPSHOT 让前端以最终结果覆盖增量文本。</p>
      */
-    public synchronized void reconcileFinalResult(String finalAnswer, TokenUsage usage) {
-        tokenUsage = Objects.requireNonNullElseGet(usage, TokenUsage::empty);
-        if (Objects.equals(answer.toString(), finalAnswer)) {
-            return;
+    public synchronized boolean beginCompletion(String finalAnswer, TokenUsage usage) {
+        if (terminal) {
+            return false;
         }
-        answer.setLength(0);
-        answer.append(finalAnswer);
-        eventSink.emitNext(ChatGenerationEventBO.snapshot(finalAnswer), Sinks.EmitFailureHandler.FAIL_FAST);
+        // 先取得处理权，再通知可能同步回调的订阅者，避免回调重入时再次取得取消权。
+        terminal = true;
+        tokenUsage = Objects.requireNonNullElseGet(usage, TokenUsage::empty);
+        if (!Objects.equals(answer.toString(), finalAnswer)) {
+            answer.setLength(0);
+            answer.append(finalAnswer);
+            eventSink.emitNext(ChatGenerationEventBO.snapshot(finalAnswer), Sinks.EmitFailureHandler.FAIL_FAST);
+        }
+        return true;
     }
 
     /**

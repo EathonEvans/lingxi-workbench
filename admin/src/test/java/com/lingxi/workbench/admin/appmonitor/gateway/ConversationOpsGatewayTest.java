@@ -1,7 +1,7 @@
 package com.lingxi.workbench.admin.appmonitor.gateway;
 
 import com.lingxi.workbench.admin.appmonitor.config.ConversationOpsGatewayProperties;
-import com.lingxi.workbench.admin.appmonitor.config.ConversationOpsGatewayConfiguration;
+import com.lingxi.workbench.admin.appmonitor.config.ConversationOpsGatewayConfig;
 import com.lingxi.workbench.admin.appmonitor.model.vo.ConversationDlqResultVO;
 import com.lingxi.workbench.admin.appmonitor.model.vo.ConversationOpsOverviewVO;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ConversationOpsGatewayTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withUserConfiguration(ConversationOpsGatewayConfiguration.class);
+            .withUserConfiguration(ConversationOpsGatewayConfig.class);
 
     @Test
     void shouldCreateGatewayThroughExplicitConfiguration() {

@@ -58,9 +58,15 @@ public class IntentCandidateRetriever {
         if (definition.schemaVersion() != INTENT_TREE_SCHEMA_VERSION) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "意图树发布定义版本不受支持");
         }
+        return retrieve(version, request.query());
+    }
+
+    /** 在线路由已经加载冻结版本，直接复用；按 ID 进入的评测与 Workflow 仍在入口解析版本。 */
+    public IntentCandidateSet retrieve(RuntimeIntentTreeVersionEntity version, String query) {
+        IntentTreeDefinition definition = version.getDefinitionSnapshot();
         EmbeddingModelRuntimeConfig modelConfig = modelRuntimeConfigService
                 .getEmbeddingModelConfig(version.getEmbeddingModelInstanceId());
-        List<float[]> vectors = embeddingGateway.embed(List.of(request.query().trim()), modelConfig);
+        List<float[]> vectors = embeddingGateway.embed(List.of(query.trim()), modelConfig);
         if (vectors.size() != 1 || Objects.isNull(vectors.getFirst()) || vectors.getFirst().length == 0) {
             throw new BusinessException(HttpStatusEnum.INTERNAL_SERVER_ERROR, "意图查询向量化失败");
         }

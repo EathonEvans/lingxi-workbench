@@ -26,12 +26,12 @@ public final class AgentScopeSkillLoadAuditor implements MiddlewareBase {
 
     private static final String SKILL_LOAD_TOOL = "load_skill_through_path";
 
-    private final AgentScopePublishedSkillCatalog catalog;
+    private final AgentScopeSkillCatalog catalog;
     private final ExecutionTools tools;
     private final ExecutionEvents events;
     private final Set<String> auditedSkillIds = new HashSet<>();
 
-    public AgentScopeSkillLoadAuditor(AgentScopePublishedSkillCatalog catalog, ExecutionTools tools,
+    public AgentScopeSkillLoadAuditor(AgentScopeSkillCatalog catalog, ExecutionTools tools,
                                       ExecutionEvents events) {
         this.catalog = catalog;
         this.tools = tools;

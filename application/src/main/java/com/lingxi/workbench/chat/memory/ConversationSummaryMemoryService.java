@@ -22,7 +22,7 @@ public class ConversationSummaryMemoryService {
 
     private final ConversationMemoryService conversationMemoryService;
     private final MemoryCompletionService completionService;
-    private final ConversationSummaryPersistenceService persistenceService;
+    private final SummaryTxService persistenceService;
 
     /**
      * 在上一份摘要基础上生成滚动摘要。

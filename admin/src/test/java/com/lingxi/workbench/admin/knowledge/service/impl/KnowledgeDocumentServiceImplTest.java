@@ -13,7 +13,7 @@ import com.lingxi.workbench.admin.knowledge.repo.KnowledgeChunkVectorRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeDocumentRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeObjectStorage;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeIndexVersionService;
-import com.lingxi.workbench.admin.knowledge.event.event.KnowledgeObjectDeleteRequestedEvent;
+import com.lingxi.workbench.admin.knowledge.event.event.KnowledgeDeleteRequestedEvent;
 import com.lingxi.workbench.admin.knowledge.event.event.KnowledgeObjectStoredEvent;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
@@ -94,7 +94,7 @@ class KnowledgeDocumentServiceImplTest {
         ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
         verify(eventPublisher).publishEvent(eventCaptor.capture());
         assertThat(eventCaptor.getValue()).isEqualTo(
-                new KnowledgeObjectDeleteRequestedEvent("knowledge/1/document.pdf"));
+                new KnowledgeDeleteRequestedEvent("knowledge/1/document.pdf"));
     }
 
     @Test

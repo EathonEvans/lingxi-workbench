@@ -1,6 +1,7 @@
 package com.lingxi.workbench.admin.application.service;
 
 import com.lingxi.workbench.framework.json.JSONObject;
+import com.lingxi.workbench.admin.agent.service.AgentReferenceService;
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.admin.application.model.vo.ApplicationValidationIssueVO;
 import com.lingxi.workbench.admin.common.enums.EnableStatus;
@@ -47,6 +48,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -103,6 +105,69 @@ class ApplicationDraftValidatorTest {
                 .extracting(ApplicationAgentReference::agentId)
                 .containsExactly(20L);
         assertThat(resolvedCapability(result.definition(), "agent_20").getTargetVersionId()).isEqualTo(201L);
+    }
+
+    @Test
+    void shouldReuseListedSpecialistsAndReadSupervisorOnlyOnce() {
+        ApplicationDefinitionResolution result = resolve(validator, definition());
+
+        assertThat(result.valid()).isTrue();
+        assertThat(gateway.agentLookups).containsExactly(40L);
+    }
+
+    @Test
+    void shouldRejectSupervisorFromAnotherDomainUsingTheResolvedReference() {
+        AgentReferenceService.AgentReference supervisor = gateway.agents.get(40L);
+        gateway.agents.put(40L, new AgentReferenceService.AgentReference(
+                supervisor.identity(), true, supervisor.publishedVersionId(), 99L));
+
+        ApplicationDefinitionResolution result = resolve(validator, definition());
+
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code).contains("SUPERVISOR_DOMAIN_MISMATCH");
+        assertThat(gateway.agentLookups).containsExactly(40L);
+    }
+
+    @Test
+    void shouldExcludeNestedDomainBranchRegardlessOfQueryOrder() {
+        DomainEntity root = domain(1L, null, 1);
+        when(domainRepo.findActiveByRootId(1L)).thenReturn(List.of(
+                domain(4L, 3L, 4), domain(3L, 2L, 3), domain(5L, 1L, 2), domain(2L, 1L, 2), root));
+        gateway.addAgent(21L, true, 211L);
+        gateway.addVersion(21L, 211L);
+        AgentReferenceService.AgentReference nested = gateway.agents.get(21L);
+        gateway.agents.put(21L, new AgentReferenceService.AgentReference(nested.identity(), true, 211L, 4L));
+        AgentCollaborationDefinition collaboration = new AgentCollaborationDefinition(
+                new ApplicationAgentReference(40L, 401L, null, null),
+                List.of(new ApplicationAgentReference(20L, 201L, null, null)), List.of(2L), List.of());
+
+        ApplicationDefinitionResolution result = resolve(validator, fallbackDefinitionBuilder().collaboration(collaboration).build());
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.definition().collaboration().excludedDomainIds()).containsExactly(2L, 3L, 4L);
+        assertThat(result.definition().collaboration().members()).extracting(ApplicationAgentReference::agentId).containsExactly(20L);
+    }
+
+    @Test
+    void shouldReportUnavailableWorkflowVersionInsteadOfThrowingForUnpublishedWorkflow() {
+        workflows.put(30L, new WorkflowService.WorkflowReference(30L, true, null, "未发布流程"));
+        CapabilityDefinition capability = CapabilityDefinition.builder().code("draft_workflow")
+                .type(ApplicationCapabilityType.WORKFLOW).targetId(30L).build();
+
+        ApplicationDefinitionResolution result = resolve(validator, fallbackDefinitionBuilder()
+                .capabilityCatalog(catalog(capability)).build());
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.issues()).extracting(ApplicationValidationIssueVO::code).contains("CAPABILITY_WORKFLOW_VERSION_UNAVAILABLE");
+    }
+
+    private static DomainEntity domain(Long id, Long parentId, int depth) {
+        DomainEntity domain = new DomainEntity();
+        domain.setId(id);
+        domain.setParentId(parentId);
+        domain.setRootId(1L);
+        domain.setDepth(depth);
+        domain.setStatus(EnableStatus.ACTIVE);
+        return domain;
     }
 
     @Test
@@ -207,7 +272,7 @@ class ApplicationDraftValidatorTest {
                 List.of(leaf, exchangeLeaf));
         ApplicationDraftValidator intentValidator = new ApplicationDraftValidator(
                 gateway,
-                intentGateway(intentTreeId -> Optional.of(new ApplicationIntentTreeReferenceGateway.IntentTreeReference(
+                intentGateway(intentTreeId -> Optional.of(new AppIntentTreeGateway.IntentTreeReference(
                         intentTreeId, true, 200L, treeDefinition))),
                 workflowService,
                 modelInstanceService,
@@ -251,7 +316,7 @@ class ApplicationDraftValidatorTest {
                 INTENT_TREE_SCHEMA_VERSION - 1, 88L, intentRoutingPolicy(), List.of());
         ApplicationDraftValidator intentValidator = new ApplicationDraftValidator(
                 gateway,
-                intentGateway(intentTreeId -> Optional.of(new ApplicationIntentTreeReferenceGateway.IntentTreeReference(
+                intentGateway(intentTreeId -> Optional.of(new AppIntentTreeGateway.IntentTreeReference(
                         intentTreeId, true, 200L, legacyDefinition))),
                 workflowService,
                 modelInstanceService,
@@ -655,7 +720,7 @@ class ApplicationDraftValidatorTest {
                 List.of(leaf));
         ApplicationDraftValidator memoryValidator = new ApplicationDraftValidator(
                 gateway,
-                intentGateway(intentTreeId -> Optional.of(new ApplicationIntentTreeReferenceGateway.IntentTreeReference(
+                intentGateway(intentTreeId -> Optional.of(new AppIntentTreeGateway.IntentTreeReference(
                         intentTreeId, true, 200L, treeDefinition))),
                 workflowService,
                 modelInstanceService,
@@ -924,9 +989,9 @@ class ApplicationDraftValidatorTest {
         return validator.resolveForPublish(definition, 1L);
     }
 
-    private static ApplicationIntentTreeReferenceGateway intentGateway(
-            Function<Long, Optional<ApplicationIntentTreeReferenceGateway.IntentTreeReference>> finder) {
-        return new ApplicationIntentTreeReferenceGateway() {
+    private static AppIntentTreeGateway intentGateway(
+            Function<Long, Optional<AppIntentTreeGateway.IntentTreeReference>> finder) {
+        return new AppIntentTreeGateway() {
             @Override
             public Optional<IntentTreeReference> findPublishedTree(Long intentTreeId) {
                 return finder.apply(intentTreeId);
@@ -954,6 +1019,7 @@ class ApplicationDraftValidatorTest {
     private static final class StubAgentReferenceGateway
             implements com.lingxi.workbench.admin.agent.service.AgentReferenceService {
         private final Map<Long, AgentReference> agents = new HashMap<>();
+        private final List<Long> agentLookups = new ArrayList<>();
         private final Map<String, AgentVersionReference> versions = new HashMap<>();
 
         private StubAgentReferenceGateway() {
@@ -983,6 +1049,7 @@ class ApplicationDraftValidatorTest {
 
         @Override
         public Optional<AgentReference> findAgent(Long agentId) {
+            agentLookups.add(agentId);
             return Optional.ofNullable(agents.get(agentId));
         }
 

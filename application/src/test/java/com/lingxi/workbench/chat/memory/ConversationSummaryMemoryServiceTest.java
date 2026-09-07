@@ -29,7 +29,7 @@ class ConversationSummaryMemoryServiceTest {
     void shouldGenerateRollingSummaryFromPreviousSummaryAndNewRounds() {
         ConversationMemoryService memoryService = mock(ConversationMemoryService.class);
         MemoryCompletionService completionService = mock(MemoryCompletionService.class);
-        ConversationSummaryPersistenceService persistenceService = mock(ConversationSummaryPersistenceService.class);
+        SummaryTxService persistenceService = mock(SummaryTxService.class);
         ConversationSummaryMemoryService service = new ConversationSummaryMemoryService(
                 memoryService, completionService, persistenceService);
         AssistantCompletedEvent event = event();
@@ -65,7 +65,7 @@ class ConversationSummaryMemoryServiceTest {
     void shouldSkipModelCallBeforeSummaryThreshold() {
         ConversationMemoryService memoryService = mock(ConversationMemoryService.class);
         MemoryCompletionService completionService = mock(MemoryCompletionService.class);
-        ConversationSummaryPersistenceService persistenceService = mock(ConversationSummaryPersistenceService.class);
+        SummaryTxService persistenceService = mock(SummaryTxService.class);
         ConversationSummaryMemoryService service = new ConversationSummaryMemoryService(
                 memoryService, completionService, persistenceService);
         AssistantCompletedEvent event = event();

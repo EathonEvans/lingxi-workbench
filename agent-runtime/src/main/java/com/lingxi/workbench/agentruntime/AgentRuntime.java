@@ -1,9 +1,9 @@
 package com.lingxi.workbench.agentruntime;
 
-import com.lingxi.workbench.agentruntime.gateway.AgentScopeSpecialistStreamingGateway;
+import com.lingxi.workbench.agentruntime.gateway.AgentScopeSpecialistGateway;
 import com.lingxi.workbench.agentruntime.gateway.AgentScopeSupervisorGateway;
 import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
-import com.lingxi.workbench.agentruntime.context.AgentScopeConversationStateFactory;
+import com.lingxi.workbench.agentruntime.context.AgentScopeStateFactory;
 import com.lingxi.workbench.agentruntime.event.ExecutionEvents;
 import com.lingxi.workbench.agentruntime.model.AgentResumeRequest;
 import com.lingxi.workbench.agentruntime.model.AgentRunCancelledException;
@@ -14,7 +14,7 @@ import com.lingxi.workbench.agentruntime.model.ExecutionBudget;
 import com.lingxi.workbench.agentruntime.model.ExecutionInterruption;
 import com.lingxi.workbench.agentruntime.model.ExecutionOutput;
 import com.lingxi.workbench.agentruntime.model.ExecutionTools;
-import com.lingxi.workbench.agentruntime.skill.AgentScopePublishedSkillCatalog;
+import com.lingxi.workbench.agentruntime.skill.AgentScopeSkillCatalog;
 import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatStreamChunk;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
@@ -40,7 +40,7 @@ public class AgentRuntime {
 
     private static final Duration CANCELLATION_POLL_INTERVAL = Duration.ofMillis(100);
 
-    private final AgentScopeSpecialistStreamingGateway agentScopeSpecialistStreamingGateway;
+    private final AgentScopeSpecialistGateway specialistGateway;
     private final AgentScopeSupervisorGateway agentScopeSupervisorGateway;
     private final AgentStateStore agentStateStore;
 
@@ -60,10 +60,10 @@ public class AgentRuntime {
         if (request.getRole() == AgentRole.SUPERVISOR) {
             return executeSupervisor(request, runtimeContext);
         }
-        AgentScopePublishedSkillCatalog skillCatalog = AgentScopePublishedSkillCatalog.from(request.getSkillCatalog(),
+        AgentScopeSkillCatalog skillCatalog = AgentScopeSkillCatalog.from(request.getSkillCatalog(),
                 !request.isFinalizationOnly());
 
-        Flux<ChatStreamChunk> responseStream = agentScopeSpecialistStreamingGateway.stream(
+        Flux<ChatStreamChunk> responseStream = specialistGateway.stream(
                 request, runtimeContext, skillCatalog);
         return execute(runtimeContext, responseStream);
     }
@@ -77,8 +77,8 @@ public class AgentRuntime {
         AgentScopeCheckpoint checkpoint = resumeRequest.checkpoint();
         validateCheckpoint(request, checkpoint);
         RuntimeContext runtimeContext = runtimeContext(request, checkpoint);
-        AgentScopePublishedSkillCatalog skillCatalog = AgentScopePublishedSkillCatalog.from(request.getSkillCatalog(), !request.isFinalizationOnly());
-        Flux<ChatStreamChunk> stream = agentScopeSpecialistStreamingGateway.resume(request, runtimeContext,
+        AgentScopeSkillCatalog skillCatalog = AgentScopeSkillCatalog.from(request.getSkillCatalog(), !request.isFinalizationOnly());
+        Flux<ChatStreamChunk> stream = specialistGateway.resume(request, runtimeContext,
                 skillCatalog, checkpoint, resumeRequest.interactionId(),
                 resumeRequest.fingerprint());
         return execute(runtimeContext, stream);
@@ -194,7 +194,7 @@ public class AgentRuntime {
         RuntimeContext context = RuntimeContext.builder()
                 .userId(request.getUserId())
                 .sessionId(request.getSessionId())
-                .agentState(AgentScopeConversationStateFactory.create(
+                .agentState(AgentScopeStateFactory.create(
                         request.getModelCommand(), request.getUserId(), request.getSessionId()))
                 .build();
         context.put(AgentStateStore.class, agentStateStore);

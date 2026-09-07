@@ -2,7 +2,7 @@ package com.lingxi.workbench.chat.service.impl;
 
 import cn.hutool.core.text.CharSequenceUtil;
 import com.lingxi.workbench.application.runtime.common.enums.ExecutionCheckpointStatus;
-import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
+import com.lingxi.workbench.application.runtime.model.AppExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.vo.ApplicationAssistantIdentityVO;
@@ -89,9 +89,9 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     private final ConversationService conversationService;
     private final ConversationMessageRepo messageRepo;
     private final ChatGenerationEventRepo generationEventRepo;
-    private final ApplicationVersionService applicationVersionService;
+    private final ApplicationVersionService appVersionService;
     private final AppRuntime appRuntime;
-    private final ConversationEventPublisher conversationEventPublisher;
+    private final ConversationEventPublisher eventPublisher;
     private final TokenCountEstimator tokenCountEstimator;
     private final TracingService aiTracingService;
     private final StageObserver aiStageObserver;
@@ -118,7 +118,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         Long userId = loginUser.id();
 
         // 读取当前锁定的应用运行时快照
-        AppRuntimeSnapshot applicationSnapshot = applicationVersionService.loadRuntimeAppConfig(request.getApplicationCode().trim().toLowerCase());
+        AppRuntimeSnapshot applicationSnapshot = appVersionService.loadRuntimeAppConfig(request.getApplicationCode().trim().toLowerCase());
         // 校验输入token上限
         this.validateInputBudget(query, applicationSnapshot);
 
@@ -139,13 +139,13 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         if (!turnStart.isCreated()) {
             ConversationMessageEntity assistantMessage = messageRepo.findById(turn.assistantMessageId())
                     .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "Assistant消息不存在"));
-            ApplicationAssistantIdentityVO assistantIdentity = applicationVersionService.resolveAssistantIdentity(
+            ApplicationAssistantIdentityVO assistantIdentity = appVersionService.resolveAssistantIdentity(
                     assistantMessage.getApplicationId(), assistantMessage.getApplicationVersionId());
             return toStartVO(turn, assistantIdentity);
         }
 
         try {
-            ApplicationAssistantIdentityVO assistantIdentity = applicationVersionService
+            ApplicationAssistantIdentityVO assistantIdentity = appVersionService
                     .resolveAssistantIdentity(applicationSnapshot.applicationId(), applicationSnapshot.versionId());
             // Assistant 消息主键同时作为生成任务主键，便于 SSE 续接、取消和数据库终态恢复使用同一标识。
             TraceRun traceRun = aiTracingService.start(applicationSnapshot, turn, userId);
@@ -164,7 +164,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
             }
 
             // 构建执行参数
-            ApplicationChatExecutionRequest executionRequest = ApplicationChatExecutionRequest.builder()
+            AppExecutionRequest executionRequest = AppExecutionRequest.builder()
                     .application(applicationSnapshot)
                     .query(query)
                     .loginUser(loginUser)
@@ -295,7 +295,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "HITL原始用户消息不存在"));
         ChatTurnBO turn = new ChatTurnBO(assistant.getConversationId(), userMessage.getId(),
                 assistant.getId(), userMessage.getSequenceNo());
-        AppRuntimeSnapshot application = applicationVersionService.loadRuntimeAppVersion(
+        AppRuntimeSnapshot application = appVersionService.loadRuntimeAppVersion(
                 assistant.getApplicationId(), assistant.getApplicationVersionId());
         LoginUser loginUser = toLoginUser(userRepo.findById(interaction.getUserId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "HITL用户不存在")));
@@ -315,7 +315,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
             return;
         }
         AgentScopeCheckpoint runtimeCheckpoint = checkpoint.getPayload();
-        ApplicationChatExecutionRequest request = ApplicationChatExecutionRequest.builder()
+        AppExecutionRequest request = AppExecutionRequest.builder()
                 .application(application)
                 .query(runtimeCheckpoint.getQuery())
                 .loginUser(loginUser)
@@ -369,7 +369,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      * Agent 或 Workflow 执行期间通过 task 实时发布文本和工具状态，目标执行完成后再校准
      * 最终回答与 Token 用量；任务取消仍会释放该后台订阅。
      */
-    private void startGeneration(ApplicationChatExecutionRequest executionRequest) {
+    private void startGeneration(AppExecutionRequest executionRequest) {
         RunningGenerationTask task = (RunningGenerationTask) executionRequest.getEventPublisher();
 
         Disposable subscription = Mono
@@ -384,7 +384,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      * 显式取消会中断正在阻塞等待的模型调用。任务已进入终态时，该中断是预期结果，
      * 返回 null 让 Mono 正常结束，避免订阅释放后产生 onErrorDropped。
      */
-    private ApplicationChatResult executeApplication(RunningGenerationTask task, ApplicationChatExecutionRequest executionRequest) {
+    private ApplicationChatResult executeApplication(RunningGenerationTask task, AppExecutionRequest executionRequest) {
         try {
             return task.traceRun().scoped(() -> appRuntime.execute(executionRequest));
         } catch (RuntimeException exception) {
@@ -399,7 +399,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      * 目标执行成功后推进任务终态：校准最终回答与 Token 用量，并落库完成事件。
      *
      * <p>结果中的回答与用量是意图路由后目标执行的最终产物，可能覆盖流式过程中
-     * 累积的临时文本，因此先通过 {@code reconcileFinalResult} 校准再进入统一终态流程。</p>
+     * 累积的临时文本，因此通过 {@code beginCompletion} 原子地校准回答并取得完成处理权。</p>
      *
      * @param task   运行中的生成任务
      * @param result 目标执行结果（最终回答、Token 用量和模型实例）
@@ -409,34 +409,28 @@ public class ChatStreamServiceImpl implements ChatStreamService {
             pauseTaskForHuman(task, result.getInterruption());
             return;
         }
-        task.reconcileFinalResult(result.answer(), result.tokenUsage());
-        completeTask(task, result.modelInstanceId());
-    }
-
-    /**
-     * 模型流正常结束：持久化完整回答和 Token 用量，并发布完成事件。
-     */
-    private void completeTask(RunningGenerationTask task, Long modelInstanceId) {
-        // beginTerminal 保证完成、失败、取消等并发终态中只有一个能够成功执行。
-        if (!task.beginTerminal()) {
+        // 校准回答与竞争完成权在同一临界区内，取消后到达的结果不得再改写内容或发布快照。
+        if (!task.beginCompletion(result.answer(), result.tokenUsage())) {
             return;
         }
+        Long modelInstanceId = result.modelInstanceId();
         try {
             task.traceRun().scoped(() -> aiStageObserver.observe(AiObservationStage.TERMINAL, () -> {
-                conversationEventPublisher.completeAssistant(
+                eventPublisher.completeAssistant(
                         task.turn(), task.applicationVersionId(), task.answer(), task.tokenUsage(), modelInstanceId);
                 task.publishTerminal(ChatGenerationEventBO.completed());
             }));
             task.traceRun().complete(task.tokenUsage(), modelInstanceId);
         } catch (Exception exception) {
-            if (isCompletionPersisted(task, exception)) {
+            Optional<MessageStatus> persistedStatus = findPersistedStatus(task, exception);
+            if (persistedStatus.orElse(null) == MessageStatus.COMPLETED) {
                 // 本地事务已提交但Broker回执异常时，以PostgreSQL终态为准，避免前端误报失败。
                 log.warn("事务消息回执异常但Assistant已完成落库，assistantMessageId={}", task.id());
                 task.publishTerminal(ChatGenerationEventBO.completed());
                 task.traceRun().complete(task.tokenUsage(), modelInstanceId);
                 return;
             }
-            if (isAssistantCancelled(task, exception)) {
+            if (persistedStatus.orElse(null) == MessageStatus.CANCELLED) {
                 // 跨实例取消先经数据库 CAS 确认；当前实例不得把已取消消息错误投影成失败。
                 log.info("Assistant已由其他实例取消，忽略完成回执，assistantMessageId={}", task.id());
                 task.publishTerminal(ChatGenerationEventBO.cancelled());
@@ -466,13 +460,13 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         if (!task.beginTerminal()) {
             return;
         }
-        ChatFailure failure = resolveFailure(exception);
+        ExecutionFailure failure = failureClassifier.classify(exception);
         try {
-            conversationService.failAssistant(task.id(), task.answer(), failure.code(), failure.persistedMessage(), task.tokenUsage());
+            conversationService.failAssistant(task.id(), task.answer(), failure.code(), failure.clientMessage(), task.tokenUsage());
         } catch (RuntimeException persistenceException) {
             log.error("模型调用失败后更新消息状态失败，assistantMessageId={}", task.id(), persistenceException);
         } finally {
-            if (isAssistantCancelled(task, exception)) {
+            if (findPersistedStatus(task, exception).orElse(null) == MessageStatus.CANCELLED) {
                 task.publishTerminal(ChatGenerationEventBO.cancelled());
                 task.traceRun().cancel("USER_CANCELLED");
             } else {
@@ -519,43 +513,16 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     /**
      * 事务消息发送结果不确定时，以PostgreSQL中的Assistant终态作为用户侧结果依据。
      */
-    private boolean isCompletionPersisted(RunningGenerationTask task, Throwable originalException) {
+    private Optional<MessageStatus> findPersistedStatus(RunningGenerationTask task, Throwable originalException) {
         try {
-            return conversationService.findAssistantCompletionStatus(
-                            task.turn().conversationId(), task.id(), task.applicationVersionId())
-                    .filter(status -> status == MessageStatus.COMPLETED)
-                    .isPresent();
+            return conversationService.findAssistantCompletionStatus(task.turn().conversationId(), task.id(), task.applicationVersionId());
         } catch (RuntimeException statusException) {
-            originalException.addSuppressed(statusException);
-            log.warn("Assistant终态复核失败，assistantMessageId={}", task.id(), statusException);
-            return false;
-        }
-    }
-
-    /**
-     * 完成、失败与关闭并发时，以数据库取消终态决定用户侧 SSE 投影。
-     */
-    private boolean isAssistantCancelled(RunningGenerationTask task, Throwable originalException) {
-        try {
-            return conversationService.findAssistantCompletionStatus(
-                            task.turn().conversationId(), task.id(), task.applicationVersionId())
-                    .filter(status -> status == MessageStatus.CANCELLED)
-                    .isPresent();
-        } catch (RuntimeException statusException) {
-            if (originalException != null) {
+            if (Objects.nonNull(originalException)) {
                 originalException.addSuppressed(statusException);
             }
-            log.warn("Assistant取消终态复核失败，assistantMessageId={}", task.id(), statusException);
-            return false;
+            log.warn("Assistant终态复核失败，assistantMessageId={}", task.id(), statusException);
+            return Optional.empty();
         }
-    }
-
-    /**
-     * Agent运行边界错误保留可操作提示，其他异常继续使用模型服务安全文案。
-     */
-    private ChatFailure resolveFailure(Throwable exception) {
-        ExecutionFailure failure = failureClassifier.classify(exception);
-        return new ChatFailure(failure.code(), failure.clientMessage(), failure.clientMessage());
     }
 
     /**
@@ -569,18 +536,14 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      * @return 异常链中存在该类型根因时返回 true
      */
     private static boolean hasCause(Throwable exception, Class<? extends Throwable> causeType) {
-        return findCause(exception, causeType).isPresent();
-    }
-
-    private static <T extends Throwable> Optional<T> findCause(Throwable exception, Class<T> causeType) {
         Throwable current = exception;
         while (Objects.nonNull(current)) {
             if (causeType.isInstance(current)) {
-                return Optional.of(causeType.cast(current));
+                return true;
             }
             current = current.getCause();
         }
-        return Optional.empty();
+        return false;
     }
 
     /**
@@ -618,7 +581,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         try {
             conversationService.interruptAssistant(task.id(), task.answer(), task.tokenUsage());
         } finally {
-            if (isAssistantCancelled(task, null)) {
+            if (findPersistedStatus(task, null).orElse(null) == MessageStatus.CANCELLED) {
                 task.publishTerminal(ChatGenerationEventBO.cancelled());
                 task.traceRun().cancel("USER_CANCELLED");
             } else {
@@ -754,14 +717,6 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     }
 
     /**
-     * @param code             稳定错误码
-     * @param persistedMessage 保存到消息记录的安全错误信息
-     * @param clientMessage    通过SSE返回给用户的提示
-     */
-    private record ChatFailure(String code, String persistedMessage, String clientMessage) {
-    }
-
-    /**
      * @param events   本轮读取到的跨实例增量事件
      * @param message  当前数据库消息快照
      * @param finished 数据库是否已离开生成态
@@ -776,7 +731,5 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     private ConversationMessageEntity requireOwnedAssistantMessage(Long assistantMessageId, Long userId) {
         return messageRepo.findOwnedAssistantMessage(assistantMessageId, userId).orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "模型生成任务不存在"));
     }
-
-    /** 新会话没有服务端主键，已有会话才执行 Long 转换。 */
 
 }

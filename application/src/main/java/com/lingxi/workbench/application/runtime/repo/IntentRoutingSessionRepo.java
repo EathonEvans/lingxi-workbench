@@ -1,10 +1,12 @@
 package com.lingxi.workbench.application.runtime.repo;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.lingxi.workbench.application.runtime.common.enums.IntentClarificationType;
 import com.lingxi.workbench.application.runtime.common.enums.IntentRoutingSessionStatus;
 import com.lingxi.workbench.application.runtime.model.entity.IntentRoutingSessionEntity;
 import com.lingxi.workbench.application.runtime.repo.mapper.IntentRoutingSessionMapper;
+import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
+import com.lingxi.workbench.framework.exceptions.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -30,13 +32,13 @@ public class IntentRoutingSessionRepo {
     private final IntentRoutingSessionMapper mapper;
 
     /**
-     * 按会话 ID 查询指定 PENDING 状态的会话，并校验归属于指定用户和对话。
+     * 按会话 ID 查询归属于指定用户和对话的会话；状态由恢复入口检查。
      * 用于用户提交结构化澄清响应时恢复已有的澄清上下文。
      *
      * @param id             会话主键
      * @param conversationId 对话 ID，校验归属
      * @param userId         用户 ID，校验归属
-     * @return 匹配的 PENDING 会话，未找到时为空
+     * @return 匹配的会话，未找到时为空
      */
     public Optional<IntentRoutingSessionEntity> findOwned(Long id, Long conversationId, Long userId) {
         return Optional.ofNullable(
@@ -80,15 +82,18 @@ public class IntentRoutingSessionRepo {
         }
     }
 
-    /**
-     * 更新已有会话的状态、轮次、上下文等可变字段。
-     * ID 为 null 的实体不会被更新。
-     *
-     * @param session 包含待更新字段和主键的实体
-     */
-    public void update(IntentRoutingSessionEntity session) {
-        if (mapper.updateById(session) != 1) {
-            throw new IllegalStateException("意图澄清会话更新失败");
+    /** 仅推进本轮读取的 PENDING 状态；未命中时明确拒绝，交由上层事务回滚决策记录。 */
+    public void updatePending(IntentRoutingSessionEntity session, IntentClarificationType expectedType, int expectedRound) {
+        if (mapper.update(session, new LambdaQueryWrapper<IntentRoutingSessionEntity>()
+                .eq(IntentRoutingSessionEntity::getId, session.getId())
+                .eq(IntentRoutingSessionEntity::getConversationId, session.getConversationId())
+                .eq(IntentRoutingSessionEntity::getUserId, session.getUserId())
+                .eq(IntentRoutingSessionEntity::getApplicationVersionId, session.getApplicationVersionId())
+                .eq(IntentRoutingSessionEntity::getIntentTreeVersionId, session.getIntentTreeVersionId())
+                .eq(IntentRoutingSessionEntity::getStatus, IntentRoutingSessionStatus.PENDING)
+                .eq(IntentRoutingSessionEntity::getClarificationType, expectedType)
+                .eq(IntentRoutingSessionEntity::getRoundNo, expectedRound)) != 1) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "澄清会话已经推进，请按最新问题回复");
         }
     }
 }

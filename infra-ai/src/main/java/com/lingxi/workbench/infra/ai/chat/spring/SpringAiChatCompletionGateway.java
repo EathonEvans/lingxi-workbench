@@ -6,7 +6,7 @@ import com.lingxi.workbench.infra.ai.chat.model.bo.ChatCompletionResult;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatHistoryMessage;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatCompletionCommand;
-import com.lingxi.workbench.infra.ai.chat.openai.OpenAiCompatibleChatModelFactory;
+import com.lingxi.workbench.infra.ai.chat.openai.OpenAiChatModelFactory;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.RequiredArgsConstructor;
@@ -36,7 +36,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class SpringAiChatCompletionGateway implements ChatCompletionGateway {
 
-    private final OpenAiCompatibleChatModelFactory chatModelFactory;
+    private final OpenAiChatModelFactory chatModelFactory;
     private final SpringAiChatClientFactory chatClientFactory;
     private final ObservationRegistry observationRegistry;
 

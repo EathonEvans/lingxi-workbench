@@ -46,6 +46,8 @@ import org.springframework.stereotype.Component;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.HexFormat;
@@ -87,7 +89,7 @@ public class ApplicationDraftValidator {
     private static final Pattern CAPABILITY_CODE_PATTERN = Pattern.compile("^[a-z][a-z0-9_]{1,63}$");
 
     private final AgentReferenceService agentReferenceService;
-    private final ApplicationIntentTreeReferenceGateway intentTreeReferenceGateway;
+    private final AppIntentTreeGateway intentTreeReferenceGateway;
     private final WorkflowService workflowService;
     private final ModelInstanceService modelInstanceService;
     private final PromptService promptService;
@@ -273,7 +275,7 @@ public class ApplicationDraftValidator {
             issues.add(issue("CAPABILITY_WORKFLOW_UNAVAILABLE", field + ".targetId", "目标Workflow不存在或已停用"));
             return null;
         }
-        Long versionId = Objects.requireNonNullElse(draft.getTargetVersionId(), workflow.publishedVersionId());
+        Long versionId = Objects.nonNull(draft.getTargetVersionId()) ? draft.getTargetVersionId() : workflow.publishedVersionId();
         WorkflowDefinition definition = Objects.isNull(versionId)
                 ? null
                 : workflowService.findVersion(draft.getTargetId(), versionId).orElse(null);
@@ -281,36 +283,24 @@ public class ApplicationDraftValidator {
             issues.add(issue("CAPABILITY_WORKFLOW_VERSION_UNAVAILABLE", field + ".targetVersionId", "目标Workflow没有可用正式版本"));
             return null;
         }
-        return baseCapability(draft, workflow.name(), draft.getDescription(), versionId, queryInputSchema(), responseOutputSchema(),
-                "WORKFLOW_VERSION", checksum(definition), readOnlyMaxCalls);
-    }
-
-    private static CapabilityDefinition baseCapability(CapabilityDefinition draft, String name, String description,
-                                                       Long versionId, JSONObject inputSchema, JSONObject outputSchema,
-                                                       String implementationType, String configurationChecksum,
-                                                       int readOnlyMaxCalls) {
         CapabilityRiskLevel riskLevel = Objects.requireNonNullElse(
                 draft.getRiskLevel(), CapabilityRiskLevel.READ_ONLY);
         return CapabilityDefinition.builder()
                 .code(draft.getCode())
                 .type(draft.getType())
-                .name(name)
-                .description(isBlank(description) ? name : description.trim())
+                .name(workflow.name())
+                .description(isBlank(draft.getDescription()) ? workflow.name() : draft.getDescription().trim())
                 .targetId(draft.getTargetId())
                 .targetVersionId(versionId)
-                .inputSchema(inputSchema)
-                .outputSchema(outputSchema)
-                .implementationType(implementationType)
-                .configurationChecksum(configurationChecksum)
+                .inputSchema(queryInputSchema())
+                .outputSchema(responseOutputSchema())
+                .implementationType("WORKFLOW_VERSION")
+                .configurationChecksum(checksum(definition))
                 .riskLevel(riskLevel)
-                .timeoutSeconds(defaultIfNull(draft.getTimeoutSeconds(), 120))
-                .maxCalls(defaultIfNull(draft.getMaxCalls(), defaultCapabilityMaxCalls(riskLevel, readOnlyMaxCalls)))
-                .resultTokenBudget(defaultIfNull(draft.getResultTokenBudget(), 8192))
+                .timeoutSeconds(Objects.requireNonNullElse(draft.getTimeoutSeconds(), 120))
+                .maxCalls(Objects.requireNonNullElse(draft.getMaxCalls(), defaultCapabilityMaxCalls(riskLevel, readOnlyMaxCalls)))
+                .resultTokenBudget(Objects.requireNonNullElse(draft.getResultTokenBudget(), 8192))
                 .build();
-    }
-
-    private static String normalizedDescription(CapabilityDefinition draft, String fallback) {
-        return isBlank(draft.getDescription()) ? fallback : draft.getDescription();
     }
 
     private static int defaultCapabilityMaxCalls(CapabilityRiskLevel riskLevel, int readOnlyMaxCalls) {
@@ -339,9 +329,6 @@ public class ApplicationDraftValidator {
                                                   AgentCollaborationDefinition collaboration,
                                                   ApplicationContextPolicy contextPolicy,
                                                   List<ApplicationValidationIssueVO> issues) {
-        if (Objects.isNull(runtimePolicy) || Objects.isNull(catalog)) {
-            return;
-        }
         if (Objects.nonNull(collaboration) && runtimePolicy.getMaxDelegations() < MIN_DELEGATIONS) {
             issues.add(issue("RUNTIME_DELEGATIONS_REQUIRED", "definition.runtimePolicy.maxDelegations",
                     "启用多Agent协作时最大委派次数至少为" + MIN_DELEGATIONS));
@@ -366,13 +353,6 @@ public class ApplicationDraftValidator {
                         "能力调用次数不能超过Application委派次数上限"));
             }
         }
-    }
-
-    private static int defaultIfNull(Integer value, int defaultValue) {
-        if (Objects.isNull(value)) {
-            return defaultValue;
-        }
-        return value;
     }
 
     private static void validateOptionalRange(Integer value, int minimum, int maximum, String code, String field,
@@ -418,7 +398,7 @@ public class ApplicationDraftValidator {
             issues.add(issue("INTENT_ROUTING_TREE_REQUIRED", "definition.intentRouting.intentTreeId", "请选择意图树"));
             return new IntentRoutingResolution(null, null);
         }
-        ApplicationIntentTreeReferenceGateway.IntentTreeReference tree = intentTreeReferenceGateway
+        AppIntentTreeGateway.IntentTreeReference tree = intentTreeReferenceGateway
                 .findPublishedTree(draft.getIntentTreeId())
                 .orElse(null);
         if (Objects.isNull(tree)) {
@@ -508,12 +488,10 @@ public class ApplicationDraftValidator {
             issues.add(issue("INTENT_ROUTING_CAPABILITY_UNAVAILABLE", field + ".capabilityCode", "请选择能力目录中唯一可用的执行能力"));
             return null;
         }
-        if (capability.getType() == ApplicationCapabilityType.AGENT) {
-            AgentReferenceService.AgentReference agent = agentReferenceService.findAgent(capability.getTargetId()).orElse(null);
-            if (Objects.isNull(agent) || agent.identity().role() != AgentRole.SPECIALIST) {
-                issues.add(issue("INTENT_ROUTING_AGENT_ROLE_INVALID", field + ".capabilityCode", "意图路由只能指向领域专家能力"));
-                return null;
-            }
+        // Agent 能力仅由已校验的协作快照生成，主 Agent 是目录中唯一不能被意图直达的角色。
+        if (DEFAULT_AGENT_CAPABILITY_CODE.equals(capability.getCode())) {
+            issues.add(issue("INTENT_ROUTING_AGENT_ROLE_INVALID", field + ".capabilityCode", "意图路由只能指向领域专家能力"));
+            return null;
         }
         return ApplicationIntentMapping.builder()
                 .intentCode(mapping.getIntentCode())
@@ -538,7 +516,7 @@ public class ApplicationDraftValidator {
     /**
      * 分别校验三类记忆配置，交互记录在启用意图路由时复用意图树向量模型。
      */
-    private MemoryConfig resolveMemory(MemoryConfig draft, Long intentEmbeddingModelInstanceId, List<ApplicationValidationIssueVO> issues) {
+    private MemoryConfig resolveMemory(MemoryConfig draft, Long intentEmbeddingModelId, List<ApplicationValidationIssueVO> issues) {
         MemoryConfig source = Objects.requireNonNullElseGet(draft, MemoryConfig::disabled);
         boolean chatModelRequired = source.profile().isEnabled()
                 || source.interactionRecord().isEnabled()
@@ -552,14 +530,14 @@ public class ApplicationDraftValidator {
         Long embeddingModelInstanceId = null;
         if (source.interactionRecord().isEnabled()) {
             embeddingModelInstanceId = source.getEmbeddingModelInstanceId();
-            if (Objects.nonNull(intentEmbeddingModelInstanceId)) {
+            if (Objects.nonNull(intentEmbeddingModelId)) {
                 if (Objects.nonNull(embeddingModelInstanceId)
-                        && !Objects.equals(embeddingModelInstanceId, intentEmbeddingModelInstanceId)) {
+                        && !Objects.equals(embeddingModelInstanceId, intentEmbeddingModelId)) {
                     issues.add(issue("MEMORY_EMBEDDING_INTENT_MISMATCH",
                             "definition.memoryConf.embeddingModelInstanceId",
                             "交互记录Embedding模型必须与意图树正式版本一致"));
                 }
-                embeddingModelInstanceId = intentEmbeddingModelInstanceId;
+                embeddingModelInstanceId = intentEmbeddingModelId;
             }
             validateMemoryModel(embeddingModelInstanceId, ModelType.EMBEDDING,
                     "definition.memoryConf.embeddingModelInstanceId", issues);
@@ -651,8 +629,8 @@ public class ApplicationDraftValidator {
         if (!draft.isEnabled()) {
             return ContextualizationPolicy.disabled();
         }
-        validateContextualizationModel(draft.getChatModelInstanceId(), issues);
-        validateContextualizationPrompt(draft.getPromptVersionId(), issues);
+        validateRewriteModel(draft.getChatModelInstanceId(), issues);
+        validateRewritePrompt(draft.getPromptVersionId(), issues);
         validateRange(draft.effectiveMaxOutputTokens(), MIN_CONTEXTUALIZATION_OUTPUT_TOKENS, MAX_CONTEXTUALIZATION_OUTPUT_TOKENS,
                 "CONTEXTUALIZATION_OUTPUT_TOKENS_INVALID", "definition.contextPolicy.contextualization.maxOutputTokens", "问题重写输出Token上限", issues);
         validateRange(draft.effectiveMaxOutputCharacters(), MIN_CONTEXTUALIZATION_OUTPUT_CHARACTERS, MAX_CONTEXTUALIZATION_OUTPUT_CHARACTERS,
@@ -714,7 +692,7 @@ public class ApplicationDraftValidator {
         }
     }
 
-    private void validateContextualizationModel(Long modelId, List<ApplicationValidationIssueVO> issues) {
+    private void validateRewriteModel(Long modelId, List<ApplicationValidationIssueVO> issues) {
         String field = "definition.contextPolicy.contextualization.chatModelInstanceId";
         if (Objects.isNull(modelId)) {
             issues.add(issue("CONTEXTUALIZATION_MODEL_REQUIRED", field, "请选择问题重写使用的Chat模型"));
@@ -726,7 +704,7 @@ public class ApplicationDraftValidator {
         }
     }
 
-    private void validateContextualizationPrompt(Long versionId, List<ApplicationValidationIssueVO> issues) {
+    private void validateRewritePrompt(Long versionId, List<ApplicationValidationIssueVO> issues) {
         String field = "definition.contextPolicy.contextualization.promptVersionId";
         if (Objects.isNull(versionId)) {
             issues.add(issue("CONTEXTUALIZATION_PROMPT_REQUIRED", field, "请选择已发布的问题重写SYSTEM Prompt版本"));
@@ -753,12 +731,12 @@ public class ApplicationDraftValidator {
                 issues.add(issue("CONTEXTUALIZATION_PROMPT_VARIABLE_TYPE_MISMATCH", field, "问题重写Prompt变量类型不匹配：" + definition.name()));
             }
         }
-        requireContextualizationVariable(variableNames, BuiltInRuntimeVariable.USER_QUERY, field, issues);
-        requireContextualizationVariable(variableNames, BuiltInRuntimeVariable.CONTEXTUALIZATION_HISTORY, field, issues);
+        requireRewriteVariable(variableNames, BuiltInRuntimeVariable.USER_QUERY, field, issues);
+        requireRewriteVariable(variableNames, BuiltInRuntimeVariable.CONTEXTUALIZATION_HISTORY, field, issues);
     }
 
     /** 问题与历史统一由发布 Prompt 注入，避免运行时再按消息角色重复发送。 */
-    private static void requireContextualizationVariable(Set<String> variableNames, BuiltInRuntimeVariable variable,
+    private static void requireRewriteVariable(Set<String> variableNames, BuiltInRuntimeVariable variable,
                                                          String field, List<ApplicationValidationIssueVO> issues) {
         if (!variableNames.contains(variable.getCode())) {
             issues.add(issue("CONTEXTUALIZATION_PROMPT_VARIABLE_MISSING", field,
@@ -792,20 +770,6 @@ public class ApplicationDraftValidator {
         return domain;
     }
 
-    /** 全局主Agent可以服务任意领域，领域主Agent必须与Application一级领域一致。 */
-    private void validateSupervisorDomain(ApplicationAgentReference supervisor, DomainEntity root,
-                                          List<ApplicationValidationIssueVO> issues) {
-        if (Objects.isNull(supervisor) || Objects.isNull(root)) {
-            return;
-        }
-        AgentReferenceService.AgentReference agent = agentReferenceService.findAgent(supervisor.agentId()).orElse(null);
-        if (Objects.nonNull(agent) && Objects.nonNull(agent.domainId())
-                && !Objects.equals(agent.domainId(), root.getId())) {
-            issues.add(issue("SUPERVISOR_DOMAIN_MISMATCH", "definition.collaboration.supervisor",
-                    "主Agent所属领域与Application不一致"));
-        }
-    }
-
     /** 只在配置发布阶段检查逻辑领域归属，不参与Chat运行时发现资源。 */
     private boolean belongsToRoot(Long domainId, Long rootId) {
         DomainEntity domain = Objects.isNull(domainId) ? null : domainRepo.findById(domainId).orElse(null);
@@ -828,9 +792,15 @@ public class ApplicationDraftValidator {
             issues.add(issue("SUPERVISOR_REQUIRED", "definition.collaboration.supervisor", "请选择负责规划与汇总的主Agent"));
             return null;
         }
+        AgentReferenceService.AgentReference supervisorAgent = agentReferenceService.findAgent(draft.supervisor().agentId()).orElse(null);
         ApplicationAgentReference supervisor = resolveCollaborationAgent(
-                draft.supervisor(), AgentRole.SUPERVISOR, "definition.collaboration.supervisor", issues);
-        validateSupervisorDomain(supervisor, root, issues);
+                draft.supervisor(), supervisorAgent, AgentRole.SUPERVISOR, "definition.collaboration.supervisor", issues);
+        // 同一次读取同时决定身份、状态与领域归属，避免重复查询得到不同的资源状态。
+        if (Objects.nonNull(supervisor) && Objects.nonNull(root) && Objects.nonNull(supervisorAgent.domainId())
+                && !Objects.equals(supervisorAgent.domainId(), root.getId())) {
+            issues.add(issue("SUPERVISOR_DOMAIN_MISMATCH", "definition.collaboration.supervisor",
+                    "主Agent所属领域与Application不一致"));
+        }
 
         List<DomainEntity> domains = Objects.isNull(root) ? List.of() : domainRepo.findActiveByRootId(root.getId());
         Map<Long, DomainEntity> domainById = domains.stream()
@@ -853,7 +823,7 @@ public class ApplicationDraftValidator {
                 continue;
             }
             ApplicationAgentReference resolved = resolveCollaborationAgent(
-                    reference, AgentRole.SPECIALIST, "definition.collaboration.members", issues);
+                    reference, candidate, AgentRole.SPECIALIST, "definition.collaboration.members", issues);
             if (Objects.nonNull(resolved)) {
                 members.add(resolved);
             }
@@ -892,15 +862,18 @@ public class ApplicationDraftValidator {
             }
             excludedIds.add(domainId);
         }
-        boolean changed;
-        do {
-            changed = false;
-            for (DomainEntity domain : domainById.values()) {
-                if (excludedIds.contains(domain.getParentId()) && excludedIds.add(domain.getId())) {
-                    changed = true;
+        Map<Long, List<Long>> childrenByParent = new LinkedHashMap<>();
+        for (DomainEntity domain : domainById.values()) {
+            childrenByParent.computeIfAbsent(domain.getParentId(), ignored -> new ArrayList<>()).add(domain.getId());
+        }
+        Deque<Long> pending = new ArrayDeque<>(excludedIds);
+        while (!pending.isEmpty()) {
+            for (Long childId : childrenByParent.getOrDefault(pending.removeFirst(), List.of())) {
+                if (excludedIds.add(childId)) {
+                    pending.addLast(childId);
                 }
             }
-        } while (changed);
+        }
         return excludedIds;
     }
 
@@ -939,10 +912,8 @@ public class ApplicationDraftValidator {
         return memberByAgentId;
     }
 
-    private ApplicationAgentReference resolveCollaborationAgent(ApplicationAgentReference reference,
-                                                                 AgentRole expectedType, String field,
-                                                                 List<ApplicationValidationIssueVO> issues) {
-        AgentReferenceService.AgentReference agent = agentReferenceService.findAgent(reference.agentId()).orElse(null);
+    private ApplicationAgentReference resolveCollaborationAgent(ApplicationAgentReference reference, AgentReferenceService.AgentReference agent,
+                                                               AgentRole expectedType, String field, List<ApplicationValidationIssueVO> issues) {
         if (Objects.isNull(agent)) {
             issues.add(issue("COLLABORATION_AGENT_NOT_FOUND", field, "协作Agent不存在"));
             return null;

@@ -18,7 +18,7 @@ import com.lingxi.workbench.admin.knowledge.repo.KnowledgeDocumentRepo;
 import com.lingxi.workbench.admin.knowledge.repo.KnowledgeObjectStorage;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeDocumentService;
 import com.lingxi.workbench.admin.knowledge.service.KnowledgeIndexVersionService;
-import com.lingxi.workbench.admin.knowledge.event.event.KnowledgeObjectDeleteRequestedEvent;
+import com.lingxi.workbench.admin.knowledge.event.event.KnowledgeDeleteRequestedEvent;
 import com.lingxi.workbench.admin.knowledge.event.event.KnowledgeObjectStoredEvent;
 import com.lingxi.workbench.framework.audit.AuditService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
@@ -184,7 +184,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         documentRepo.delete(id);
         auditService.record("KNOWLEDGE", "DOCUMENT", id, operatorId, "DOCUMENT_DELETE", "文档=" + entity.getName());
         // 事务提交后异步清理对象存储中的原始文件
-        eventPublisher.publishEvent(new KnowledgeObjectDeleteRequestedEvent(entity.getObjectKey()));
+        eventPublisher.publishEvent(new KnowledgeDeleteRequestedEvent(entity.getObjectKey()));
     }
 
     /**

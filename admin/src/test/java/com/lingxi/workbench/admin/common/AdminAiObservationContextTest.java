@@ -1,6 +1,6 @@
 package com.lingxi.workbench.admin.common;
 
-import com.lingxi.workbench.infra.ai.chat.openai.OpenAiCompatibleChatModelFactory;
+import com.lingxi.workbench.infra.ai.chat.openai.OpenAiChatModelFactory;
 import com.lingxi.workbench.infra.ai.outbound.ModelOutboundAddressPolicy;
 import com.lingxi.workbench.infra.ai.outbound.config.ModelOutboundSecurityProperties;
 import io.micrometer.observation.ObservationRegistry;
@@ -18,13 +18,13 @@ class AdminAiObservationContextTest {
             .withConfiguration(AutoConfigurations.of(ObservationAutoConfiguration.class))
             .withBean(ModelOutboundAddressPolicy.class,
                     () -> new ModelOutboundAddressPolicy(new ModelOutboundSecurityProperties()))
-            .withBean(OpenAiCompatibleChatModelFactory.class);
+            .withBean(OpenAiChatModelFactory.class);
 
     @Test
     void shouldProvideObservationRegistryForInfraAiComponents() {
         contextRunner.run(context -> {
             assertThat(context).hasSingleBean(ObservationRegistry.class);
-            assertThat(context).hasSingleBean(OpenAiCompatibleChatModelFactory.class);
+            assertThat(context).hasSingleBean(OpenAiChatModelFactory.class);
         });
     }
 }

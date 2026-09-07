@@ -44,7 +44,7 @@ class ConversationServiceImplTest {
     @Mock private ConversationMessageRepo messageRepo;
     @Mock private ConversationConverter converter;
     @Mock private ConversationOpsMetrics opsMetrics;
-    @Mock private ApplicationVersionService applicationVersionService;
+    @Mock private ApplicationVersionService appVersionService;
 
     @InjectMocks private ConversationServiceImpl service;
 

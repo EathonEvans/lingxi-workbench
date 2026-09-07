@@ -53,7 +53,7 @@ public class ConversationServiceImpl implements ConversationService {
     private final ConversationMessageRepo messageRepo;
     private final ConversationConverter converter;
     private final ConversationOpsMetrics opsMetrics;
-    private final ApplicationVersionService applicationVersionService;
+    private final ApplicationVersionService appVersionService;
 
     /**
      * 分页查询当前用户的会话，支持关键字和状态过滤。
@@ -80,7 +80,7 @@ public class ConversationServiceImpl implements ConversationService {
                 .distinct()
                 .toList();
         Map<Long, ApplicationAssistantIdentityVO> assistantIdentities =
-                applicationVersionService.resolveAssistantIdentities(applicationVersionIds);
+                appVersionService.resolveAssistantIdentities(applicationVersionIds);
         return messages.map(message -> toMessageVO(message, assistantIdentities));
     }
 

@@ -1,7 +1,7 @@
 package com.lingxi.workbench.admin.application.gateway;
 
-import com.lingxi.workbench.admin.application.config.ApplicationIntentPreviewConfiguration;
-import com.lingxi.workbench.admin.application.config.ApplicationIntentPreviewProperties;
+import com.lingxi.workbench.admin.application.config.AppIntentPreviewConfig;
+import com.lingxi.workbench.admin.application.config.AppIntentPreviewProperties;
 import com.lingxi.workbench.admin.application.model.vo.ApplicationIntentPreviewVO;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
@@ -23,12 +23,12 @@ import static org.mockito.Mockito.when;
 class ApplicationIntentPreviewGatewayTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withUserConfiguration(ApplicationIntentPreviewConfiguration.class);
+            .withUserConfiguration(AppIntentPreviewConfig.class);
 
     @Test
     void shouldCreateGatewayThroughExplicitConfiguration() {
         contextRunner.run(context -> {
-            assertThat(context).hasSingleBean(ApplicationIntentPreviewProperties.class);
+            assertThat(context).hasSingleBean(AppIntentPreviewProperties.class);
             assertThat(context).hasSingleBean(ApplicationIntentPreviewGateway.class);
         });
     }
@@ -36,7 +36,7 @@ class ApplicationIntentPreviewGatewayTest {
     @Test
     void shouldRejectPreviewWhenInternalTokenIsMissing() {
         ApplicationIntentPreviewGateway gateway = new ApplicationIntentPreviewGateway(
-                new ApplicationIntentPreviewProperties(), HttpClient.newHttpClient());
+                new AppIntentPreviewProperties(), HttpClient.newHttpClient());
 
         assertThatThrownBy(() -> gateway.preview(1L, "app", "query", new ApplicationDefinition()))
                 .isInstanceOfSatisfying(BusinessException.class,
@@ -47,7 +47,7 @@ class ApplicationIntentPreviewGatewayTest {
     @Test
     @SuppressWarnings("unchecked")
     void shouldParseSuccessfulInternalPreviewResponse() throws Exception {
-        ApplicationIntentPreviewProperties properties = new ApplicationIntentPreviewProperties();
+        AppIntentPreviewProperties properties = new AppIntentPreviewProperties();
         properties.setToken("ops-token");
         HttpClient httpClient = mock(HttpClient.class);
         HttpResponse<String> response = mock(HttpResponse.class);
@@ -71,7 +71,7 @@ class ApplicationIntentPreviewGatewayTest {
     @Test
     @SuppressWarnings("unchecked")
     void shouldPreserveApplicationBusinessFailure() throws Exception {
-        ApplicationIntentPreviewProperties properties = new ApplicationIntentPreviewProperties();
+        AppIntentPreviewProperties properties = new AppIntentPreviewProperties();
         properties.setToken("ops-token");
         HttpClient httpClient = mock(HttpClient.class);
         HttpResponse<String> response = mock(HttpResponse.class);
@@ -92,7 +92,7 @@ class ApplicationIntentPreviewGatewayTest {
 
     @Test
     void shouldNormalizeInvalidInternalAddress() {
-        ApplicationIntentPreviewProperties properties = new ApplicationIntentPreviewProperties();
+        AppIntentPreviewProperties properties = new AppIntentPreviewProperties();
         properties.setToken("ops-token");
         properties.setBaseUrl("invalid address");
         ApplicationIntentPreviewGateway gateway = new ApplicationIntentPreviewGateway(

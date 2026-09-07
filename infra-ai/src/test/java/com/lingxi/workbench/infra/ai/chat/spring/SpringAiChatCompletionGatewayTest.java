@@ -4,7 +4,7 @@ import com.lingxi.workbench.infra.ai.chat.SpringAiChatClientFactory;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatCompletionResult;
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.chat.model.command.ChatCompletionCommand;
-import com.lingxi.workbench.infra.ai.chat.openai.OpenAiCompatibleChatModelFactory;
+import com.lingxi.workbench.infra.ai.chat.openai.OpenAiChatModelFactory;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -38,7 +38,7 @@ class SpringAiChatCompletionGatewayTest {
         when(chatModel.call(any(Prompt.class))).thenReturn(response);
         when(chatModel.getOptions()).thenReturn(OpenAiChatOptions.builder()
                 .model("planner-model").maxTokens(512).build());
-        OpenAiCompatibleChatModelFactory factory = mock(OpenAiCompatibleChatModelFactory.class);
+        OpenAiChatModelFactory factory = mock(OpenAiChatModelFactory.class);
         when(factory.create(config)).thenReturn(chatModel);
         SpringAiChatCompletionGateway gateway = new SpringAiChatCompletionGateway(factory,
                 new SpringAiChatClientFactory(ObservationRegistry.NOOP), ObservationRegistry.NOOP);
@@ -63,7 +63,7 @@ class SpringAiChatCompletionGatewayTest {
         OpenAiChatModel chatModel = mock(OpenAiChatModel.class);
         when(chatModel.call(any(Prompt.class))).thenReturn(response);
         when(chatModel.getOptions()).thenReturn(OpenAiChatOptions.builder().model("reasoning-model").build());
-        OpenAiCompatibleChatModelFactory factory = mock(OpenAiCompatibleChatModelFactory.class);
+        OpenAiChatModelFactory factory = mock(OpenAiChatModelFactory.class);
         when(factory.create(config)).thenReturn(chatModel);
         SpringAiChatCompletionGateway gateway = new SpringAiChatCompletionGateway(factory,
                 new SpringAiChatClientFactory(ObservationRegistry.NOOP), ObservationRegistry.NOOP);

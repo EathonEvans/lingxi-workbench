@@ -1,7 +1,7 @@
 package com.lingxi.workbench.application.runtime.service.agent;
 
 import com.lingxi.workbench.agentruntime.AgentRuntime;
-import com.lingxi.workbench.agentruntime.gateway.AgentScopeSpecialistStreamingGateway;
+import com.lingxi.workbench.agentruntime.gateway.AgentScopeSpecialistGateway;
 import com.lingxi.workbench.agentruntime.gateway.AgentScopeSupervisorGateway;
 import com.lingxi.workbench.agentruntime.event.ExecutionEvents;
 import com.lingxi.workbench.agentruntime.model.AgentRunRequest;
@@ -11,12 +11,12 @@ import com.lingxi.workbench.agentruntime.model.ExecutionTools;
 import com.lingxi.workbench.agentruntime.model.SkillRuntimeCatalog;
 import com.lingxi.workbench.agentruntime.plan.RuntimeCapabilityInvoker;
 import com.lingxi.workbench.agentruntime.plan.RuntimeClarification;
-import com.lingxi.workbench.agentruntime.skill.AgentScopePublishedSkillCatalog;
+import com.lingxi.workbench.agentruntime.skill.AgentScopeSkillCatalog;
 import com.lingxi.workbench.application.runtime.service.app.RuntimeVariablesInitializer;
 
 import com.lingxi.workbench.framework.json.JSONObject;
 import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
-import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
+import com.lingxi.workbench.application.runtime.model.AppExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.ApplicationRun;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
@@ -388,7 +388,7 @@ class AgentExecutionAdapterTest {
         ExecutionPersistenceService persistenceService = testPersistenceService();
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
         AtomicReference<ExecutionBudget> capturedBudget = new AtomicReference<>();
-        AtomicReference<AgentScopePublishedSkillCatalog> capturedSkillCatalog = new AtomicReference<>();
+        AtomicReference<AgentScopeSkillCatalog> capturedSkillCatalog = new AtomicReference<>();
         Function<ChatStreamCommand, Flux<ChatStreamChunk>> streamingChatGateway = command -> {
             captured.set(command);
             return Flux.just(new ChatStreamChunk("已核验"));
@@ -464,7 +464,7 @@ class AgentExecutionAdapterTest {
         AppRuntimeSnapshot application = mock(AppRuntimeSnapshot.class);
         when(application.definition()).thenReturn(applicationDefinition);
         ChatExecutionEventPublisher eventPublisher = mock(ChatExecutionEventPublisher.class);
-        ApplicationChatExecutionRequest executionRequest = ApplicationChatExecutionRequest.builder()
+        AppExecutionRequest executionRequest = AppExecutionRequest.builder()
                 .application(application)
                 .query("读取账号信息")
                 .loginUser(loginUser())
@@ -499,7 +499,7 @@ class AgentExecutionAdapterTest {
     private static ApplicationRun run(String executionId, RuntimeVariables variables, ChatTurnBO turn,
                                       ApplicationExecutionBudget budget, ContextBudgetPolicy contextBudget) {
         AppRuntimeSnapshot application = mock(AppRuntimeSnapshot.class);
-        ApplicationChatExecutionRequest request = ApplicationChatExecutionRequest.builder()
+        AppExecutionRequest request = AppExecutionRequest.builder()
                 .application(application)
                 .query(variables.require(RuntimeVariableAccessors.USER_QUERY))
                 .loginUser(new LoginUser(7L, "tester", "测试用户", null))
@@ -562,12 +562,12 @@ class AgentExecutionAdapterTest {
     private static AgentRuntime runtime(Function<ChatStreamCommand, Flux<ChatStreamChunk>> streamingChatGateway,
                                         AtomicReference<ExecutionBudget> capturedBudget,
                                         AtomicReference<RuntimeContext> capturedRuntimeContext,
-                                        AtomicReference<AgentScopePublishedSkillCatalog> capturedSkillCatalog) {
-        AgentScopeSpecialistStreamingGateway agentScopeGateway = mock(AgentScopeSpecialistStreamingGateway.class);
+                                        AtomicReference<AgentScopeSkillCatalog> capturedSkillCatalog) {
+        AgentScopeSpecialistGateway agentScopeGateway = mock(AgentScopeSpecialistGateway.class);
         org.mockito.stubbing.Answer<Flux<ChatStreamChunk>> answer = invocation -> Flux.defer(() -> {
             AgentRunRequest request = invocation.getArgument(0);
             RuntimeContext runtimeContext = invocation.getArgument(1);
-            AgentScopePublishedSkillCatalog skillCatalog = invocation.getArgument(2);
+            AgentScopeSkillCatalog skillCatalog = invocation.getArgument(2);
             ExecutionBudget budget = runtimeContext.get(ExecutionBudget.class);
             ExecutionTools tools = runtimeContext.get(ExecutionTools.class);
             ExecutionEvents events = runtimeContext.get(ExecutionEvents.class);

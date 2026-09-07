@@ -1,6 +1,6 @@
 package com.lingxi.workbench.chat.service.impl;
 
-import com.lingxi.workbench.application.runtime.model.ApplicationChatExecutionRequest;
+import com.lingxi.workbench.application.runtime.model.AppExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.ApplicationChatResult;
 import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.vo.ApplicationAssistantIdentityVO;
@@ -97,11 +97,11 @@ class ChatStreamServiceImplTest {
     private final ConversationService conversationService = mock(ConversationService.class);
     private final ConversationMessageRepo messageRepo = mock(ConversationMessageRepo.class);
     private final ChatGenerationEventRepo generationEventRepo = mock(ChatGenerationEventRepo.class);
-    private final ApplicationVersionService applicationVersionService =
+    private final ApplicationVersionService appVersionService =
             mock(ApplicationVersionService.class);
     private final AppRuntime appRuntime =
             mock(AppRuntime.class);
-    private final ConversationEventPublisher conversationEventPublisher = mock(ConversationEventPublisher.class);
+    private final ConversationEventPublisher eventPublisher = mock(ConversationEventPublisher.class);
     private final TokenCountEstimator tokenCountEstimator = mock(TokenCountEstimator.class);
     private final TracingService aiTracingService = mock(TracingService.class);
     private final TraceRun traceRun = mock(TraceRun.class);
@@ -136,9 +136,9 @@ class ChatStreamServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        when(applicationVersionService.loadRuntimeAppConfig("support"))
+        when(appVersionService.loadRuntimeAppConfig("support"))
                 .thenReturn(APPLICATION_SNAPSHOT);
-        when(applicationVersionService.resolveAssistantIdentity(20L, 30L))
+        when(appVersionService.resolveAssistantIdentity(20L, 30L))
                 .thenReturn(new ApplicationAssistantIdentityVO("支持助手", null));
         when(conversationService.startTurn(any(StartConversationTurnBO.class)))
                 .thenReturn(new ConversationTurnStartBO(new ChatTurnBO(10L, 11L, 12L, 3), true));
@@ -158,7 +158,7 @@ class ChatStreamServiceImplTest {
         }).when(traceRun).scoped(org.mockito.ArgumentMatchers.<Runnable>any());
 
         service = new ChatStreamServiceImpl(conversationService, messageRepo, generationEventRepo,
-                applicationVersionService, appRuntime, conversationEventPublisher, tokenCountEstimator,
+                appVersionService, appRuntime, eventPublisher, tokenCountEstimator,
                 aiTracingService, aiStageObserver, new ExecutionFailureClassifier(), interactionRepo, checkpointRepo,
                 userRepo, hitlDecisionTxService, generationTaskRegistry);
     }
@@ -170,7 +170,7 @@ class ChatStreamServiceImplTest {
         ChatStartVO result = service.start(createChatRequest(), LOGIN_USER);
         gate.awaitStarted();
 
-        verify(applicationVersionService).loadRuntimeAppConfig("support");
+        verify(appVersionService).loadRuntimeAppConfig("support");
         ArgumentCaptor<StartConversationTurnBO> inputCaptor = ArgumentCaptor.forClass(StartConversationTurnBO.class);
         verify(conversationService).startTurn(inputCaptor.capture());
         StartConversationTurnBO input = inputCaptor.getValue();
@@ -186,7 +186,7 @@ class ChatStreamServiceImplTest {
 
     @Test
     void shouldNotCreateMessageWhenApplicationCannotBeResolved() {
-        when(applicationVersionService.loadRuntimeAppConfig("support"))
+        when(appVersionService.loadRuntimeAppConfig("support"))
                 .thenThrow(new BusinessException(
                         HttpStatusEnum.NOT_FOUND,
                         "AI应用不存在或已停用"));
@@ -246,21 +246,21 @@ class ChatStreamServiceImplTest {
         ConversationMessageEntity originalMessage = assistant(MessageStatus.COMPLETED, "原回答");
         originalMessage.setApplicationVersionId(29L);
         when(messageRepo.findById(12L)).thenReturn(Optional.of(originalMessage));
-        when(applicationVersionService.resolveAssistantIdentity(20L, 29L))
+        when(appVersionService.resolveAssistantIdentity(20L, 29L))
                 .thenReturn(new ApplicationAssistantIdentityVO("原版本助手", null));
 
         ChatStartVO result = service.start(createChatRequest(), LOGIN_USER);
 
         assertEquals("原版本助手", result.assistant().name());
-        verify(applicationVersionService).resolveAssistantIdentity(20L, 29L);
-        verify(applicationVersionService, never()).resolveAssistantIdentity(20L, 30L);
+        verify(appVersionService).resolveAssistantIdentity(20L, 29L);
+        verify(appVersionService, never()).resolveAssistantIdentity(20L, 30L);
         verify(appRuntime, never()).execute(any());
     }
 
     @Test
     void shouldFailPlaceholderWhenAssistantIdentityCannotBeResolved() {
         IllegalStateException failure = new IllegalStateException("storage unavailable");
-        when(applicationVersionService.resolveAssistantIdentity(20L, 30L)).thenThrow(failure);
+        when(appVersionService.resolveAssistantIdentity(20L, 30L)).thenThrow(failure);
 
         assertEquals(failure, assertThrows(IllegalStateException.class,
                 () -> service.start(createChatRequest(), LOGIN_USER)));
@@ -289,7 +289,7 @@ class ChatStreamServiceImplTest {
         assertEquals(List.of(
                 ChatGenerationEventBO.chunk(1, "完整回答"),
                 ChatGenerationEventBO.completed()), events);
-        verify(conversationEventPublisher).completeAssistant(
+        verify(eventPublisher).completeAssistant(
                 new ChatTurnBO(10L, 11L, 12L, 3), 30L, "完整回答", TokenUsage.of(12, 4, 16), 99L);
     }
 
@@ -297,7 +297,7 @@ class ChatStreamServiceImplTest {
     void shouldKeepCompletedResultWhenTransactionAckFailsAfterDatabaseCommit() {
         ApplicationExecutionGate gate = prepareApplicationExecution("完整回答");
         doThrow(new IllegalStateException("事务回执异常"))
-                .when(conversationEventPublisher)
+                .when(eventPublisher)
                 .completeAssistant(any(), any(), any(), any(), any());
         when(conversationService.findAssistantCompletionStatus(10L, 12L, 30L))
                 .thenReturn(Optional.of(MessageStatus.COMPLETED));
@@ -316,13 +316,14 @@ class ChatStreamServiceImplTest {
                 ChatGenerationEventBO.chunk(1, "完整回答"),
                 ChatGenerationEventBO.completed()), events);
         verify(conversationService, never()).failAssistant(anyLong(), any(), any(), any(), any());
+        verify(conversationService).findAssistantCompletionStatus(10L, 12L, 30L);
     }
 
     @Test
     void shouldPublishCancelledWhenConcurrentCancellationWinsCompletion() {
         ApplicationExecutionGate gate = prepareApplicationExecution("完整回答");
         doThrow(new IllegalStateException("事务回执异常"))
-                .when(conversationEventPublisher)
+                .when(eventPublisher)
                 .completeAssistant(any(), any(), any(), any(), any());
         when(conversationService.findAssistantCompletionStatus(10L, 12L, 30L))
                 .thenReturn(Optional.of(MessageStatus.CANCELLED));
@@ -335,6 +336,28 @@ class ChatStreamServiceImplTest {
         assertEquals(List.of(ChatGenerationEventBO.chunk(1, "完整回答"), ChatGenerationEventBO.cancelled()),
                 eventsFuture.orTimeout(Duration.ofSeconds(2).toMillis(), TimeUnit.MILLISECONDS).join());
         verify(conversationService, never()).failAssistant(anyLong(), any(), any(), any(), any());
+        verify(conversationService).findAssistantCompletionStatus(10L, 12L, 30L);
+    }
+
+    @Test
+    void shouldFailAndReleaseTaskWhenCompletionStatusCannotBeRead() {
+        ApplicationExecutionGate gate = prepareApplicationExecution("完整回答");
+        IllegalStateException completionFailure = new IllegalStateException("提交回执未知");
+        IllegalStateException statusFailure = new IllegalStateException("状态查询失败");
+        doThrow(completionFailure).when(eventPublisher).completeAssistant(any(), any(), any(), any(), any());
+        when(conversationService.findAssistantCompletionStatus(10L, 12L, 30L)).thenThrow(statusFailure);
+
+        service.start(createChatRequest(), LOGIN_USER);
+        gate.awaitStarted();
+        CompletableFuture<List<ChatGenerationEventBO>> events = service.resume(12L, 0, 7L).collectList().toFuture();
+        gate.release();
+
+        assertEquals(List.of(ChatGenerationEventBO.chunk(1, "完整回答"), ChatGenerationEventBO.failed()),
+                events.orTimeout(2, TimeUnit.SECONDS).join());
+        verify(conversationService).findAssistantCompletionStatus(10L, 12L, 30L);
+        verify(conversationService).failAssistant(12L, "完整回答", "TERMINAL_PERSIST_ERROR", "回答终态保存失败，请稍后重试", TokenUsage.of(12, 4, 16));
+        verify(generationTaskRegistry, org.mockito.Mockito.timeout(2000)).unregister(12L);
+        assertEquals(List.of(statusFailure), List.of(completionFailure.getSuppressed()));
     }
 
     @Test
@@ -345,7 +368,7 @@ class ChatStreamServiceImplTest {
             gate.awaitRelease();
             throw new RuntimeException(new AgentRuntimeLimitException(
                     "AGENT_TOOL_CALL_LIMIT", "工具调用次数已达到上限，现有信息不足以继续处理"));
-        }).when(appRuntime).execute(any(ApplicationChatExecutionRequest.class));
+        }).when(appRuntime).execute(any(AppExecutionRequest.class));
 
         service.start(createChatRequest(), LOGIN_USER);
         gate.awaitStarted();
@@ -369,7 +392,7 @@ class ChatStreamServiceImplTest {
             gate.markStarted();
             gate.awaitRelease();
             throw new IllegalStateException(new TimeoutException("model timeout"));
-        }).when(appRuntime).execute(any(ApplicationChatExecutionRequest.class));
+        }).when(appRuntime).execute(any(AppExecutionRequest.class));
 
         service.start(createChatRequest(), LOGIN_USER);
         gate.awaitStarted();
@@ -402,7 +425,7 @@ class ChatStreamServiceImplTest {
                     .fingerprint("fingerprint")
                     .revision(0)
                     .build());
-        }).when(appRuntime).execute(any(ApplicationChatExecutionRequest.class));
+        }).when(appRuntime).execute(any(AppExecutionRequest.class));
 
         service.start(createChatRequest(), LOGIN_USER);
         gate.awaitStarted();
@@ -426,12 +449,12 @@ class ChatStreamServiceImplTest {
     void shouldFailWhenModelStopsRespondingAfterUsefulOutput() {
         ApplicationExecutionGate gate = new ApplicationExecutionGate();
         doAnswer(invocation -> {
-            ApplicationChatExecutionRequest request = invocation.getArgument(0);
+            AppExecutionRequest request = invocation.getArgument(0);
             gate.markStarted();
             gate.awaitRelease();
             request.getEventPublisher().publishText(new ChatStreamChunk("已经整理出的可用内容"));
             throw new java.util.concurrent.TimeoutException("response idle timeout");
-        }).when(appRuntime).execute(any(ApplicationChatExecutionRequest.class));
+        }).when(appRuntime).execute(any(AppExecutionRequest.class));
 
         service.start(createChatRequest(), LOGIN_USER);
         gate.awaitStarted();
@@ -526,7 +549,7 @@ class ChatStreamServiceImplTest {
         ChatStartVO result = service.start(createChatRequest(), LOGIN_USER);
 
         assertEquals("12", result.assistantMessageId());
-        verify(appRuntime, never()).execute(any(ApplicationChatExecutionRequest.class));
+        verify(appRuntime, never()).execute(any(AppExecutionRequest.class));
         verify(conversationService, never()).failAssistant(anyLong(), any(), any(), any(), any());
         verify(traceRun).cancel("TASK_OWNED_BY_ANOTHER_INSTANCE");
     }
@@ -627,7 +650,7 @@ class ChatStreamServiceImplTest {
     private ApplicationExecutionGate prepareApplicationExecution(String answer) {
         ApplicationExecutionGate gate = new ApplicationExecutionGate();
         doAnswer(invocation -> {
-            ApplicationChatExecutionRequest request = invocation.getArgument(0);
+            AppExecutionRequest request = invocation.getArgument(0);
             assertEquals(APPLICATION_SNAPSHOT, request.getApplication());
             assertEquals("你好", request.getQuery());
             assertEquals(LOGIN_USER, request.getLoginUser());
@@ -638,7 +661,7 @@ class ChatStreamServiceImplTest {
             eventPublisher.publishText(new ChatStreamChunk(answer, TokenUsage.of(12, 4, 16)));
             return ApplicationChatResult.completed(
                     answer, TokenUsage.of(12, 4, 16), List.of(), 99L);
-        }).when(appRuntime).execute(any(ApplicationChatExecutionRequest.class));
+        }).when(appRuntime).execute(any(AppExecutionRequest.class));
         return gate;
     }
 
