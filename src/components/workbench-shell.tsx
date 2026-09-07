@@ -205,7 +205,14 @@ export default function WorkbenchShell() {
   const handleConversationCreated = useCallback((id: string) => {
     setConversationId(id);
     setConversationStatus("ACTIVE");
-  }, [setConversationId, setConversationStatus]);
+    // 首次发送已落库就刷新列表，不等待模型输出结束。
+    void refreshRecentConversations();
+  }, [setConversationId, setConversationStatus, refreshRecentConversations]);
+
+  const handleOpenHistory = () => {
+    setHistoryOpen(true);
+    void loadHistoryConversations(1, historyKeyword);
+  };
 
   const selectedApplication = applications.find(
     (app) => app.code === selectedApplicationCode,
@@ -553,7 +560,7 @@ export default function WorkbenchShell() {
           <span>最近对话</span>
           <ActionIcon
             icon={Search}
-            onClick={() => setHistoryOpen(true)}
+            onClick={handleOpenHistory}
             size="small"
             title="搜索对话"
           />
@@ -573,7 +580,7 @@ export default function WorkbenchShell() {
         <div className={styles.sidebarFooter}>
           <button
             className={styles.navItem}
-            onClick={() => setHistoryOpen(true)}
+            onClick={handleOpenHistory}
             type="button"
           >
             <History size={17} />
