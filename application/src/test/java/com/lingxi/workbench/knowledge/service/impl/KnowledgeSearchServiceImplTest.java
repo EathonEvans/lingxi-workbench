@@ -1,5 +1,9 @@
 package com.lingxi.workbench.knowledge.service.impl;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.lingxi.workbench.infra.ai.embedding.EmbeddingGateway;
 import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.rerank.RerankGateway;
@@ -22,6 +26,7 @@ import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -29,7 +34,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.jdbc.BadSqlGrammarException;
+import org.slf4j.LoggerFactory;
 
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -49,9 +57,12 @@ class KnowledgeSearchServiceImplTest {
     @Mock private RerankGateway rerank;
     private KnowledgeSearchServiceImpl service;
     private final List<Observation.Context> observations = new ArrayList<>();
+    private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
 
     @BeforeEach
     void setUp() {
+        logs.start();
+        ((Logger) LoggerFactory.getLogger(KnowledgeSearchServiceImpl.class)).addAppender(logs);
         KnowledgeRetrievalProperties properties = new KnowledgeRetrievalProperties();
         TokenCountEstimator estimator = mock(TokenCountEstimator.class);
         lenient().when(estimator.estimate(anyString())).thenAnswer(call -> call.<String>getArgument(0).length());
@@ -64,6 +75,12 @@ class KnowledgeSearchServiceImplTest {
         });
         service = new KnowledgeSearchServiceImpl(bases, vectors, chunks, embedding, models, rerank,
                 new KnowledgeRerankInputBudget(properties, estimator), properties, manager, new StageObserver(registry));
+    }
+
+    @AfterEach
+    void tearDown() {
+        ((Logger) LoggerFactory.getLogger(KnowledgeSearchServiceImpl.class)).detachAppender(logs);
+        logs.stop();
     }
 
     @Test
@@ -157,6 +174,43 @@ class KnowledgeSearchServiceImplTest {
         assertThatThrownBy(() -> service.searchVersion(request(true))).hasMessageContaining("无权检索");
         assertThat(observations).anySatisfy(context -> assertThat(context.getError()).isNotNull());
         assertThat(observations).allSatisfy(context -> assertThat(context.getHighCardinalityKeyValue("lingxi.knowledge.candidates.0")).isNull());
+        assertThat(logs.list).singleElement().satisfies(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("stage=KNOWLEDGE_AUTHORIZATION", "code=403", "userId=12", "knowledgeBaseId=1");
+        });
+    }
+
+    @Test
+    void sqlFailureMustLogStageAndSqlStateWithoutSqlOrPrivateContent() {
+        when(bases.canRead(1L, 12L)).thenThrow(new BadSqlGrammarException("private-query", "private-sql",
+                new SQLException("private-provider-body secret", "42703")));
+
+        assertThatThrownBy(() -> service.searchVersion(request(false).toBuilder().executionId("run-diagnostic").build()))
+                .hasMessage("知识检索阶段失败：KNOWLEDGE_AUTHORIZATION");
+
+        assertThat(logs.list).singleElement().satisfies(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+            assertThat(event.getFormattedMessage()).contains("runId=run-diagnostic", "indexVersionId=81", "code=503", "sqlState=42703")
+                    .doesNotContain("private-query", "private-sql", "private-provider-body", "secret", "问题");
+            assertThat(event.getThrowableProxy()).isNull();
+        });
+        verifyNoInteractions(models, embedding, vectors, chunks, rerank);
+    }
+
+    @Test
+    void providerFailureMustLogItsTypeWithoutLeakingTheResponse() {
+        prepareCandidates(true);
+        when(models.getRerankModelConfig(9L)).thenReturn(rerankConfig());
+        when(rerank.rerank(anyString(), anyList(), anyInt(), any()))
+                .thenThrow(new IllegalStateException("Authorization: secret; 片段一"));
+
+        assertThatThrownBy(() -> service.searchVersion(request(true))).hasMessage("知识检索阶段失败：KNOWLEDGE_RERANK");
+
+        assertThat(logs.list).singleElement().satisfies(event -> {
+            assertThat(event.getFormattedMessage()).contains("stage=KNOWLEDGE_RERANK", "causeType=java.lang.IllegalStateException")
+                    .doesNotContain("Authorization", "secret", "片段一", "问题");
+            assertThat(event.getThrowableProxy()).isNull();
+        });
     }
 
     private void prepareEmbedding(int dimension) {

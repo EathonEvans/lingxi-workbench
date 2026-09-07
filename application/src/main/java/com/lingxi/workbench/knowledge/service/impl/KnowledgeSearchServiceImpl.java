@@ -25,12 +25,16 @@ import com.lingxi.workbench.observability.common.enums.AiObservationStage;
 import com.lingxi.workbench.observability.service.StageObserver;
 import io.micrometer.observation.Observation;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.event.Level;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
+import java.sql.SQLException;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
@@ -47,6 +51,7 @@ import java.util.stream.Collectors;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class KnowledgeSearchServiceImpl implements KnowledgeSearchService {
 
     private final KnowledgeBaseRepo knowledgeBaseRepo;
@@ -163,8 +168,10 @@ public class KnowledgeSearchServiceImpl implements KnowledgeSearchService {
                 try {
                     return action.get();
                 } catch (BusinessException exception) {
+                    logFailure(request, stage, exception);
                     throw exception;
                 } catch (RuntimeException exception) {
+                    logFailure(request, stage, exception);
                     // 供应商和 JDBC 异常可能含原始正文；只向 Trace 暴露阶段，不上传原始异常消息。
                     throw new BusinessException(HttpStatusEnum.SERVICE_UNAVAILABLE, "知识检索阶段失败：" + stage.getCode());
                 }
@@ -172,6 +179,19 @@ public class KnowledgeSearchServiceImpl implements KnowledgeSearchService {
         } finally {
             stageMillis.put(stage, Duration.ofNanos(System.nanoTime() - startedAt).toMillis());
         }
+    }
+
+    /** 工具失败可能被模型处理后正常结束回答，必须在检索边界留下不含查询和供应商正文的诊断。 */
+    private static void logFailure(KnowledgeSearchRequest request, AiObservationStage stage, RuntimeException exception) {
+        int code = exception instanceof BusinessException business ? business.getCode() : HttpStatusEnum.SERVICE_UNAVAILABLE.getCode();
+        Throwable cause = NestedExceptionUtils.getMostSpecificCause(exception);
+        String sqlState = cause instanceof SQLException sql ? sql.getSQLState() : null;
+        StackTraceElement[] frames = cause.getStackTrace();
+        String location = frames.length == 0 ? "unknown" : frames[0].toString();
+        log.atLevel(code < 500 ? Level.WARN : Level.ERROR)
+                .log("知识检索失败: stage={}, runId={}, userId={}, knowledgeBaseId={}, indexVersionId={}, code={}, causeType={}, sqlState={}, location={}",
+                        stage.getCode(), request.getExecutionId(), request.getUserId(), request.getKnowledgeBaseId(), request.getIndexVersionId(),
+                        code, cause.getClass().getName(), sqlState, location);
     }
 
     /** 平台 OTLP 单属性最多 256 字符，按完整片段记录分段，避免整段 JSON 被截掉。 */
