@@ -42,8 +42,6 @@ import com.lingxi.workbench.observability.common.enums.AiObservationStage;
 import com.lingxi.workbench.observability.service.StageObserver;
 import com.lingxi.workbench.workflow.model.CapabilityDefinition;
 import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
-import com.lingxi.workbench.workflow.model.intent.ApplicationIntentMapping;
-import com.lingxi.workbench.workflow.model.intent.IntentExecutionTargetType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -250,14 +248,15 @@ public class AppRuntime {
         if (interaction.isPresent()) {
             return resolveResumedDispatch(snapshot, executionQuery, interaction.get());
         }
+        // 路由映射已在发布和快照加载时校验，执行目标始终从冻结能力目录读取。
         return switch (routing.getAction()) {
             case FIXED_RESPONSE -> new ChatDispatch.Fixed(routing.getResponse());
             case CLARIFICATION -> new ChatDispatch.Clarify(routing.getResponse(), routing.getClarification());
             case EXECUTE_AGENT -> capabilityDispatch(executionQuery,
-                    resolveIntentRoutingCapability(snapshot, routing.getMapping(), ApplicationCapabilityType.AGENT),
+                    resolveCapability(snapshot, routing.getMapping().getCapabilityCode(), ApplicationCapabilityType.AGENT),
                     null, Set.of());
             case EXECUTE_WORKFLOW -> capabilityDispatch(executionQuery,
-                    resolveIntentRoutingCapability(snapshot, routing.getMapping(), ApplicationCapabilityType.WORKFLOW),
+                    resolveCapability(snapshot, routing.getMapping().getCapabilityCode(), ApplicationCapabilityType.WORKFLOW),
                     null, Set.of());
             case SKIPPED, DEFER_TO_AGENT -> resolveFallbackDispatch(
                     snapshot, executionQuery, routing.getRoutingEvidence(), Set.of());
@@ -488,28 +487,6 @@ public class AppRuntime {
         AgentRuntimeSnapshot agent = agentVersionService.resolveVersion(
                 capability.getTargetId(), capability.getTargetVersionId());
         return new FallbackTarget(capability, agent);
-    }
-
-    /**
-     * 校验意图路由映射与能力目录的一致性，返回已锁定版本的能力。
-     */
-    private static CapabilityDefinition resolveIntentRoutingCapability(AppRuntimeSnapshot snapshot, ApplicationIntentMapping mapping, ApplicationCapabilityType expectedType) {
-        IntentExecutionTargetType expectedTargetType = switch (expectedType) {
-            case AGENT -> IntentExecutionTargetType.AGENT;
-            case WORKFLOW -> IntentExecutionTargetType.WORKFLOW;
-            case TOOL -> throw new BusinessException(HttpStatusEnum.CONFLICT, "意图路由不支持直接执行Tool能力");
-        };
-        if (Objects.isNull(mapping) || mapping.getTargetType() != expectedTargetType
-                || Objects.isNull(mapping.getCapabilityCode()) || mapping.getCapabilityCode().isBlank()) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "Application正式版本中的意图路由映射不完整");
-        }
-        CapabilityDefinition capability = resolveCapability(snapshot, mapping.getCapabilityCode(), expectedType);
-        // 交叉校验：路由映射中的 targetId/versionId 必须与能力目录一致
-        if (!Objects.equals(mapping.getTargetId(), capability.getTargetId())
-                || !Objects.equals(mapping.getTargetVersionId(), capability.getTargetVersionId())) {
-            throw new BusinessException(HttpStatusEnum.CONFLICT, "意图路由映射与能力目录锁定目标不一致");
-        }
-        return capability;
     }
 
     /**

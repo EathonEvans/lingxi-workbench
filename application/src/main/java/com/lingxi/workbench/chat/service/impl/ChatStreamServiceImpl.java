@@ -135,28 +135,29 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         ConversationTurnStartBO turnStart = aiStageObserver.observe(AiObservationStage.MESSAGE_PERSIST, () -> conversationService.startTurn(turnInput));
 
         ChatTurnBO turn = turnStart.turn();
-        ApplicationAssistantIdentityVO assistantIdentity = applicationVersionService.resolveAssistantIdentity(
-                applicationSnapshot.applicationId(), applicationSnapshot.versionId());
         // 相同 clientMessageId 的网络重试只返回原任务标识，不得重复启动模型和重复扣费。
         if (!turnStart.isCreated()) {
             ConversationMessageEntity assistantMessage = messageRepo.findById(turn.assistantMessageId())
                     .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "Assistant消息不存在"));
-            assistantIdentity = applicationVersionService.resolveAssistantIdentity(
+            ApplicationAssistantIdentityVO assistantIdentity = applicationVersionService.resolveAssistantIdentity(
                     assistantMessage.getApplicationId(), assistantMessage.getApplicationVersionId());
             return toStartVO(turn, assistantIdentity);
         }
 
-        // Assistant 消息主键同时作为生成任务主键，便于 SSE 续接、取消和数据库终态恢复使用同一标识。
-        TraceRun traceRun = aiTracingService.start(applicationSnapshot, turn, userId);
-        RunningGenerationTask task = RunningGenerationTask.builder()
-                .turn(turn)
-                .userId(userId)
-                .applicationVersionId(applicationSnapshot.versionId())
-                .memoryConfig(applicationSnapshot.definition().memoryConf())
-                .eventRepo(generationEventRepo)
-                .traceRun(traceRun)
-                .build();
         try {
+            ApplicationAssistantIdentityVO assistantIdentity = applicationVersionService
+                    .resolveAssistantIdentity(applicationSnapshot.applicationId(), applicationSnapshot.versionId());
+            // Assistant 消息主键同时作为生成任务主键，便于 SSE 续接、取消和数据库终态恢复使用同一标识。
+            TraceRun traceRun = aiTracingService.start(applicationSnapshot, turn, userId);
+            RunningGenerationTask task = RunningGenerationTask.builder()
+                    .turn(turn)
+                    .userId(userId)
+                    .applicationVersionId(applicationSnapshot.versionId())
+                    .memoryConfig(applicationSnapshot.definition().memoryConf())
+                    .eventRepo(generationEventRepo)
+                    .traceRun(traceRun)
+                    .build();
+
             if (!registerTask(task)) {
                 task.traceRun().cancel("TASK_OWNED_BY_ANOTHER_INSTANCE");
                 return toStartVO(turn, assistantIdentity);
@@ -175,12 +176,12 @@ public class ChatStreamServiceImpl implements ChatStreamService {
             if (!task.isTerminal()) {
                 this.startGeneration(executionRequest);
             }
+            return toStartVO(turn, assistantIdentity);
         } catch (RuntimeException exception) {
-            // 发生异常，将任务从 runing 移除并将 assistant 占位消息状态变更为失败
-            this.taskRunFailState(exception, turn);
+            // 消息占位后的身份解析、任务装配和启动失败都必须推进失败终态。
+            this.markTaskStartFailed(exception, turn);
+            throw exception;
         }
-        // Long 主键转为字符串返回前端，避免 JavaScript Number 对大整数产生精度损失。
-        return toStartVO(turn, assistantIdentity);
     }
 
     /**
@@ -189,7 +190,7 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      * @param exception 异常
      * @param turn      单轮对话
      */
-    private void taskRunFailState(RuntimeException exception, ChatTurnBO turn) {
+    private void markTaskStartFailed(RuntimeException exception, ChatTurnBO turn) {
         runningTasks.remove(turn.assistantMessageId());
         generationTaskRegistry.unregister(turn.assistantMessageId());
         try {
@@ -199,7 +200,6 @@ public class ChatStreamServiceImpl implements ChatStreamService {
             exception.addSuppressed(persistenceException);
             log.error("模型生成任务启动失败后更新消息状态失败，assistantMessageId={}", turn.assistantMessageId(), persistenceException);
         }
-        throw exception;
     }
 
     /**

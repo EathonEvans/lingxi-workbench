@@ -173,6 +173,8 @@ class IntentRoutingServiceImplTest {
             assertThat(candidate.capabilityCode()).isEqualTo("refund_workflow");
         });
         assertThat(decision.getSemanticDecision().recognizedSlotCodes()).isEmpty();
+        verify(sessionRepo, never()).insert(any());
+        verify(sessionRepo, never()).update(any());
     }
 
     @Test
@@ -229,6 +231,75 @@ class IntentRoutingServiceImplTest {
         assertThat(result.getAction()).isEqualTo(IntentRoutingAction.EXECUTE_WORKFLOW);
         assertThat(result.getExecutionQuery()).isEqualTo("退款订单A10086\n已确认参数：orderNo=A10086");
         verify(sessionRepo, never()).insert(any());
+        verify(sessionRepo, never()).update(any());
+    }
+
+    @Test
+    void shouldCreateMissingSlotSessionOnlyWhenInputNeedsClarification() {
+        IntentNodeDefinition refund = leaf("refund", "申请退款");
+        refund.setSlots(List.of(IntentSlotDefinition.builder()
+                .code("orderNo").name("订单号").valueType(IntentSlotValueType.STRING).required(true).build()));
+        stubVersion(List.of(refund));
+        when(vectorRepo.search(any(), any(), any(), any(Integer.class)))
+                .thenReturn(List.of(new IntentVectorRuntimeRepo.IntentCandidateRow("refund-node", "refund", 0.91)));
+        doAnswer(invocation -> {
+            IntentRoutingSessionEntity session = invocation.getArgument(0);
+            session.setId(102L);
+            return null;
+        }).when(sessionRepo).insert(any());
+
+        IntentRoutingResult result = route(optionalSnapshot(List.of(optionalWorkflowMapping("refund"))), "我要退款");
+
+        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.CLARIFICATION);
+        assertThat(result.getClarification().getClarificationId()).isEqualTo("102");
+        ArgumentCaptor<IntentRoutingSessionEntity> sessionCaptor = ArgumentCaptor.forClass(IntentRoutingSessionEntity.class);
+        verify(sessionRepo).insert(sessionCaptor.capture());
+        IntentRoutingSessionEntity session = sessionCaptor.getValue();
+        assertThat(session.getConversationId()).isEqualTo(10L);
+        assertThat(session.getUserId()).isEqualTo(7L);
+        assertThat(session.getApplicationVersionId()).isEqualTo(30L);
+        assertThat(session.getIntentTreeVersionId()).isEqualTo(20L);
+        assertThat(session.getClarificationType()).isEqualTo(IntentClarificationType.MISSING_SLOT);
+        assertThat(session.getStatus()).isEqualTo(IntentRoutingSessionStatus.PENDING);
+        assertThat(session.getRoundNo()).isEqualTo(1);
+        assertThat(session.getContext().getOriginalQuery()).isEqualTo("我要退款");
+        assertThat(session.getContext().getIntentCode()).isEqualTo("refund");
+        assertThat(session.getContext().getMissingSlotCodes()).containsExactly("orderNo");
+        verify(sessionRepo, never()).update(any());
+    }
+
+    @Test
+    void shouldReuseAmbiguitySessionWhenSelectedIntentNeedsSlot() {
+        IntentNodeDefinition refund = leaf("refund", "申请退款");
+        refund.setSlots(List.of(IntentSlotDefinition.builder()
+                .code("orderNo").name("订单号").valueType(IntentSlotValueType.STRING).required(true).build()));
+        stubVersion(List.of(refund, leaf("exchange", "申请换货")));
+        IntentRoutingSessionEntity session = pendingSession(99L, IntentClarificationType.INTENT_DISAMBIGUATION,
+                IntentClarificationContext.builder()
+                        .originalQuery("订单商品有问题")
+                        .candidateCodes(List.of("refund", "exchange"))
+                        .collectedSlots(new LinkedHashMap<>())
+                        .build());
+        session.setRoundNo(2);
+        when(sessionRepo.findOwned(99L, 10L, 7L)).thenReturn(Optional.of(session));
+        ClarificationResponseRequest response = new ClarificationResponseRequest();
+        response.setClarificationId("99");
+        response.setOptionCode("refund");
+
+        IntentRoutingResult result = route(optionalSnapshot(List.of(
+                optionalWorkflowMapping("refund"), optionalWorkflowMapping("exchange"))), "申请退款", response);
+
+        assertThat(result.getAction()).isEqualTo(IntentRoutingAction.CLARIFICATION);
+        assertThat(result.getClarification().getClarificationId()).isEqualTo("99");
+        assertThat(result.getClarification().getQuestion()).contains("订单号");
+        assertThat(session.getClarificationType()).isEqualTo(IntentClarificationType.MISSING_SLOT);
+        assertThat(session.getStatus()).isEqualTo(IntentRoutingSessionStatus.PENDING);
+        assertThat(session.getRoundNo()).isEqualTo(1);
+        assertThat(session.getContext().getOriginalQuery()).isEqualTo("订单商品有问题");
+        assertThat(session.getContext().getMissingSlotCodes()).containsExactly("orderNo");
+        verify(sessionRepo, never()).insert(any());
+        verify(sessionRepo, org.mockito.Mockito.atLeastOnce()).update(session);
+        verify(semanticDecisionService, never()).decide(any(), any(), any());
     }
 
     @Test

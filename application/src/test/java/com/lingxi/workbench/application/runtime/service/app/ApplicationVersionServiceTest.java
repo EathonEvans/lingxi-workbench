@@ -27,6 +27,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Application 运行时业务测试。
@@ -85,6 +88,50 @@ class ApplicationVersionServiceTest {
 
         assertEquals(35L, snapshot.versionId());
         assertEquals("default_agent", snapshot.definition().fallback().cap());
+    }
+
+    @Test
+    void shouldLoadExecutionConfigWithoutResolvingAvatar() {
+        RuntimeApplicationEntity application = application();
+        RuntimeApplicationVersionEntity version = version(executableDefinition());
+        version.setAvatar("application/avatar.png");
+        ApplicationAvatarUrlService avatarService = mock(ApplicationAvatarUrlService.class);
+        when(avatarService.resolve(version.getAvatar())).thenThrow(new IllegalStateException("storage unavailable"));
+        ApplicationVersionService service = new ApplicationVersionService(
+                new StubApplicationRuntimeRepo(application, version), avatarService);
+
+        assertEquals(35L, service.loadRuntimeAppConfig("general_assistant").versionId());
+        assertEquals(35L, service.loadRuntimeAppVersion(21L, 35L).versionId());
+        verifyNoInteractions(avatarService);
+    }
+
+    @Test
+    void shouldResolveAvatarOnceForAvailableApplication() {
+        RuntimeApplicationEntity application = application();
+        RuntimeApplicationVersionEntity version = version(executableDefinition());
+        version.setAvatar("application/avatar.png");
+        ApplicationAvatarUrlService avatarService = mock(ApplicationAvatarUrlService.class);
+        when(avatarService.resolve(version.getAvatar())).thenReturn("signed-avatar-url");
+        ApplicationVersionService service = new ApplicationVersionService(
+                new StubApplicationRuntimeRepo(application, version), avatarService);
+
+        assertEquals(new ApplicationAssistantIdentityVO("灵析通用助手", "signed-avatar-url"),
+                service.listAvailableApplications().getFirst().assistant());
+        verify(avatarService).resolve(version.getAvatar());
+    }
+
+    @Test
+    void shouldRejectMissingAssistantNameWithoutResolvingAvatar() {
+        RuntimeApplicationEntity application = application();
+        RuntimeApplicationVersionEntity version = version(executableDefinition());
+        version.setName(" ");
+        ApplicationAvatarUrlService avatarService = mock(ApplicationAvatarUrlService.class);
+        ApplicationVersionService service = new ApplicationVersionService(
+                new StubApplicationRuntimeRepo(application, version), avatarService);
+
+        assertEquals(List.of(), service.listAvailableApplications());
+        assertThrows(BusinessException.class, () -> service.loadRuntimeAppConfig("general_assistant"));
+        verifyNoInteractions(avatarService);
     }
 
     @Test
@@ -180,6 +227,11 @@ class ApplicationVersionServiceTest {
 
         @Override
         public Optional<RuntimeApplicationEntity> findActiveByCode(String code) {
+            return Optional.of(application);
+        }
+
+        @Override
+        public Optional<RuntimeApplicationEntity> findById(Long applicationId) {
             return Optional.of(application);
         }
 

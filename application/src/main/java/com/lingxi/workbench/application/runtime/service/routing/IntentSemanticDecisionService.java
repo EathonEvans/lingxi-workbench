@@ -450,19 +450,9 @@ public class IntentSemanticDecisionService {
     private static ChatModelRuntimeConfig decisionModelConfig(ChatModelRuntimeConfig source,
                                                               IntentRoutingPolicy policy,
                                                               int maxOutputTokens) {
-        return ChatModelRuntimeConfig.builder()
-                .instanceId(source.getInstanceId())
-                .baseUrl(source.getBaseUrl())
-                .apiKey(source.getApiKey())
-                .modelCode(source.getModelCode())
-                .temperature(source.getTemperature())
-                .topP(source.getTopP())
+        return source.toBuilder()
                 .maxTokens(maxOutputTokens)
-                .stopSequences(source.getStopSequences())
-                .extensionParameters(source.getExtensionParameters())
                 .timeoutSeconds(policy.timeoutSeconds())
-                .maxRetries(source.getMaxRetries())
-                .structuredOutputSupported(source.isStructuredOutputSupported())
                 .build();
     }
 

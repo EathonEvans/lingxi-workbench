@@ -52,7 +52,9 @@ public class ApplicationVersionService {
                 .toList();
     }
 
-    /** 按已冻结的 ApplicationVersion 读取单个助手身份，用于创建对话后的稳定回执。 */
+    /**
+     * 按已冻结的 ApplicationVersion 读取单个助手身份，用于创建对话后的稳定回执。
+     */
     @Transactional(readOnly = true)
     public ApplicationAssistantIdentityVO resolveAssistantIdentity(Long applicationId, Long applicationVersionId) {
         RuntimeApplicationVersionEntity version = repo.findVersion(applicationId, applicationVersionId)
@@ -60,7 +62,9 @@ public class ApplicationVersionService {
         return toAssistantIdentity(version);
     }
 
-    /** 批量解析历史 Assistant 消息所引用的版本身份，避免按消息逐条查询版本快照。 */
+    /**
+     * 批量解析历史 Assistant 消息所引用的版本身份，避免按消息逐条查询版本快照。
+     */
     @Transactional(readOnly = true)
     public Map<Long, ApplicationAssistantIdentityVO> resolveAssistantIdentities(List<Long> applicationVersionIds) {
         if (applicationVersionIds.isEmpty()) {
@@ -102,7 +106,9 @@ public class ApplicationVersionService {
         return toSnapshot(application, version, "AI应用冻结版本");
     }
 
-    /** 应用选择器只暴露当前运行时能够构造完整快照的正式版本。 */
+    /**
+     * 应用选择器只暴露当前运行时能够构造完整快照的正式版本。
+     */
     private boolean isExecutable(RuntimeApplicationEntity application, RuntimeApplicationVersionEntity version) {
         if (Objects.isNull(version)
                 || !Objects.equals(version.getApplicationId(), application.getId())) {
@@ -112,7 +118,7 @@ public class ApplicationVersionService {
         }
         try {
             new AppRuntimeSnapshot(application.getId(), application.getCode(), version.getId(), version.getDefinitionSnapshot());
-            toAssistantIdentity(version);
+            requireAssistantName(version);
             return true;
         } catch (IllegalArgumentException exception) {
             log.warn("Application候选版本不可执行，applicationId={}，versionId={}，reason={}",
@@ -121,14 +127,15 @@ public class ApplicationVersionService {
         }
     }
 
-    /** 统一校验 ApplicationVersion 定义快照并转换为不可变运行对象。 */
+    /**
+     * 统一校验 ApplicationVersion 定义快照并转换为不可变运行对象。
+     */
     private AppRuntimeSnapshot toSnapshot(RuntimeApplicationEntity application, RuntimeApplicationVersionEntity version,
                                           String versionLabel) {
         try {
-            AppRuntimeSnapshot snapshot = new AppRuntimeSnapshot(
+            requireAssistantName(version);
+            return new AppRuntimeSnapshot(
                     application.getId(), application.getCode(), version.getId(), version.getDefinitionSnapshot());
-            toAssistantIdentity(version);
-            return snapshot;
         } catch (IllegalArgumentException exception) {
             log.warn("{}不可执行，applicationId={}，versionId={}，reason={}",
                     versionLabel, application.getId(), version.getId(), exception.getMessage());
@@ -137,11 +144,18 @@ public class ApplicationVersionService {
     }
 
     private ApplicationAssistantIdentityVO toAssistantIdentity(RuntimeApplicationVersionEntity version) {
+        return new ApplicationAssistantIdentityVO(
+                requireAssistantName(version),
+                applicationAvatarUrlService.resolve(version.getAvatar()));
+    }
+
+    /**
+     * 展示名称属于发布不变量；头像签名只在组装展示响应时生成，不能参与执行准入。
+     */
+    private static String requireAssistantName(RuntimeApplicationVersionEntity version) {
         if (CharSequenceUtil.isBlank(version.getName())) {
             throw new IllegalArgumentException("助手身份快照缺少展示名称");
         }
-        return new ApplicationAssistantIdentityVO(
-                version.getName(),
-                applicationAvatarUrlService.resolve(version.getAvatar()));
+        return version.getName();
     }
 }

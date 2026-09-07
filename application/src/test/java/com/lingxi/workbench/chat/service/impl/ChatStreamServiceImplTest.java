@@ -240,6 +240,37 @@ class ChatStreamServiceImplTest {
     }
 
     @Test
+    void shouldResolveOnlyOriginalVersionIdentityForRetriedMessage() {
+        when(conversationService.startTurn(any(StartConversationTurnBO.class)))
+                .thenReturn(new ConversationTurnStartBO(new ChatTurnBO(10L, 11L, 12L, 3), false));
+        ConversationMessageEntity originalMessage = assistant(MessageStatus.COMPLETED, "原回答");
+        originalMessage.setApplicationVersionId(29L);
+        when(messageRepo.findById(12L)).thenReturn(Optional.of(originalMessage));
+        when(applicationVersionService.resolveAssistantIdentity(20L, 29L))
+                .thenReturn(new ApplicationAssistantIdentityVO("原版本助手", null));
+
+        ChatStartVO result = service.start(createChatRequest(), LOGIN_USER);
+
+        assertEquals("原版本助手", result.assistant().name());
+        verify(applicationVersionService).resolveAssistantIdentity(20L, 29L);
+        verify(applicationVersionService, never()).resolveAssistantIdentity(20L, 30L);
+        verify(appRuntime, never()).execute(any());
+    }
+
+    @Test
+    void shouldFailPlaceholderWhenAssistantIdentityCannotBeResolved() {
+        IllegalStateException failure = new IllegalStateException("storage unavailable");
+        when(applicationVersionService.resolveAssistantIdentity(20L, 30L)).thenThrow(failure);
+
+        assertEquals(failure, assertThrows(IllegalStateException.class,
+                () -> service.start(createChatRequest(), LOGIN_USER)));
+
+        verify(conversationService).failAssistant(12L, "", "GENERATION_START_ERROR", "模型生成任务启动失败", TokenUsage.empty());
+        verify(appRuntime, never()).execute(any());
+        verify(aiTracingService, never()).start(any(), any(), any());
+    }
+
+    @Test
     void shouldPublishAndPersistApplicationAnswer() {
         ApplicationExecutionGate gate = prepareApplicationExecution("完整回答");
 

@@ -583,19 +583,11 @@ public class AgentExecutionAdapter {
                 ? outputBudget
                 : Math.min(source.getMaxTokens(), outputBudget);
 
-        return ChatModelRuntimeConfig.builder()
-                .instanceId(source.getInstanceId())
-                .baseUrl(source.getBaseUrl())
-                .apiKey(source.getApiKey())
-                .modelCode(source.getModelCode())
+        return source.toBuilder()
                 .temperature(temperature)
                 .topP(topP)
                 .maxTokens(maxTokens)
-                .stopSequences(source.getStopSequences())
-                .extensionParameters(source.getExtensionParameters())
                 .timeoutSeconds(responseIdleTimeoutSeconds)
-                .maxRetries(source.getMaxRetries())
-                .structuredOutputSupported(source.isStructuredOutputSupported())
                 .build();
     }
 

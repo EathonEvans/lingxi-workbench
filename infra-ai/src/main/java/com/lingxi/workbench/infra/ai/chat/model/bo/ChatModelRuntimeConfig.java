@@ -17,7 +17,7 @@ import java.util.Objects;
  * 写入缓存或通过接口返回。</p>
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class ChatModelRuntimeConfig {
