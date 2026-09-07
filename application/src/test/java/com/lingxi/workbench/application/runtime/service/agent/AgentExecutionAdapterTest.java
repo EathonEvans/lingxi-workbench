@@ -68,6 +68,7 @@ import io.agentscope.core.agent.RuntimeContext;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
 
+import com.lingxi.workbench.infra.ai.rerank.model.RerankModelRuntimeConfig;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -622,6 +623,11 @@ class AgentExecutionAdapterTest {
 
     private static ModelRuntimeConfigService modelService() {
         return new ModelRuntimeConfigService() {
+            @Override
+            public RerankModelRuntimeConfig getRerankModelConfig(Long instanceId) {
+                throw new AssertionError("此测试不应调用重排序模型");
+            }
+
             @Override
             public ChatModelRuntimeConfig getDefaultChatModel() {
                 throw new UnsupportedOperationException();

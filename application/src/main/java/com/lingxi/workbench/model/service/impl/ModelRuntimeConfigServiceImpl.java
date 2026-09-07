@@ -12,6 +12,7 @@ import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.lingxi.workbench.infra.ai.rerank.model.RerankModelRuntimeConfig;
 
 /** 模型运行配置服务实现。 */
 @Service
@@ -73,5 +74,16 @@ public class ModelRuntimeConfigServiceImpl implements ModelRuntimeConfigService 
                         HttpStatusEnum.NOT_FOUND, "当前没有可用的 Embedding 模型"));
         String apiKey = secretCipher.decrypt(config.getSecretCiphertext(), config.getSecretIv());
         return converter.toEmbeddingConfig(config, apiKey);
+    }
+    @Override
+    @Transactional(readOnly = true)
+    public RerankModelRuntimeConfig getRerankModelConfig(Long instanceId) {
+        ModelRuntimeConfigBO config = configRepo.findRerankModel(instanceId)
+                .orElseThrow(() -> new BusinessException(HttpStatusEnum.NOT_FOUND, "指定的重排序模型不可用"));
+        if (!OPENAI_COMPATIBLE.equals(config.getProtocol())) {
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "指定的重排序模型协议暂不支持");
+        }
+        String apiKey = secretCipher.decrypt(config.getSecretCiphertext(), config.getSecretIv());
+        return converter.toRerankConfig(config, apiKey);
     }
 }

@@ -13,6 +13,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import com.lingxi.workbench.infra.ai.rerank.model.RerankPolicy;
+import jakarta.validation.Valid;
 import java.math.BigDecimal;
 
 /** 向量召回策略。 */
@@ -25,6 +27,9 @@ public class RetrievalPolicy {
     @Min(value = 1, message = "召回条数不能小于1")
     @Max(value = 100, message = "召回条数不能超过100")
     private Integer topK;
+    /** 可选的重排序策略；为空时仅使用向量排序。 */
+    @Valid
+    private RerankPolicy rerank;
     @NotNull(message = "请设置相似度阈值")
     @DecimalMin(value = "0.0", message = "相似度阈值不能小于0")
     @DecimalMax(value = "1.0", message = "相似度阈值不能大于1")

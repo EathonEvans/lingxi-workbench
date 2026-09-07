@@ -32,6 +32,8 @@ public class KnowledgeVectorRepo {
                   ON reference.index_version_id = version.id
                 JOIN lingxi_core.ai_knowledge_chunk chunk
                   ON chunk.task_id = reference.chunk_task_id
+                JOIN lingxi_core.ai_knowledge_document document
+                  ON document.id = chunk.document_id AND document.knowledge_base_id = chunk.knowledge_base_id
                 JOIN lingxi_vector.knowledge_chunk_vector vector
                   ON vector.chunk_id = chunk.id
                 WHERE version.id = ?

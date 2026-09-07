@@ -1,27 +1,11 @@
 package com.lingxi.workbench.knowledge.service;
 
-import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig;
-import com.lingxi.workbench.knowledge.model.vo.KnowledgeSearchResultVO;
+import com.lingxi.workbench.knowledge.model.bo.KnowledgeSearchResponse;
 
-import java.util.List;
+import com.lingxi.workbench.knowledge.model.bo.KnowledgeSearchRequest;
 
-/**
- * 知识库语义检索内部服务，供对话链路调用。
- */
+/** 用户范围内的版本化知识检索，供对话 Tool 使用。 */
 public interface KnowledgeSearchService {
-
-    /**
-     * 使用 AgentVersion 冻结的检索契约，在发布快照锁定的知识索引版本中召回相关 Chunk。
-     *
-     * @param query               检索问题
-     * @param knowledgeBaseId     AgentVersion 绑定的知识库主键
-     * @param indexVersionId      发布快照锁定的知识索引版本主键
-     * @param embeddingConfig     AgentVersion 绑定的 Embedding 模型运行配置
-     * @param topK                AgentVersion 配置的最大召回条数
-     * @param similarityThreshold AgentVersion 配置的最低相似度
-     * @return 按相似度降序排列的检索结果
-     */
-    default List<KnowledgeSearchResultVO> searchVersion(String query, Long knowledgeBaseId, Long indexVersionId, EmbeddingModelRuntimeConfig embeddingConfig, int topK, double similarityThreshold) {
-        throw new UnsupportedOperationException("当前知识搜索实现不支持版本化检索");
-    }
+    /** 先鉴权再召回和可选重排；权限或外部调用失败均不能伪装成空召回。 */
+    KnowledgeSearchResponse searchVersion(KnowledgeSearchRequest request);
 }

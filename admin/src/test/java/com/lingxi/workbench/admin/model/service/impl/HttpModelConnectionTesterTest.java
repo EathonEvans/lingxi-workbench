@@ -9,10 +9,12 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import com.lingxi.workbench.infra.ai.rerank.http.HttpRerankGateway;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import com.lingxi.workbench.infra.ai.rerank.config.RerankHttpProperties;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -135,18 +137,25 @@ class HttpModelConnectionTesterTest {
     }
 
     @Test
-    void shouldRejectRerankUntilProviderProtocolIsAvailable() {
+    void shouldCallConfiguredRerankEndpoint() throws Exception {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/rerank", exchange -> {
+            byte[] response = "{\"results\":[{\"index\":1,\"relevance_score\":0.9}]}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
         ModelConnectionTestResult result = testerWithLocalhostAllowed().test(
                 "OPENAI_COMPATIBLE",
-                "https://example.com/v1",
+                baseUrl(),
                 "secret",
                 "rerank-test",
                 ModelType.RERANK,
                 new JSONObject(),
                 3);
 
-        assertEquals("FAILED", result.status().name());
-        assertEquals("UNSUPPORTED_MODEL_TYPE", result.errorCode());
+        assertEquals("SUCCESS", result.status().name());
     }
 
     private String baseUrl() {
@@ -159,6 +168,7 @@ class HttpModelConnectionTesterTest {
         properties.setAllowedPrivateHosts(List.of("127.0.0.1", "localhost", "::1"));
         return new HttpModelConnectionTester(
                 HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(3)).build(),
-                new ModelOutboundAddressPolicy(properties));
+                new ModelOutboundAddressPolicy(properties),
+                new HttpRerankGateway(new ModelOutboundAddressPolicy(properties), new RerankHttpProperties()));
     }
 }

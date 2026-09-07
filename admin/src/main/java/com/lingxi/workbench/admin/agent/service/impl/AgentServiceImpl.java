@@ -452,6 +452,7 @@ public class AgentServiceImpl implements AgentService {
                 .knowledgeIndexVersionId(index.getId())
                 .embeddingModelInstanceId(knowledge.getEmbeddingModelInstanceId())
                 .topK(retrieval.getTopK())
+                .rerank(retrieval.getRerank())
                 .similarityThreshold(retrieval.getSimilarityThreshold())
                 .maxResultTokens(retrieval.getMaxContextTokens())
                 .maxQueryCharacters(KNOWLEDGE_SEARCH_MAX_QUERY_CHARACTERS)

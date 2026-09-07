@@ -44,4 +44,6 @@ public interface SysRoleService {
 
     /** 为自定义数据范围角色全量分配部门。 */
     void assignDepartments(Long roleId, Set<Long> departmentIds);
+    /** 批量校验授权主体存在性；启用状态由运行时读取当前值。 */
+    boolean existsAll(Set<Long> ids);
 }

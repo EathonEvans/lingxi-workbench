@@ -16,6 +16,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import com.lingxi.workbench.admin.auth.model.request.SysUserPageQuery;
+import com.lingxi.workbench.admin.knowledge.model.request.SaveKnowledgeAccessRequest;
+import com.lingxi.workbench.admin.knowledge.model.vo.KnowledgeAccessOptionVO;
+import com.lingxi.workbench.admin.knowledge.model.vo.KnowledgeAccessVO;
+import java.util.List;
 
 /**
  * 管理端知识库接口。
@@ -70,6 +75,40 @@ public class KnowledgeBaseController {
     public ApiResponse<Void> delete(@PathVariable Long id) {
         service.delete(id, UserContext.userId());
         return ApiResponse.success();
+    }
+
+    /** 读取范围仅对有知识库管理权限的管理员开放。 */
+    @GetMapping("/access/{id}")
+    @SaCheckPermission("knowledge:manage")
+    public ApiResponse<KnowledgeAccessVO> access(@PathVariable Long id) {
+        return ApiResponse.success(service.access(id));
+    }
+
+    /** 实时调整 RAG 读取范围，不修改 Agent 或索引发布快照。 */
+    @PostMapping("/access/update/{id}")
+    @SaCheckPermission("knowledge:manage")
+    public ApiResponse<KnowledgeAccessVO> saveAccess(@PathVariable Long id, @Valid @RequestBody SaveKnowledgeAccessRequest request) {
+        return ApiResponse.success(service.saveAccess(id, request, UserContext.userId()));
+    }
+    /** 知识库管理人员只读取授权所需的账号标识和名称。 */
+    @GetMapping("/access/options/users")
+    @SaCheckPermission("knowledge:manage")
+    public ApiResponse<PageResult<KnowledgeAccessOptionVO>> userOptions(@Valid SysUserPageQuery query) {
+        return ApiResponse.success(service.userOptions(query));
+    }
+
+    /** 授权角色选择器。 */
+    @GetMapping("/access/options/roles")
+    @SaCheckPermission("knowledge:manage")
+    public ApiResponse<List<KnowledgeAccessOptionVO>> roleOptions() {
+        return ApiResponse.success(service.roleOptions());
+    }
+
+    /** 授权直属部门选择器。 */
+    @GetMapping("/access/options/departments")
+    @SaCheckPermission("knowledge:manage")
+    public ApiResponse<List<KnowledgeAccessOptionVO>> departmentOptions() {
+        return ApiResponse.success(service.departmentOptions());
     }
 
 }

@@ -34,6 +34,7 @@ import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import com.lingxi.workbench.infra.ai.rerank.model.RerankPolicy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -108,6 +109,14 @@ public class AgentDraftValidator {
         validatePolicy(draft.getToolPolicy(), "TOOL_POLICY", issues);
         if (role == AgentRole.SPECIALIST && Objects.nonNull(knowledgeBinding)) {
             validatePolicy(draft.getRetrievalPolicy(), "KNOWLEDGE_SEARCH_POLICY", issues);
+            if (Objects.nonNull(draft.getRetrievalPolicy()) && Objects.nonNull(draft.getRetrievalPolicy().getRerank())) {
+                RerankPolicy rerank = draft.getRetrievalPolicy().getRerank();
+                validateModel(rerank.modelInstanceId(), ModelType.RERANK, "RERANK_MODEL", issues);
+                if (Objects.nonNull(rerank.candidateTopK()) && Objects.nonNull(draft.getRetrievalPolicy().getTopK())
+                        && rerank.candidateTopK() < draft.getRetrievalPolicy().getTopK()) {
+                    add(issues, "RERANK_CANDIDATE_LIMIT_INVALID", "重排序候选条数不能少于返回条数");
+                }
+            }
         }
         if (role == AgentRole.SUPERVISOR) {
             validatePolicy(draft.getPlanPolicy(), "PLAN_POLICY", issues);

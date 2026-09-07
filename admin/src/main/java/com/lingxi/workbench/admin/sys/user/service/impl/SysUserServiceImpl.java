@@ -165,4 +165,9 @@ public class SysUserServiceImpl implements SysUserService {
         query.setUsername(normalizeNullable(query.getUsername()));
         query.setDisplayName(normalizeNullable(query.getDisplayName()));
     }
+    @Override
+    @Transactional(readOnly = true)
+    public boolean existsAll(Set<Long> ids) {
+        return sysUserRepo.existsAll(ids);
+    }
 }

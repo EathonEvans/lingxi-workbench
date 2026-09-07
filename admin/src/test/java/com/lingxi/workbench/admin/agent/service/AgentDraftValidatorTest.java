@@ -40,6 +40,7 @@ import jakarta.validation.Validation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.lingxi.workbench.infra.ai.rerank.model.RerankPolicy;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -336,6 +337,37 @@ class AgentDraftValidatorTest {
         assertTrue(result.issues().stream()
                 .map(AgentValidationIssueVO::code)
                 .anyMatch("PLAN_POLICY_UNSUPPORTED"::equals));
+    }
+
+    @Test
+    void shouldAcceptTestedRerankModelWithEnoughCandidates() {
+        modelRepo.put(model(CHAT_MODEL_ID, ModelType.CHAT, List.of(ModelCapability.STREAMING, ModelCapability.TOOL_CALLING)));
+        preparePrompt(USER_VERSION_ID, 31L, PromptRole.USER, specialistUserVariables());
+        modelRepo.put(model(12L, ModelType.RERANK, List.of()));
+        AgentDraftEntity draft = validDraft();
+        draft.getRetrievalPolicy().setRerank(new RerankPolicy(12L, 20, 0.5));
+        AgentValidationResultVO result = validator.validate(activeAgent(), draft, knowledgeBinding());
+        assertTrue(result.valid(), () -> result.issues().toString());
+    }
+
+    @Test
+    void shouldRejectWrongRerankTypeAndTooFewCandidates() {
+        AgentDraftEntity draft = validDraft();
+        draft.getRetrievalPolicy().setRerank(new RerankPolicy(CHAT_MODEL_ID, 1, 0.5));
+        List<String> codes = validator.validate(activeAgent(), draft, knowledgeBinding()).issues().stream()
+                .map(AgentValidationIssueVO::code).toList();
+        assertTrue(codes.contains("RERANK_MODEL_TYPE_MISMATCH"));
+        assertTrue(codes.contains("RERANK_CANDIDATE_LIMIT_INVALID"));
+    }
+
+    @Test
+    void shouldRejectInvalidRerankPolicyBounds() {
+        AgentDraftEntity draft = validDraft();
+        draft.getRetrievalPolicy().setRerank(new RerankPolicy(null, 101, 1.1));
+        List<String> codes = validator.validate(activeAgent(), draft, knowledgeBinding()).issues().stream()
+                .map(AgentValidationIssueVO::code).toList();
+        assertTrue(codes.contains("KNOWLEDGE_SEARCH_POLICY_INVALID"));
+        assertTrue(codes.contains("RERANK_MODEL_MISSING"));
     }
 
     private void prepareModelsAndKnowledge() {

@@ -3,14 +3,12 @@ package com.lingxi.workbench.application.runtime.tool;
 import com.lingxi.workbench.framework.json.JSON;
 import com.lingxi.workbench.application.runtime.common.enums.KnowledgeSearchStatus;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
-import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.AgentToolException;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolRequest;
 import com.lingxi.workbench.knowledge.model.vo.KnowledgeSearchResultVO;
 import com.lingxi.workbench.knowledge.service.KnowledgeSearchService;
-import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -20,6 +18,8 @@ import lombok.Setter;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 import org.springframework.stereotype.Component;
 
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionContext;
+import com.lingxi.workbench.knowledge.model.bo.KnowledgeSearchRequest;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Map;
@@ -38,12 +38,10 @@ public class KnowledgeSearchAgentToolFactory {
     private static final double MIN_NEW_EVIDENCE_RATIO = 0.15D;
 
     private final KnowledgeSearchService knowledgeSearchService;
-    private final ModelRuntimeConfigService modelRuntimeConfigService;
     private final TokenCountEstimator tokenCountEstimator;
 
-    public KnowledgeSearchAgentToolFactory(KnowledgeSearchService knowledgeSearchService, ModelRuntimeConfigService modelRuntimeConfigService, TokenCountEstimator tokenCountEstimator) {
+    public KnowledgeSearchAgentToolFactory(KnowledgeSearchService knowledgeSearchService, TokenCountEstimator tokenCountEstimator) {
         this.knowledgeSearchService = knowledgeSearchService;
-        this.modelRuntimeConfigService = modelRuntimeConfigService;
         this.tokenCountEstimator = tokenCountEstimator;
     }
 
@@ -60,7 +58,7 @@ public class KnowledgeSearchAgentToolFactory {
     }
 
     private KnowledgeSearchOutput execute(AgentRuntimeDefinition.KnowledgeSearchCapability capability, KnowledgeSearchInput input,
-                                          KnowledgeSearchEvidenceTracker evidenceTracker) {
+                                          KnowledgeSearchEvidenceTracker evidenceTracker, AgentToolExecutionContext execution) {
         if (Objects.isNull(input) || Objects.isNull(input.getQuery()) || input.getQuery().isBlank()) {
             throw new AgentToolException("knowledge.search必须提供非空查询");
         }
@@ -69,18 +67,12 @@ public class KnowledgeSearchAgentToolFactory {
         if (normalizedQuery.length() > capability.getMaxQueryCharacters()) {
             throw new AgentToolException("knowledge.search查询超过字符上限");
         }
-        EmbeddingModelRuntimeConfig source = modelRuntimeConfigService.getEmbeddingModelConfig(capability.getEmbeddingModelInstanceId());
-        EmbeddingModelRuntimeConfig embeddingConfig = EmbeddingModelRuntimeConfig.builder()
-                .instanceId(source.getInstanceId())
-                .baseUrl(source.getBaseUrl())
-                .apiKey(source.getApiKey())
-                .modelCode(source.getModelCode())
-                .timeoutSeconds(Math.min(source.getTimeoutSeconds(), capability.getTimeoutSeconds()))
-                .maxRetries(source.getMaxRetries())
-                .build();
-        List<KnowledgeSearchResultVO> results = knowledgeSearchService.searchVersion(
-                normalizedQuery, capability.getKnowledgeBaseId(), capability.getKnowledgeIndexVersionId(),
-                embeddingConfig, capability.getTopK(), capability.getSimilarityThreshold().doubleValue());
+        List<KnowledgeSearchResultVO> results = knowledgeSearchService.searchVersion(KnowledgeSearchRequest.builder()
+                .executionId(execution.getExecutionId()).query(normalizedQuery).userId(execution.getUserId())
+                .knowledgeBaseId(capability.getKnowledgeBaseId()).indexVersionId(capability.getKnowledgeIndexVersionId())
+                .embeddingModelInstanceId(capability.getEmbeddingModelInstanceId())
+                .topK(capability.getTopK()).similarityThreshold(capability.getSimilarityThreshold().doubleValue())
+                .timeoutSeconds(capability.getTimeoutSeconds()).rerank(capability.getRerank()).build()).results();
         KnowledgeSearchSelection selection = limitResults(results, capability.getMaxResultTokens());
         KnowledgeSearchProgress progress = evidenceTracker.record(selection.chunkIds());
         return KnowledgeSearchOutput.builder()
@@ -109,7 +101,9 @@ public class KnowledgeSearchAgentToolFactory {
                 truncated = true;
                 break;
             }
-            chunks.add(new KnowledgeSearchChunk(content, result.getSimilarity(), result.getDocumentName(), location(result)));
+            chunks.add(KnowledgeSearchChunk.builder().chunkId(result.getChunkId()).content(content)
+                    .similarity(result.getSimilarity()).rerankScore(result.getRerankScore())
+                    .documentName(result.getDocumentName()).location(location(result)).build());
             chunkIds.add(result.getChunkId());
             remainingTokens -= tokenCountEstimator.estimate(content);
             if (remainingTokens <= 0) {
@@ -190,7 +184,7 @@ public class KnowledgeSearchAgentToolFactory {
         @Override
         public String execute(AgentToolRequest request) {
             KnowledgeSearchInput input = JSON.parseObject(request.input(), KnowledgeSearchInput.class);
-            return JSON.toJSONString(factory.execute(capability, input, evidenceTracker));
+            return JSON.toJSONString(factory.execute(capability, input, evidenceTracker, request.execution()));
         }
 
         @Override
@@ -206,13 +200,16 @@ public class KnowledgeSearchAgentToolFactory {
         private String query;
     }
 
-    /**
-     * @param content      命中的知识正文
-     * @param score        余弦相似度
-     * @param documentName 来源文档名称
-     * @param location     页码或章节位置
-     */
-    public record KnowledgeSearchChunk(String content, Double score, String documentName, String location) {
+    /** 回传模型的有界证据，分别保留向量与重排分数，并带上原始片段来源。 */
+    @Getter
+    @Builder
+    public static class KnowledgeSearchChunk {
+        private final Long chunkId;
+        private final String content;
+        private final Double similarity;
+        private final Double rerankScore;
+        private final String documentName;
+        private final String location;
     }
 
     /**

@@ -42,4 +42,8 @@ public class ModelRuntimeConfigRepo {
         return Optional.ofNullable(mapper.selectEmbeddingModel(instanceId))
                 .map(converter::toBO);
     }
+    /** 查询指定的可用重排序模型。 */
+    public Optional<ModelRuntimeConfigBO> findRerankModel(Long instanceId) {
+        return Optional.ofNullable(mapper.selectRerankModel(instanceId)).map(converter::toBO);
+    }
 }

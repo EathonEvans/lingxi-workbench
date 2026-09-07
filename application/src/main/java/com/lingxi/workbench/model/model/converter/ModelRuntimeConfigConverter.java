@@ -11,6 +11,7 @@ import org.mapstruct.Mapping;
 import org.mapstruct.MappingConstants;
 import org.mapstruct.Named;
 
+import com.lingxi.workbench.infra.ai.rerank.model.RerankModelRuntimeConfig;
 import java.util.List;
 
 /**
@@ -91,4 +92,7 @@ public interface ModelRuntimeConfigConverter {
     @Mapping(target = "maxRetries", source = "config.maxRetries")
     EmbeddingModelRuntimeConfig toEmbeddingConfig(ModelRuntimeConfigBO config, String apiKey);
 
+    /** 将已校验模型和解密凭证组装为重排序配置。 */
+    @Mapping(target = "apiKey", source = "apiKey")
+    RerankModelRuntimeConfig toRerankConfig(ModelRuntimeConfigBO config, String apiKey);
 }

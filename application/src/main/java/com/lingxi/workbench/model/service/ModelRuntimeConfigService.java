@@ -2,6 +2,7 @@ package com.lingxi.workbench.model.service;
 
 import com.lingxi.workbench.infra.ai.chat.model.bo.ChatModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig;
+import com.lingxi.workbench.infra.ai.rerank.model.RerankModelRuntimeConfig;
 
 /**
  * 为 application 业务提供经过完整校验的模型运行配置。
@@ -24,4 +25,6 @@ public interface ModelRuntimeConfigService {
      * <p>后续将根据知识库绑定策略选择对应模型，当前阶段先取全局最新。</p>
      */
     EmbeddingModelRuntimeConfig getEmbeddingModelConfig(Long instanceId);
+    /** 按发布配置锁定的实例读取当前可用的重排序模型。 */
+    RerankModelRuntimeConfig getRerankModelConfig(Long instanceId);
 }

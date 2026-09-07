@@ -10,6 +10,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import com.lingxi.workbench.infra.ai.rerank.model.RerankPolicy;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
@@ -96,6 +97,8 @@ public class AgentRuntimeDefinition {
         private Long knowledgeIndexVersionId;
         private Long embeddingModelInstanceId;
         private Integer topK;
+        /** 发布版本冻结的可选重排序策略。 */
+        private RerankPolicy rerank;
         private BigDecimal similarityThreshold;
         private Integer maxResultTokens;
         private Integer maxQueryCharacters;

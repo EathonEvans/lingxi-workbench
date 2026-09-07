@@ -38,4 +38,6 @@ public interface SysUserService {
      * 记录账号管理端角色变更，供角色业务在关系保存后调用。
      */
     void recordRoleAssignment(Long userId, Set<Long> roleIds);
+    /** 批量校验授权主体存在性；启用状态由运行时读取当前值。 */
+    boolean existsAll(Set<Long> ids);
 }

@@ -26,4 +26,11 @@ public class KnowledgeBaseRepo {
                 .eq(KnowledgeBaseEntity::getStatus, "ACTIVE"));
         return Optional.ofNullable(entity);
     }
+    public boolean canRead(Long knowledgeBaseId, Long userId) {
+        return mapper.canRead(knowledgeBaseId, userId);
+    }
+
+    public Optional<Integer> findIndexDimension(Long knowledgeBaseId, Long indexVersionId, Long modelId) {
+        return Optional.ofNullable(mapper.selectIndexDimension(knowledgeBaseId, indexVersionId, modelId));
+    }
 }

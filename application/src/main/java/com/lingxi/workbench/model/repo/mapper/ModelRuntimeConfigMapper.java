@@ -117,4 +117,37 @@ public interface ModelRuntimeConfigMapper extends BaseMapper<ModelRuntimeConfigE
             """)
     @ResultMap("mybatis-plus_ModelRuntimeConfigEntity")
     ModelRuntimeConfigEntity selectEmbeddingModel(@Param("instanceId") Long instanceId);
+
+    /** 按发布版本锁定的重排序实例读取当前启用的模型、供应商和凭证。 */
+    @Select("""
+            SELECT instance.id                  AS id,
+                   provider.protocol           AS protocol,
+                   provider.base_url           AS base_url,
+                   credential.secret_ciphertext AS secret_ciphertext,
+                   credential.secret_iv        AS secret_iv,
+                   instance.model_code         AS model_code,
+                   instance.temperature        AS temperature,
+                   instance.top_p              AS top_p,
+                   instance.max_tokens         AS max_tokens,
+                   instance.stop_sequences     AS stop_sequences,
+                   instance.extension_parameters AS extension_parameters,
+                   instance.timeout_seconds    AS timeout_seconds,
+                   instance.max_retries        AS max_retries,
+                   instance.capabilities @> '["STRUCTURED_OUTPUT"]'::JSONB AS structured_output_supported
+            FROM lingxi_core.ai_model_instance instance
+            JOIN lingxi_core.ai_model_provider provider
+              ON provider.id = instance.provider_id
+            JOIN lingxi_core.ai_model_credential credential
+              ON credential.id = instance.credential_id
+             AND credential.provider_id = provider.id
+            WHERE instance.model_type = 'RERANK'
+              AND instance.status = 'ACTIVE'
+              AND provider.status = 'ACTIVE'
+              AND credential.status = 'ACTIVE'
+              AND credential.secret_ciphertext IS NOT NULL
+              AND credential.secret_iv IS NOT NULL
+            and instance.id = #{instanceId}
+            """)
+    @ResultMap("mybatis-plus_ModelRuntimeConfigEntity")
+    ModelRuntimeConfigEntity selectRerankModel(@Param("instanceId") Long instanceId);
 }

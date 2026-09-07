@@ -11,6 +11,9 @@ import com.lingxi.workbench.infra.ai.outbound.ModelOutboundSecurityException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.infra.ai.rerank.RerankGateway;
+import com.lingxi.workbench.infra.ai.rerank.model.RerankModelRuntimeConfig;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -30,16 +33,18 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
 
     private final HttpClient httpClient;
     private final ModelOutboundAddressPolicy outboundAddressPolicy;
+    private final RerankGateway rerankGateway;
 
     @Autowired
-    public HttpModelConnectionTester(ModelOutboundAddressPolicy outboundAddressPolicy) {
-        this(defaultHttpClient(), outboundAddressPolicy);
+    public HttpModelConnectionTester(ModelOutboundAddressPolicy outboundAddressPolicy, RerankGateway rerankGateway) {
+        this(defaultHttpClient(), outboundAddressPolicy, rerankGateway);
     }
 
     /** 包级构造器仅供测试注入可控 HTTP 客户端。 */
-    HttpModelConnectionTester(HttpClient httpClient, ModelOutboundAddressPolicy outboundAddressPolicy) {
+    HttpModelConnectionTester(HttpClient httpClient, ModelOutboundAddressPolicy outboundAddressPolicy, RerankGateway rerankGateway) {
         this.httpClient = httpClient;
         this.outboundAddressPolicy = outboundAddressPolicy;
+        this.rerankGateway = rerankGateway;
     }
 
     private static HttpClient defaultHttpClient() {
@@ -63,8 +68,18 @@ public class HttpModelConnectionTester implements ModelConnectionTester {
                     0, "UNSUPPORTED_PROTOCOL", "暂不支持该供应商协议的连通性测试");
         }
         if (modelType == ModelType.RERANK) {
-            return ModelConnectionTestResult.failed(
-                    0, "UNSUPPORTED_MODEL_TYPE", "Rerank 模型需要按供应商协议适配连通性测试");
+            long startedAt = System.nanoTime();
+            try {
+                rerankGateway.rerank("退款条件", List.of("订单支持七天退款", "物流配送说明"), 1,
+                        RerankModelRuntimeConfig.builder().baseUrl(baseUrl).apiKey(apiKey)
+                                .modelCode(modelCode).timeoutSeconds(timeoutSeconds).maxRetries(0).build());
+                return ModelConnectionTestResult.success(elapsedMillis(startedAt));
+            } catch (ModelOutboundSecurityException exception) {
+                return ModelConnectionTestResult.failed(elapsedMillis(startedAt), "INVALID_BASE_URL", exception.getMessage());
+            } catch (BusinessException exception) {
+                return ModelConnectionTestResult.failed(elapsedMillis(startedAt), "RERANK_FAILED", exception.getMessage());
+            }
+
         }
         return testOpenAiCompatible(
                 baseUrl,

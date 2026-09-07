@@ -25,6 +25,8 @@ public class KnowledgeSearchResultVO {
      * 余弦相似度（0~1），越高越相关。
      */
     private Double similarity;
+    /** 重排序相关分数；未启用重排序时为空。 */
+    private Double rerankScore;
     /**
      * 文档名称。
      */

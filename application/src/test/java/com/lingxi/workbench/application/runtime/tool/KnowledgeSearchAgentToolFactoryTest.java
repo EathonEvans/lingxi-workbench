@@ -2,13 +2,11 @@ package com.lingxi.workbench.application.runtime.tool;
 
 import com.lingxi.workbench.framework.json.JSON;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
-import com.lingxi.workbench.infra.ai.embedding.model.EmbeddingModelRuntimeConfig;
 import com.lingxi.workbench.infra.ai.tool.AgentTool;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolExecutionContext;
 import com.lingxi.workbench.infra.ai.tool.model.AgentToolRequest;
 import com.lingxi.workbench.knowledge.model.vo.KnowledgeSearchResultVO;
 import com.lingxi.workbench.knowledge.service.KnowledgeSearchService;
-import com.lingxi.workbench.model.service.ModelRuntimeConfigService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,6 +14,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.tokenizer.TokenCountEstimator;
 
+import com.lingxi.workbench.knowledge.model.bo.KnowledgeSearchRequest;
+import com.lingxi.workbench.knowledge.model.bo.KnowledgeSearchResponse;
+import org.mockito.ArgumentCaptor;
 import java.math.BigDecimal;
 import java.util.List;
 
@@ -30,23 +31,21 @@ import static com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecution
 @ExtendWith(MockitoExtension.class)
 class KnowledgeSearchAgentToolFactoryTest {
     @Mock private KnowledgeSearchService knowledgeSearchService;
-    @Mock private ModelRuntimeConfigService modelRuntimeConfigService;
     @Mock private TokenCountEstimator tokenCountEstimator;
 
     private KnowledgeSearchAgentToolFactory factory;
 
     @BeforeEach
     void setUp() {
-        factory = new KnowledgeSearchAgentToolFactory(knowledgeSearchService, modelRuntimeConfigService, tokenCountEstimator);
+        factory = new KnowledgeSearchAgentToolFactory(knowledgeSearchService, tokenCountEstimator);
     }
 
     @Test
     void shouldUseFrozenResourceIdentifiersAndHideThemFromModelInput() {
         AgentRuntimeDefinition.KnowledgeSearchCapability capability = capability();
         prepareTokenEstimator();
-        when(modelRuntimeConfigService.getEmbeddingModelConfig(7L)).thenReturn(embeddingConfig());
-        when(knowledgeSearchService.searchVersion("退款条件", 1L, 81L, embeddingConfig(), 5, 0.65D))
-                .thenReturn(List.of(result("支持七天退款")));
+        when(knowledgeSearchService.searchVersion(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new KnowledgeSearchResponse(List.of(result("支持七天退款")), null));
 
         AgentTool tool = factory.create(capability);
         String output = execute(tool, "{\"query\":\"退款条件\"}");
@@ -58,7 +57,10 @@ class KnowledgeSearchAgentToolFactoryTest {
         assertThat(tool.definition().effectiveMaxCallsPerRound()).isEqualTo(2);
         assertThat(tool.definition().effectiveMaxCallsPerExecution()).isEqualTo(2);
         assertThat(output).contains("支持七天退款", "产品手册", "第3页");
-        verify(knowledgeSearchService).searchVersion("退款条件", 1L, 81L, embeddingConfig(), 5, 0.65D);
+        ArgumentCaptor<KnowledgeSearchRequest> request = ArgumentCaptor.forClass(KnowledgeSearchRequest.class);
+        verify(knowledgeSearchService).searchVersion(request.capture());
+        assertThat(request.getValue()).extracting("query", "userId", "knowledgeBaseId", "indexVersionId", "embeddingModelInstanceId", "topK", "similarityThreshold")
+                .containsExactly("退款条件", 12L, 1L, 81L, 7L, 5, 0.65D);
     }
 
     @Test
@@ -76,9 +78,8 @@ class KnowledgeSearchAgentToolFactoryTest {
         AgentRuntimeDefinition.KnowledgeSearchCapability capability = capability();
         capability.setMaxResultTokens(3);
         prepareTokenEstimator();
-        when(modelRuntimeConfigService.getEmbeddingModelConfig(7L)).thenReturn(embeddingConfig());
-        when(knowledgeSearchService.searchVersion("query", 1L, 81L, embeddingConfig(), 5, 0.65D))
-                .thenReturn(List.of(result("abcdef"), result("second")));
+        when(knowledgeSearchService.searchVersion(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new KnowledgeSearchResponse(List.of(result("abcdef"), result("second")), null));
 
         String output = execute(factory.create(capability), "{\"query\":\"query\"}");
 
@@ -89,11 +90,8 @@ class KnowledgeSearchAgentToolFactoryTest {
     @Test
     void shouldReportSaturatedWhenDifferentQueriesReturnNoNewEvidence() {
         prepareTokenEstimator();
-        when(modelRuntimeConfigService.getEmbeddingModelConfig(7L)).thenReturn(embeddingConfig());
-        when(knowledgeSearchService.searchVersion(anyString(), org.mockito.ArgumentMatchers.eq(1L),
-                org.mockito.ArgumentMatchers.eq(81L), org.mockito.ArgumentMatchers.eq(embeddingConfig()),
-                org.mockito.ArgumentMatchers.eq(5), org.mockito.ArgumentMatchers.eq(0.65D)))
-                .thenReturn(List.of(result("同一条知识")));
+        when(knowledgeSearchService.searchVersion(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new KnowledgeSearchResponse(List.of(result("同一条知识")), null));
 
         AgentTool tool = factory.create(capability());
         String first = execute(tool, "{\"query\":\"退款条件\"}");
@@ -107,11 +105,8 @@ class KnowledgeSearchAgentToolFactoryTest {
 
     @Test
     void shouldAllowOneEmptyQueryRewriteBeforeReportingSaturated() {
-        when(modelRuntimeConfigService.getEmbeddingModelConfig(7L)).thenReturn(embeddingConfig());
-        when(knowledgeSearchService.searchVersion(anyString(), org.mockito.ArgumentMatchers.eq(1L),
-                org.mockito.ArgumentMatchers.eq(81L), org.mockito.ArgumentMatchers.eq(embeddingConfig()),
-                org.mockito.ArgumentMatchers.eq(5), org.mockito.ArgumentMatchers.eq(0.65D)))
-                .thenReturn(List.of());
+        when(knowledgeSearchService.searchVersion(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new KnowledgeSearchResponse(List.of(), null));
 
         AgentTool tool = factory.create(capability());
         String first = execute(tool, "{\"query\":\"不存在的信息\"}");
@@ -128,7 +123,7 @@ class KnowledgeSearchAgentToolFactoryTest {
 
     private static String execute(AgentTool tool, String input) {
         return tool.execute(new AgentToolRequest(input,
-                AgentToolExecutionContext.builder().executionId("test").build(), null));
+                AgentToolExecutionContext.builder().executionId("test").userId(12L).build(), null));
     }
 
     private static AgentRuntimeDefinition.KnowledgeSearchCapability capability() {
@@ -141,17 +136,6 @@ class KnowledgeSearchAgentToolFactoryTest {
                 .maxResultTokens(100)
                 .maxQueryCharacters(100)
                 .timeoutSeconds(8)
-                .build();
-    }
-
-    private static EmbeddingModelRuntimeConfig embeddingConfig() {
-        return EmbeddingModelRuntimeConfig.builder()
-                .instanceId(7L)
-                .baseUrl("http://localhost")
-                .apiKey("secret")
-                .modelCode("embedding")
-                .timeoutSeconds(8)
-                .maxRetries(1)
                 .build();
     }
 

@@ -20,12 +20,13 @@ public class KnowledgeChunkRepo {
     /**
      * 批量按 ID 查询已启用且非空的 Chunk。
      */
-    public List<KnowledgeChunkEntity> findEnabledByIds(List<Long> ids) {
+    public List<KnowledgeChunkEntity> findEnabledByIds(List<Long> ids, Long knowledgeBaseId) {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
         return mapper.selectList(new LambdaQueryWrapper<KnowledgeChunkEntity>()
                 .in(KnowledgeChunkEntity::getId, ids)
+                .eq(KnowledgeChunkEntity::getKnowledgeBaseId, knowledgeBaseId)
                 .eq(KnowledgeChunkEntity::getEnabled, true));
     }
 }

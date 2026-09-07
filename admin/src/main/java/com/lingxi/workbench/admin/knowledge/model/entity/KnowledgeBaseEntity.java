@@ -5,6 +5,7 @@ import com.lingxi.workbench.admin.common.enums.EnableStatus;
 import com.lingxi.workbench.framework.persistence.model.TimeEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeAccessMode;
 
 /**
  * 知识库数据库实体。
@@ -29,6 +30,8 @@ public class KnowledgeBaseEntity extends TimeEntity {
     private Long publishedIndexVersionId;
     /** 启用状态。 */
     private EnableStatus status;
+    /** 应用端检索的实时访问范围。 */
+    private KnowledgeAccessMode accessMode;
     /** 创建人用户主键。 */
     private Long createdBy;
     /** 更新人用户主键。 */

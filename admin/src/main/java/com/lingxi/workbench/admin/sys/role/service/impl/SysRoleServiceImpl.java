@@ -180,4 +180,9 @@ public class SysRoleServiceImpl implements SysRoleService {
     private static String normalizeNullable(String value) {
         return CharSequenceUtil.isBlank(value) ? null : value.trim();
     }
+    @Override
+    @Transactional(readOnly = true)
+    public boolean existsAll(Set<Long> ids) {
+        return sysRoleRepo.existsAll(ids);
+    }
 }

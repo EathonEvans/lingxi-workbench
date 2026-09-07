@@ -11,6 +11,7 @@ import com.lingxi.workbench.framework.convention.PageResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
+import java.util.Set;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.List;
@@ -108,5 +109,9 @@ public class SysUserRepo {
         sysUserMapper.update(Wrappers.<SysUserEntity>lambdaUpdate()
                 .eq(SysUserEntity::getId, userId)
                 .set(SysUserEntity::getAvatarUrl, avatarObjectKey));
+    }
+    public boolean existsAll(Set<Long> ids) {
+        return ids.isEmpty() || sysUserMapper.selectCount(Wrappers.<SysUserEntity>lambdaQuery()
+                .in(SysUserEntity::getId, ids)) == ids.size();
     }
 }

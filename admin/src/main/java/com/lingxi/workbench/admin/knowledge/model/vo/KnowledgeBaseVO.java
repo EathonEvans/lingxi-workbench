@@ -7,6 +7,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import com.lingxi.workbench.admin.knowledge.common.enums.KnowledgeAccessMode;
 import java.time.OffsetDateTime;
 
 /**
@@ -41,6 +42,8 @@ public class KnowledgeBaseVO {
      * 知识库状态
      */
     private EnableStatus status;
+    /** 应用端检索的实时访问范围。 */
+    private KnowledgeAccessMode accessMode;
     /**
      * 创建时间
      */

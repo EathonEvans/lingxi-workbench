@@ -8,6 +8,8 @@ import com.lingxi.workbench.model.model.converter.ModelRuntimeConfigConverter;
 import com.lingxi.workbench.model.repo.ModelRuntimeConfigRepo;
 import org.junit.jupiter.api.Test;
 
+import org.mapstruct.factory.Mappers;
+import com.lingxi.workbench.infra.ai.rerank.model.RerankModelRuntimeConfig;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
@@ -71,6 +73,30 @@ class ModelRuntimeConfigServiceImplTest {
                 new ModelRuntimeConfigServiceImpl(repo, converter, cipher);
 
         assertThrows(BusinessException.class, service::getDefaultChatModel);
+        verifyNoInteractions(converter, cipher);
+    }
+
+    @Test
+    void shouldBuildRerankConfigThroughRealConverter() {
+        ModelRuntimeConfigRepo repo = mock(ModelRuntimeConfigRepo.class);
+        SecretCipher cipher = mock(SecretCipher.class);
+        when(repo.findRerankModel(1L)).thenReturn(Optional.of(config("OPENAI_COMPATIBLE")));
+        when(cipher.decrypt("ciphertext", "iv")).thenReturn("secret");
+        ModelRuntimeConfigServiceImpl service = new ModelRuntimeConfigServiceImpl(repo,
+                Mappers.getMapper(ModelRuntimeConfigConverter.class), cipher);
+        RerankModelRuntimeConfig result = service.getRerankModelConfig(1L);
+        assertEquals(1L, result.getInstanceId());
+        assertEquals("secret", result.getApiKey());
+        assertEquals(60, result.getTimeoutSeconds());
+    }
+
+    @Test
+    void shouldRejectUnavailableRerankBeforeDecrypting() {
+        ModelRuntimeConfigRepo repo = mock(ModelRuntimeConfigRepo.class);
+        SecretCipher cipher = mock(SecretCipher.class);
+        ModelRuntimeConfigConverter converter = mock(ModelRuntimeConfigConverter.class);
+        ModelRuntimeConfigServiceImpl service = new ModelRuntimeConfigServiceImpl(repo, converter, cipher);
+        assertThrows(BusinessException.class, () -> service.getRerankModelConfig(9L));
         verifyNoInteractions(converter, cipher);
     }
 

@@ -10,6 +10,8 @@ import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
 import org.junit.jupiter.api.Test;
 
+import com.lingxi.workbench.infra.ai.rerank.model.RerankPolicy;
+import com.lingxi.workbench.framework.json.JSON;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AgentSnapshotChecksumTest {
@@ -34,6 +36,19 @@ class AgentSnapshotChecksumTest {
             assertThat(validator.validate(RetrievalPolicy.defaults())).isEmpty();
             assertThat(validator.validate(GenerationPolicy.defaults())).isEmpty();
         }
+    }
+
+    @Test
+    void rerankMustParticipateInSnapshotChecksumAndJsonRoundTrip() {
+        AgentDefinition original = definition(5);
+        AgentDefinition ranked = definition(5);
+        ranked.getKnowledgeSearch().setRerank(new RerankPolicy(9L, 20, 0.5));
+        AgentDefinition restored = JSON.parseObject(JSON.toJSONString(ranked), AgentDefinition.class);
+        assertThat(restored.getKnowledgeSearch().getRerank()).isEqualTo(new RerankPolicy(9L, 20, 0.5));
+        assertThat(checksum.calculate(ranked)).isEqualTo(checksum.calculate(restored))
+                .isNotEqualTo(checksum.calculate(original));
+        restored.getKnowledgeSearch().setRerank(new RerankPolicy(9L, 30, 0.5));
+        assertThat(checksum.calculate(restored)).isNotEqualTo(checksum.calculate(ranked));
     }
 
     private static AgentDefinition definition(int topK) {
