@@ -11,6 +11,8 @@ import type {
   ChatStart,
   ChatStepOutputEvent,
   ChatSubAgentEvent,
+  ChatSuggestionEvent,
+  ChatSuggestionItem,
   ChatToolEvent,
   ClarificationResponse,
 } from "@/lib/chat";
@@ -33,6 +35,7 @@ export type ChatMessage = {
   errorMessage?: string;
   errorCode?: string;
   id: string;
+  origin?: "CHAT" | "TRIGGER";
   role: "assistant" | "user";
   status?: "done" | "error" | "stopped" | "streaming" | "waiting";
   progress?: ChatAgentProgressEvent[];
@@ -73,6 +76,7 @@ type GenerationHandlers = {
   onStart: (start: ChatStart) => void;
   onStepOutput: (event: ChatStepOutputEvent) => void;
   onSubAgent: (event: ChatSubAgentEvent) => void;
+  onSuggestion: (event: ChatSuggestionEvent) => void;
   onTimeline: (event: ChatExecutionTimelineEvent) => void;
   onTool: (event: ChatToolEvent) => void;
 };
@@ -97,6 +101,7 @@ type UseChatStreamReturn = {
   messages: ChatMessage[];
   pendingClarification: ChatClarificationEvent | undefined;
   pendingInteraction: ChatInteractionEvent | undefined;
+  pendingSuggestions: ChatSuggestionItem[];
   answerInteraction: (interaction: ChatInteractionEvent, decision: "APPROVE" | "REJECT") => Promise<void>;
   restorePendingInteraction: (conversationId: string, restoredMessages: ChatMessage[]) => Promise<void>;
   resumeAvailable: boolean;
@@ -212,6 +217,7 @@ export function useChatStream({
   const [streamError, setStreamError] = useState<string>();
   const [pendingClarification, setPendingClarification] = useState<ChatClarificationEvent>();
   const [pendingInteraction, setPendingInteraction] = useState<ChatInteractionEvent>();
+  const [pendingSuggestions, setPendingSuggestions] = useState<ChatSuggestionItem[]>([]);
   const [interactionSubmitting, setInteractionSubmitting] = useState(false);
   const [resumeAvailable, setResumeAvailable] = useState(false);
 
@@ -263,6 +269,7 @@ export function useChatStream({
         clearPendingGeneration();
         pendingGenerationRef.current = undefined;
         setPendingClarification(undefined);
+        setPendingSuggestions([]);
         setPendingInteraction(undefined);
         setResumeAvailable(false);
       },
@@ -367,6 +374,12 @@ export function useChatStream({
         pending.lastSequence = Math.max(pending.lastSequence, event.sequence);
         savePendingGeneration(pending);
         updateAssistant(pending, (message) => ({ ...message, tools: pending.tools }));
+      },
+      onSuggestion: (event) => {
+        if (!isActive()) return;
+        // 建议是流内瞬时卡片，不进入 PendingGeneration 持久化，刷新后不再展示。
+        pending.lastSequence = Math.max(pending.lastSequence, event.sequence);
+        setPendingSuggestions(event.suggestions ?? []);
       },
     }),
     [onConversationCreated, updateAssistant],
@@ -532,6 +545,7 @@ export function useChatStream({
           userMessageId: generateMessageId(),
         };
         setPendingClarification(undefined);
+        setPendingSuggestions([]);
         setPendingInteraction(undefined);
         setMessages((current) => [
           ...current,
@@ -567,6 +581,7 @@ export function useChatStream({
     clearPendingGeneration();
     pendingGenerationRef.current = undefined;
     setPendingClarification(undefined);
+    setPendingSuggestions([]);
     setPendingInteraction(undefined);
     setResumeAvailable(false);
   }, []);
@@ -581,6 +596,7 @@ export function useChatStream({
       clearPendingGeneration();
       pendingGenerationRef.current = undefined;
       setPendingClarification(undefined);
+      setPendingSuggestions([]);
       setPendingInteraction(undefined);
       setResumeAvailable(false);
       setStreaming(false);
@@ -592,6 +608,7 @@ export function useChatStream({
       clearPendingGeneration();
       pendingGenerationRef.current = undefined;
       setPendingClarification(undefined);
+      setPendingSuggestions([]);
       setPendingInteraction(undefined);
       setResumeAvailable(false);
     } catch (error) {
@@ -647,6 +664,7 @@ export function useChatStream({
         userMessageId: generateMessageId(),
       };
       setPendingClarification(undefined);
+      setPendingSuggestions([]);
       setMessages((current) => [
         ...current,
         { content: option.label, id: pending.userMessageId, role: "user", status: "done" },
@@ -750,6 +768,7 @@ export function useChatStream({
     messages,
     pendingClarification,
     pendingInteraction,
+    pendingSuggestions,
     resumeAvailable,
     retryLastPrompt,
     restorePendingInteraction,

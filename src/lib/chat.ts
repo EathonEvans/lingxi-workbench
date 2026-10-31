@@ -116,6 +116,17 @@ export type ChatInteractionEvent = {
   title: string;
 };
 
+export type ChatSuggestionItem = {
+  id: string;
+  prompt: string;
+  title: string;
+};
+
+export type ChatSuggestionEvent = {
+  sequence: number;
+  suggestions: ChatSuggestionItem[];
+};
+
 export type PendingInteraction = Omit<ChatInteractionEvent, "sequence"> & {
   assistantMessageId: string;
 };
@@ -171,6 +182,7 @@ export type ConversationMessage = {
   errorCode?: string;
   errorMessage?: string;
   id: string;
+  origin?: "CHAT" | "TRIGGER";
   role: "ASSISTANT" | "SYSTEM" | "USER";
   sequenceNo: number;
   status: "CANCELLED" | "COMPLETED" | "FAILED" | "GENERATING" | "INTERRUPTED" | "WAITING_HUMAN";
@@ -213,6 +225,7 @@ export type StreamChatOptions = {
   onStart?: (start: ChatStart) => void;
   onStepOutput?: (event: ChatStepOutputEvent) => void;
   onSubAgent?: (event: ChatSubAgentEvent) => void;
+  onSuggestion?: (event: ChatSuggestionEvent) => void;
   onTool?: (event: ChatToolEvent) => void;
   query: string;
   session: AuthSession;
@@ -350,6 +363,11 @@ const EVENT_DISPATCH: Record<string, EventHandler> = {
 
   step_output(data, options) {
     options.onStepOutput?.(JSON.parse(data) as ChatStepOutputEvent);
+    return false;
+  },
+
+  suggestion(data, options) {
+    options.onSuggestion?.(JSON.parse(data) as ChatSuggestionEvent);
     return false;
   },
 
@@ -574,7 +592,7 @@ async function initiateChat(options: StreamChatOptions): Promise<ChatStart> {
 async function resumeStream(
   assistantMessageId: string,
   afterSequence: number,
-  options: Pick<StreamChatOptions, "session" | "signal" | "onChunk" | "onSnapshot" | "onTool" | "onSubAgent" | "onClarification" | "onInteractionRequired" | "onInteractionResolved" | "onProgress" | "onTimeline" | "onStepOutput" | "onCancelled">,
+  options: Pick<StreamChatOptions, "session" | "signal" | "onChunk" | "onSnapshot" | "onTool" | "onSubAgent" | "onClarification" | "onInteractionRequired" | "onInteractionResolved" | "onProgress" | "onTimeline" | "onStepOutput" | "onSuggestion" | "onCancelled">,
 ): Promise<void> {
   if (!isServerMessageId(assistantMessageId)) {
     throw new ChatStreamError("生成任务尚未创建完成，请重新发送", {

@@ -187,6 +187,24 @@ describe("consumeEventStream", () => {
     expect(opts.onChunk).toHaveBeenCalledWith("已发送", 9);
   });
 
+  it("分派回答建议事件且不终止流", async () => {
+    const onSuggestion = vi.fn();
+    const opts = { ...options(), onSuggestion };
+    await consumeEventStream(
+      sseResponse([
+        'event: suggestion\ndata: {"sequence":10,"suggestions":[{"id":"suggestion-1","title":"整理文档","prompt":"把上面的结果整理成文档"}]}\n\nevent: done\ndata: {}\n\n',
+      ]),
+      opts,
+    );
+
+    expect(onSuggestion).toHaveBeenCalledWith({
+      sequence: 10,
+      suggestions: [
+        { id: "suggestion-1", prompt: "把上面的结果整理成文档", title: "整理文档" },
+      ],
+    });
+  });
+
   it("流在没有终态事件时断开应保留后台任务用于续接", async () => {
     const response = sseResponse(['event: message\ndata: {"content":"部分","sequence":1}\n\n']);
     const onChunk = vi.fn();

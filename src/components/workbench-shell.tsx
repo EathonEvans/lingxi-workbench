@@ -12,7 +12,6 @@ import {
   Boxes,
   ChevronsUpDown,
   History,
-  ListTodo,
   LogOut,
   Menu,
   MessageSquareText,
@@ -27,6 +26,7 @@ import {
   Search,
   Settings2,
   ShieldAlert,
+  AlarmClock,
   Sparkles,
   Square,
   Sun,
@@ -45,7 +45,12 @@ import { useAuth } from "./auth-provider";
 import { useThemeMode } from "./app-provider";
 import { type ChatMessage, useChatStream } from "@/hooks/use-chat-stream";
 import { useConversation } from "@/hooks/use-conversation";
+import { useNotifications } from "@/hooks/use-notifications";
+import { useTriggers } from "@/hooks/use-triggers";
+import { listTriggerCapabilities, type TriggerCapabilities } from "@/lib/trigger";
 import { usePinnedConversations } from "@/hooks/use-pinned-conversations";
+import NotificationCenter from "./notification-center";
+import TriggerDrawer from "./trigger-drawer";
 import ExecutionTrace from "./execution-trace";
 import styles from "./workbench-shell.module.css";
 
@@ -79,6 +84,7 @@ function toChatMessage(msg: {
   assistant?: AvailableApplication["assistant"];
   content: string;
   id: string;
+  origin?: string;
   role: string;
   status: string;
   errorCode?: string;
@@ -98,6 +104,7 @@ function toChatMessage(msg: {
     errorCode: msg.errorCode,
     errorMessage: msg.errorMessage,
     id: msg.id,
+    origin: msg.origin === "TRIGGER" ? "TRIGGER" : undefined,
     role,
     status,
   };
@@ -225,6 +232,7 @@ export default function WorkbenchShell() {
     streamError,
     pendingClarification,
     pendingInteraction,
+    pendingSuggestions,
     interactionSubmitting,
     resumeAvailable,
     sendPrompt,
@@ -243,6 +251,41 @@ export default function WorkbenchShell() {
     onConversationCreated: handleConversationCreated,
     onLogout: handleLogout,
   });
+
+  const { refreshUnreadCount, unreadCount } = useNotifications({ session });
+
+  const [triggerCapabilities, setTriggerCapabilities] = useState<TriggerCapabilities>();
+  const [triggerDrawerOpen, setTriggerDrawerOpen] = useState(false);
+  const {
+    create: createTrigger,
+    fireHistory,
+    fireHistoryLoading,
+    loadFireHistory,
+    loadTriggers,
+    loading: triggerLoading,
+    pause: pauseTrigger,
+    remove: removeTrigger,
+    resume: resumeTrigger,
+    triggers,
+  } = useTriggers({
+    onError: (message) => setRequestError(message),
+    session,
+  });
+
+  const openTriggerDrawer = useCallback(() => {
+    setTriggerDrawerOpen(true);
+    void loadTriggers();
+  }, [loadTriggers]);
+
+  const handleLoadTriggerCapabilities = useCallback(async (code: string) => {
+    if (!session) return;
+    try {
+      const capabilities = await listTriggerCapabilities(code, session);
+      setTriggerCapabilities(capabilities);
+    } catch (error) {
+      handleRequestError(error, "获取可绑定能力失败，请稍后重试");
+    }
+  }, [handleRequestError, session]);
 
   useEffect(() => {
     if (ready && !session) {
@@ -298,6 +341,16 @@ export default function WorkbenchShell() {
       handleRequestError(error, "恢复待确认操作失败");
     }
   };
+
+  /** 通知点击只携带会话主键，按 ACTIVE 会话语义复用会话选择链路。 */
+  const stubConversation = (conversationId: string): Conversation => ({
+    createdAt: "",
+    id: conversationId,
+    messageCount: 0,
+    status: "ACTIVE",
+    title: "",
+    updatedAt: "",
+  });
 
   // ─── 加载更早消息 ─────────────────────────────────────────
 
@@ -586,6 +639,10 @@ export default function WorkbenchShell() {
             <History size={17} />
             全部历史
           </button>
+          <button className={styles.navItem} onClick={openTriggerDrawer} type="button">
+            <AlarmClock size={17} />
+            定时任务
+          </button>
           <button className={styles.navItem} type="button">
             <Settings2 size={17} />
             设置
@@ -619,6 +676,24 @@ export default function WorkbenchShell() {
           type="button"
         />
       )}
+
+      {/* 定时任务抽屉 */}
+      <TriggerDrawer
+        applicationCode={selectedApplicationCode}
+        onClose={() => setTriggerDrawerOpen(false)}
+        onCreate={createTrigger}
+        onLoadCapabilities={handleLoadTriggerCapabilities}
+        onLoadFireHistory={loadFireHistory}
+        onPause={pauseTrigger}
+        onRemove={removeTrigger}
+        onResume={resumeTrigger}
+        open={triggerDrawerOpen}
+        triggerCapabilities={triggerCapabilities}
+        triggerFires={fireHistory}
+        triggerFiresLoading={fireHistoryLoading}
+        triggerLoading={triggerLoading}
+        triggers={triggers}
+      />
 
       {/* 历史抽屉 */}
       <Drawer
@@ -732,12 +807,14 @@ export default function WorkbenchShell() {
                 appearance === "dark" ? "切换到浅色模式" : "切换到深色模式"
               }
             />
-            <ActionIcon
-              aria-label="任务记录"
-              className={styles.taskAction}
-              icon={ListTodo}
-              size="small"
-              title="任务记录"
+            <NotificationCenter
+              onOpenConversation={(conversationId) =>
+                void handleSelectConversation(stubConversation(conversationId))
+              }
+              onMarkedRead={refreshUnreadCount}
+              onRequestError={handleRequestError}
+              session={session}
+              unreadCount={unreadCount}
             />
             <ActionIcon
               aria-label="更多操作"
@@ -816,6 +893,12 @@ export default function WorkbenchShell() {
                         {message.role === "user"
                           ? "你"
                           : (message.assistant?.name || "应用助手")}
+                        {message.origin === "TRIGGER" && (
+                          <Tag className={styles.triggerBadge} color="blue">
+                            <AlarmClock aria-hidden="true" size={11} />
+                            定时任务
+                          </Tag>
+                        )}
                       </span>
                       {message.role === "assistant" &&
                       (message.status === "streaming" ||
@@ -1004,6 +1087,32 @@ export default function WorkbenchShell() {
                   </button>
                 </div>
               </section>
+            )}
+            {pendingSuggestions.length > 0 && !streaming && !pendingInteraction && (
+              <div
+                aria-label="后续建议"
+                className={styles.suggestionChips}
+                data-testid="answer-suggestions"
+                role="group"
+              >
+                <span className={styles.suggestionChipsLabel}>
+                  <Sparkles aria-hidden="true" size={14} />
+                  接下来可以
+                </span>
+                <div className={styles.suggestionChipsList}>
+                  {pendingSuggestions.map((suggestion) => (
+                    <button
+                      key={suggestion.id}
+                      disabled={streaming}
+                      onClick={() => void sendPrompt(suggestion.prompt)}
+                      title={suggestion.prompt}
+                      type="button"
+                    >
+                      {suggestion.title}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
             {conversationStatus === "ARCHIVED" && (
               <div className={styles.archivedNotice}>
