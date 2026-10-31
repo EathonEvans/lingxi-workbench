@@ -26,6 +26,12 @@ public class ExecutionRunEntity {
     private Long supervisorPromptVersionId;
     private String capabilityCode;
     private String executionMode;
+    /** 运行来源：CHAT（用户消息）/ TRIGGER（定时触发器）。 */
+    private String runSource;
+    /** 定时触发器主键；用户消息路径为空。 */
+    private Long triggerId;
+    /** 定时触发器的单次触发记录主键；用户消息路径为空。 */
+    private Long fireId;
     private ExecutionRunStatus status;
     private String currentStage;
     private Integer revision;

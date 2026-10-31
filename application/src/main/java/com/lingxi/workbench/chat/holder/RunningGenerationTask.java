@@ -46,6 +46,14 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
      */
     private final Long applicationVersionId;
     /**
+     * 定时触发器主键；用户对话任务为空。
+     */
+    private final Long triggerId;
+    /**
+     * 定时触发器的单次触发记录主键；用户对话任务为空。
+     */
+    private final Long fireId;
+    /**
      * Application 级记忆系统配置。
      */
     private final MemoryConfig memoryConfig;
@@ -84,12 +92,15 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
     private TokenUsage tokenUsage = TokenUsage.empty();
 
     @Builder
-    private RunningGenerationTask(ChatTurnBO turn, Long userId, Long applicationVersionId, MemoryConfig memoryConfig,
+    private RunningGenerationTask(ChatTurnBO turn, Long userId, Long applicationVersionId, Long triggerId, Long fireId,
+                                  MemoryConfig memoryConfig,
                                   ChatGenerationEventRepo eventRepo, TraceRun traceRun, String initialAnswer,
                                   TokenUsage initialUsage, Long initialSequence) {
         this.turn = Objects.requireNonNull(turn, "对话轮次不能为空");
         this.userId = userId;
         this.applicationVersionId = Objects.requireNonNull(applicationVersionId, "ApplicationVersion不能为空");
+        this.triggerId = triggerId;
+        this.fireId = fireId;
         this.memoryConfig = Objects.requireNonNullElseGet(memoryConfig, MemoryConfig::disabled);
         this.eventRepo = eventRepo;
         this.traceRun = Objects.requireNonNull(traceRun, "Agent根Trace不能为空");
@@ -110,6 +121,16 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
 
     public Long applicationVersionId() {
         return applicationVersionId;
+    }
+
+    /** 定时触发器主键；用户对话任务返回 null。 */
+    public Long triggerId() {
+        return triggerId;
+    }
+
+    /** 定时触发器的单次触发记录主键；用户对话任务返回 null。 */
+    public Long fireId() {
+        return fireId;
     }
 
     public ChatTurnBO turn() {
@@ -329,6 +350,21 @@ public final class RunningGenerationTask implements ChatExecutionEventPublisher 
      */
     public synchronized void detachObservers() {
         eventSink.emitComplete(Sinks.EmitFailureHandler.FAIL_FAST);
+    }
+
+    /**
+     * 发布完成落库后的补充事件（如主动建议）。
+     *
+     * <p>该通道仅供 {@code beginCompletion} 取得完成处理权之后、终态事件发布之前使用：
+     * 此时任务已进入终态，常规增量通道会拒绝发布，因此绕过终态门禁，但事件仍按
+     * 递增序号写入可重放缓存，保证断线续传与回放语义一致。</p>
+     *
+     * @param eventFactory 以递增序号构建补充事件的工厂
+     */
+    public synchronized void publishCompletionSupplement(LongFunction<ChatGenerationEventBO> eventFactory) {
+        ChatGenerationEventBO event = eventFactory.apply(++sequence);
+        eventRepo.append(id(), event);
+        eventSink.emitNext(event, Sinks.EmitFailureHandler.FAIL_FAST);
     }
 
     /**

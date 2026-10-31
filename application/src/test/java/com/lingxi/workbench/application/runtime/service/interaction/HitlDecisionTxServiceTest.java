@@ -18,6 +18,7 @@ import com.lingxi.workbench.application.runtime.repo.InteractionSessionRepo;
 import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
 import com.lingxi.workbench.chat.service.ConversationService;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.notification.service.NotificationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -41,6 +42,7 @@ class HitlDecisionTxServiceTest {
     private final ExecutionCheckpointRepo checkpointRepo = mock(ExecutionCheckpointRepo.class);
     private final ExecutionRunRepo runRepo = mock(ExecutionRunRepo.class);
     private final ConversationService conversationService = mock(ConversationService.class);
+    private final NotificationService notificationService = mock(NotificationService.class);
     private HitlDecisionTxService service;
 
     @BeforeEach
@@ -48,7 +50,7 @@ class HitlDecisionTxServiceTest {
         service = new HitlDecisionTxService(
                 interactionRepo, invocationRepo, checkpointRepo, runRepo, conversationService,
                 new HitlApprovalClosureTxService(interactionRepo, invocationRepo, checkpointRepo, runRepo,
-                        conversationService));
+                        conversationService, notificationService), notificationService);
     }
 
     @Test

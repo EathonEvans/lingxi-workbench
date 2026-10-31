@@ -17,14 +17,19 @@ import com.lingxi.workbench.application.runtime.service.app.ApplicationVersionSe
 import com.lingxi.workbench.application.runtime.service.app.AppRuntime;
 import com.lingxi.workbench.application.runtime.service.execution.ExecutionFailureClassifier;
 import com.lingxi.workbench.application.runtime.service.interaction.HitlDecisionTxService;
+import com.lingxi.workbench.application.runtime.common.constants.ExecutionRunSources;
+import com.lingxi.workbench.chat.common.enums.MessageOrigin;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import com.lingxi.workbench.chat.event.ConversationEventPublisher;
 import com.lingxi.workbench.chat.holder.RunningGenerationTask;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatInteractionEventBO;
+import com.lingxi.workbench.chat.model.bo.ChatSuggestionEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatTurnBO;
+import com.lingxi.workbench.chat.model.bo.ProactiveGenerationRequest;
 import com.lingxi.workbench.chat.model.bo.ConversationTurnStartBO;
 import com.lingxi.workbench.chat.model.bo.StartConversationTurnBO;
+import com.lingxi.workbench.chat.model.bo.SuggestionItemBO;
 import com.lingxi.workbench.chat.model.entity.ConversationMessageEntity;
 import com.lingxi.workbench.chat.model.request.ChatRequest;
 import com.lingxi.workbench.chat.model.vo.ChatStartVO;
@@ -33,12 +38,16 @@ import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.chat.service.ChatStreamService;
 import com.lingxi.workbench.chat.service.ConversationService;
 import com.lingxi.workbench.chat.service.GenerationTaskRegistry;
+import com.lingxi.workbench.chat.service.SuggestionService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
 import com.lingxi.workbench.framework.context.LoginUser;
 import com.lingxi.workbench.auth.model.bo.UserBO;
 import com.lingxi.workbench.auth.repo.UserRepo;
 import com.lingxi.workbench.infra.ai.chat.model.bo.TokenUsage;
+import com.lingxi.workbench.notification.model.bo.HitlPendingNotificationBO;
+import com.lingxi.workbench.application.runtime.service.trigger.TriggerRunTxService;
+import com.lingxi.workbench.notification.service.NotificationService;
 import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
 import com.lingxi.workbench.agentruntime.checkpoint.RuntimeInterruption;
 import com.lingxi.workbench.observability.common.enums.AiObservationStage;
@@ -101,6 +110,9 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     private final UserRepo userRepo;
     private final HitlDecisionTxService hitlDecisionTxService;
     private final GenerationTaskRegistry generationTaskRegistry;
+    private final SuggestionService suggestionService;
+    private final NotificationService notificationService;
+    private final TriggerRunTxService triggerRunTxService;
 
     /**
      * 创建并启动一次流式模型生成任务。
@@ -333,6 +345,71 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         }
     }
 
+
+    /**
+     * 定时触发器主动生成：在专属会话内创建 TRIGGER 来源轮次并启动预解析分发生成任务。
+     *
+     * <p>与用户对话共用同一生成任务机制：消息占位按 clientMessageId 幂等，事件进入
+     * Redis 缓冲供用户随时续接观看；无订阅者不影响任务运行与终态落库。</p>
+     *
+     * @param request 触发器消费侧组装的主动生成入参
+     */
+    @Override
+    public void startProactiveGeneration(ProactiveGenerationRequest request) {
+        StartConversationTurnBO turnInput = StartConversationTurnBO.builder()
+                .userId(request.getLoginUser().id())
+                .conversationId(String.valueOf(request.getConversationId()))
+                .clientMessageId(request.getClientMessageId())
+                .prompt(request.getQuery())
+                .applicationId(request.getApplication().applicationId())
+                .applicationVersionId(request.getApplication().versionId())
+                .origin(MessageOrigin.TRIGGER)
+                .build();
+        ConversationTurnStartBO turnStart = aiStageObserver.observe(AiObservationStage.MESSAGE_PERSIST,
+                () -> conversationService.startTurn(turnInput));
+        if (!turnStart.isCreated()) {
+            // 消费侧 CAS 已防重投递；占位已存在说明同一次触发的重复执行，直接跳过。
+            log.info("主动生成轮次已存在，跳过重复执行，conversationId={}，clientMessageId={}",
+                    request.getConversationId(), request.getClientMessageId());
+            return;
+        }
+        ChatTurnBO turn = turnStart.turn();
+        try {
+            TraceRun traceRun = aiTracingService.start(request.getApplication(), turn, request.getLoginUser().id());
+            RunningGenerationTask task = RunningGenerationTask.builder()
+                    .turn(turn)
+                    .userId(request.getLoginUser().id())
+                    .applicationVersionId(request.getApplication().versionId())
+                    .triggerId(request.getTriggerId())
+                    .fireId(request.getFireId())
+                    .memoryConfig(request.getApplication().definition().memoryConf())
+                    .eventRepo(generationEventRepo)
+                    .traceRun(traceRun)
+                    .build();
+            if (!registerTask(task)) {
+                task.traceRun().cancel("TASK_OWNED_BY_ANOTHER_INSTANCE");
+                return;
+            }
+            AppExecutionRequest executionRequest = AppExecutionRequest.builder()
+                    .application(request.getApplication())
+                    .query(request.getQuery())
+                    .loginUser(request.getLoginUser())
+                    .turn(turn)
+                    .eventPublisher(task)
+                    .preResolvedDispatch(request.getPreResolvedDispatch())
+                    .runSource(ExecutionRunSources.TRIGGER)
+                    .triggerId(request.getTriggerId())
+                    .fireId(request.getFireId())
+                    .build();
+            if (!task.isTerminal()) {
+                this.startGeneration(executionRequest);
+            }
+        } catch (RuntimeException exception) {
+            this.markTaskStartFailed(exception, turn);
+            throw exception;
+        }
+    }
+
     private static LoginUser toLoginUser(UserBO user) {
         return new LoginUser(user.getId(), user.getUsername(), user.getDisplayName(), user.getAvatarUrl());
     }
@@ -399,7 +476,8 @@ public class ChatStreamServiceImpl implements ChatStreamService {
      * 目标执行成功后推进任务终态：校准最终回答与 Token 用量，并落库完成事件。
      *
      * <p>结果中的回答与用量是意图路由后目标执行的最终产物，可能覆盖流式过程中
-     * 累积的临时文本，因此通过 {@code beginCompletion} 原子地校准回答并取得完成处理权。</p>
+     * 累积的临时文本，因此通过 {@code beginCompletion} 原子地校准回答并取得完成处理权。
+     * 回答落库后先发布主动建议事件，再以 completed 事件收尾，保证前端在流关闭前收到建议。</p>
      *
      * @param task   运行中的生成任务
      * @param result 目标执行结果（最终回答、Token 用量和模型实例）
@@ -415,17 +493,29 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         }
         Long modelInstanceId = result.modelInstanceId();
         try {
-            task.traceRun().scoped(() -> aiStageObserver.observe(AiObservationStage.TERMINAL, () -> {
-                eventPublisher.completeAssistant(
-                        task.turn(), task.applicationVersionId(), task.answer(), task.tokenUsage(), modelInstanceId);
+            if (task.triggerId() != null) {
+                task.traceRun().scoped(() -> aiStageObserver.observe(AiObservationStage.TERMINAL, () ->
+                        eventPublisher.completeAssistantForTrigger(
+                                task.turn(), task.applicationVersionId(), task.answer(), task.tokenUsage(),
+                                modelInstanceId, task.triggerId(), task.fireId())));
+                // 主动运行不做会话内建议：结果通过通知中心触达。
+                task.traceRun().complete(task.tokenUsage(), modelInstanceId);
                 task.publishTerminal(ChatGenerationEventBO.completed());
-            }));
-            task.traceRun().complete(task.tokenUsage(), modelInstanceId);
+            } else {
+                task.traceRun().scoped(() -> aiStageObserver.observe(AiObservationStage.TERMINAL, () ->
+                        eventPublisher.completeAssistant(
+                                task.turn(), task.applicationVersionId(), task.answer(), task.tokenUsage(), modelInstanceId)));
+                // 回答已落库后评估主动建议；建议是完成回答的补充增强，失败只降级为无建议。
+                publishCompletionSuggestions(task, result);
+                task.traceRun().complete(task.tokenUsage(), modelInstanceId);
+                task.publishTerminal(ChatGenerationEventBO.completed());
+            }
         } catch (Exception exception) {
             Optional<MessageStatus> persistedStatus = findPersistedStatus(task, exception);
             if (persistedStatus.orElse(null) == MessageStatus.COMPLETED) {
                 // 本地事务已提交但Broker回执异常时，以PostgreSQL终态为准，避免前端误报失败。
                 log.warn("事务消息回执异常但Assistant已完成落库，assistantMessageId={}", task.id());
+                publishCompletionSuggestions(task, result);
                 task.publishTerminal(ChatGenerationEventBO.completed());
                 task.traceRun().complete(task.tokenUsage(), modelInstanceId);
                 return;
@@ -454,6 +544,24 @@ public class ChatStreamServiceImpl implements ChatStreamService {
     }
 
     /**
+     * 评估并发布回答完成后的主动建议事件。
+     *
+     * <p>建议评估失败或未开启时不发布事件，完成流程不受影响；事件通过完成补充通道发布，
+     * 带递增序号进入可重放缓存，早于 completed 事件到达前端。</p>
+     *
+     * @param task   运行中的生成任务
+     * @param result 目标执行结果，提供用于评估的最终回答
+     */
+    private void publishCompletionSuggestions(RunningGenerationTask task, ApplicationChatResult result) {
+        List<SuggestionItemBO> suggestions = suggestionService.evaluate(result.answer()).orElse(List.of());
+        if (suggestions.isEmpty()) {
+            return;
+        }
+        ChatSuggestionEventBO event = ChatSuggestionEventBO.builder().suggestions(suggestions).build();
+        task.publishCompletionSupplement(sequence -> ChatGenerationEventBO.suggestion(sequence, event));
+    }
+
+    /**
      * 模型流异常结束：保留已生成的部分回答，记录统一错误信息并发布失败事件。
      */
     private void failTask(RunningGenerationTask task, Throwable exception) {
@@ -463,6 +571,9 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         ExecutionFailure failure = failureClassifier.classify(exception);
         try {
             conversationService.failAssistant(task.id(), task.answer(), failure.code(), failure.clientMessage(), task.tokenUsage());
+            if (task.triggerId() != null) {
+                triggerRunTxService.recordFailure(task.triggerId(), task.fireId(), task.userId(), failure.clientMessage());
+            }
         } catch (RuntimeException persistenceException) {
             log.error("模型调用失败后更新消息状态失败，assistantMessageId={}", task.id(), persistenceException);
         } finally {
@@ -491,8 +602,30 @@ public class ChatStreamServiceImpl implements ChatStreamService {
             task.pauseForHuman();
             task.traceRun().cancel("WAITING_HUMAN");
             log.info("模型任务等待人工决策，assistantMessageId={}", task.id());
+            createHitlPendingNotification(task, interruption);
         } finally {
             removeTask(task);
+        }
+    }
+
+    /**
+     * 创建 HITL 待确认的站内通知。
+     *
+     * <p>通知是等待人工决策的触达增强：创建失败不影响已经完成的等待链落库，
+     * 只记录告警日志保持可观测；去重键保证恢复重放不会重复通知。</p>
+     */
+    private void createHitlPendingNotification(RunningGenerationTask task, RuntimeInterruption interruption) {
+        try {
+            notificationService.createHitlPending(HitlPendingNotificationBO.builder()
+                    .userId(task.userId())
+                    .conversationId(task.turn().conversationId())
+                    .assistantMessageId(task.id())
+                    .interactionId(interruption.getInteractionId())
+                    .title(interruption.getTitle())
+                    .summary(interruption.getSummary())
+                    .build());
+        } catch (RuntimeException exception) {
+            log.warn("HITL待确认站内通知创建失败，interactionId={}", interruption.getInteractionId(), exception);
         }
     }
 
@@ -568,6 +701,13 @@ public class ChatStreamServiceImpl implements ChatStreamService {
         task.publishTerminal(ChatGenerationEventBO.cancelled());
         removeTask(task);
         task.traceRun().cancel("USER_CANCELLED");
+        if (task.triggerId() != null) {
+            try {
+                triggerRunTxService.recordCancelled(task.triggerId(), task.fireId());
+            } catch (RuntimeException exception) {
+                log.warn("主动运行取消后收敛触发记录失败，fireId={}", task.fireId(), exception);
+            }
+        }
     }
 
     /**

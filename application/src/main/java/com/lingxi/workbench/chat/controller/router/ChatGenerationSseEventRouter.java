@@ -5,6 +5,7 @@ import com.lingxi.workbench.chat.model.bo.ChatExecutionTimelineEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatErrorBO;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
 import com.lingxi.workbench.chat.model.bo.ChatStepOutputEventBO;
+import com.lingxi.workbench.chat.model.bo.ChatSuggestionEventBO;
 import com.lingxi.workbench.chat.model.vo.ChatChunkVO;
 import com.lingxi.workbench.chat.model.vo.ChatAgentProgressVO;
 import com.lingxi.workbench.chat.model.vo.ChatErrorVO;
@@ -50,6 +51,7 @@ public final class ChatGenerationSseEventRouter {
             case PLANNING, PLAN, STEP, REPLANNING -> timelineEvent(event);
             case STEP_OUTPUT -> stepOutputEvent(event);
             case SNAPSHOT -> snapshotEvent(event.content());
+            case SUGGESTION -> suggestionEvent(event);
             case COMPLETED -> doneEvent();
             case FAILED -> errorEvent(event);
             case CANCELLED -> cancelledEvent();
@@ -222,6 +224,17 @@ public final class ChatGenerationSseEventRouter {
         return ServerSentEvent.<ChatSnapshotVO>builder()
                 .event("snapshot")
                 .data(new ChatSnapshotVO(content))
+                .build();
+    }
+
+    /**
+     * 构建回答完成后的主动建议事件，数据与内部事件对象同构。
+     */
+    private static ServerSentEvent<ChatSuggestionEventBO> suggestionEvent(ChatGenerationEventBO event) {
+        return ServerSentEvent.<ChatSuggestionEventBO>builder()
+                .id(String.valueOf(event.sequence()))
+                .event("suggestion")
+                .data(Objects.requireNonNull(event.suggestion(), "主动建议内容不能为空"))
                 .build();
     }
 

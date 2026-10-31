@@ -30,6 +30,9 @@ import com.lingxi.workbench.chat.repo.ConversationMessageRepo;
 import com.lingxi.workbench.chat.repo.ChatGenerationEventRepo;
 import com.lingxi.workbench.chat.service.ConversationService;
 import com.lingxi.workbench.chat.service.GenerationTaskRegistry;
+import com.lingxi.workbench.chat.service.SuggestionService;
+import com.lingxi.workbench.application.runtime.service.trigger.TriggerRunTxService;
+import com.lingxi.workbench.notification.service.NotificationService;
 import com.lingxi.workbench.auth.repo.UserRepo;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.context.LoginUser;
@@ -111,6 +114,9 @@ class ChatStreamServiceImplTest {
     private final UserRepo userRepo = mock(UserRepo.class);
     private final HitlDecisionTxService hitlDecisionTxService = mock(HitlDecisionTxService.class);
     private final GenerationTaskRegistry generationTaskRegistry = mock(GenerationTaskRegistry.class);
+    private final SuggestionService suggestionService = mock(SuggestionService.class);
+    private final NotificationService notificationService = mock(NotificationService.class);
+    private final TriggerRunTxService triggerRunTxService = mock(TriggerRunTxService.class);
 
     private ChatStreamServiceImpl service;
 
@@ -160,7 +166,8 @@ class ChatStreamServiceImplTest {
         service = new ChatStreamServiceImpl(conversationService, messageRepo, generationEventRepo,
                 appVersionService, appRuntime, eventPublisher, tokenCountEstimator,
                 aiTracingService, aiStageObserver, new ExecutionFailureClassifier(), interactionRepo, checkpointRepo,
-                userRepo, hitlDecisionTxService, generationTaskRegistry);
+                userRepo, hitlDecisionTxService, generationTaskRegistry, suggestionService,
+                notificationService, triggerRunTxService);
     }
 
     @Test

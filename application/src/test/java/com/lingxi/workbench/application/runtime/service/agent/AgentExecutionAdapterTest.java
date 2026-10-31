@@ -106,7 +106,7 @@ class AgentExecutionAdapterTest {
 
         AgentExecutionAdapter service = service(
                 definition,
-                AgentExecutionAdapterTest::promptSnapshotByVersion,
+                promptRuntimeService(),
                 command -> {
                     captured.set(command);
                     return Flux.just(
@@ -141,7 +141,7 @@ class AgentExecutionAdapterTest {
         definition.setUserPromptVersionId(null);
         AgentExecutionAdapter service = service(
                 definition,
-                AgentExecutionAdapterTest::promptSnapshotByVersion,
+                promptRuntimeService(),
                 command -> Flux.empty(),
                 toolCodes -> List.of());
 
@@ -165,7 +165,7 @@ class AgentExecutionAdapterTest {
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
         AgentExecutionAdapter service = service(
                 definition(),
-                AgentExecutionAdapterTest::promptSnapshotByVersion,
+                promptRuntimeService(),
                 command -> {
                     captured.set(command);
                     return Flux.just(new ChatStreamChunk("节点回答"));
@@ -187,7 +187,7 @@ class AgentExecutionAdapterTest {
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
         AgentExecutionAdapter service = service(
                 definition,
-                AgentExecutionAdapterTest::promptSnapshotByVersion,
+                promptRuntimeService(),
                 command -> {
                     captured.set(command);
                     return Flux.just(new ChatStreamChunk("已基于现有上下文回答"));
@@ -217,7 +217,7 @@ class AgentExecutionAdapterTest {
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
         AgentExecutionAdapter service = service(
                 definition,
-                AgentExecutionAdapterTest::toolConflictPromptSnapshotByVersion,
+                toolConflictPromptRuntimeService(),
                 command -> {
                     captured.set(command);
                     return Flux.just(new ChatStreamChunk("现在是10点"));
@@ -249,7 +249,7 @@ class AgentExecutionAdapterTest {
         AgentExecutionAdapter service = new AgentExecutionAdapter(
                 agentVersionService(definition),
                 runtime(gateway, capturedBudget),
-                AgentExecutionAdapterTest::promptSnapshotByVersion,
+                promptRuntimeService(),
                 modelRequestFactory(),
                 modelService(),
                 toolCodes -> List.of(new StubAgentTool()),
@@ -284,7 +284,7 @@ class AgentExecutionAdapterTest {
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
         AgentExecutionAdapter service = service(
                 definition(),
-                AgentExecutionAdapterTest::promptSnapshotByVersion,
+                promptRuntimeService(),
                 command -> {
                     captured.set(command);
                     return Flux.just(new ChatStreamChunk("按时回答"));
@@ -307,7 +307,7 @@ class AgentExecutionAdapterTest {
     void shouldAllowAgentWithoutToolRuntime() {
         AgentExecutionAdapter service = service(
                 definition(),
-                AgentExecutionAdapterTest::promptSnapshotByVersion,
+                promptRuntimeService(),
                 command -> Flux.just(new ChatStreamChunk("无宽限回答")),
                 toolCodes -> List.of());
         ApplicationRun run = run("run-zero-timeout-grace", runtimeVariables(),
@@ -328,7 +328,7 @@ class AgentExecutionAdapterTest {
         AtomicReference<ChatStreamCommand> captured = new AtomicReference<>();
         KnowledgeSearchAgentToolFactory toolFactory = mock(KnowledgeSearchAgentToolFactory.class);
         when(toolFactory.create(definition.getKnowledgeSearch())).thenReturn(new KnowledgeSearchStubAgentTool());
-        PromptRuntimeService promptRuntimeService = AgentExecutionAdapterTest::promptSnapshotByVersion;
+        PromptRuntimeService promptRuntimeService = promptRuntimeService();
         ExecutionPersistenceService persistenceService = testPersistenceService();
         AgentExecutionAdapter service = new AgentExecutionAdapter(
                 agentVersionService(definition),
@@ -396,7 +396,7 @@ class AgentExecutionAdapterTest {
         AgentExecutionAdapter service = new AgentExecutionAdapter(
                 agentVersionService(definition),
                 runtime(streamingChatGateway, capturedBudget, null, capturedSkillCatalog),
-                AgentExecutionAdapterTest::promptSnapshotByVersion,
+                promptRuntimeService(),
                 modelRequestFactory(),
                 modelService(),
                 toolCodes -> List.of(),
@@ -444,7 +444,7 @@ class AgentExecutionAdapterTest {
         ExecutionPersistenceService persistenceService = testPersistenceService();
         AgentExecutionAdapter service = new AgentExecutionAdapter(
                 agentVersionService(definition), agentRuntime,
-                AgentExecutionAdapterTest::promptSnapshotByVersion, modelRequestFactory(), modelService(),
+                promptRuntimeService(), modelRequestFactory(), modelService(),
                 toolCodes -> List.of(), mock(KnowledgeSearchAgentToolFactory.class),
                 mock(com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpointStore.class),
                 emptySkillRuntimeService(), persistenceService,
@@ -727,11 +727,24 @@ class AgentExecutionAdapterTest {
                 PromptRole.SYSTEM);
     }
 
+    /** 接口新增按编码解析方法后不再具备函数式语义，测试统一使用 mock 工厂。 */
+    private static PromptRuntimeService promptRuntimeService() {
+        PromptRuntimeService service = mock(PromptRuntimeService.class);
+        when(service.resolvePublished(any())).thenAnswer(invocation -> promptSnapshotByVersion(invocation.getArgument(0)));
+        return service;
+    }
+
     private static PromptRuntimeSnapshot promptSnapshotByVersion(Long promptVersionId) {
         if (promptVersionId == 89L) {
             return new PromptRuntimeSnapshot(89L, "{{user.query}}", List.of(new PromptRuntimeVariableDefinition("user.query", "STRING", true)), PromptRole.USER);
         }
         return promptSnapshot();
+    }
+
+    private static PromptRuntimeService toolConflictPromptRuntimeService() {
+        PromptRuntimeService service = mock(PromptRuntimeService.class);
+        when(service.resolvePublished(any())).thenAnswer(invocation -> toolConflictPromptSnapshotByVersion(invocation.getArgument(0)));
+        return service;
     }
 
     private static PromptRuntimeSnapshot toolConflictPromptSnapshotByVersion(Long promptVersionId) {

@@ -26,6 +26,14 @@ public class ExecutionRunRepo {
                 .eq(ExecutionRunEntity::getRunId, runId)));
     }
 
+    /** 按触发记录主键读取关联运行；一个触发记录至多对应一次主动运行。 */
+    public Optional<ExecutionRunEntity> findByFireId(Long fireId) {
+        return Optional.ofNullable(mapper.selectOne(Wrappers.<ExecutionRunEntity>lambdaQuery()
+                .eq(ExecutionRunEntity::getFireId, fireId)
+                .orderByDesc(ExecutionRunEntity::getId)
+                .last("LIMIT 1")));
+    }
+
     public Optional<ExecutionRunEntity> findByAssistantMessageId(Long assistantMessageId) {
         return Optional.ofNullable(mapper.selectOne(Wrappers.<ExecutionRunEntity>lambdaQuery()
                 .eq(ExecutionRunEntity::getAssistantMessageId, assistantMessageId)));

@@ -89,4 +89,11 @@ public interface ConversationService {
 
     /** 拒绝或过期时取消等待中的 Assistant 消息。 */
     void cancelWaiting(Long assistantMessageId, String code, String message);
+
+    /**
+     * 为定时触发器创建专属会话，标题为触发器名称。
+     *
+     * @return 新建的会话主键
+     */
+    Long createTriggerConversation(Long userId, String title);
 }

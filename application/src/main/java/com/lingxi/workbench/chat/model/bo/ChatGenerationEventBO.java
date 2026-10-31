@@ -23,6 +23,7 @@ public final class ChatGenerationEventBO {
     private final ChatInteractionEventBO interaction;
     private final ChatExecutionTimelineEventBO execution;
     private final ChatStepOutputEventBO stepOutput;
+    private final ChatSuggestionEventBO suggestion;
     private final ChatErrorBO error;
 
     public static ChatGenerationEventBO chunk(long sequence, String content) {
@@ -92,6 +93,22 @@ public final class ChatGenerationEventBO {
                 .build();
     }
 
+    /**
+     * 构建回答完成后的主动建议事件。
+     *
+     * @param sequence    SSE 事件序号
+     * @param suggestion  建议事件内容，序号在发布通道内统一赋值
+     * @return 主动建议事件
+     */
+    public static ChatGenerationEventBO suggestion(long sequence, ChatSuggestionEventBO suggestion) {
+        suggestion.setSequence(sequence);
+        return ChatGenerationEventBO.builder()
+                .type(ChatGenerationEventType.SUGGESTION)
+                .sequence(sequence)
+                .suggestion(suggestion)
+                .build();
+    }
+
     public static ChatGenerationEventBO snapshot(String content) {
         return ChatGenerationEventBO.builder()
                 .type(ChatGenerationEventType.SNAPSHOT)
@@ -152,6 +169,10 @@ public final class ChatGenerationEventBO {
 
     public ChatStepOutputEventBO stepOutput() {
         return stepOutput;
+    }
+
+    public ChatSuggestionEventBO suggestion() {
+        return suggestion;
     }
 
     public ChatErrorBO error() {

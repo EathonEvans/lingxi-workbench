@@ -30,14 +30,33 @@ public class ConversationEventPublisher {
      * 只有 Broker 已确认本地事务提交后才向调用方返回成功。
      */
     public void completeAssistant(ChatTurnBO turn, Long appVersionId, String content, TokenUsage tokenUsage, Long modelInstanceId) {
-        publishCompletion(turn, appVersionId, content, tokenUsage, AssistantCompletionMetaBO.completed(modelInstanceId));
+        publishCompletion(turn, appVersionId, content, tokenUsage, AssistantCompletionMetaBO.completed(modelInstanceId), null, null);
+    }
+
+    /**
+     * 定时触发器路径的完成事务：本地事务内同步推进触发记录与触发器状态。
+     *
+     * @param triggerId 归属触发器主键
+     * @param fireId    单次触发记录主键
+     */
+    public void completeAssistantForTrigger(ChatTurnBO turn, Long appVersionId, String content, TokenUsage tokenUsage,
+                                            Long modelInstanceId, Long triggerId, Long fireId) {
+        publishCompletion(turn, appVersionId, content, tokenUsage, AssistantCompletionMetaBO.completed(modelInstanceId),
+                triggerId, fireId);
     }
 
     private void publishCompletion(ChatTurnBO turn, Long appVersionId, String content, TokenUsage tokenUsage,
-                                   AssistantCompletionMetaBO metadata) {
+                                   AssistantCompletionMetaBO metadata, Long triggerId, Long fireId) {
         String eventId = COMPLETED_EVENT_PREFIX + turn.assistantMessageId();
         ConversationCompletedMessage event = new ConversationCompletedMessage(eventId, turn.conversationId(), turn.assistantMessageId(), appVersionId);
-        AssistantCompletionTxBO tx = new AssistantCompletionTxBO(event, content, tokenUsage, metadata);
+        AssistantCompletionTxBO tx = AssistantCompletionTxBO.builder()
+                .event(event)
+                .content(content)
+                .tokenUsage(tokenUsage)
+                .metadata(metadata)
+                .triggerId(triggerId)
+                .fireId(fireId)
+                .build();
         TransactionSendResult result = mqProducer.sendTransaction(
                 ConversationMqConstants.EVENT_TX_TOPIC, eventId, event, tx);
         if (result.getLocalTransactionState() != LocalTransactionState.COMMIT_MESSAGE) {

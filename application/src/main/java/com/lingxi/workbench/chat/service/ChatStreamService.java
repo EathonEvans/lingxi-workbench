@@ -2,6 +2,7 @@ package com.lingxi.workbench.chat.service;
 
 import com.lingxi.workbench.chat.model.request.ChatRequest;
 import com.lingxi.workbench.chat.model.bo.ChatGenerationEventBO;
+import com.lingxi.workbench.chat.model.bo.ProactiveGenerationRequest;
 import com.lingxi.workbench.chat.model.vo.ChatStartVO;
 import com.lingxi.workbench.framework.context.LoginUser;
 import reactor.core.publisher.Flux;
@@ -36,6 +37,13 @@ public interface ChatStreamService {
      * RocketMQ 消费者根据已提交的人工作业恢复同一 Assistant 与执行 Run。
      */
     void resumeInteraction(Long interactionId);
+
+    /**
+     * 定时触发器主动生成：在触发器专属会话内创建 TRIGGER 来源轮次并启动预解析分发生成任务。
+     *
+     * <p>任务与用户对话同源运行，事件进入 Redis 缓冲；用户中途打开会话可按序号续接观看。</p>
+     */
+    void startProactiveGeneration(ProactiveGenerationRequest request);
 
     /**
      * 修复当前实例已无后台任务但数据库仍为生成中的过期占位消息。

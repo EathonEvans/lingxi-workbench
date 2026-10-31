@@ -6,6 +6,7 @@ import com.lingxi.workbench.application.runtime.service.interaction.HitlDecision
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import com.lingxi.workbench.chat.model.bo.AssistantCompletionTxBO;
 import com.lingxi.workbench.chat.model.message.ConversationCompletedMessage;
+import com.lingxi.workbench.application.runtime.service.trigger.TriggerRunTxService;
 import com.lingxi.workbench.chat.ops.ConversationOpsMetrics;
 import com.lingxi.workbench.chat.service.ConversationService;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
@@ -32,6 +33,7 @@ public class ConversationEventTxListener implements RocketMQLocalTransactionList
     private final ConversationService conversationService;
     private final ConversationOpsMetrics metrics;
     private final HitlDecisionTxService hitlDecisionTxService;
+    private final TriggerRunTxService triggerRunTxService;
 
     @Override
     public RocketMQLocalTransactionState executeLocalTransaction(Message message, Object arg) {
@@ -51,14 +53,19 @@ public class ConversationEventTxListener implements RocketMQLocalTransactionList
             metrics.recordTxRollback();
             return RocketMQLocalTransactionState.ROLLBACK;
         }
-        if (!Objects.equals(event, tx.event())) {
+        if (!Objects.equals(event, tx.getEvent())) {
             log.error("会话完成事务消息与本地参数不一致，eventId={}", event.eventId());
             metrics.recordTxRollback();
             return RocketMQLocalTransactionState.ROLLBACK;
         }
         try {
-            conversationService.completeAssistant(
-                    event.assistantMessageId(), tx.content(), tx.tokenUsage(), tx.metadata());
+            // 定时触发器路径在完成消息终态的同一事务内推进触发记录与触发器状态。
+            if (Objects.nonNull(tx.getTriggerId())) {
+                triggerRunTxService.completeAssistantAndFire(tx, event);
+            } else {
+                conversationService.completeAssistant(
+                        event.assistantMessageId(), tx.getContent(), tx.getTokenUsage(), tx.getMetadata());
+            }
             metrics.recordTxCommit();
             return RocketMQLocalTransactionState.COMMIT;
         } catch (RuntimeException exception) {

@@ -11,6 +11,7 @@ import com.lingxi.workbench.application.runtime.repo.InteractionSessionRepo;
 import com.lingxi.workbench.chat.service.ConversationService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -28,12 +29,15 @@ public class HitlApprovalClosureTxService {
     private final ExecutionCheckpointRepo checkpointRepo;
     private final ExecutionRunRepo runRepo;
     private final ConversationService conversationService;
+    private final NotificationService notificationService;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void expire(InteractionSessionEntity interaction) {
         if (!interactionRepo.expire(interaction.getId(), interaction.getRevision())) {
             return;
         }
+        // 等待链终止后收敛对应站内通知，避免用户点击过期的待确认提醒。
+        notificationService.markInteractionNotificationsRead(interaction.getUserId(), interaction.getId());
         CapabilityInvocationEntity invocation = invocationRepo.findByInteractionId(interaction.getId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "Tool调用意图不存在"));
         if (!invocationRepo.changeStatus(invocation.getId(), CapabilityInvocationStatus.PENDING_APPROVAL,
@@ -55,6 +59,7 @@ public class HitlApprovalClosureTxService {
         if (!interactionRepo.failForCheckpointProtocol(interaction.getId(), interaction.getRevision())) {
             return;
         }
+        notificationService.markInteractionNotificationsRead(interaction.getUserId(), interaction.getId());
         CapabilityInvocationEntity invocation = invocationRepo.findByInteractionId(interaction.getId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "Tool调用意图不存在"));
         if (!invocationRepo.changeStatus(invocation.getId(), CapabilityInvocationStatus.PENDING_APPROVAL,

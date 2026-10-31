@@ -17,6 +17,8 @@ public class RuntimePromptVersionEntity {
 
     private Long id;
     private Long promptId;
+    /** 版本号，同一 Prompt 下按版本号递增，运行端按其取最新已发布版本。 */
+    private Integer versionNo;
     private String promptContent;
     @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
     private List<PromptRuntimeVariableDefinition> variables;

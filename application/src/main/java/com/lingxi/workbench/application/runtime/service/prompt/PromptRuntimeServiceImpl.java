@@ -10,6 +10,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
+
 @Service
 @RequiredArgsConstructor
 public class PromptRuntimeServiceImpl implements PromptRuntimeService {
@@ -27,6 +29,20 @@ public class PromptRuntimeServiceImpl implements PromptRuntimeService {
                 .orElseThrow(() -> new BusinessException(
                         HttpStatusEnum.CONFLICT,
                         "AgentVersion引用的PromptVersion不可用"));
+        return toSnapshot(version);
+    }
+
+    /**
+     * 按稳定编码读取平台内置补充任务的最新已发布 Prompt。
+     * 编码不存在或没有已发布版本时返回空，由调用方决定降级行为。
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<PromptRuntimeSnapshot> resolveLatestPublishedByCode(String promptCode) {
+        return repo.findLatestPublishedByPromptCode(promptCode).map(PromptRuntimeServiceImpl::toSnapshot);
+    }
+
+    private static PromptRuntimeSnapshot toSnapshot(RuntimePromptVersionEntity version) {
         return new PromptRuntimeSnapshot(
                 version.getId(),
                 version.getPromptContent(),

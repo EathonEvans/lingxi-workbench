@@ -79,6 +79,11 @@ public class ConversationRepo {
     }
 
     /** 新增或更新会话。 */
+    /** 新建会话（定时触发器专属会话等场景）。 */
+    public void insert(ConversationEntity entity) {
+        mapper.insert(entity);
+    }
+
     public void save(ConversationEntity entity) {
         if (entity.getId() == null) {
             mapper.insert(entity);

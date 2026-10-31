@@ -1,6 +1,7 @@
 package com.lingxi.workbench.chat.model.vo;
 
 import com.lingxi.workbench.application.runtime.model.vo.ApplicationAssistantIdentityVO;
+import com.lingxi.workbench.chat.common.enums.MessageOrigin;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import lombok.AllArgsConstructor;
@@ -26,6 +27,8 @@ public class ConversationMessageVO {
     private Integer sequenceNo;
     /** 消息角色。 */
     private MessageRole role;
+    /** 消息来源：CHAT / TRIGGER，前端据此渲染“定时任务”徽标。 */
+    private MessageOrigin origin;
     /** 消息正文内容。 */
     private String content;
     /** 消息状态。 */

@@ -21,6 +21,7 @@ import com.lingxi.workbench.application.runtime.model.InteractionResolution;
 import com.lingxi.workbench.application.runtime.model.InteractionResumeTarget;
 import com.lingxi.workbench.application.runtime.model.IntentRoutingEvidence;
 import com.lingxi.workbench.application.runtime.model.IntentRoutingResult;
+import com.lingxi.workbench.application.runtime.model.PreResolvedDispatch;
 import com.lingxi.workbench.application.runtime.service.agent.AgentVersionService;
 import com.lingxi.workbench.application.runtime.service.capability.AppCapabilityDispatcher;
 import com.lingxi.workbench.application.runtime.service.execution.ExecutionPersistenceService;
@@ -131,23 +132,44 @@ public class AppRuntime {
                 .map(resolution -> preparedContext.copyAndAppendClarificationSup(resolution.getOriginalQuery(),resolution.getResponse()))
                 .orElse(preparedContext);
 
-        // ④ 恢复请求跳过新路由；其他请求按 Application 配置执行意图路由。
+        // ④ 恢复请求与预解析分发跳过新路由；其他请求按 Application 配置执行意图路由。
+        boolean skipRouting = interaction.isPresent() || request.getResumeContext() != null
+                || request.getPreResolvedDispatch() != null;
         IntentRoutingResult routing = aiStageObserver.observe(AiObservationStage.INTENT_ROUTE, AppRuntime::recordRoutingEvidence,
-                () -> routeIntent(request, context, interaction.isPresent() || request.getResumeContext() != null));
+                () -> routeIntent(request, context, skipRouting));
 
         ConversationContext routedContext = context.plusPreparationUsage(routing.getTokenUsage(), routing.getModelCalls());
 
         // ⑤ 调度合并和目标执行统一归入EXECUTION阶段，固定回复与澄清也保留完整链路。
         return aiStageObserver.observe(AiObservationStage.EXECUTION, () -> {
-            ChatDispatch dispatch = request.getResumeContext() == null
-                    ? this.dispatch(snapshot, routedContext, interaction.orElse(null), routing)
-                    : resolveHitlDispatch(snapshot, routedContext.routingQuery(), request.getResumeContext());
+            ChatDispatch dispatch = resolveDispatch(request, snapshot, routedContext, interaction, routing);
             return switch (dispatch) {
                 case ChatDispatch.Fixed fixed -> directResult(fixed.response(), routedContext);
                 case ChatDispatch.Clarify clarify -> clarificationResult(request, clarify, routedContext);
                 case ChatDispatch.Capability executable -> executeCapabilityDispatch(request, routedContext, executable, startedAt);
             };
         });
+    }
+
+    /**
+     * 将入口请求收敛为唯一、完整的最终调度决策。
+     *
+     * <p>HITL 恢复回到检查点锁定的目标；预解析分发（定时触发器）直接执行指定能力；
+     * 其余请求按意图路由结果分发。</p>
+     */
+    private ChatDispatch resolveDispatch(AppExecutionRequest request, AppRuntimeSnapshot snapshot,
+                                         ConversationContext routedContext, Optional<InteractionResolution> interaction,
+                                         IntentRoutingResult routing) {
+        if (request.getResumeContext() != null) {
+            return resolveHitlDispatch(snapshot, routedContext.routingQuery(), request.getResumeContext());
+        }
+        PreResolvedDispatch preResolved = request.getPreResolvedDispatch();
+        if (preResolved != null) {
+            return capabilityDispatch(routedContext.routingQuery(),
+                    resolveCapability(snapshot, preResolved.capabilityCode(), preResolved.capabilityType()),
+                    null, Set.of());
+        }
+        return this.dispatch(snapshot, routedContext, interaction.orElse(null), routing);
     }
 
     /** AgentScope Checkpoint 已保存模型消息历史，恢复时不得重复读取记忆、改写问题或重新路由。 */
@@ -334,6 +356,8 @@ public class AppRuntime {
                     .orchestratorAgent(dispatch.hints().agent())
                     .capabilityCode(dispatch.capability().getCode())
                     .executionMode(executionMode(dispatch))
+                    .runSource(request.getRunSource())
+                    .triggerId(request.getTriggerId())
                     .build());
         } else {
             executionPersistenceService.changeRunStatus(executionId, ExecutionRunStatus.RESUMING, ExecutionRunStatus.RUNNING, "EXECUTION");

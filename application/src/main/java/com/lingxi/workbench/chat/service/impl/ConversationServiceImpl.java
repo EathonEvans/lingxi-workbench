@@ -163,12 +163,15 @@ public class ConversationServiceImpl implements ConversationService {
         int userSequence = messageRepo.nextSequence(conversation.getId());
 
         // 用户输入在请求到达时已经完整，因此直接以 COMPLETED 状态持久化。
+        // 定时触发器轮次的“用户消息”是渲染后的任务目标，同样视为已完成输入。
         ConversationMessageEntity userMessage = newMessage(conversation.getId(), input.getClientMessageId(), userSequence, MessageRole.USER, prompt, MessageStatus.COMPLETED, null);
+        userMessage.setOrigin(input.resolveOrigin());
         userMessage.setCompletedAt(now);
         messageRepo.save(userMessage);
 
         // 在调用模型前先创建空的 Assistant 占位消息。后续完整回答、失败内容和 Token 用量都更新这条记录。
         ConversationMessageEntity assistantMessage = newMessage(conversation.getId(), null, userSequence + 1, MessageRole.ASSISTANT, "", MessageStatus.GENERATING, input.getModelInstanceId());
+        assistantMessage.setOrigin(input.resolveOrigin());
         assistantMessage.setApplicationId(input.getApplicationId());
         assistantMessage.setApplicationVersionId(input.getApplicationVersionId());
         messageRepo.save(assistantMessage);
@@ -271,6 +274,23 @@ public class ConversationServiceImpl implements ConversationService {
                 throw new BusinessException(HttpStatusEnum.CONFLICT, "Assistant消息等待状态已变化");
             }
         }
+    }
+
+    /**
+     * 为定时触发器创建专属会话。
+     *
+     * <p>主动运行以该会话承载跨次执行记忆；会话创建后由触发器独占标题，首轮不自动改名。</p>
+     */
+    @Override
+    @Transactional
+    public Long createTriggerConversation(Long userId, String title) {
+        ConversationEntity conversation = new ConversationEntity();
+        conversation.setUserId(userId);
+        conversation.setTitle(CharSequenceUtil.isBlank(title) ? DEFAULT_TITLE : title.trim());
+        conversation.setStatus(ConversationStatus.ACTIVE);
+        conversation.setMessageCount(0);
+        conversationRepo.insert(conversation);
+        return conversation.getId();
     }
 
     /**

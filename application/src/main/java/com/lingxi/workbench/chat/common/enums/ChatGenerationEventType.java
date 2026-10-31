@@ -56,6 +56,10 @@ public enum ChatGenerationEventType {
     /** 从数据库恢复的已生成回答快照。 */
     SNAPSHOT("snapshot", "回答快照"),
     /**
+     * 回答完成后服务端主动给出的后续建议。
+     */
+    SUGGESTION("suggestion", "主动建议"),
+    /**
      * 模型回答生成完成。
      */
     COMPLETED("completed", "生成完成"),

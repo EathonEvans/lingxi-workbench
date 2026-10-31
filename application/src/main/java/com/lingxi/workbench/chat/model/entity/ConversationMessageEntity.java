@@ -1,6 +1,7 @@
 package com.lingxi.workbench.chat.model.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.lingxi.workbench.chat.common.enums.MessageOrigin;
 import com.lingxi.workbench.chat.common.enums.MessageRole;
 import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import com.lingxi.workbench.framework.persistence.model.TimeEntity;
@@ -24,6 +25,8 @@ public class ConversationMessageEntity extends TimeEntity {
     private Integer sequenceNo;
     /** 消息角色：USER / ASSISTANT。 */
     private MessageRole role;
+    /** 消息来源：CHAT / TRIGGER。 */
+    private MessageOrigin origin;
     /** 消息正文内容。 */
     private String content;
     /** 消息状态：GENERATING / WAITING_HUMAN / COMPLETED / FAILED / CANCELLED / INTERRUPTED。 */

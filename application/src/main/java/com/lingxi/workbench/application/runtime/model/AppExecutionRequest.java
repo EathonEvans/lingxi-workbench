@@ -51,6 +51,17 @@ public class AppExecutionRequest {
     private final ChatExecutionEventPublisher eventPublisher;
     /** HITL 消费者恢复同一 Run 时提供的可信上下文。 */
     private final ExecutionResumeContext resumeContext;
+    /**
+     * 预解析分发：定时触发器等确定性入口直接指定能力目标，跳过意图路由。
+     */
+    private final PreResolvedDispatch preResolvedDispatch;
+    /** 运行来源：CHAT（默认，用户消息）/ TRIGGER（定时触发器）。 */
+    @Builder.Default
+    private final String runSource = "CHAT";
+    /** 定时触发器主键；用户消息路径为空。 */
+    private final Long triggerId;
+    /** 定时触发器的单次触发记录主键；用户消息路径为空。 */
+    private final Long fireId;
 
     public List<String> getExplicitSkillCodes() {
         return List.copyOf(Objects.requireNonNullElseGet(explicitSkillCodes, List::of));

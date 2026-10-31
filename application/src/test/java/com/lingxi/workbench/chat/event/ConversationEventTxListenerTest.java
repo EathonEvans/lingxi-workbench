@@ -7,6 +7,7 @@ import com.lingxi.workbench.chat.common.enums.MessageStatus;
 import com.lingxi.workbench.chat.model.bo.AssistantCompletionMetaBO;
 import com.lingxi.workbench.chat.model.bo.AssistantCompletionTxBO;
 import com.lingxi.workbench.chat.model.message.ConversationCompletedMessage;
+import com.lingxi.workbench.application.runtime.service.trigger.TriggerRunTxService;
 import com.lingxi.workbench.chat.ops.ConversationOpsMetrics;
 import com.lingxi.workbench.chat.service.ConversationService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
@@ -30,8 +31,9 @@ class ConversationEventTxListenerTest {
     private final ConversationService conversationService = mock(ConversationService.class);
     private final ConversationOpsMetrics metrics = mock(ConversationOpsMetrics.class);
     private final HitlDecisionTxService hitlDecisionTxService = mock(HitlDecisionTxService.class);
+    private final TriggerRunTxService triggerRunTxService = mock(TriggerRunTxService.class);
     private final ConversationEventTxListener listener = new ConversationEventTxListener(
-            conversationService, metrics, hitlDecisionTxService);
+            conversationService, metrics, hitlDecisionTxService, triggerRunTxService);
     private final ConversationCompletedMessage event =
             new ConversationCompletedMessage("conversation-completed:12", 10L, 12L, 30L);
 
@@ -41,7 +43,7 @@ class ConversationEventTxListenerTest {
         Message<ConversationCompletedMessage> message = MessageBuilder.withPayload(event).build();
 
         RocketMQLocalTransactionState state = listener.executeLocalTransaction(
-                message, new AssistantCompletionTxBO(
+                message, AssistantCompletionTxBO.of(
                         event, "回答", usage, AssistantCompletionMetaBO.completed(40L)));
 
         assertEquals(RocketMQLocalTransactionState.COMMIT, state);

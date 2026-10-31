@@ -67,6 +67,9 @@ public class ExecutionPersistenceServiceImpl implements ExecutionPersistenceServ
         }
         run.setCapabilityCode(command.getCapabilityCode());
         run.setExecutionMode(command.getExecutionMode());
+        run.setRunSource(command.getRunSource());
+        run.setTriggerId(command.getTriggerId());
+        run.setFireId(command.getFireId());
         run.setStatus(ExecutionRunStatus.RUNNING);
         run.setCurrentStage("EXECUTION");
         run.setRevision(0);

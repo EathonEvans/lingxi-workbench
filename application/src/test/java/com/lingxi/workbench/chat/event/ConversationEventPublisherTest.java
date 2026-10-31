@@ -44,7 +44,7 @@ class ConversationEventPublisherTest {
                 eventCaptor.capture(),
                 txCaptor.capture());
         assertEquals(new ConversationCompletedMessage("conversation-completed:12", 10L, 12L, 30L), eventCaptor.getValue());
-        assertEquals(new AssistantCompletionTxBO(
+        assertEquals(AssistantCompletionTxBO.of(
                 (ConversationCompletedMessage) eventCaptor.getValue(), "完整回答", usage,
                 AssistantCompletionMetaBO.completed(40L)), txCaptor.getValue());
     }

@@ -19,6 +19,7 @@ import com.lingxi.workbench.agentruntime.checkpoint.AgentScopeCheckpoint;
 import com.lingxi.workbench.chat.service.ConversationService;
 import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
 import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.notification.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +39,7 @@ public class HitlDecisionTxService {
     private final ExecutionRunRepo runRepo;
     private final ConversationService conversationService;
     private final HitlApprovalClosureTxService closureTxService;
+    private final NotificationService notificationService;
 
     @Transactional
     public void decide(HitlDecisionTxBO tx) {
@@ -65,6 +67,8 @@ public class HitlDecisionTxService {
         if (!decided) {
             throw new BusinessException(HttpStatusEnum.CONFLICT, "审批状态已变化，请刷新后重试");
         }
+        // 决策落库后同步收敛对应站内通知，保持通知中心与交互状态一致。
+        notificationService.markInteractionNotificationsRead(tx.getUserId(), interaction.getId());
         CapabilityInvocationEntity invocation = invocationRepo.findByInteractionId(interaction.getId())
                 .orElseThrow(() -> new BusinessException(HttpStatusEnum.CONFLICT, "Tool调用意图不存在"));
         if (tx.getDecision() == InteractionDecision.APPROVE) {

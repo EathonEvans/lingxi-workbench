@@ -20,6 +20,7 @@ import com.lingxi.workbench.application.runtime.model.AgentRuntimeDefinition;
 import com.lingxi.workbench.application.runtime.model.AgentRuntimeSnapshot;
 import com.lingxi.workbench.application.runtime.model.ApplicationExecutionBudget;
 import com.lingxi.workbench.application.runtime.model.ApplicationRun;
+import com.lingxi.workbench.application.runtime.model.PreResolvedDispatch;
 import com.lingxi.workbench.application.runtime.model.CapabilityExecutionRequest;
 import com.lingxi.workbench.application.runtime.model.CapabilityExecutionResult;
 import com.lingxi.workbench.application.runtime.model.CapabilityInvocationScope;
@@ -368,13 +369,31 @@ public class AgentExecutionAdapter {
                 sourceConfig, definition.getGenerationPolicy(), run.conversation().getBudget(), remainingTokenBudget,
                 responseIdleTimeoutSeconds);
         AgentRunRequest request = this.resolveEffectiveAgentRequest(snapshot, run, invocationVariables,
-                invocationScope, prompt, chatContext, modelConfig, skillCatalog, definition.resolveToolCodes(),
+                invocationScope, prompt, chatContext, modelConfig, skillCatalog,
+                resolveAuthorizedToolCodes(definition.resolveToolCodes(), run.request().getPreResolvedDispatch()),
                 toolRuntimeConfig, finalizationOnly, remainingTokenBudget);
         com.lingxi.workbench.application.runtime.model.ExecutionResumeContext resume = run.request().getResumeContext();
         return resume == null
                 ? agentRuntime.run(request)
                 : agentRuntime.resume(new AgentResumeRequest(request, resume.getCheckpoint(),
                 resume.getInteractionId(), resume.getFingerprint()));
+    }
+
+
+    /**
+     * 解析本次运行实际可用的工具集。
+     *
+     * <p>默认使用 AgentVersion 发布快照锁定的工具集；定时触发器等预解析分发入口
+     * 携带预授权白名单时，与默认工具集求交收紧，只允许白名单内的工具被调用。</p>
+     */
+    private static List<String> resolveAuthorizedToolCodes(List<String> defaultToolCodes,
+                                                           PreResolvedDispatch preResolvedDispatch) {
+        if (preResolvedDispatch == null || preResolvedDispatch.allowedToolCodes().isEmpty()) {
+            return defaultToolCodes;
+        }
+        return defaultToolCodes.stream()
+                .filter(preResolvedDispatch.allowedToolCodes()::contains)
+                .toList();
     }
 
     /**
