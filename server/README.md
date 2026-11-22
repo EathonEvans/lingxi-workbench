@@ -4,7 +4,7 @@
 
 ![Java 21](https://img.shields.io/badge/Java-21-orange) ![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.1-green) ![AgentScope](https://img.shields.io/badge/AgentScope-2.0-blue) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17%20%2B%20pgvector-336791) ![Tests](https://img.shields.io/badge/tests-881%20cases%20%2F%20210%20classes-brightgreen) ![License](https://img.shields.io/badge/License-Apache--2.0-red)
 
-用户端前端见 [lingxi-workbench-web](../web)（Next.js 16 / React 19，SSE 流式会话）。
+用户端前端见 [`web/`](../web)（Next.js 16 / React 19，SSE 流式会话）。
 
 ## 核心设计
 
