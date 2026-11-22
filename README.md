@@ -2,7 +2,15 @@
 
 灵析 AI Workbench 用户端。面向企业用户提供 AI 对话、智能体使用、知识库检索与任务协作能力。
 
-> 本仓库只承载用户端，不包含运营管理功能。管理端位于 `lingxi-workbench-admin`，服务端位于 `lingxi-workbench-server`。
+> 本仓库只承载用户端，不包含运营管理功能。服务端位于 [lingxi-workbench-server](../lingxi-workbench-server)（管理端暂未开源）。
+
+## 功能
+
+- SSE 流式 AI 会话（意图路由、Agent / Workflow 双引擎响应的服务端推送渲染）
+- 执行轨迹可视化：展示意图路由决策与工作流 / Agent 执行过程
+- 通知中心：主动任务与人工协同事项的站内通知
+- 定时触发器管理：创建与查看触达式主动运行任务
+- 登录态与会话管理（Sa-Token，同源 Cookie）
 
 ## 技术栈
 
@@ -60,4 +68,4 @@ src/
 
 ## 开源说明
 
-项目自身采用 MIT License。第三方依赖仍遵循各自许可证，详见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+项目自身采用 [Apache-2.0](./LICENSE) License。第三方依赖仍遵循各自许可证，详见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
