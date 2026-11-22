@@ -2,7 +2,7 @@
 
 灵析 AI Workbench 用户端。面向企业用户提供 AI 对话、智能体使用、知识库检索与任务协作能力。
 
-> 本仓库只承载用户端，不包含运营管理功能。服务端位于 [lingxi-workbench-server](../lingxi-workbench-server)（管理端暂未开源）。
+> 本仓库只承载用户端，不包含运营管理功能。服务端位于 [lingxi-workbench-server](../server)（管理端暂未开源）。
 
 ## 功能
 
