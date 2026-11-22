@@ -2,14 +2,14 @@ spring:
   application:
     name: lingxi-workbench-application
   datasource:
-    url: ${LINGXI_DB_URL:jdbc:postgresql://192.168.86.2:5432/lingxi_dev}
+    url: ${LINGXI_DB_URL:jdbc:postgresql://localhost:5432/lingxi}
     username: ${LINGXI_DB_USERNAME:postgres}
     password: ${LINGXI_DB_PASSWORD:postgres}
   data:
     redis:
-      host: ${LINGXI_REDIS_HOST:192.168.86.2}
+      host: ${LINGXI_REDIS_HOST:localhost}
       port: ${LINGXI_REDIS_PORT:6379}
-      password: ${LINGXI_REDIS_PASSWORD:EthRedis@123}
+      password: ${LINGXI_REDIS_PASSWORD:}
   ai:
     chat:
       observations:
@@ -72,14 +72,14 @@ lingxi:
   intent-evaluation:
     enabled: ${LINGXI_INTENT_EVALUATION_ENABLED:true}
     base-url: ${LINGXI_APPLICATION_BASE_URL:http://127.0.0.1:8080}
-    token: ${LINGXI_INTERNAL_OPS_TOKEN:YU1xZXA1T21TTkRlQVl4TkU2Zm5YSGRHd3dINzhVcjQ}
+    token: ${LINGXI_INTERNAL_OPS_TOKEN:lingxi-dev-internal-ops-token}
     timeout: ${LINGXI_INTENT_EVALUATION_TIMEOUT:60s}
   file:
     url-expire-hours: ${LINGXI_FILE_URL_EXPIRE_HOURS:1}
   storage:
     type: ${LINGXI_STORAGE_TYPE:minio}
     minio:
-      endpoint: ${LINGXI_STORAGE_MINIO_ENDPOINT:http://192.168.86.2:9000}
+      endpoint: ${LINGXI_STORAGE_MINIO_ENDPOINT:http://localhost:9000}
       access-key: ${LINGXI_STORAGE_MINIO_ACCESS_KEY:lingxi}
       secret-key: ${LINGXI_STORAGE_MINIO_SECRET_KEY:lingxi-minio-dev}
       bucket: ${LINGXI_STORAGE_MINIO_BUCKET:lingxi-knowledge}
@@ -117,7 +117,7 @@ lingxi:
   security:
     # 敏感配置（MCP Token、模型 API Key）加密主密钥，必须由部署环境提供，
     # 缺失时服务启动失败；生成方式：openssl rand -base64 32
-    secret-master-key: ${LINGXI_SECRET_MASTER_KEY:YU1xZXA1T21TTkRlQVl4TkU2Zm5YSGRHd3dINzhVcjQ=}
+    secret-master-key: ${LINGXI_SECRET_MASTER_KEY:lingxi-dev-internal-ops-token=}
     login-protection:
       # 窗口内连续登录失败达到阈值后临时锁定账号，防止口令爆破
       max-failures: ${LINGXI_LOGIN_MAX_FAILURES:5}
@@ -133,6 +133,6 @@ lingxi:
       allowed-private-hosts: ${LINGXI_MODEL_ALLOWED_PRIVATE_HOSTS:localhost,127.0.0.1,::1}
 
 rocketmq:
-  name-server: ${LINGXI_ROCKETMQ_NAMESRV:192.168.86.2:9876}
+  name-server: ${LINGXI_ROCKETMQ_NAMESRV:localhost:9876}
   producer:
     group: lingxi-application-conversation-tx-producer

@@ -1,77 +1,96 @@
 # Lingxi Workbench Server
 
-灵析AiWorkbench后端工程。项目采用Java 21、Spring Boot 4.1、Spring AI 2.0、Sa-Token、MyBatis-Plus、PostgreSQL + pgvector。
+企业级 AI 工作台后端：意图路由分派 **Agent / Workflow 双引擎**，覆盖模型接入、Prompt 版本、知识库 RAG、工具与 MCP、人机协同（HITL）与主动任务的完整闭环。
 
-## Modules
+![Java 21](https://img.shields.io/badge/Java-21-orange) ![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.1-green) ![AgentScope](https://img.shields.io/badge/AgentScope-2.0-blue) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17%20%2B%20pgvector-336791) ![Tests](https://img.shields.io/badge/tests-881%20cases%20%2F%20210%20classes-brightgreen) ![License](https://img.shields.io/badge/License-Apache--2.0-red)
 
-| 模块 | 作用域 | 是否独立启动 | 依赖 |
-| --- | --- | --- | --- |
-| `framework` | 认证、缓存、数据库、Web、统一审计、可观测性等通用技术能力 | 否 | 不依赖业务模块 |
-| `infra-ai` | AI公共契约、Prompt内置变量目录，以及模型、Embedding、Rerank等供应商适配 | 否 | `framework` |
-| `admin` | 管理员认证、系统管理、模型配置、Prompt模板、知识库及审计事件产生 | 是，默认 `8801` | `framework`、`infra-ai` |
-| `application` | 用户端认证、工作台业务、HTTP/SSE 接口和业务装配 | 是，默认 `8080` | `framework`、`infra-ai` |
-| `mcp-server` | 独立 MCP 协议入口和 MCP Tool 暴露 | 是 | `framework` |
+用户端前端见 [lingxi-workbench-web](../lingxi-workbench-web)（Next.js 16 / React 19，SSE 流式会话）。
 
-业务 HTTP 后端由 `application` 和 `admin` 两个独立服务组成，二者不互相依赖。`mcp-server`
-是可选的独立协议服务，不属于管理端或用户端 HTTP 服务。依赖方向固定为：
+## 核心设计
 
-```text
-application -> infra-ai -> framework
-      +---------------------> framework
+**意图路由先行，双引擎分派。** 用户消息不直接进模型，先经意图树路由：仅 WORKFLOW 叶子进入确定性 Workflow 执行器，AGENT 叶子锁定已发布 AgentVersion 执行，固定应答与澄清话术不进任何引擎。路由带槽位类型校验，并落库路由证据（命中路径、阈值、分数）供观测与评估。
 
-admin -------> infra-ai ----> framework
-      +---------------------> framework
-mcp-server -----------------> framework
+**Agent 内核与 AI 供应商解耦。** `agent-runtime` 以 AgentScope 为执行内核，通过 Supervisor / Specialist 网关组织多 Agent 协作，不依赖 Spring AI；供应商差异（Chat / Embedding / Rerank / Tokenizer）收敛在 `infra-ai`，向上层不暴露 SDK 对象。模型输出一律视为不可信：工具入参校验、权限复核、高危动作转 HITL。
+
+**HITL 基于执行中断实现，而非绕过引擎。** 高危工具调用产生 checkpoint 中断（含过期协议与扫描恢复），审批通过后从 checkpoint 续跑原计划，配合 RocketMQ 事务消息保证会话事件与业务状态一致。
+
+**Workflow 版本、快照、执行与事件 append-only。** 工作流定义走版本化管理，运行产生不可变事件流，支持重放与审计。
+
+**知识库 RAG 约束内建。** pgvector 存储，embedding 模型、维度、距离类型与索引版本四要素绑定一致；检索上下文有界去重并保留来源。
+
+**工程质量作为一等约束。** 七模块 Maven reactor 单向依赖；`admin` 与 `application` 两个可运行业务服务完全隔离，跨服务只走稳定 HTTP 契约；数据库无物理外键，引用完整性与生命周期在服务层校验；统一审计、幂等、逻辑删除与 Project Scope 过滤贯穿全链路。
+
+## 架构
+
+| 模块 | 职责 | 可独立启动 |
+| --- | --- | --- |
+| `framework` | 认证、缓存、数据库、统一审计、幂等、可观测性等通用技术能力 | 否 |
+| `infra-ai` | AI 公共契约、Prompt 内置变量目录，Chat / Embedding / Rerank / Tokenizer 供应商适配 | 否 |
+| `agent-runtime` | AgentScope 内核封装：Supervisor/Specialist 网关、技能目录、checkpoint 中断恢复 | 否 |
+| `workflow-core` | 确定性工作流原语：节点语义、快照、执行与事件 | 否 |
+| `application` | 用户端业务：会话、意图路由、执行大脑、知识库、HITL、通知、Trigger 主动任务（`:8080`） | 是 |
+| `admin` | 管理端业务：模型配置、Prompt 模板、应用与工作流编排、审计（`:8801`） | 是 |
+| `mcp-server` | 独立 MCP 协议入口，暴露 Tool / Resource / Prompt | 是 |
+
+```mermaid
+graph LR
+    application --> infra-ai
+    application --> agent-runtime
+    application --> workflow-core
+    agent-runtime --> infra-ai
+    infra-ai --> framework
+    application --> framework
+    admin --> infra-ai
+    admin --> framework
+    mcp-server --> framework
+    workflow-core --> framework
 ```
 
-`framework` 不得反向依赖业务；`infra-ai` 不决定业务流程；`admin` 与 `application` 不得通过直接
-依赖对方实现来复用代码。跨服务能力通过明确的 HTTP/API 契约交互。业务代码按业务模块组织，
-模块内统一使用 `Controller -> Service -> Repo -> Mapper` 三层架构，详细约束见 `AGENTS.md`。
+依赖方向固定且不可反向：`framework` 不含业务；`infra-ai` 不决定业务流程；`admin` 与 `application` 不共享实体、Repo 或服务。业务模块内统一 `Controller -> Service -> Repo -> Mapper` 分层，完整工程约束见 [AGENTS.md](./AGENTS.md)。
 
-### `framework`
+## 快速开始
 
-通用技术基础层，包括 Sa-Token 认证授权、Redis 缓存、请求上下文、错误码和通用响应、
-MyBatis-Plus 配置、统一审计持久化、幂等、可观测性及 Web 基础配置。不放 Workflow、Agent、Prompt、Knowledge
-等业务规则，也不放 AI 供应商适配。
-
-### `infra-ai`
-
-AI技术适配层，负责Prompt内置变量目录、Chat Model、Embedding、Rerank、Tokenizer和供应商SDK差异收敛。
-不负责 Prompt 版本、Agent/Workflow 编排、权限和模型业务选择策略，不向上层暴露供应商 SDK 对象。
-
-### `admin`
-
-独立管理端服务，负责管理员登录、用户、角色、权限、菜单、部门/组织、模型配置、Prompt模板、知识库和产生操作审计事件，
-使用Sa-Token `admin`登录域，默认监听`8801`。不直接访问`application`的Mapper；需要操作工作台
-业务资源时，通过稳定的内部 API 调用 `application`。
-
-### `application`
-
-独立用户端服务，负责用户登录与访问控制、HTTP/SSE 接口和业务服务，
-并承载 Project、Application、Model Center、Prompt、Knowledge、Tool、Agent、Workflow、Runtime、
-Harness 和 Evaluation 等工作台领域，使用 Sa-Token `user` 登录域，默认监听 `8080`。
-Controller 中不得放业务编排、事务逻辑或直接访问 Repo、Mapper、AI Client。
-当单个业务模块的规模和边界稳定后，再将其拆成独立 Maven 模块。
-
-### `mcp-server`
-
-可独立启动和部署的 MCP 协议入口，负责 Tool、Resource、Prompt 的协议映射、认证、参数校验、
-错误映射和审计接入。不放 Workflow、Agent、Knowledge 等核心业务实现，不直接访问业务表。
-需要复用业务能力时，应通过稳定 Application Port/SDK 或主应用内部 API 调用。
-
-## Commands
+环境要求：JDK 21、Docker。
 
 ```bash
-./mvnw clean verify
+# 1. 启动本地依赖（PostgreSQL 17 + pgvector、Redis、MinIO、RocketMQ）
+./scripts/dev-start.sh
+
+# 2. 初始化数据库：按序执行 resources/database/postgresql/migration 下的全部迁移
+./scripts/init-db.sh
+
+# 3. 预下载依赖（可选）
+./scripts/bootstrap.sh
+
+# 4. 启动用户端服务（:8080）与管理端服务（:8801）
 ./mvnw -pl application -am spring-boot:run
 ./mvnw -pl admin -am spring-boot:run
-./mvnw -pl mcp-server -am spring-boot:run
 ```
 
-本地依赖通过 `resources/docker/compose.yml` 启动，配置请从 `.env.example` 复制。两个业务服务默认连接
-同一个 PostgreSQL 实例，但提供独立的连接环境变量，后续拆分数据库时无需修改配置结构。
+默认配置与 `compose.yml` 容器对齐，无需 `.env` 即可启动；覆盖默认部署时参考 [`.env.example`](./.env.example)。模型供应商 API Key 不落在配置文件中：启动后在管理端「模型管理」录入，由 `infra-ai` 统一适配调用。
 
-## Development Notes
+全量构建与测试：
+
+```bash
+./scripts/verify.sh          # 等价于 ./mvnw clean verify
+```
+
+## 技术栈
+
+Java 21 · Spring Boot 4.1 · Spring AI 2.0（供应商适配）· AgentScope 2.0（Agent 内核）· Sa-Token · MyBatis-Plus · PostgreSQL 17 + pgvector · Redis · RocketMQ · MinIO · Langfuse/OTLP（可选观测）
+
+## 测试与质量
+
+- 210 个测试类、881 个测试用例，覆盖失败路径、权限、状态流转、事务、幂等与外部边界。
+- `scripts/tests/` 用 SQLite 重放生产 Mapper 中的授权 SQL，对数据权限语义做独立回归。
+- `scripts/knowledge-evaluation/` 提供知识库检索质量评估脚本。
+
+## 开发文档
 
 - [SSE 真实流式传输问题记录](docs/development/sse-streaming-transport.md)
-- [管理端模型配置管理 V1 开发设计](docs/development/model-configuration-management-v1.md)
+- [Agent Runtime 内核收敛设计](docs/development/agent-runtime-core-convergence-v1.md)
+- [应用执行大脑代码设计](docs/development/application-execution-brain-code-design-v1.md)
+
+## License
+
+[Apache-2.0](./LICENSE)

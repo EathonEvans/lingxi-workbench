@@ -5,14 +5,14 @@ spring:
   application:
     name: lingxi-workbench-admin
   datasource:
-    url: ${LINGXI_DB_URL:jdbc:postgresql://192.168.86.2:5432/lingxi_dev}
+    url: ${LINGXI_DB_URL:jdbc:postgresql://localhost:5432/lingxi}
     username: ${LINGXI_DB_USERNAME:postgres}
     password: ${LINGXI_DB_PASSWORD:postgres}
   data:
     redis:
-      host: ${LINGXI_REDIS_HOST:192.168.86.2}
+      host: ${LINGXI_REDIS_HOST:localhost}
       port: ${LINGXI_REDIS_PORT:6379}
-      password: ${LINGXI_REDIS_PASSWORD:EthRedis@123}
+      password: ${LINGXI_REDIS_PASSWORD:}
   servlet:
     multipart:
       max-file-size: 20MB
@@ -67,7 +67,7 @@ lingxi:
   mcp:
     security:
       # 私网和本机地址默认拒绝；开发环境只显式开放本机 MCP Server。
-      allowed-private-hosts: ${LINGXI_MCP_ALLOWED_PRIVATE_HOSTS:192.168.86.2,127.0.0.1,::1}
+      allowed-private-hosts: ${LINGXI_MCP_ALLOWED_PRIVATE_HOSTS:localhost,127.0.0.1,::1}
   model:
     security:
       # 模型/Embedding 地址默认拒绝私网与本机；本地或内网部署模型时在此显式放行对应主机。
@@ -75,7 +75,7 @@ lingxi:
   storage:
     type: ${LINGXI_STORAGE_TYPE:minio}
     minio:
-      endpoint: ${LINGXI_STORAGE_MINIO_ENDPOINT:http://192.168.86.2:9000}
+      endpoint: ${LINGXI_STORAGE_MINIO_ENDPOINT:http://localhost:9000}
       access-key: ${LINGXI_STORAGE_MINIO_ACCESS_KEY:lingxi}
       secret-key: ${LINGXI_STORAGE_MINIO_SECRET_KEY:lingxi-minio-dev}
       bucket: ${LINGXI_STORAGE_MINIO_BUCKET:lingxi-knowledge}
@@ -86,6 +86,6 @@ lingxi:
       bucket: ${LINGXI_STORAGE_OSS_BUCKET:}
 
 rocketmq:
-  name-server: ${LINGXI_ROCKETMQ_NAMESRV:192.168.86.2:9876}
+  name-server: ${LINGXI_ROCKETMQ_NAMESRV:localhost:9876}
   producer:
     group: lingxi-admin-producer
