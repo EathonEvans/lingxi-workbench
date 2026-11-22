@@ -1,0 +1,98 @@
+/* 通知中心面板：挂在顶栏铃铛下方，与历史会话 Drawer 风格保持一致 */
+.panel {
+  width: 320px;
+  max-height: 420px;
+  display: flex;
+  flex-direction: column;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 4px 10px;
+  border-bottom: 1px solid rgba(113, 128, 150, 0.16);
+  font-size: 13.5px;
+}
+
+.panelBody {
+  overflow-y: auto;
+  padding-top: 6px;
+}
+
+.panelLoading {
+  display: flex;
+  justify-content: center;
+  padding: 28px 0;
+}
+
+.notification {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.notification:hover {
+  background: rgba(127, 164, 236, 0.1);
+}
+
+.notificationTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #273b64;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.notificationUnread .notificationTitle {
+  color: #1d4fa1;
+}
+
+.notificationContent {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: #5a6b8c;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.notificationTime {
+  color: #8a97b1;
+  font-size: 11.5px;
+}
+
+.unreadDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e5484d;
+  flex-shrink: 0;
+}
+
+:global(html[data-theme="dark"]) .panel {
+  background: transparent;
+}
+
+:global(html[data-theme="dark"]) .notificationTitle {
+  color: #c6d4f0;
+}
+
+:global(html[data-theme="dark"]) .notificationUnread .notificationTitle {
+  color: #9cc0ff;
+}
+
+:global(html[data-theme="dark"]) .notificationContent {
+  color: #8d9cb8;
+}

@@ -1,0 +1,395 @@
+.trace {
+  width: min(560px, 100%);
+  margin: 0 0 12px;
+}
+
+.collapse {
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.collapse :global(.ant-collapse-header:focus-visible) {
+  outline: 2px solid #3f70ce;
+  outline-offset: -2px;
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  width: min(560px, 100%);
+  min-height: 38px;
+  padding: 8px 11px;
+  border: 1px solid #dde5f0;
+  border-radius: 10px;
+  color: #536278;
+  background: #f8fafd;
+  gap: 8px;
+  font-size: 12px;
+  list-style: none;
+}
+
+.summary > svg:first-child {
+  flex: 0 0 auto;
+}
+
+.summary > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.traceSummary {
+  display: flex;
+  min-width: 0;
+  min-height: 22px;
+  align-items: center;
+  color: #536278;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.traceSummary > svg:first-child {
+  flex: 0 0 auto;
+}
+
+.traceSummary > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.running > svg:first-child,
+.planIcon[data-status="RUNNING"] svg {
+  color: #3f70ce;
+  animation: trace-spin 1s linear infinite;
+}
+
+.completed > svg:first-child,
+.planIcon[data-status="COMPLETED"] {
+  color: #218c67;
+}
+
+.reused > svg:first-child {
+  color: #7258c9;
+}
+
+.failed > svg:first-child,
+.planIcon[data-status="FAILED"] {
+  color: #b74d55;
+}
+
+.paused > svg:first-child,
+.planIcon[data-status="CANCELLED"],
+.planIcon[data-status="SKIPPED"] {
+  color: #929cab;
+}
+
+.details {
+  display: grid;
+  padding: 2px 11px 10px 31px;
+  gap: 10px;
+}
+
+.notices {
+  display: grid;
+  padding-top: 8px;
+  gap: 5px;
+}
+
+.noticeInfo,
+.noticeError {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  padding: 6px 8px;
+  border-radius: 7px;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.noticeInfo {
+  color: #536d9b;
+  background: #edf3ff;
+}
+
+.noticeError {
+  color: #a14a54;
+  background: #fff0f1;
+}
+
+.noticeInfo svg,
+.noticeError svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.section {
+  min-width: 0;
+}
+
+.sectionLabel {
+  display: block;
+  margin: 8px 0 4px;
+  color: #929cac;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.operations,
+.plan,
+.progressList {
+  display: grid;
+  padding: 0;
+  margin: 0;
+  gap: 2px;
+  list-style: none;
+}
+
+.progressList li {
+  display: flex;
+  min-height: 25px;
+  align-items: center;
+  color: #7b8798;
+  gap: 7px;
+  font-size: 11px;
+}
+
+.progressList li[data-active="true"] {
+  color: #4d6488;
+}
+
+.progressIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: #7aa2e8;
+}
+
+.progressList li[data-active="true"] .progressIcon {
+  color: #3f70ce;
+  animation: trace-spin 1s linear infinite;
+}
+
+.operations li,
+.planRow {
+  display: flex;
+  min-width: 0;
+  min-height: 29px;
+  align-items: center;
+  color: #5e6b7d;
+  gap: 7px;
+  font-size: 12px;
+}
+
+.planItem {
+  min-width: 0;
+}
+
+.planRow small {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #929cab;
+  font-size: 10px;
+}
+
+.childTrace {
+  display: grid;
+  padding: 7px 8px;
+  margin: 2px 0 7px 20px;
+  border: 1px solid #e2e9f3;
+  border-left: 2px solid #a9bee6;
+  border-radius: 7px;
+  background: #f3f6fa;
+  gap: 5px;
+}
+
+.childTrace .operations li {
+  min-height: 24px;
+}
+
+.agentIcon {
+  flex: 0 0 auto;
+  color: #6d83ad;
+}
+
+.childProgress {
+  display: grid;
+  padding: 2px 0 2px 21px;
+  margin: 0;
+  gap: 3px;
+  list-style: none;
+}
+
+.childProgress li {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  color: #7b8798;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.childProgress li[data-active="true"] {
+  color: #4d6488;
+}
+
+.childProgress li[data-active="true"] .progressIcon {
+  animation: trace-spin 1s linear infinite;
+}
+
+.childLabel {
+  display: block;
+  margin-bottom: 3px;
+  color: #929cac;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.childTools,
+.childOutput {
+  padding: 5px 0 0 21px;
+  border-top: 1px solid #e2e8f1;
+}
+
+.childOutput p {
+  max-height: 92px;
+  margin: 0;
+  color: #728096;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.childOutput[data-live="true"] {
+  border-top-color: #b9cbed;
+}
+
+.operationIcon,
+.planIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: #8f99a8;
+}
+
+.operationName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 999px;
+  color: #637086;
+  background: #e9eef6;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.operationMeta {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #929cab;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes trace-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+:global([data-theme="dark"]) .trace,
+:global([data-theme="dark"]) .summary {
+  color: #a9b5c8;
+}
+
+:global([data-theme="dark"]) .traceSummary {
+  color: #a9b5c8;
+}
+
+:global([data-theme="dark"]) .operations li,
+:global([data-theme="dark"]) .planRow,
+:global([data-theme="dark"]) .progressList li {
+  color: #a9b5c8;
+}
+
+:global([data-theme="dark"]) .noticeInfo {
+  color: #a9bde4;
+  background: #253653;
+}
+
+:global([data-theme="dark"]) .noticeError {
+  color: #e1a5ab;
+  background: #472b31;
+}
+
+:global([data-theme="dark"]) .childTrace {
+  border-color: #3b4d68;
+  border-left-color: #5874a5;
+  background: #1d2633;
+}
+
+:global([data-theme="dark"]) .childProgress li,
+:global([data-theme="dark"]) .childOutput p {
+  color: #9eabc0;
+}
+
+:global([data-theme="dark"]) .childTools,
+:global([data-theme="dark"]) .childOutput {
+  border-color: #344256;
+}
+
+:global([data-theme="dark"]) .count {
+  color: #b7c2d3;
+  background: #303b4c;
+}
+
+@media (max-width: 640px) {
+  .details {
+    padding-left: 14px;
+  }
+
+  .operations li {
+    flex-wrap: wrap;
+  }
+
+  .operationMeta {
+    width: 100%;
+    margin: -3px 0 3px 21px;
+  }
+
+  .childTrace {
+    margin-left: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .running > svg:first-child,
+  .planIcon[data-status="RUNNING"] svg {
+    animation: none;
+  }
+
+  .progressList li[data-active="true"] .progressIcon {
+    animation: none;
+  }
+
+  .childProgress li[data-active="true"] .progressIcon {
+    animation: none;
+  }
+
+  .collapse :global(.ant-collapse-content) {
+    transition: none !important;
+  }
+}
