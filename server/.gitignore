@@ -1,0 +1,12 @@
+.idea/
+.vscode/
+.DS_Store
+target/
+.agentscope/
+*.iml
+*.log
+.env
+.env.*
+!.env.example
+.learnings/
+docs

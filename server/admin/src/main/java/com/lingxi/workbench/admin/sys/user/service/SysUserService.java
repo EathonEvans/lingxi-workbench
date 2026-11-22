@@ -1,0 +1,43 @@
+package com.lingxi.workbench.admin.sys.user.service;
+
+import com.lingxi.workbench.admin.sys.user.model.request.CreateSysUserRequest;
+import com.lingxi.workbench.admin.auth.model.request.SysUserPageQuery;
+import com.lingxi.workbench.admin.sys.user.model.request.UpdateSysUserRequest;
+import com.lingxi.workbench.admin.sys.user.model.vo.SysAvatarVO;
+import com.lingxi.workbench.admin.sys.user.model.vo.SysUserVO;
+import com.lingxi.workbench.framework.convention.PageResult;
+
+import java.util.Set;
+
+/**
+ * 系统用户目录业务。
+ */
+public interface SysUserService {
+
+    /**
+     * 按条件分页查询系统用户。
+     */
+    PageResult<SysUserVO> page(SysUserPageQuery query);
+
+    /**
+     * 创建系统用户；角色由专用角色分配接口维护。
+     */
+    SysUserVO create(CreateSysUserRequest request);
+
+    /**
+     * 更新系统用户基础资料和状态。
+     */
+    SysUserVO update(Long id, UpdateSysUserRequest request);
+
+    /**
+     * 当前管理员仅修改自己的头像，不影响账号状态和两端访问权限。
+     */
+    SysAvatarVO updateCurrentAvatar(String avatarObjectKey);
+
+    /**
+     * 记录账号管理端角色变更，供角色业务在关系保存后调用。
+     */
+    void recordRoleAssignment(Long userId, Set<Long> roleIds);
+    /** 批量校验授权主体存在性；启用状态由运行时读取当前值。 */
+    boolean existsAll(Set<Long> ids);
+}

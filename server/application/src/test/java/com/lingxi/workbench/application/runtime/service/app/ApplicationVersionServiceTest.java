@@ -1,0 +1,243 @@
+package com.lingxi.workbench.application.runtime.service.app;
+
+import com.lingxi.workbench.application.runtime.model.AppRuntimeSnapshot;
+import com.lingxi.workbench.application.runtime.model.entity.RuntimeApplicationEntity;
+import com.lingxi.workbench.application.runtime.model.entity.RuntimeApplicationVersionEntity;
+import com.lingxi.workbench.application.runtime.model.vo.ApplicationAssistantIdentityVO;
+import com.lingxi.workbench.application.runtime.model.vo.AvailableApplicationVO;
+import com.lingxi.workbench.application.runtime.repo.ApplicationRuntimeRepo;
+import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.workflow.model.CapabilityDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationCapabilityType;
+import com.lingxi.workbench.workflow.model.ApplicationAgentReference;
+import com.lingxi.workbench.workflow.model.AgentCollaborationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationContextPolicy;
+import com.lingxi.workbench.workflow.model.ApplicationDefinition;
+import com.lingxi.workbench.workflow.model.ApplicationRuntimePolicy;
+import com.lingxi.workbench.workflow.model.FallbackAgent;
+import com.lingxi.workbench.workflow.model.CapabilityCatalogSnapshot;
+import com.lingxi.workbench.workflow.model.MemoryConfig;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static com.lingxi.workbench.workflow.common.constants.ApplicationCollaborationConstants.APPLICATION_SCHEMA_VERSION;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+/**
+ * Application 运行时业务测试。
+ */
+class ApplicationVersionServiceTest {
+
+    @Test
+    void shouldExposeStableCodeInsteadOfPublishedVersionId() {
+        RuntimeApplicationEntity application = application();
+        RuntimeApplicationVersionEntity version = version(executableDefinition());
+
+        ApplicationVersionService service = service(application, version);
+
+        List<AvailableApplicationVO> applications = service.listAvailableApplications();
+
+        assertEquals(
+                List.of(new AvailableApplicationVO(
+                        "general_assistant", "灵析通用助手", "企业知识问答",
+                        new ApplicationAssistantIdentityVO("灵析通用助手", null))),
+                applications);
+    }
+
+    @Test
+    void shouldHideApplicationWithUnsupportedPublishedSchema() {
+        RuntimeApplicationEntity application = application();
+        RuntimeApplicationVersionEntity version = version(ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION - 1)
+                .build());
+        ApplicationVersionService service = service(application, version);
+
+        List<AvailableApplicationVO> applications = service.listAvailableApplications();
+
+        assertEquals(List.of(), applications);
+    }
+
+    @Test
+    void shouldHideApplicationWhenPublishedVersionBelongsToAnotherApplication() {
+        RuntimeApplicationEntity application = application();
+        RuntimeApplicationVersionEntity version = version(executableDefinition());
+        version.setApplicationId(99L);
+        ApplicationVersionService service = service(application, version);
+
+        List<AvailableApplicationVO> applications = service.listAvailableApplications();
+
+        assertEquals(List.of(), applications);
+    }
+
+    @Test
+    void shouldResolvePublishedApplicationWithOnlyDefaultAgent() {
+        RuntimeApplicationEntity application = application();
+        RuntimeApplicationVersionEntity version = version(executableDefinition());
+        ApplicationVersionService service = service(application, version);
+
+        AppRuntimeSnapshot snapshot = assertDoesNotThrow(
+                () -> service.loadRuntimeAppConfig("GENERAL_ASSISTANT"));
+
+        assertEquals(35L, snapshot.versionId());
+        assertEquals("default_agent", snapshot.definition().fallback().cap());
+    }
+
+    @Test
+    void shouldLoadExecutionConfigWithoutResolvingAvatar() {
+        RuntimeApplicationEntity application = application();
+        RuntimeApplicationVersionEntity version = version(executableDefinition());
+        version.setAvatar("application/avatar.png");
+        ApplicationAvatarUrlService avatarService = mock(ApplicationAvatarUrlService.class);
+        when(avatarService.resolve(version.getAvatar())).thenThrow(new IllegalStateException("storage unavailable"));
+        ApplicationVersionService service = new ApplicationVersionService(
+                new StubApplicationRuntimeRepo(application, version), avatarService);
+
+        assertEquals(35L, service.loadRuntimeAppConfig("general_assistant").versionId());
+        assertEquals(35L, service.loadRuntimeAppVersion(21L, 35L).versionId());
+        verifyNoInteractions(avatarService);
+    }
+
+    @Test
+    void shouldResolveAvatarOnceForAvailableApplication() {
+        RuntimeApplicationEntity application = application();
+        RuntimeApplicationVersionEntity version = version(executableDefinition());
+        version.setAvatar("application/avatar.png");
+        ApplicationAvatarUrlService avatarService = mock(ApplicationAvatarUrlService.class);
+        when(avatarService.resolve(version.getAvatar())).thenReturn("signed-avatar-url");
+        ApplicationVersionService service = new ApplicationVersionService(
+                new StubApplicationRuntimeRepo(application, version), avatarService);
+
+        assertEquals(new ApplicationAssistantIdentityVO("灵析通用助手", "signed-avatar-url"),
+                service.listAvailableApplications().getFirst().assistant());
+        verify(avatarService).resolve(version.getAvatar());
+    }
+
+    @Test
+    void shouldRejectMissingAssistantNameWithoutResolvingAvatar() {
+        RuntimeApplicationEntity application = application();
+        RuntimeApplicationVersionEntity version = version(executableDefinition());
+        version.setName(" ");
+        ApplicationAvatarUrlService avatarService = mock(ApplicationAvatarUrlService.class);
+        ApplicationVersionService service = new ApplicationVersionService(
+                new StubApplicationRuntimeRepo(application, version), avatarService);
+
+        assertEquals(List.of(), service.listAvailableApplications());
+        assertThrows(BusinessException.class, () -> service.loadRuntimeAppConfig("general_assistant"));
+        verifyNoInteractions(avatarService);
+    }
+
+    @Test
+    void shouldRejectPublishedApplicationWithoutFallbackAgent() {
+        RuntimeApplicationEntity application = application();
+        ApplicationDefinition definition = executableDefinition();
+        definition.setFallback(null);
+        RuntimeApplicationVersionEntity version = version(definition);
+        ApplicationVersionService service = service(application, version);
+
+        assertThrows(BusinessException.class, () -> service.loadRuntimeAppConfig("general_assistant"));
+    }
+
+    @Test
+    void shouldRejectIncompletePublishedDefinitionWithoutRuntimeDefaulting() {
+        RuntimeApplicationEntity application = application();
+        ApplicationDefinition definition = executableDefinition();
+        definition.setMemoryConf(null);
+        RuntimeApplicationVersionEntity version = version(definition);
+        ApplicationVersionService service = service(application, version);
+
+        assertThrows(BusinessException.class, () -> service.loadRuntimeAppConfig("general_assistant"));
+    }
+
+    private static RuntimeApplicationEntity application() {
+        RuntimeApplicationEntity application = new RuntimeApplicationEntity();
+        application.setId(21L);
+        application.setName("灵析通用助手");
+        application.setCode("general_assistant");
+        application.setDescription("企业知识问答");
+        application.setPublishedVersionId(35L);
+        return application;
+    }
+
+    private static RuntimeApplicationVersionEntity version(ApplicationDefinition definition) {
+        RuntimeApplicationVersionEntity version = new RuntimeApplicationVersionEntity();
+        version.setId(35L);
+        version.setApplicationId(21L);
+        version.setName("灵析通用助手");
+        version.setDefinitionSnapshot(definition);
+        return version;
+    }
+
+    private static ApplicationVersionService service(
+            RuntimeApplicationEntity application, RuntimeApplicationVersionEntity version) {
+        return new ApplicationVersionService(
+                new StubApplicationRuntimeRepo(application, version), mock(ApplicationAvatarUrlService.class));
+    }
+
+    private static ApplicationDefinition executableDefinition() {
+        CapabilityDefinition capability = CapabilityDefinition.builder()
+                .code("default_agent")
+                .type(ApplicationCapabilityType.AGENT)
+                .targetId(40L)
+                .targetVersionId(41L)
+                .build();
+        return ApplicationDefinition.builder()
+                .schemaVersion(APPLICATION_SCHEMA_VERSION)
+                .collaboration(new AgentCollaborationDefinition(
+                        new ApplicationAgentReference(40L, 41L, "通用助手", "负责默认收口"),
+                        List.of(), List.of(), List.of()))
+                .memoryConf(MemoryConfig.disabled())
+                .contextPolicy(ApplicationContextPolicy.defaults())
+                .fallback(new FallbackAgent("default_agent"))
+                .capabilityCatalog(CapabilityCatalogSnapshot.builder().capabilities(List.of(capability)).build())
+                .runtimePolicy(ApplicationRuntimePolicy.defaults())
+                .build();
+    }
+
+    /**
+     * 只替换本测试关心的只读仓储边界，避免测试依赖数据库或 Mock 框架代理能力。
+     */
+    private static final class StubApplicationRuntimeRepo extends ApplicationRuntimeRepo {
+
+        private final RuntimeApplicationEntity application;
+        private final RuntimeApplicationVersionEntity version;
+
+        private StubApplicationRuntimeRepo(RuntimeApplicationEntity application, RuntimeApplicationVersionEntity version) {
+            super(null, null);
+            this.application = application;
+            this.version = version;
+        }
+
+        @Override
+        public List<RuntimeApplicationEntity> findAvailableApplications() {
+            return List.of(application);
+        }
+
+        @Override
+        public List<RuntimeApplicationVersionEntity> findVersionsByIds(List<Long> versionIds) {
+            return Optional.ofNullable(version).stream().toList();
+        }
+
+        @Override
+        public Optional<RuntimeApplicationEntity> findActiveByCode(String code) {
+            return Optional.of(application);
+        }
+
+        @Override
+        public Optional<RuntimeApplicationEntity> findById(Long applicationId) {
+            return Optional.of(application);
+        }
+
+        @Override
+        public Optional<RuntimeApplicationVersionEntity> findVersion(Long applicationId, Long versionId) {
+            return Optional.ofNullable(version);
+        }
+    }
+}

@@ -1,0 +1,34 @@
+package com.lingxi.workbench.application.runtime.model.entity;
+
+import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.lingxi.workbench.agentruntime.plan.RuntimeTaskStep;
+import com.lingxi.workbench.application.runtime.common.enums.ExecutionStepStatus;
+import com.lingxi.workbench.framework.persistence.handler.GsonJsonbTypeHandler;
+import lombok.Data;
+import org.apache.ibatis.type.JdbcType;
+
+import java.time.OffsetDateTime;
+
+/** 单个 AgentScope 任务委派的一次追加式执行尝试。 */
+@Data
+@TableName(value = "lingxi_core.ai_execution_step_attempt", autoResultMap = true)
+public class ExecutionStepAttemptEntity {
+
+    private Long id;
+    private String runId;
+    private Integer taskRevision;
+    private String stepId;
+    private Integer attemptNo;
+    private String capabilityCode;
+    private ExecutionStepStatus status;
+    @TableField(typeHandler = GsonJsonbTypeHandler.class, jdbcType = JdbcType.OTHER)
+    private RuntimeTaskStep stepSnapshot;
+    private String resultContent;
+    private String errorCode;
+    private OffsetDateTime startedAt;
+    private OffsetDateTime finishedAt;
+    @TableField(fill = FieldFill.INSERT)
+    private OffsetDateTime createdAt;
+}

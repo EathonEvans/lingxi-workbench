@@ -1,0 +1,120 @@
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.2-pg17
+    environment:
+      POSTGRES_DB: lingxi
+      POSTGRES_USER: lingxi
+      POSTGRES_PASSWORD: lingxi
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lingxi -d lingxi"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - lingxi-postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7.4.2-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: lingxi
+      MINIO_ROOT_PASSWORD: lingxi-minio-dev
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - lingxi-minio:/data
+
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.3.1
+    container_name: rmq-namesrv
+    restart: unless-stopped
+    command: sh mqnamesrv
+    ports:
+      - "9876:9876"
+    environment:
+      JAVA_OPT_EXT: -Xms512m -Xmx512m -Xmn256m
+    healthcheck:
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/9876"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - lingxi-rmq-namesrv:/home/rocketmq/logs
+
+  rocketmq-volume-init:
+    image: apache/rocketmq:5.3.1
+    user: root
+    entrypoint: sh
+    command: -c "chown -R 3000:3000 /home/rocketmq/store /home/rocketmq/broker-logs /home/rocketmq/namesrv-logs"
+    volumes:
+      - lingxi-rmq-broker-data:/home/rocketmq/store
+      - lingxi-rmq-broker-logs:/home/rocketmq/broker-logs
+      - lingxi-rmq-namesrv:/home/rocketmq/namesrv-logs
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.3.1
+    container_name: rmq-broker
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - |
+        sed "s/^brokerIP1=.*/brokerIP1=$${LINGXI_ROCKETMQ_BROKER_IP}/" /home/rocketmq/conf/broker.conf > /tmp/broker.conf
+        exec sh mqbroker -n rocketmq-namesrv:9876 -c /tmp/broker.conf
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+      - "10912:10912"
+    environment:
+      JAVA_OPT_EXT: -Xms1g -Xmx1g -Xmn512m
+      LINGXI_ROCKETMQ_BROKER_IP: ${LINGXI_ROCKETMQ_BROKER_IP:-127.0.0.1}
+    depends_on:
+      rocketmq-namesrv:
+        condition: service_healthy
+      rocketmq-volume-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/10911"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    volumes:
+      - ./rocketmq/broker.conf:/home/rocketmq/conf/broker.conf:ro
+      - lingxi-rmq-broker-data:/home/rocketmq/store
+      - lingxi-rmq-broker-logs:/home/rocketmq/logs
+
+  rocketmq-topic-init:
+    image: apache/rocketmq:5.3.1
+    entrypoint: sh
+    command:
+      - -c
+      - >-
+        sh mqadmin updateTopic
+        -n rocketmq-namesrv:9876
+        -c DefaultCluster
+        -t lingxi-conversation-event-tx
+        -a +message.type=TRANSACTION
+    depends_on:
+      rocketmq-broker:
+        condition: service_healthy
+
+volumes:
+  lingxi-postgres:
+  lingxi-minio:
+  lingxi-rmq-namesrv:
+  lingxi-rmq-broker-data:
+  lingxi-rmq-broker-logs:

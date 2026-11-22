@@ -1,0 +1,32 @@
+package com.lingxi.workbench.application.runtime.model;
+
+import com.lingxi.workbench.agentruntime.plan.RuntimeClarification;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
+
+/** Agent 运行时澄清或风险确认的持久化上下文。 */
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
+public class InteractionSessionContext {
+
+    private RuntimeClarification clarification;
+    private List<String> capabilityCodes;
+    private String originalQuery;
+    private String response;
+    private String title;
+    private String summary;
+    private String riskLevel;
+    private String resourceScope;
+    private String toolCode;
+
+    public List<String> capabilityCodes() {
+        return capabilityCodes == null ? List.of() : List.copyOf(capabilityCodes);
+    }
+}

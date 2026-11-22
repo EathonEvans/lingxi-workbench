@@ -1,0 +1,8 @@
+package com.lingxi.workbench.admin.model.repo.mapper;
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.lingxi.workbench.admin.model.model.entity.ModelCredentialEntity;
+import org.apache.ibatis.annotations.Mapper;
+
+/** 模型访问密钥 MyBatis 数据访问层。 */
+@Mapper
+public interface ModelCredentialMapper extends BaseMapper<ModelCredentialEntity> { }

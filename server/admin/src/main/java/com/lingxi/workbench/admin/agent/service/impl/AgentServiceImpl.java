@@ -1,0 +1,519 @@
+package com.lingxi.workbench.admin.agent.service.impl;
+
+import cn.hutool.core.text.CharSequenceUtil;
+import com.lingxi.workbench.infra.ai.agent.common.enums.AgentRole;
+import com.lingxi.workbench.infra.ai.agent.model.PlanPolicy;
+import com.lingxi.workbench.admin.agent.common.enums.KnowledgeBindingMode;
+import com.lingxi.workbench.admin.agent.model.config.AgentDefinition;
+import com.lingxi.workbench.admin.agent.model.config.AgentToolPolicy;
+import com.lingxi.workbench.admin.agent.model.config.GenerationPolicy;
+import com.lingxi.workbench.admin.agent.model.config.KnowledgeSearchCapabilitySnapshot;
+import com.lingxi.workbench.admin.agent.model.config.RetrievalPolicy;
+import com.lingxi.workbench.admin.agent.model.converter.AgentConverter;
+import com.lingxi.workbench.admin.agent.model.entity.AgentDraftEntity;
+import com.lingxi.workbench.admin.agent.model.entity.AgentDraftKnowledgeEntity;
+import com.lingxi.workbench.admin.agent.model.entity.AgentEntity;
+import com.lingxi.workbench.admin.agent.model.entity.AgentVersionEntity;
+import com.lingxi.workbench.admin.agent.model.entity.AgentVersionKnowledgeEntity;
+import com.lingxi.workbench.admin.agent.model.entity.AgentVersionSkillEntity;
+import com.lingxi.workbench.admin.agent.model.request.AgentPageQuery;
+import com.lingxi.workbench.admin.agent.model.request.CreateAgentRequest;
+import com.lingxi.workbench.admin.agent.model.request.PublishAgentRequest;
+import com.lingxi.workbench.admin.agent.model.request.SaveAgentDraftRequest;
+import com.lingxi.workbench.admin.agent.model.request.UpdateAgentRequest;
+import com.lingxi.workbench.admin.agent.model.vo.AgentDetailVO;
+import com.lingxi.workbench.admin.agent.model.vo.AgentValidationIssueVO;
+import com.lingxi.workbench.admin.agent.model.vo.AgentValidationResultVO;
+import com.lingxi.workbench.admin.agent.model.vo.AgentToolOptionVO;
+import com.lingxi.workbench.admin.agent.model.vo.AgentSkillOptionVO;
+import com.lingxi.workbench.admin.agent.model.vo.AgentVO;
+import com.lingxi.workbench.admin.agent.model.vo.AgentVersionDetailVO;
+import com.lingxi.workbench.admin.agent.model.vo.AgentVersionVO;
+import com.lingxi.workbench.admin.agent.repo.AgentDraftKnowledgeRepo;
+import com.lingxi.workbench.admin.agent.repo.AgentDraftRepo;
+import com.lingxi.workbench.admin.agent.repo.AgentRepo;
+import com.lingxi.workbench.admin.agent.repo.AgentVersionKnowledgeRepo;
+import com.lingxi.workbench.admin.agent.repo.AgentVersionRepo;
+import com.lingxi.workbench.admin.agent.repo.AgentVersionSkillRepo;
+import com.lingxi.workbench.admin.agent.service.AgentDraftValidator;
+import com.lingxi.workbench.admin.agent.service.AgentSkillBindingResolver;
+import com.lingxi.workbench.admin.agent.service.AgentService;
+import com.lingxi.workbench.admin.agent.service.AgentSnapshotChecksum;
+import com.lingxi.workbench.admin.common.enums.EnableStatus;
+import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeBaseEntity;
+import com.lingxi.workbench.admin.knowledge.model.entity.KnowledgeIndexVersionEntity;
+import com.lingxi.workbench.admin.knowledge.repo.KnowledgeBaseRepo;
+import com.lingxi.workbench.admin.knowledge.service.KnowledgeIndexVersionService;
+import com.lingxi.workbench.admin.domain.model.entity.DomainEntity;
+import com.lingxi.workbench.admin.domain.service.DomainService;
+import com.lingxi.workbench.admin.tool.service.ToolService;
+import com.lingxi.workbench.framework.audit.AuditService;
+import com.lingxi.workbench.framework.common.enums.HttpStatusEnum;
+import com.lingxi.workbench.framework.convention.PageResult;
+import com.lingxi.workbench.framework.exceptions.BusinessException;
+import com.lingxi.workbench.infra.ai.skill.model.AgentSkillBindingSnapshot;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+import static com.lingxi.workbench.infra.ai.agent.common.constants.AgentSchemaConstants.AGENT_SCHEMA_VERSION;
+
+/** Agent 控制面业务实现。 */
+@Service
+@RequiredArgsConstructor
+public class AgentServiceImpl implements AgentService {
+    private static final int KNOWLEDGE_SEARCH_MAX_QUERY_CHARACTERS = 2000;
+    private static final int KNOWLEDGE_SEARCH_TIMEOUT_SECONDS = 15;
+
+    private final AgentRepo agentRepo;
+    private final AgentDraftRepo draftRepo;
+    private final AgentDraftKnowledgeRepo draftKnowledgeRepo;
+    private final AgentVersionRepo versionRepo;
+    private final AgentVersionKnowledgeRepo versionKnowledgeRepo;
+    private final AgentVersionSkillRepo versionSkillRepo;
+    private final KnowledgeBaseRepo knowledgeBaseRepo;
+    private final KnowledgeIndexVersionService knowledgeIndexVersionService;
+    private final AgentDraftValidator draftValidator;
+    private final AgentSkillBindingResolver skillBindingResolver;
+    private final AgentSnapshotChecksum snapshotChecksum;
+    private final AgentConverter converter;
+    private final AuditService auditService;
+    private final ToolService toolService;
+    private final DomainService domainService;
+
+    @Override
+    @Transactional(readOnly = true)
+    /** 分页查询 Agent，同时填充草稿 revision 和生效版本号到列表 VO。 */
+    public PageResult<AgentVO> page(AgentPageQuery query) {
+        PageResult<AgentEntity> page = agentRepo.findPage(query);
+        List<Long> agentIds = page.records().stream().map(AgentEntity::getId).toList();
+        Map<Long, AgentDraftEntity> drafts = draftRepo.findAllByAgentIds(agentIds).stream()
+                .collect(Collectors.toMap(AgentDraftEntity::getAgentId, Function.identity()));
+        Map<Long, AgentVersionEntity> versions = versionRepo.findAllByAgentIds(agentIds).stream()
+                .collect(Collectors.toMap(
+                        AgentVersionEntity::getId,
+                        Function.identity(),
+                        (left, right) -> left));
+        return page.map(agent -> converter.toListVO(
+                agent,
+                versions.get(agent.getPublishedVersionId()),
+                drafts.get(agent.getId())));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    /** 查看 Agent 编辑详情，组装主记录、草稿、知识库绑定和生效版本。 */
+    public AgentDetailVO detail(Long id) {
+        AgentEntity agent = requireAgent(id);
+        AgentDraftEntity draft = requireDraft(id);
+        AgentDraftKnowledgeEntity knowledge =
+                draftKnowledgeRepo.findByDraftId(draft.getId()).orElse(null);
+        AgentVersionEntity publishedVersion = Objects.isNull(agent.getPublishedVersionId())
+                ? null
+                : versionRepo.findById(agent.getPublishedVersionId()).orElse(null);
+        return converter.toDetailVO(agent, publishedVersion, draft, knowledge);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    /** 查看 Agent 历史发布版本列表。 */
+    public List<AgentVersionVO> versions(Long id) {
+        requireAgent(id);
+        return versionRepo.findAll(id).stream().map(converter::toVersionVO).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    /** 返回控制面已启用的 Tool 目录，管理端不能提交目录外的工具编码。 */
+    public List<AgentToolOptionVO> toolOptions() {
+        return toolService.activeOptions().stream()
+                .map(option -> new AgentToolOptionVO(option.getCode(), option.getName(), option.getDescription()))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    /** 返回允许领域专家绑定的平台预设 Skill。 */
+    public List<AgentSkillOptionVO> skillOptions() {
+        return skillBindingResolver.options();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    /** 查看指定发布版本详情，含完整定义快照。 */
+    public AgentVersionDetailVO versionDetail(Long id, Long versionId) {
+        requireAgent(id);
+        return converter.toVersionDetailVO(requireVersion(id, versionId));
+    }
+
+    @Override
+    @Transactional
+    /** 创建 Agent，同时初始化各策略默认值的草稿，记录审计。 */
+    public AgentDetailVO create(CreateAgentRequest request, Long operatorId) {
+        String code = request.getCode().trim().toLowerCase();
+        if (agentRepo.existsByCode(code, null)) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "Agent编码已存在");
+        }
+        AgentEntity agent = new AgentEntity();
+        agent.setName(request.getName().trim());
+        agent.setCode(code);
+        agent.setDescription(trimToNull(request.getDescription()));
+        agent.setRole(request.getRole());
+        agent.setDomainId(resolveDomain(request.getRole(), request.getDomainId()));
+        agent.setStatus(EnableStatus.ACTIVE);
+        agent.setCreatedBy(operatorId);
+        agent.setUpdatedBy(operatorId);
+        agentRepo.save(agent);
+
+        AgentDraftEntity draft = new AgentDraftEntity();
+        draft.setAgentId(agent.getId());
+        draft.setSchemaVersion(AGENT_SCHEMA_VERSION);
+        draft.setRetrievalPolicy(RetrievalPolicy.defaults());
+        draft.setGenerationPolicy(GenerationPolicy.defaults());
+        draft.setToolCodes(List.of());
+        draft.setSkillIds(List.of());
+        draft.setToolPolicy(AgentToolPolicy.defaults());
+        draft.setPlanPolicy(request.getRole() == AgentRole.SUPERVISOR
+                ? PlanPolicy.defaults()
+                : null);
+        draft.setRevision(0L);
+        draft.setCreatedBy(operatorId);
+        draft.setUpdatedBy(operatorId);
+        draftRepo.insert(draft);
+
+        auditService.record(
+                "AGENT", "AGENT", agent.getId(), operatorId, "AGENT_CREATE",
+                "Agent编码=" + code + "，角色=" + request.getRole().getCode());
+        return detail(agent.getId());
+    }
+
+    @Override
+    @Transactional
+    /** 修改 Agent 名称和描述元信息。 */
+    public AgentDetailVO update(
+            Long id, UpdateAgentRequest request, Long operatorId) {
+        AgentEntity agent = requireAgent(id);
+        agent.setName(request.getName().trim());
+        agent.setDescription(trimToNull(request.getDescription()));
+        agent.setDomainId(resolveDomain(agent.getRole(), request.getDomainId()));
+        agent.setUpdatedBy(operatorId);
+        agentRepo.save(agent);
+        auditService.record(
+                "AGENT", "AGENT", id, operatorId, "AGENT_UPDATE",
+                "Agent编码=" + agent.getCode());
+        return detail(id);
+    }
+
+    @Override
+    @Transactional
+    /** 保存 Agent 草稿配置，以 revision 做乐观锁防止并发覆盖，同步更新知识库绑定。 */
+    public AgentDetailVO saveDraft(Long id, SaveAgentDraftRequest request, Long operatorId) {
+        AgentEntity agent = requireAgent(id);
+        AgentDraftEntity draft = draftRepo.findByAgentIdForUpdate(id)
+                .orElseThrow(() -> new BusinessException(
+                        HttpStatusEnum.CONFLICT, "Agent草稿不存在"));
+        if (!Objects.equals(draft.getRevision(), request.getExpectedRevision())) {
+            throw new BusinessException(
+                    HttpStatusEnum.CONFLICT, "Agent草稿已被其他操作修改，请刷新后重试");
+        }
+
+        draft.setChatModelInstanceId(request.getChatModelInstanceId());
+        draft.setSystemPromptVersionId(request.getSystemPromptVersionId());
+        draft.setUserPromptVersionId(request.getUserPromptVersionId());
+        draft.setToolCodes(request.getToolCodes().stream().distinct().toList());
+        draft.setSkillIds(agent.getRole() == AgentRole.SPECIALIST
+                ? request.getSkillIds().stream().distinct().toList()
+                : List.of());
+        draft.setToolPolicy(request.getToolPolicy());
+        applyTypeSpecificDraft(agent.getRole(), draft, request);
+        draft.setGenerationPolicy(request.getGenerationPolicy());
+        draft.setChangeNote(trimToNull(request.getChangeNote()));
+        draft.setUpdatedBy(operatorId);
+        if (!draftRepo.isUpdatedWithRevision(draft, request.getExpectedRevision())) {
+            throw new BusinessException(
+                    HttpStatusEnum.CONFLICT, "Agent草稿已被其他操作修改，请刷新后重试");
+        }
+        saveKnowledgeBinding(agent.getRole(), draft, request.getKnowledgeBaseId());
+        auditService.record(
+                "AGENT", "AGENT_DRAFT", draft.getId(), operatorId, "AGENT_DRAFT_SAVE",
+                "Agent主键=" + id + "，revision=" + (request.getExpectedRevision() + 1));
+        return detail(id);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    /** 对当前草稿执行发布前逐项校验，返回每个检查点的通过/失败详情。 */
+    public AgentValidationResultVO validate(Long id) {
+        AgentEntity agent = requireAgent(id);
+        AgentDraftEntity draft = requireDraft(id);
+        AgentDraftKnowledgeEntity knowledge =
+                draftKnowledgeRepo.findByDraftId(draft.getId()).orElse(null);
+        return draftValidator.validate(agent, draft, knowledge);
+    }
+
+    @Override
+    @Transactional
+    /** 校验草稿、构建定义快照并生成 SHA-256，去重后创建不可变版本并标记为当前生效版本。 */
+    public AgentVersionDetailVO publish(
+            Long id, PublishAgentRequest request, Long operatorId) {
+        AgentEntity agent = agentRepo.findByIdForUpdate(id)
+                .orElseThrow(() -> new BusinessException(
+                        HttpStatusEnum.NOT_FOUND, "Agent不存在"));
+        AgentDraftEntity draft = draftRepo.findByAgentIdForUpdate(id)
+                .orElseThrow(() -> new BusinessException(
+                        HttpStatusEnum.CONFLICT, "Agent草稿不存在"));
+        if (!Objects.equals(draft.getRevision(), request.getExpectedRevision())) {
+            throw new BusinessException(
+                    HttpStatusEnum.CONFLICT, "Agent草稿已变化，请重新校验后发布");
+        }
+        AgentDraftKnowledgeEntity knowledge = draftKnowledgeRepo
+                .findByDraftId(draft.getId())
+                .orElse(null);
+        AgentValidationResultVO validation = draftValidator.validate(agent, draft, knowledge);
+        if (!validation.valid()) {
+            String message = validation.issues().stream()
+                    .map(AgentValidationIssueVO::message)
+                    .collect(Collectors.joining("；"));
+            throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "Agent发布校验失败：" + message);
+        }
+
+        List<AgentSkillBindingSnapshot> skillBindings = skillBindingResolver.resolve(draft.getSkillIds(), draft.getToolCodes());
+        KnowledgeIndexVersionEntity knowledgeIndex = publishKnowledgeIndex(agent, knowledge, operatorId);
+        AgentDefinition definition = buildDefinition(agent, draft, knowledge, knowledgeIndex, skillBindings);
+        String checksum = snapshotChecksum.calculate(definition);
+        if (versionRepo.existsByChecksum(id, checksum)) {
+            throw new BusinessException(
+                    HttpStatusEnum.CONFLICT, "当前草稿与已发布版本完全相同，无需重复发布");
+        }
+        int versionNo = versionRepo.nextVersionNo(id);
+        OffsetDateTime now = OffsetDateTime.now();
+        AgentVersionEntity version = new AgentVersionEntity();
+        version.setAgentId(id);
+        version.setVersionNo(versionNo);
+        version.setVersionName(versionName(request.getVersionName(), versionNo));
+        version.setSchemaVersion(draft.getSchemaVersion());
+        version.setDefinitionSnapshot(definition);
+        version.setSnapshotChecksum(checksum);
+        version.setChangeNote(draft.getChangeNote());
+        version.setPublishedBy(operatorId);
+        version.setPublishedAt(now);
+        versionRepo.insert(version);
+        insertVersionKnowledge(version.getId(), knowledge, knowledgeIndex);
+        insertVersionSkills(version.getId(), skillBindings);
+
+        agent.setPublishedVersionId(version.getId());
+        agent.setUpdatedBy(operatorId);
+        agentRepo.save(agent);
+        draftRepo.updatePublicationBase(
+                draft.getId(), version.getId(), operatorId, request.getExpectedRevision());
+        auditService.record(
+                "AGENT", "AGENT", id, operatorId, "AGENT_PUBLISH",
+                "Agent编码=" + agent.getCode() + "，发布版本=V" + versionNo
+                        + "，checksum=" + checksum);
+        return converter.toVersionDetailVO(version);
+    }
+
+    @Override
+    @Transactional
+    /** 将 Agent 当前生效版本切换为指定历史版本。 */
+    public void activateVersion(
+            Long id, Long versionId, Long operatorId) {
+        AgentEntity agent = agentRepo.findByIdForUpdate(id)
+                .orElseThrow(() -> new BusinessException(
+                        HttpStatusEnum.NOT_FOUND, "Agent不存在"));
+        if (agent.getStatus() != EnableStatus.ACTIVE) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "停用的Agent不能切换版本");
+        }
+        AgentVersionEntity version = requireVersion(id, versionId);
+        if (!Objects.equals(version.getSchemaVersion(), AGENT_SCHEMA_VERSION)
+                || version.getDefinitionSnapshot() == null
+                || version.getDefinitionSnapshot().getRole() != agent.getRole()) {
+            throw new BusinessException(
+                    HttpStatusEnum.CONFLICT,
+                    "只能激活与当前Agent角色一致的正式版本");
+        }
+        skillBindingResolver.validateFrozen(
+                version.getDefinitionSnapshot().getSkills(), version.getDefinitionSnapshot().getToolCodes());
+        agent.setPublishedVersionId(versionId);
+        agent.setUpdatedBy(operatorId);
+        agentRepo.save(agent);
+        auditService.record(
+                "AGENT", "AGENT", id, operatorId, "AGENT_VERSION_ACTIVATE",
+                "Agent编码=" + agent.getCode() + "，生效版本=V" + version.getVersionNo());
+    }
+
+    @Override
+    @Transactional
+    /** 启用或停用 Agent，记录操作审计。 */
+    public void changeStatus(Long id, EnableStatus status, Long operatorId) {
+        AgentEntity agent = requireAgent(id);
+        agent.setStatus(status);
+        agent.setUpdatedBy(operatorId);
+        agentRepo.save(agent);
+        auditService.record(
+                "AGENT", "AGENT", id, operatorId, "AGENT_STATUS_CHANGE",
+                "Agent编码=" + agent.getCode() + "，状态=" + status.getCode());
+    }
+
+    private static void applyTypeSpecificDraft(AgentRole role, AgentDraftEntity draft, SaveAgentDraftRequest request) {
+        draft.setRetrievalPolicy(role == AgentRole.SPECIALIST
+                ? request.getRetrievalPolicy()
+                : RetrievalPolicy.defaults());
+        draft.setPlanPolicy(role == AgentRole.SUPERVISOR
+                ? request.getPlanPolicy()
+                : null);
+    }
+
+    private void saveKnowledgeBinding(AgentRole role, AgentDraftEntity draft, Long knowledgeBaseId) {
+        if (role != AgentRole.SPECIALIST) {
+            draftKnowledgeRepo.deleteByDraftId(draft.getId());
+            return;
+        }
+        if (Objects.isNull(knowledgeBaseId)) {
+            draftKnowledgeRepo.deleteByDraftId(draft.getId());
+            return;
+        }
+        KnowledgeBaseEntity knowledgeBase = knowledgeBaseRepo.findById(knowledgeBaseId)
+                .orElseThrow(() -> new BusinessException(
+                        HttpStatusEnum.BAD_REQUEST, "知识库不存在"));
+        if (Objects.isNull(knowledgeBase.getEmbeddingModelInstanceId())) {
+            throw new BusinessException(
+                    HttpStatusEnum.BAD_REQUEST, "知识库尚未配置Embedding模型");
+        }
+        AgentDraftKnowledgeEntity binding = draftKnowledgeRepo.findByDraftId(draft.getId())
+                .orElseGet(AgentDraftKnowledgeEntity::new);
+        binding.setAgentDraftId(draft.getId());
+        binding.setKnowledgeBaseId(knowledgeBaseId);
+        binding.setEmbeddingModelInstanceId(knowledgeBase.getEmbeddingModelInstanceId());
+        binding.setBindingMode(KnowledgeBindingMode.LATEST);
+        binding.setPriority(0);
+        draftKnowledgeRepo.save(binding);
+    }
+
+    private KnowledgeIndexVersionEntity publishKnowledgeIndex(AgentEntity agent, AgentDraftKnowledgeEntity knowledge, Long operatorId) {
+        if (agent.getRole() != AgentRole.SPECIALIST || Objects.isNull(knowledge)) {
+            return null;
+        }
+        return knowledgeIndexVersionService.publishCurrent(
+                knowledge.getKnowledgeBaseId(), knowledge.getEmbeddingModelInstanceId(), operatorId);
+    }
+
+    private static AgentDefinition buildDefinition(AgentEntity agent, AgentDraftEntity draft, AgentDraftKnowledgeEntity knowledge, KnowledgeIndexVersionEntity knowledgeIndex, List<AgentSkillBindingSnapshot> skills) {
+        AgentDefinition.AgentDefinitionBuilder builder = AgentDefinition.builder()
+                .schemaVersion(draft.getSchemaVersion())
+                .role(agent.getRole())
+                .chatModelInstanceId(draft.getChatModelInstanceId())
+                .systemPromptVersionId(draft.getSystemPromptVersionId())
+                .userPromptVersionId(draft.getUserPromptVersionId())
+                .toolCodes(List.copyOf(draft.getToolCodes()))
+                .toolPolicy(draft.getToolPolicy())
+                .skills(List.copyOf(skills))
+                .generationPolicy(draft.getGenerationPolicy())
+                .planPolicy(draft.getPlanPolicy());
+        if (agent.getRole() != AgentRole.SPECIALIST) {
+            return builder.build();
+        }
+        return builder
+                .knowledgeSearch(toKnowledgeSearch(knowledge, knowledgeIndex, draft.getRetrievalPolicy()))
+                .build();
+    }
+
+    private void insertVersionSkills(Long versionId, List<AgentSkillBindingSnapshot> bindings) {
+        List<AgentVersionSkillEntity> relations = bindings.stream().map(binding -> {
+            AgentVersionSkillEntity relation = new AgentVersionSkillEntity();
+            relation.setAgentVersionId(versionId);
+            relation.setSkillId(binding.getSkillId());
+            relation.setSkillVersionId(binding.getSkillVersionId());
+            relation.setSkillCode(binding.getSkill().getCode());
+            relation.setSkillChecksum(binding.getChecksum());
+            relation.setEffectiveToolCodes(binding.getEffectiveToolCodes());
+            relation.setDeniedToolCodes(binding.getDeniedToolCodes());
+            return relation;
+        }).toList();
+        versionSkillRepo.insertAll(relations);
+    }
+
+    private static KnowledgeSearchCapabilitySnapshot toKnowledgeSearch(AgentDraftKnowledgeEntity knowledge, KnowledgeIndexVersionEntity index, RetrievalPolicy retrieval) {
+        if (Objects.isNull(knowledge)) {
+            return null;
+        }
+        if (Objects.isNull(index) || Objects.isNull(retrieval)) {
+            throw new BusinessException(HttpStatusEnum.CONFLICT, "领域专家知识搜索快照构建失败");
+        }
+        return KnowledgeSearchCapabilitySnapshot.builder()
+                .knowledgeBaseId(knowledge.getKnowledgeBaseId())
+                .knowledgeIndexVersionId(index.getId())
+                .embeddingModelInstanceId(knowledge.getEmbeddingModelInstanceId())
+                .topK(retrieval.getTopK())
+                .rerank(retrieval.getRerank())
+                .similarityThreshold(retrieval.getSimilarityThreshold())
+                .maxResultTokens(retrieval.getMaxContextTokens())
+                .maxQueryCharacters(KNOWLEDGE_SEARCH_MAX_QUERY_CHARACTERS)
+                .timeoutSeconds(KNOWLEDGE_SEARCH_TIMEOUT_SECONDS)
+                .build();
+    }
+
+    private void insertVersionKnowledge(Long versionId, AgentDraftKnowledgeEntity knowledge, KnowledgeIndexVersionEntity knowledgeIndex) {
+        if (Objects.isNull(knowledge)) {
+            return;
+        }
+        AgentVersionKnowledgeEntity versionKnowledge = new AgentVersionKnowledgeEntity();
+        versionKnowledge.setAgentVersionId(versionId);
+        versionKnowledge.setKnowledgeBaseId(knowledge.getKnowledgeBaseId());
+        versionKnowledge.setEmbeddingModelInstanceId(knowledge.getEmbeddingModelInstanceId());
+        versionKnowledge.setKnowledgeIndexVersionId(Objects.isNull(knowledgeIndex) ? null : knowledgeIndex.getId());
+        versionKnowledge.setBindingMode(knowledge.getBindingMode());
+        versionKnowledge.setPriority(knowledge.getPriority());
+        versionKnowledgeRepo.insert(versionKnowledge);
+    }
+
+    private AgentEntity requireAgent(Long id) {
+        return agentRepo.findById(id)
+                .orElseThrow(() -> new BusinessException(
+                        HttpStatusEnum.NOT_FOUND, "Agent不存在"));
+    }
+
+    private AgentDraftEntity requireDraft(Long agentId) {
+        return draftRepo.findByAgentId(agentId)
+                .orElseThrow(() -> new BusinessException(
+                        HttpStatusEnum.CONFLICT, "Agent草稿不存在"));
+    }
+
+    private AgentVersionEntity requireVersion(Long agentId, Long versionId) {
+        return versionRepo.findByAgentIdAndId(agentId, versionId)
+                .orElseThrow(() -> new BusinessException(
+                        HttpStatusEnum.NOT_FOUND, "Agent发布版本不存在"));
+    }
+
+    private static String versionName(String requestedName, int versionNo) {
+        return CharSequenceUtil.isBlank(requestedName)
+                ? "V" + versionNo
+                : requestedName.trim();
+    }
+
+    private static String trimToNull(String value) {
+        return CharSequenceUtil.isBlank(value) ? null : value.trim();
+    }
+
+    /** 领域专家必须归属领域；全局主Agent可不绑定，绑定时只能选择一级领域。 */
+    private Long resolveDomain(AgentRole role, Long domainId) {
+        if (role == AgentRole.SPECIALIST) {
+            if (Objects.isNull(domainId)) {
+                throw new BusinessException(HttpStatusEnum.BAD_REQUEST, "领域专家必须选择所属领域");
+            }
+            return domainService.requireActive(domainId).getId();
+        }
+        if (Objects.isNull(domainId)) {
+            return null;
+        }
+        DomainEntity domain = domainService.requireRoot(domainId);
+        return domain.getId();
+    }
+}

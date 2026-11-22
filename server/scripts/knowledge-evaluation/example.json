@@ -1,0 +1,36 @@
+{
+  "datasetVersion": "replace-with-your-dataset-v1",
+  "samples": [
+    {
+      "id": "relevant-chunk",
+      "request": {
+        "query": "示例：如何申请测试环境权限？",
+        "userId": "12",
+        "knowledgeBaseId": "1",
+        "indexVersionId": "81",
+        "embeddingModelInstanceId": "7",
+        "topK": 3,
+        "similarityThreshold": 0.6,
+        "timeoutSeconds": 20,
+        "rerank": { "modelInstanceId": "9", "candidateTopK": 15, "minScore": 0.5 }
+      },
+      "expectedChunkIds": ["20"],
+      "expectDenied": false
+    },
+    {
+      "id": "denied-user",
+      "request": {
+        "query": "示例：受限知识",
+        "userId": "99",
+        "knowledgeBaseId": "1",
+        "indexVersionId": "81",
+        "embeddingModelInstanceId": "7",
+        "topK": 3,
+        "similarityThreshold": 0.6,
+        "timeoutSeconds": 20
+      },
+      "expectedChunkIds": [],
+      "expectDenied": true
+    }
+  ]
+}

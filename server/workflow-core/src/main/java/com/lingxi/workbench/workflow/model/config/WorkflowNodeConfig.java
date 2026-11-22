@@ -1,0 +1,36 @@
+package com.lingxi.workbench.workflow.model.config;
+
+import com.lingxi.workbench.framework.json.annotation.JSONType;
+import com.lingxi.workbench.framework.json.annotation.JSONField;
+
+/**
+ * 工作流节点配置标记接口。
+ *
+ * <p>该接口属于灵析自身的配置协议，不暴露具体执行框架类型。</p>
+ */
+@JSONType(
+        typeKey = "configType",
+        seeAlso = {
+                StartNodeConfig.class,
+                IntentClassifierNodeConfig.class,
+                AgentNodeConfig.class,
+                ConditionNodeConfig.class,
+                EndNodeConfig.class
+        })
+public sealed interface WorkflowNodeConfig
+        permits StartNodeConfig, IntentClassifierNodeConfig, AgentNodeConfig, ConditionNodeConfig, EndNodeConfig {
+
+    /**
+     * 显式写入配置类型，确保 JSONB 不依赖 Gson 的全局 WriteClassName。
+     */
+    @JSONField(name = "configType")
+    default String getConfigType() {
+        return switch (this) {
+            case StartNodeConfig ignored -> "START";
+            case IntentClassifierNodeConfig ignored -> "INTENT_CLASSIFIER";
+            case AgentNodeConfig ignored -> "AGENT";
+            case ConditionNodeConfig ignored -> "CONDITION";
+            case EndNodeConfig ignored -> "END";
+        };
+    }
+}

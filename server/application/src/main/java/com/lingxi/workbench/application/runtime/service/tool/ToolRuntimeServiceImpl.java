@@ -1,0 +1,186 @@
+package com.lingxi.workbench.application.runtime.service.tool;
+
+import com.lingxi.workbench.application.runtime.common.enums.RuntimeToolSourceType;
+import com.lingxi.workbench.application.runtime.model.entity.RuntimeMcpServerEntity;
+import com.lingxi.workbench.application.runtime.model.entity.RuntimeToolEntity;
+import com.lingxi.workbench.application.runtime.repo.McpServerRuntimeRepo;
+import com.lingxi.workbench.application.runtime.repo.ToolRuntimeRepo;
+import com.lingxi.workbench.application.runtime.service.tool.ToolRuntimeService;
+import com.lingxi.workbench.application.runtime.tool.McpRuntimeToolExecutor;
+import com.lingxi.workbench.application.runtime.tool.McpToolReconciliation;
+import com.lingxi.workbench.framework.security.SecretCipher;
+import com.lingxi.workbench.infra.ai.mcp.AgentScopeMcpClientFactory;
+import com.lingxi.workbench.infra.ai.tool.AgentTool;
+import com.lingxi.workbench.infra.ai.tool.AgentToolException;
+import com.lingxi.workbench.infra.ai.tool.AgentToolRegistry;
+import com.lingxi.workbench.infra.ai.tool.AgentToolReconciliation;
+import com.lingxi.workbench.infra.ai.tool.common.enums.AgentToolExecutionMode;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolDefinition;
+import com.lingxi.workbench.infra.ai.tool.model.AgentToolRequest;
+import com.lingxi.workbench.infra.ai.tool.model.ToolSecurityPolicy;
+import cn.hutool.crypto.digest.DigestUtil;
+import com.lingxi.workbench.framework.json.JSON;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+/**
+ * Tool 运行时装配服务。
+ *
+ * <p>数据库定义是模型可见契约的事实来源，Java AgentTool 是执行逻辑的事实来源。
+ * 两者仅通过稳定 toolCode 对接，发布 Schema 与执行器直接交给 AgentScope Toolkit。</p>
+ */
+@Service
+@RequiredArgsConstructor
+public class ToolRuntimeServiceImpl implements ToolRuntimeService {
+
+    private final ToolRuntimeRepo toolRuntimeRepo;
+    private final McpServerRuntimeRepo mcpServerRuntimeRepo;
+    private final AgentToolRegistry agentToolRegistry;
+    private final AgentScopeMcpClientFactory agentScopeMcpClientFactory;
+    private final SecretCipher secretCipher;
+
+    /** 读取启用定义并按 Agent 配置顺序装配执行器。 */
+    @Override
+    @Transactional(readOnly = true)
+    public List<AgentTool> resolveActiveTools(List<String> toolCodes) {
+        Map<String, RuntimeToolEntity> definitions = toolRuntimeRepo.findActiveByCodes(toolCodes).stream()
+                .collect(Collectors.toMap(RuntimeToolEntity::getCode, Function.identity()));
+        Map<Long, RuntimeMcpServerEntity> mcpServers = loadMcpServers(definitions.values().stream().toList());
+        return toolCodes.stream()
+                .map(code -> requireDefinition(definitions, code))
+                .map(definition -> managedTool(definition, resolveExecutor(definition, mcpServers)))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AgentTool resolveActiveTool(Long toolId) {
+        RuntimeToolEntity definition = toolRuntimeRepo.findActiveById(toolId)
+                .orElseThrow(() -> new AgentToolException("Application锁定的Tool不存在或已停用"));
+        Map<Long, RuntimeMcpServerEntity> mcpServers = loadMcpServers(List.of(definition));
+        return managedTool(definition, resolveExecutor(definition, mcpServers));
+    }
+
+    private Map<Long, RuntimeMcpServerEntity> loadMcpServers(List<RuntimeToolEntity> definitions) {
+        List<Long> serverIds = definitions.stream()
+                .filter(definition -> definition.getSourceType() == RuntimeToolSourceType.MCP)
+                .map(RuntimeToolEntity::getMcpServerId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        return mcpServerRuntimeRepo.findRuntimeAvailableByIds(serverIds).stream()
+                .collect(Collectors.toMap(RuntimeMcpServerEntity::getId, Function.identity()));
+    }
+
+    private AgentTool resolveExecutor(RuntimeToolEntity definition, Map<Long, RuntimeMcpServerEntity> mcpServers) {
+        if (Objects.isNull(definition.getSourceType())) {
+            throw new AgentToolException("Tool来源类型为空：" + definition.getCode());
+        }
+        return switch (definition.getSourceType()) {
+            case LOCAL_FUNCTION -> requireLocalExecutor(definition.getCode());
+            case MCP -> mcpExecutor(definition, requireMcpServer(mcpServers, definition));
+        };
+    }
+
+    private AgentTool requireLocalExecutor(String code) {
+        return agentToolRegistry.find(code).orElseThrow(() -> new AgentToolException("应用运行端未部署Tool执行器：" + code));
+    }
+
+    private AgentTool mcpExecutor(RuntimeToolEntity definition, RuntimeMcpServerEntity server) {
+        if (Objects.isNull(definition.getRemoteToolName()) || definition.getRemoteToolName().isBlank()) {
+            throw new AgentToolException("MCP Tool缺少远端工具名称：" + definition.getCode());
+        }
+        McpRuntimeToolExecutor executor = new McpRuntimeToolExecutor(
+                definition, server, agentScopeMcpClientFactory, secretCipher);
+        AgentToolReconciliation reconciliation = definition.getReconciliationQueryToolName() == null
+                ? null : new McpToolReconciliation(definition, executor);
+        return new ManagedAgentTool(runtimeDefinition(definition),
+                new java.util.LinkedHashMap<>(definition.getParameterSchema()), executor, reconciliation);
+    }
+
+    private static RuntimeMcpServerEntity requireMcpServer(Map<Long, RuntimeMcpServerEntity> mcpServers, RuntimeToolEntity definition) {
+        RuntimeMcpServerEntity server = mcpServers.get(definition.getMcpServerId());
+        if (Objects.isNull(server)) {
+            throw new AgentToolException("MCP Server不存在、未启用或最近连接测试未成功：tool=" + definition.getCode());
+        }
+        return server;
+    }
+
+    private static RuntimeToolEntity requireDefinition(Map<String, RuntimeToolEntity> definitions, String code) {
+        RuntimeToolEntity definition = definitions.get(code);
+        if (Objects.isNull(definition)) {
+            throw new AgentToolException("Tool不存在、已停用或来源类型不受支持：" + code);
+        }
+        return definition;
+    }
+
+    private static AgentTool managedTool(RuntimeToolEntity definition, AgentTool executor) {
+        AgentToolDefinition runtimeDefinition = runtimeDefinition(definition, executor.definition());
+        return new ManagedAgentTool(runtimeDefinition,
+                new java.util.LinkedHashMap<>(definition.getParameterSchema()), executor,
+                executor.reconciliation().orElse(null));
+    }
+
+    private static AgentToolDefinition runtimeDefinition(RuntimeToolEntity definition) {
+        return runtimeDefinition(definition, null);
+    }
+
+    /** 本地执行器保留其只读与副作用语义，MCP Tool 未声明时按副作用工具处理。 */
+    private static AgentToolDefinition runtimeDefinition(RuntimeToolEntity definition, AgentToolDefinition executorDefinition) {
+        AgentToolExecutionMode executionMode = AgentToolExecutionMode.SIDE_EFFECT;
+        if (Objects.nonNull(executorDefinition)) {
+            executionMode = executorDefinition.getExecutionMode();
+        }
+        return AgentToolDefinition.builder()
+                .code(definition.getCode())
+                .displayName(definition.getName())
+                .description(definition.getDescription())
+                .executionMode(executionMode)
+                .securityPolicy(ToolSecurityPolicy.builder()
+                        .riskLevel(definition.getRiskLevel())
+                        .approvalRequired(Boolean.TRUE.equals(definition.getApprovalRequired()))
+                        .approvalTtlSeconds(Objects.requireNonNullElse(definition.getApprovalTtlSeconds(), 1800))
+                        .resourceScope(definition.getResourceScope())
+                        .build())
+                .configurationHash(configurationHash(definition))
+                .build();
+    }
+
+    private static String configurationHash(RuntimeToolEntity definition) {
+        String contract = definition.getCode() + "|" + definition.getDescription() + "|"
+                + JSON.toJSONString(definition.getParameterSchema()) + "|" + definition.getRiskLevel() + "|"
+                + definition.getApprovalRequired() + "|" + definition.getApprovalTtlSeconds() + "|"
+                + definition.getResourceScope() + "|" + definition.getReconciliationQueryToolName();
+        return DigestUtil.sha256Hex(contract);
+    }
+
+    /**
+     * 将控制面模型契约和运行端执行回调组合为不可变工具。
+     *
+     * @param definition 模型可见的工具契约定义
+     * @param inputSchema 发布版本锁定的参数 Schema
+     * @param executor    实际执行器
+     */
+    private record ManagedAgentTool(AgentToolDefinition definition, Map<String, Object> inputSchema,
+                                    AgentTool executor,
+                                    AgentToolReconciliation reconciliationHandler) implements AgentTool {
+
+        @Override
+        public String execute(AgentToolRequest request) {
+            return executor.execute(request);
+        }
+
+        @Override
+        public Optional<AgentToolReconciliation> reconciliation() {
+            return Optional.ofNullable(reconciliationHandler);
+        }
+    }
+}

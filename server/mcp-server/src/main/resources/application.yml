@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: lingxi-mcp-server
+  ai:
+    mcp:
+      server:
+        enabled: true
+        protocol: STREAMABLE
+        type: SYNC
+        name: lingxi-local-mcp-server
+        version: 1.0.0
+        instructions: 灵析本地 MCP 服务，提供经过服务端校验的只读工具能力。
+        tool-callback-converter: true
+        annotation-scanner:
+          # 当前统一复用 AgentTool 的 ToolCallback，不再扫描第二套注解工具。
+          enabled: false
+        capabilities:
+          tool: true
+          resource: false
+          prompt: false
+          completion: false
+
+server:
+  # 本地服务默认只监听回环地址，显式修改环境变量后才能暴露到其他主机。
+  address: ${LINGXI_MCP_SERVER_HOST:127.0.0.1}
+  port: ${LINGXI_MCP_SERVER_PORT:8091}
